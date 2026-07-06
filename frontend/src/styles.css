@@ -1,0 +1,468 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #080b0c;
+  color: #e8eee9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(18, 118, 88, 0.22), transparent 28%),
+    radial-gradient(circle at 86% 8%, rgba(125, 92, 32, 0.18), transparent 24%),
+    linear-gradient(135deg, #080b0c 0%, #101615 48%, #090b0c 100%);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.rail {
+  position: relative;
+  padding: 28px 22px;
+  border-right: 1px solid rgba(151, 174, 158, 0.16);
+  background:
+    linear-gradient(180deg, rgba(21, 33, 30, 0.92), rgba(9, 12, 13, 0.96)),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.025) 0,
+      rgba(255, 255, 255, 0.025) 1px,
+      transparent 1px,
+      transparent 10px
+    );
+}
+
+.rail::after {
+  position: absolute;
+  right: -1px;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  content: "";
+  background: linear-gradient(180deg, transparent, #37d19d, transparent);
+  opacity: 0.62;
+}
+
+.brand {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 34px;
+}
+
+.brand__mark {
+  width: 44px;
+  height: 44px;
+  border: 1px solid rgba(72, 227, 171, 0.72);
+  background:
+    linear-gradient(135deg, transparent 38%, rgba(72, 227, 171, 0.9) 39% 45%, transparent 46%),
+    #0e1715;
+  box-shadow: 0 0 28px rgba(72, 227, 171, 0.22);
+  transform: rotate(45deg);
+}
+
+.brand h1,
+.topbar h2,
+.trace-panel h3 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.brand h1 {
+  font-size: 1.35rem;
+}
+
+.brand p,
+.topbar p {
+  margin: 4px 0 0;
+  color: #8ea198;
+  font-size: 0.82rem;
+}
+
+.control-panel,
+.system-card,
+.chat-panel,
+.trace-panel {
+  border: 1px solid rgba(151, 174, 158, 0.15);
+  background: rgba(10, 15, 15, 0.74);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
+}
+
+.control-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: #8ea198;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid rgba(151, 174, 158, 0.18);
+  border-radius: 2px;
+  outline: none;
+  background: #0c1112;
+  color: #ecf6ef;
+}
+
+input {
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+textarea {
+  min-height: 86px;
+  padding: 13px 14px;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus {
+  border-color: rgba(72, 227, 171, 0.72);
+  box-shadow: 0 0 0 3px rgba(72, 227, 171, 0.08);
+}
+
+.system-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 16px;
+}
+
+.system-card__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: #a9b8b0;
+  font-size: 0.9rem;
+}
+
+.system-card__row strong {
+  color: #f0f5ec;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-width: 78px;
+  justify-content: center;
+  border: 1px solid rgba(151, 174, 158, 0.18);
+  padding: 3px 9px;
+  color: #b6c5bd;
+  font-size: 0.75rem;
+}
+
+.status-pill--online {
+  border-color: rgba(72, 227, 171, 0.58);
+  color: #50e7af;
+}
+
+.status-pill--offline {
+  border-color: rgba(255, 92, 79, 0.62);
+  color: #ff7f70;
+}
+
+.workspace {
+  min-width: 0;
+  padding: 28px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 22px;
+}
+
+.eyebrow {
+  display: block;
+  margin-bottom: 6px;
+  color: #e7b75e;
+  font-size: 0.72rem;
+  letter-spacing: 0;
+}
+
+.topbar h2 {
+  font-size: clamp(1.7rem, 3vw, 3rem);
+}
+
+.ghost-button,
+.composer button {
+  border: 1px solid rgba(72, 227, 171, 0.42);
+  background: linear-gradient(180deg, rgba(31, 77, 64, 0.92), rgba(15, 36, 32, 0.92));
+  color: #e9fff5;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 2px;
+  box-shadow: 0 0 30px rgba(72, 227, 171, 0.1);
+}
+
+.ghost-button {
+  background: transparent;
+  color: #b9c7bf;
+}
+
+.ghost-button:hover,
+.composer button:hover {
+  border-color: rgba(72, 227, 171, 0.82);
+}
+
+.composer button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.console-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 0.75fr);
+  gap: 18px;
+  min-height: calc(100vh - 132px);
+}
+
+.chat-panel,
+.trace-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-panel {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.message-list {
+  min-height: 420px;
+  max-height: calc(100vh - 250px);
+  overflow: auto;
+  padding: 18px;
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+.message {
+  position: relative;
+  width: min(760px, 88%);
+  margin-bottom: 14px;
+  border: 1px solid rgba(151, 174, 158, 0.15);
+  padding: 14px 15px;
+  background: rgba(11, 17, 18, 0.86);
+}
+
+.message::before {
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  width: 36px;
+  height: 2px;
+  content: "";
+  background: #48e3ab;
+}
+
+.message--agent {
+  margin-left: auto;
+  border-color: rgba(231, 183, 94, 0.24);
+}
+
+.message--agent::before {
+  background: #e7b75e;
+}
+
+.message__role,
+.message__meta {
+  color: #82958b;
+  font-size: 0.72rem;
+}
+
+.message p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  line-height: 1.68;
+}
+
+.stream-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1.08em;
+  margin-left: 4px;
+  vertical-align: -0.18em;
+  background: #e7b75e;
+  animation: stream-pulse 0.9s steps(2, start) infinite;
+}
+
+.message__evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.message__evidence span {
+  border: 1px solid rgba(231, 183, 94, 0.32);
+  padding: 2px 7px;
+  color: #edc878;
+  font-size: 0.76rem;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 12px;
+  padding: 14px;
+  border-top: 1px solid rgba(151, 174, 158, 0.12);
+  background: rgba(8, 11, 12, 0.84);
+}
+
+.trace-panel {
+  display: grid;
+  grid-template-rows: auto minmax(220px, 0.55fr) minmax(220px, 0.45fr);
+}
+
+.trace-panel__header {
+  padding: 16px;
+  border-bottom: 1px solid rgba(151, 174, 158, 0.12);
+}
+
+.trace-panel h3 {
+  overflow-wrap: anywhere;
+  font-size: 1rem;
+}
+
+.trace-timeline {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  overflow: auto;
+  padding: 16px;
+}
+
+.trace-event {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid rgba(151, 174, 158, 0.16);
+  padding: 10px 11px;
+  background: rgba(8, 13, 14, 0.9);
+  color: #dce7df;
+  text-align: left;
+}
+
+.trace-event span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-event strong {
+  color: #50e7af;
+  font-size: 0.78rem;
+}
+
+.trace-event--warn strong {
+  color: #ff7f70;
+}
+
+.trace-event em {
+  color: #8fa59a;
+  font-size: 0.76rem;
+  font-style: normal;
+}
+
+.artifact-preview {
+  margin: 0;
+  overflow: auto;
+  border-top: 1px solid rgba(151, 174, 158, 0.12);
+  padding: 16px;
+  background: rgba(4, 7, 8, 0.76);
+  color: #b8c9bf;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.empty-state,
+.error-banner {
+  border: 1px solid rgba(151, 174, 158, 0.14);
+  padding: 14px;
+  color: #8fa59a;
+  background: rgba(8, 13, 14, 0.72);
+}
+
+.error-banner {
+  border-color: rgba(255, 92, 79, 0.36);
+  color: #ff9a8e;
+}
+
+@keyframes stream-pulse {
+  50% {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 1040px) {
+  .shell,
+  .console-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    border-right: none;
+    border-bottom: 1px solid rgba(151, 174, 158, 0.16);
+  }
+
+  .rail::after {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace,
+  .rail {
+    padding: 18px;
+  }
+
+  .topbar,
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    display: grid;
+  }
+
+  .message {
+    width: 100%;
+  }
+}

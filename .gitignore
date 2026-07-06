@@ -1,0 +1,14 @@
+.superpowers/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+build/
+data/
+*.db
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+node_modules/
+dist/
+*.tsbuildinfo

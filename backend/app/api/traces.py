@@ -1,0 +1,46 @@
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+
+from app.harness.tracing import TraceArtifact, TraceEvent, get_trace_store
+
+router = APIRouter(prefix="/api/traces", tags=["traces"])
+
+
+@router.get("/{trace_id}")
+def get_trace(trace_id: str) -> dict[str, Any]:
+    store = get_trace_store()
+    events = store.list_events(trace_id)
+    if not events:
+        raise HTTPException(status_code=404, detail={"code": "trace_not_found"})
+    artifacts = store.list_artifacts(trace_id)
+    return {
+        "trace_id": trace_id,
+        "events": [_event_to_dict(event) for event in events],
+        "artifacts": {
+            artifact_ref: _artifact_to_dict(artifact)
+            for artifact_ref, artifact in artifacts.items()
+        },
+    }
+
+
+def _event_to_dict(event: TraceEvent) -> dict[str, Any]:
+    return {
+        "trace_id": event.trace_id,
+        "node_name": event.node_name,
+        "status": event.status,
+        "latency_ms": event.latency_ms,
+        "input_ref": event.input_ref,
+        "output_ref": event.output_ref,
+        "error": event.error,
+        "metadata": event.metadata,
+    }
+
+
+def _artifact_to_dict(artifact: TraceArtifact) -> dict[str, Any]:
+    return {
+        "trace_id": artifact.trace_id,
+        "node_name": artifact.node_name,
+        "artifact_type": artifact.artifact_type,
+        "payload": artifact.payload,
+    }
