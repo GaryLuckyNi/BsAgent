@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from copy import deepcopy
 from time import perf_counter
 
 from app.graph.state import AgentState
@@ -8,6 +9,7 @@ from app.harness.tracing import (
     TraceEvent,
     get_trace_store,
     measure_latency_ms,
+    summarize_node_transition,
     summarize_state,
 )
 
@@ -26,6 +28,7 @@ class NodeRunner:
         state: AgentState,
     ) -> AgentState:
         start = perf_counter()
+        input_state_snapshot = deepcopy(state)
         input_summary = summarize_state(state)
         input_ref = self.trace_store.save_artifact(
             TraceArtifact(
@@ -54,6 +57,11 @@ class NodeRunner:
                     latency_ms=measure_latency_ms(start),
                     input_ref=input_ref,
                     output_ref=output_ref,
+                    metadata=summarize_node_transition(
+                        node_name=node_name,
+                        input_state=input_state_snapshot,
+                        output_state=result,
+                    ),
                 )
             )
             return result
@@ -84,6 +92,12 @@ class NodeRunner:
                     input_ref=input_ref,
                     output_ref=output_ref,
                     error=str(exc),
+                    metadata=summarize_node_transition(
+                        node_name=node_name,
+                        input_state=input_state_snapshot,
+                        output_state=state,
+                        error=str(exc),
+                    ),
                 )
             )
             return state

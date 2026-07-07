@@ -211,6 +211,12 @@ def test_planner_agent_builds_dynamic_tool_plan_from_candidate_tool():
     assert result["plan"]["execution_mode"] == "tool_execution"
     assert result["plan"]["retrieval"]["required"] is False
     assert result["plan"]["tool_policy"]["allowed_tools"] == ["mcp.mock.calculate_sum"]
+    assert result["plan"]["tool_selection"]["source"] == "intent_router_candidate_tool"
+    assert result["plan"]["tool_selection"]["selected_tool"] == "mcp.mock.calculate_sum"
+    assert (
+        result["plan"]["tool_selection"]["decision"]
+        == "candidate_tool_registered_and_arguments_planned"
+    )
     assert len(result["plan"]["requested_tools"]) == 1
     request = result["plan"]["requested_tools"][0]
     assert request.tool_name == "mcp.mock.calculate_sum"

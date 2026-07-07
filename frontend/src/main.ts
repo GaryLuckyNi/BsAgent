@@ -427,11 +427,15 @@ function renderTrace() {
   timeline.innerHTML = state.trace.events
     .map((event) => {
       const status = event.status === 'success' ? 'ok' : 'warn'
+      const summary = typeof event.metadata?.summary === 'string' ? event.metadata.summary : ''
       return `
         <button class="trace-event trace-event--${status}" type="button" data-ref="${
           event.output_ref ?? ''
         }">
-          <span>${escapeHtml(event.node_name)}</span>
+          <span>
+            <b>${escapeHtml(event.node_name)}</b>
+            ${summary ? `<small>${escapeHtml(summary)}</small>` : ''}
+          </span>
           <strong>${escapeHtml(event.status)}</strong>
           <em>${event.latency_ms} ms</em>
         </button>

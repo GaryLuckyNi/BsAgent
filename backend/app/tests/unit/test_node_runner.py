@@ -1,6 +1,7 @@
 from app.graph.state import create_initial_state
 from app.harness.node_runner import NodeRunner
 from app.harness.tracing import InMemoryTraceStore
+from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
 
 
 def test_node_runner_records_success_event():
@@ -29,6 +30,8 @@ def test_node_runner_records_success_event():
     assert result["intent"]["intent"] == "knowledge_qa"
     assert trace_store.events[0].node_name == "intent_router"
     assert trace_store.events[0].status == "success"
+    assert trace_store.events[0].metadata["summary"].startswith("识别为 knowledge_qa")
+    assert trace_store.events[0].metadata["intent_decision"]["candidate_skill"] == "policy_qa"
 
 
 def test_node_runner_records_sanitized_input_and_output_artifacts():
@@ -66,6 +69,64 @@ def test_node_runner_records_sanitized_input_and_output_artifacts():
     assert input_artifact.payload["plan"]["api_key"] == "[REDACTED]"
     assert output_artifact.payload["intent"]["intent"] == "knowledge_qa"
     assert trace_store.list_events(result["trace_id"])[0].node_name == "intent_router"
+
+
+def test_node_runner_records_tool_agent_execution_metadata_for_new_records_only():
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="1+2+3=?",
+    )
+    state["tool_calls"].append(
+        ToolCallRecord(
+            request=ToolCallRequest(
+                tool_name="mcp.mock.previous",
+                tool_version="mcp-stdio-v1",
+                arguments={},
+                purpose="前置调用",
+            ),
+            result=ToolCallResult(
+                tool_call_id="tool_previous",
+                tool_name="mcp.mock.previous",
+                status="success",
+                result={"ok": True},
+                latency_ms=1,
+                trace_id=state["trace_id"],
+            ),
+        )
+    )
+    trace_store = InMemoryTraceStore()
+    runner = NodeRunner(trace_store=trace_store)
+
+    def node(input_state):
+        input_state["tool_calls"].append(
+            ToolCallRecord(
+                request=ToolCallRequest(
+                    tool_name="mcp.mock.calculate_sum",
+                    tool_version="mcp-stdio-v1",
+                    arguments={"numbers": [1, 2, 3]},
+                    purpose="计算用户给出的数字总和",
+                ),
+                result=ToolCallResult(
+                    tool_call_id="tool_sum",
+                    tool_name="mcp.mock.calculate_sum",
+                    status="success",
+                    result={"total": 6},
+                    latency_ms=12,
+                    trace_id=input_state["trace_id"],
+                ),
+            )
+        )
+        return input_state
+
+    runner.run("tool_agent", node, state)
+
+    metadata = trace_store.events[0].metadata
+    assert metadata["summary"] == "完成 2 次工具调用"
+    assert metadata["tool_execution"]["executed_count"] == 1
+    assert metadata["tool_execution"]["records"][0]["tool_name"] == "mcp.mock.calculate_sum"
+    assert metadata["tool_execution"]["records"][0]["result_summary"]["total"] == 6
 
 
 def test_node_runner_records_error_and_updates_state():

@@ -83,6 +83,13 @@ def _knowledge_qa_plan(intent: dict) -> dict:
             "uncertainty": "explicit",
         },
         "risk_controls": _risk_controls(intent),
+        "tool_selection": {
+            "source": "intent_router",
+            "candidate_tool": None,
+            "selected_tool": None,
+            "reason_codes": intent.get("reason_codes", []),
+            "decision": "knowledge_qa_uses_retriever_managed_rag_search",
+        },
     }
 
 
@@ -105,6 +112,13 @@ def _tool_action_plan(
                     *intent.get("reason_codes", []),
                     "candidate_tool_missing_or_unregistered",
                 ],
+                "tool_selection": {
+                    "source": "intent_router",
+                    "candidate_tool": candidate_tool,
+                    "selected_tool": None,
+                    "available_tool_count": len(tool_specs),
+                    "decision": "candidate_tool_missing_or_unregistered",
+                },
             }
         )
 
@@ -137,6 +151,16 @@ def _tool_action_plan(
             "must_reference_user_message": True,
         },
         "risk_controls": _risk_controls(intent),
+        "tool_selection": {
+            "source": "intent_router_candidate_tool",
+            "candidate_tool": candidate_tool,
+            "selected_tool": tool_spec.name,
+            "selected_tool_version": tool_spec.version,
+            "selected_tool_description": tool_spec.description,
+            "available_tool_count": len(tool_specs),
+            "reason_codes": intent.get("reason_codes", []),
+            "decision": "candidate_tool_registered_and_arguments_planned",
+        },
         "requested_tools": [request],
     }
 
@@ -178,6 +202,13 @@ def _skill_workflow_plan(intent: dict) -> dict:
             "disclaimer_required": True,
         },
         "risk_controls": _risk_controls(intent),
+        "tool_selection": {
+            "source": "skill_runtime",
+            "candidate_tool": None,
+            "selected_tool": None,
+            "decision": "skill_agent_will_emit_allowed_tool_requests",
+            "reason_codes": intent.get("reason_codes", []),
+        },
     }
 
 
@@ -253,6 +284,16 @@ def _direct_response_plan(intent: dict) -> dict:
             "use_llm": True,
         },
         "risk_controls": _risk_controls(intent),
+        "tool_selection": intent.get(
+            "tool_selection",
+            {
+                "source": "none",
+                "candidate_tool": intent.get("candidate_tool"),
+                "selected_tool": None,
+                "decision": "no_tool_selected",
+                "reason_codes": intent.get("reason_codes", []),
+            },
+        ),
     }
 
 

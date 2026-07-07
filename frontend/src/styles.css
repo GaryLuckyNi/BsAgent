@@ -382,7 +382,22 @@ textarea:focus {
 .trace-event span {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: normal;
+}
+
+.trace-event b {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.trace-event small {
+  display: block;
+  margin-top: 3px;
+  color: #8fa59a;
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .trace-event strong {
