@@ -3,7 +3,7 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.schemas.tools import ToolSpec
-from app.tools.mcp_stdio import discover_mcp_stdio_tools
+from app.tools.mcp_gateway import McpGateway, McpServerConfig
 from app.tools.registry import ToolRegistry
 
 
@@ -13,12 +13,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 @lru_cache(maxsize=1)
 def get_default_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
-    tools = discover_mcp_stdio_tools(
-        command=settings.mcp_server_command,
-        args=settings.mcp_server_args,
-        cwd=_resolve_project_path(settings.mcp_server_cwd),
-        server_name=settings.mcp_server_name,
-        timeout_seconds=settings.mcp_timeout_seconds,
+    gateway = McpGateway()
+    tools = gateway.discover_tools(
+        McpServerConfig(
+            name=settings.mcp_server_name,
+            command=settings.mcp_server_command,
+            args=settings.mcp_server_args,
+            cwd=_resolve_project_path(settings.mcp_server_cwd),
+            timeout_seconds=settings.mcp_timeout_seconds,
+        )
     )
     for tool in tools:
         registry.register(tool)

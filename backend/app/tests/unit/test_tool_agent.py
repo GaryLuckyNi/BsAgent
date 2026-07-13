@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from app.schemas.tools import ToolCallRequest, ToolCallResult
 from app.tools.agent import ToolAgentExecutor
 from app.tools.base import Tool
+from app.tools.execution_gateway import ToolExecutionContext
 from app.tools.registry import ToolRegistry
 
 
@@ -32,6 +33,21 @@ def _executor() -> ToolAgentExecutor:
     registry = ToolRegistry()
     registry.register(EchoTool())
     return ToolAgentExecutor(registry=registry)
+
+
+def _context(
+    *,
+    allowed_tools: list[str] | None = None,
+    skill_allowed_tools: list[str] | None = None,
+) -> ToolExecutionContext:
+    return ToolExecutionContext(
+        tenant_id="tenant_1",
+        user_id="user_1",
+        session_id="session_1",
+        allowed_tools=allowed_tools or ["echo"],
+        skill_name="test_skill" if skill_allowed_tools is not None else None,
+        skill_allowed_tools=skill_allowed_tools,
+    )
 
 
 def test_tool_agent_executes_registered_tool_with_validated_arguments():
@@ -116,3 +132,89 @@ def test_tool_agent_denies_approval_required_call_before_execution():
 
     assert result.status == "denied"
     assert result.error.code == "tool_approval_required"
+
+
+def test_tool_agent_denies_tool_outside_plan_allowlist():
+    result = asyncio.run(
+        _executor().execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证 Plan 工具白名单",
+            ),
+            trace_id="trace_1",
+            context=_context(allowed_tools=["another_tool"]),
+        )
+    )
+
+    assert result.status == "denied"
+    assert result.error.code == "tool_not_allowed_by_plan"
+
+
+def test_tool_agent_denies_tool_outside_selected_skill_allowlist():
+    result = asyncio.run(
+        _executor().execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证 Skill 工具白名单",
+            ),
+            trace_id="trace_1",
+            context=_context(skill_allowed_tools=["another_tool"]),
+        )
+    )
+
+    assert result.status == "denied"
+    assert result.error.code == "tool_not_allowed_by_skill"
+
+
+def test_tool_agent_uses_registered_high_risk_level_as_server_side_approval_gate():
+    class HighRiskEchoTool(EchoTool):
+        risk_level = "high"
+
+    registry = ToolRegistry()
+    registry.register(HighRiskEchoTool())
+
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证服务端风险策略",
+                approval_required=False,
+            ),
+            trace_id="trace_1",
+            context=_context(),
+        )
+    )
+
+    assert result.status == "denied"
+    assert result.error.code == "tool_approval_required"
+
+
+def test_tool_agent_rejects_success_result_that_violates_output_schema():
+    class InvalidOutputEchoTool(EchoTool):
+        output_schema = {
+            "type": "object",
+            "properties": {"text": {"type": "integer"}},
+            "required": ["text"],
+        }
+
+    registry = ToolRegistry()
+    registry.register(InvalidOutputEchoTool())
+
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证工具输出 schema",
+            ),
+            trace_id="trace_1",
+            context=_context(),
+        )
+    )
+
+    assert result.status == "failed"
+    assert result.error.code == "tool_output_validation_failed"
+    assert result.result is None

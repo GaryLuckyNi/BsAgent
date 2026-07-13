@@ -33,6 +33,7 @@ class SkillSelection(TypedDict, total=False):
     skill_version: str
     status: str
     reason_codes: list[str]
+    allowed_tools: list[str]
 
 
 class PlanDecision(TypedDict, total=False):

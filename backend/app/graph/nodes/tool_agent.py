@@ -3,8 +3,8 @@ from collections.abc import Callable
 
 from app.graph.state import AgentState
 from app.schemas.tools import ToolCallRecord, ToolCallRequest
-from app.tools.agent import ToolAgentExecutor
 from app.tools.default_registry import get_default_tool_registry
+from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
 from app.tools.registry import ToolRegistry
 
 
@@ -21,17 +21,20 @@ def build_tool_agent_node(
             return state
 
         async def run_tools() -> list[ToolCallRecord]:
+            context = _execution_context(state)
             if registry_factory is None:
                 return await _execute_requests(
                     requests=requests,
                     registry=get_default_tool_registry(),
                     trace_id=state["trace_id"],
+                    context=context,
                 )
             registry = registry_factory()
             return await _execute_requests(
                 requests=requests,
                 registry=registry,
                 trace_id=state["trace_id"],
+                context=context,
             )
 
         state["tool_calls"].extend(asyncio.run(run_tools()))
@@ -45,13 +48,18 @@ async def _execute_requests(
     requests: list[ToolCallRequest],
     registry: ToolRegistry,
     trace_id: str,
+    context: ToolExecutionContext,
 ) -> list[ToolCallRecord]:
-    executor = ToolAgentExecutor(registry=registry)
+    executor = ToolExecutionGateway(registry=registry)
     records: list[ToolCallRecord] = []
     resolved_symbol: str | None = None
     for request in requests:
         resolved_request = _apply_resolved_symbol(request, resolved_symbol)
-        result = await executor.execute(resolved_request, trace_id=trace_id)
+        result = await executor.execute(
+            resolved_request,
+            trace_id=trace_id,
+            context=context,
+        )
         if not result.trace_id:
             result.trace_id = trace_id
         records.append(ToolCallRecord(request=resolved_request, result=result))
@@ -101,3 +109,18 @@ def _requested_tool_calls(state: AgentState) -> list[ToolCallRequest]:
         ]
         if parsed_request.tool_name != "rag_search"
     ]
+
+
+def _execution_context(state: AgentState) -> ToolExecutionContext:
+    plan = state["plan"] or {}
+    selected_skill = state["selected_skill"]
+    return ToolExecutionContext(
+        tenant_id=state["tenant_id"],
+        user_id=state["user_id"],
+        session_id=state["session_id"],
+        allowed_tools=plan.get("tool_policy", {}).get("allowed_tools", []),
+        skill_name=selected_skill.get("skill_name") if selected_skill else None,
+        skill_allowed_tools=(
+            selected_skill.get("allowed_tools", []) if selected_skill is not None else None
+        ),
+    )

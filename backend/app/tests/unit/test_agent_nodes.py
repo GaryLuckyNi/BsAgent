@@ -305,6 +305,7 @@ def test_skill_agent_selects_and_runs_registered_skill_with_runtime_context():
     assert result["selected_skill"]["skill_name"] == "recording_skill"
     assert result["selected_skill"]["skill_version"] == "2.0.0"
     assert result["selected_skill"]["status"] == "needs_retrieval"
+    assert result["selected_skill"]["allowed_tools"] == ["rag_search"]
     assert result["plan"]["execution_steps"] == ["select_skill", "retrieve_evidence"]
     assert result["plan"]["skill_output"]["skill_name"] == "recording_skill"
     assert result["plan"]["requested_tools"][0].tool_name == "rag_search"
@@ -359,6 +360,12 @@ def test_tool_agent_replaces_resolved_symbol_placeholder_in_later_stock_tools():
         user_message="分析一下贵州茅台",
     )
     state["plan"] = {
+        "tool_policy": {
+            "allowed_tools": [
+                "mcp.mock.stock.resolve_company",
+                "mcp.mock.stock.company_profile",
+            ]
+        },
         "requested_tools": [
             ToolCallRequest(
                 tool_name="mcp.mock.stock.resolve_company",
@@ -377,6 +384,52 @@ def test_tool_agent_replaces_resolved_symbol_placeholder_in_later_stock_tools():
 
     assert result["tool_calls"][1].request.arguments["symbol"] == "600519"
     assert result["tool_calls"][1].result.result["symbol"] == "600519"
+
+
+def test_tool_agent_node_enforces_plan_tool_policy():
+    class EchoInput(BaseModel):
+        text: str
+
+    class EchoTool(Tool[EchoInput]):
+        name = "echo"
+        version = "1.0.0"
+        input_model = EchoInput
+
+        async def run(self, input_data: EchoInput) -> ToolCallResult:
+            return ToolCallResult(
+                tool_call_id="tool_echo",
+                tool_name=self.name,
+                status="success",
+                result={"text": input_data.text},
+                trace_id="trace_tool",
+            )
+
+    def registry_factory() -> ToolRegistry:
+        registry = ToolRegistry()
+        registry.register(EchoTool())
+        return registry
+
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="echo hello",
+    )
+    state["plan"] = {
+        "tool_policy": {"allowed_tools": ["another_tool"]},
+        "requested_tools": [
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证节点执行策略",
+            )
+        ],
+    }
+
+    result = build_tool_agent_node(registry_factory=registry_factory)(state)
+
+    assert result["tool_calls"][0].result.status == "denied"
+    assert result["tool_calls"][0].result.error.code == "tool_not_allowed_by_plan"
 
 
 def test_configured_skill_requests_admin_allowed_stock_tools_and_rag_search():

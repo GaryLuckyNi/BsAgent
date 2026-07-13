@@ -10,7 +10,8 @@ Tool Agent 是 BsAgent 的工具调用边界。它把模型、Skill 和外部系
 Skill / LLM function call
 -> ToolCallRequest
 -> ToolRegistry
--> ToolAgentExecutor
+-> ToolExecutionContext
+-> ToolExecutionGateway
 -> Tool.run(...)
 -> ToolCallResult
 ```
@@ -119,15 +120,22 @@ SkillOutput.requested_tools
 - 校验请求版本和实际工具版本是否一致。
 - 输出当前可用工具的 `ToolSpec` 列表。
 
-### `tools/agent.py`
+### `tools/execution_gateway.py`
 
-`ToolAgentExecutor` 是工具执行层，当前处理：
+`ToolExecutionGateway` 是所有非 RAG 工具的统一执行治理边界，当前处理：
 
 - 未注册工具：返回 `tool_not_found`。
 - 版本冲突：返回 `tool_version_mismatch`。
+- 不在 Plan 白名单：返回 `tool_not_allowed_by_plan`。
+- 不在已选择 Skill 白名单：返回 `tool_not_allowed_by_skill`。
 - 参数不符合 schema：返回 `tool_argument_validation_failed`。
-- 需要审批的调用：返回 `tool_approval_required`，不执行工具。
+- 请求标记需要审批或注册工具风险等级为 `high`：返回 `tool_approval_required`，不执行工具。
 - 工具运行异常：返回 `tool_execution_failed`。
+- 成功结果不符合输出 schema：返回 `tool_output_validation_failed`，原始结果不进入 Agent State。
+
+`ToolExecutionContext` 携带 tenant、user、session、Plan 白名单和 Skill 白名单。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
+
+`tools/agent.py` 暂时保留 `ToolAgentExecutor` 兼容导入，主运行链路使用 `ToolExecutionGateway`。
 
 这层不负责选择工具，也不负责检索策略。选择工具属于 Skill Agent / Planner / Retriever Agent；策略属于对应 Agent；Tool Agent 只做边界治理。
 
@@ -153,15 +161,16 @@ SkillOutput.requested_tools
 }
 ```
 
-适配器只做解析，不直接执行工具。执行必须交给 `ToolAgentExecutor`。
+适配器只做解析，不直接执行工具。执行必须交给 `ToolExecutionGateway`。
 
 ## MCP Gateway 与动态发现
 
-BsAgent 默认不再手工注册某个本地 MCP adapter。服务启动构建默认 `ToolRegistry` 时，会通过官方 MCP Python SDK 启动配置的 stdio server，并调用 `ClientSession.list_tools()` 动态发现工具：
+BsAgent 默认不再手工注册某个本地 MCP adapter。服务启动构建默认 `ToolRegistry` 时，`McpGateway` 会通过官方 MCP Python SDK 启动配置的 stdio server，并调用 `ClientSession.list_tools()` 动态发现工具：
 
 ```text
 MCP stdio server
 -> ClientSession.list_tools()
+-> McpGateway.discover_tools()
 -> DynamicMcpStdioTool
 -> ToolRegistry
 -> ToolSpec(name="mcp.<server>.<tool>")
@@ -231,7 +240,9 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 依赖证券代码的 stock 工具必须先执行 `stock.resolve_company`。Tool Agent 会把 resolver 返回的 `symbol` 回填到后续请求中的 `$resolved_symbol` 占位符，避免真实 MCP 工具拿占位符执行。
 
-后续接入更多 MCP server 时，MCP Gateway 需要继续负责：
+`McpGateway` 属于 MCP 控制面，只负责 MCP Server 配置、工具发现和协议标准化。它不负责通用权限与风险决策；这些职责属于 `ToolExecutionGateway`。
+
+后续接入更多 MCP server 时，MCP Gateway 还需要补充：
 
 - server 连接管理
 - `list_tools` 刷新策略
@@ -242,9 +253,11 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 ## 审批与风险
 
-工具调用是否需要人工审批由上游 Agent 或 Skill 决定，并通过 `ToolCallRequest.approval_required` 传递。Tool Agent 收到该标记时必须拒绝执行，并返回 `denied` 状态，由 Approval Coordinator 负责创建审批任务和恢复执行。
+工具调用是否需要人工审批由上游 Agent、Skill 和服务端工具风险共同决定。`ToolExecutionGateway` 不信任模型降低风险：即使 `ToolCallRequest.approval_required=false`，注册端 `ToolSpec.risk_level=high` 仍会强制返回 `denied`。
 
-高风险工具后续会在 `ToolSpec.risk_level`、租户策略和用户权限之间做联合判断。第一版只保留字段和边界。
+当前 Approval Coordinator 只能把状态标记为 `pending`，审批任务持久化、批准/拒绝接口、参数摘要绑定和 checkpoint resume 尚未形成闭环。
+
+`permission_scope` 当前仍是工具目录元数据。租户 RBAC/ABAC 必须在接入可信身份和权限数据源后实现，不能把模型输出或 Prompt 内容当成授权依据。
 
 ## 测试覆盖
 
@@ -255,6 +268,10 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 - 工具版本冲突拒绝。
 - 参数 schema 不合法拒绝。
 - 需要审批的调用拒绝执行。
+- Plan/Skill 白名单越权拒绝。
+- 注册端高风险工具强制审批。
+- 工具输出 schema 不合法拒绝。
+- MCP Gateway 动态发现委托。
 - function calling JSON 参数解析。
 - function calling dict 参数解析。
 - function calling 非法 JSON 拒绝。

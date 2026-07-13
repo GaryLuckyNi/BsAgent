@@ -33,6 +33,7 @@ def build_skill_agent_node(*, registry: SkillRegistry | None = None):
             "skill_version": output.skill_version,
             "status": output.status,
             "reason_codes": output.reason_codes,
+            "allowed_tools": skill.spec.allowed_tools,
         }
         state["plan"] = plan | {
             "skill_output": output.model_dump(),

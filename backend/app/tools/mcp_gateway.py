@@ -1,8 +1,23 @@
+from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from app.schemas.tools import ToolSpec
+from app.tools.base import Tool
+from app.tools.mcp_stdio import discover_mcp_stdio_tools
+
+
+McpToolDiscoverer = Callable[..., list[Tool]]
+
+
+class McpServerConfig(BaseModel):
+    name: str
+    command: str
+    args: list[str] = Field(default_factory=list)
+    cwd: str | None = None
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    default_risk_level: Literal["low", "medium", "high"] = "medium"
 
 
 class McpToolManifest(BaseModel):
@@ -15,8 +30,22 @@ class McpToolManifest(BaseModel):
 
 
 class McpGateway:
-    def __init__(self) -> None:
+    def __init__(self, *, discoverer: McpToolDiscoverer = discover_mcp_stdio_tools) -> None:
         self._tool_specs: dict[str, ToolSpec] = {}
+        self._discoverer = discoverer
+
+    def discover_tools(self, config: McpServerConfig) -> list[Tool]:
+        tools = self._discoverer(
+            command=config.command,
+            args=config.args,
+            cwd=config.cwd,
+            server_name=config.name,
+            timeout_seconds=config.timeout_seconds,
+            risk_level=config.default_risk_level,
+        )
+        for tool in tools:
+            self._tool_specs[tool.spec.name] = tool.spec
+        return tools
 
     def register_manifest(self, *, server_name: str, manifest: McpToolManifest) -> ToolSpec:
         spec = ToolSpec(
