@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 import pytest
 from pydantic import BaseModel
@@ -6,8 +8,16 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api import sessions
-from app.harness.tracing import TraceArtifact, TraceEvent, get_trace_store
+from app.graph.state import create_initial_state
+from app.harness.tracing import (
+    TraceArtifact,
+    TraceEvent,
+    get_trace_store,
+    summarize_node_transition,
+    summarize_state,
+)
 from app.main import create_app
+from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
 from app.storage.database import get_db
 from app.storage.models import Base
 
@@ -123,6 +133,148 @@ def test_get_trace_redacts_pydantic_values_in_events_and_artifacts():
         "database_password": "***",
         "visible": "safe",
     }
+
+
+def test_trace_summaries_keep_only_whitelisted_metadata_without_body_content():
+    state = create_initial_state(
+        session_id="session_trace_whitelist",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="user-message-secret",
+    )
+    request = ToolCallRequest.model_construct(
+        call_id="call_trace_1",
+        tool_name="mcp.mock.write",
+        tool_version="1.0.0",
+        arguments={"signing_material": "planner-argument-secret"},
+        purpose="purpose-secret",
+        approval_required=False,
+    )
+    result = ToolCallResult(
+        tool_call_id="call_trace_1",
+        tool_name=request.tool_name,
+        status="success",
+        result={"opaque": "tool-result-secret"},
+        latency_ms=7,
+        trace_id=state["trace_id"],
+    )
+    state["plan"] = {
+        "objective": "objective-secret",
+        "execution_mode": "tool_execution",
+        "requested_tools": [request],
+    }
+    state["tool_calls"] = [
+        ToolCallRecord(call_id="call_trace_1", request=request, result=result)
+    ]
+    state["analysis"] = {
+        "findings": ["analysis-secret"],
+        "missing_information": ["missing-secret"],
+        "confidence": 0.8,
+    }
+    state["draft_answer"] = {
+        "content": "draft-secret",
+        "claims": [],
+        "cited_evidence_ids": [],
+    }
+    state["verification"] = {
+        "verdict": "needs_revision",
+        "faithfulness_score": 0.5,
+        "citation_errors": ["verification-secret"],
+        "risk_flags": ["risk-flag-secret"],
+        "required_action": "required-action-secret",
+    }
+    state["final_response"] = {
+        "content": "final-answer-secret",
+        "trace_id": state["trace_id"],
+        "cited_evidence_ids": [],
+    }
+
+    state_summary = summarize_state(state)
+    transition_summary = summarize_node_transition(
+        node_name="tool_agent",
+        input_state={**state, "tool_calls": []},
+        output_state=state,
+    )
+    store = get_trace_store()
+    store.clear()
+    store.save_artifact(
+        TraceArtifact(
+            trace_id=state["trace_id"],
+            node_name="tool_agent",
+            artifact_type="output_summary",
+            payload=state_summary,
+        )
+    )
+    store.record_event(
+        TraceEvent(
+            trace_id=state["trace_id"],
+            node_name="tool_agent",
+            status="success",
+            latency_ms=7,
+            metadata=transition_summary,
+        )
+    )
+    api_response = TestClient(create_test_app_with_database()).get(
+        f"/api/traces/{state['trace_id']}"
+    )
+    assert api_response.status_code == 200
+    serialized = json.dumps(
+        {"state": state_summary, "transition": transition_summary},
+        ensure_ascii=False,
+    ) + api_response.text
+
+    for secret in (
+        "user-message-secret",
+        "planner-argument-secret",
+        "purpose-secret",
+        "tool-result-secret",
+        "objective-secret",
+        "analysis-secret",
+        "missing-secret",
+        "draft-secret",
+        "verification-secret",
+        "risk-flag-secret",
+        "required-action-secret",
+        "final-answer-secret",
+    ):
+        assert secret not in serialized
+    assert state["final_response"]["content"] == "final-answer-secret"
+    assert state_summary["final_response"]["content_length"] == len(
+        "final-answer-secret"
+    )
+
+
+def test_trace_event_error_is_sanitized_when_recorded_and_returned_by_api():
+    store = get_trace_store()
+    store.clear()
+    trace_id = "trace_error_sanitization"
+    event = TraceEvent(
+        trace_id=trace_id,
+        node_name="tool_agent",
+        status="error",
+        latency_ms=1,
+        error=(
+            "Bearer bearer-secret-value "
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzNCJ9.signature12345 "
+            "postgresql://agent:database-secret@db/prod "
+            "signing_material=signing-secret"
+        ),
+    )
+
+    store.record_event(event)
+
+    assert store.list_events(trace_id)[0].error != event.error
+    response = TestClient(create_test_app_with_database()).get(f"/api/traces/{trace_id}")
+    assert response.status_code == 200
+    serialized = response.text
+    for secret in (
+        "bearer-secret-value",
+        "signature12345",
+        "database-secret",
+        "signing-secret",
+    ):
+        assert secret not in serialized
+    assert len(response.json()["events"][0]["error"]) <= 512
 
 
 def test_session_message_trace_can_be_queried(monkeypatch):

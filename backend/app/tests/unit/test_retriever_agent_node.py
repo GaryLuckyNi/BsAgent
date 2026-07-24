@@ -3,8 +3,42 @@ import pytest
 
 from app.graph.nodes.retriever_agent import build_rag_retriever_node
 from app.graph.state import create_initial_state
+from app.schemas.approvals import ReadyToolCall
 from app.schemas.tools import ToolCallRequest
+from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchError, RagSearchTool
+
+
+def _prepare_rag_call(state, *, step_index: int = 0):
+    plan = state["plan"] or {}
+    requests = list(plan.get("requested_tools", []))
+    if requests:
+        request = requests[step_index]
+        request = request.model_copy(update={"call_id": f"call_rag_{step_index}"})
+        requests[step_index] = request
+    else:
+        request = ToolCallRequest(
+            call_id=f"call_rag_{step_index}",
+            tool_name="rag_search",
+            tool_version="1.0.0",
+            arguments={
+                "query": state["user_message"],
+                "tenant_id": state["tenant_id"],
+                "user_id": state["user_id"],
+                "top_k": 8,
+                "retrieval_mode": "hybrid",
+            },
+            purpose="测试准备后的检索调用",
+        )
+        requests.append(request)
+    state["plan"] = {**plan, "requested_tools": requests}
+    state["ready_tool_call"] = ReadyToolCall(
+        call_id=request.call_id,
+        step_index=step_index,
+        request_fingerprint=tool_call_fingerprint(request),
+        tool_name=request.tool_name,
+    )
+    return request
 
 
 def test_rag_retriever_node_maps_search_results_to_evidence_package():
@@ -38,6 +72,7 @@ def test_rag_retriever_node_maps_search_results_to_evidence_package():
         user_message="差旅报销需要什么？",
         permission_scopes=["rag:retrieve"],
     )
+    _prepare_rag_call(state)
 
     result = node(state)
 
@@ -98,6 +133,7 @@ def test_rag_retriever_node_executes_skill_requested_tool_call():
             )
         ]
     }
+    _prepare_rag_call(state)
 
     result = node(state)
 
@@ -126,6 +162,7 @@ def test_rag_retriever_node_enforces_plan_tool_policy():
         "tool_policy": {"allowed_tools": ["another_tool"]},
         "requested_tools": [],
     }
+    _prepare_rag_call(state)
 
     with pytest.raises(RagSearchError) as exc_info:
         node(state)
@@ -160,6 +197,7 @@ def test_rag_retriever_node_enforces_selected_skill_tool_policy():
         "status": "ready",
         "allowed_tools": ["another_tool"],
     }
+    _prepare_rag_call(state)
 
     with pytest.raises(RagSearchError) as exc_info:
         node(state)
@@ -189,6 +227,7 @@ def test_rag_retriever_node_marks_empty_results_as_no_coverage():
         user_message="未知制度",
         permission_scopes=["rag:retrieve"],
     )
+    _prepare_rag_call(state)
 
     result = node(state)
 
@@ -211,6 +250,7 @@ def test_rag_retriever_node_maps_rag_404_to_no_coverage():
         user_message="未知制度",
         permission_scopes=["rag:retrieve"],
     )
+    _prepare_rag_call(state)
 
     result = node(state)
 
@@ -233,6 +273,7 @@ def test_rag_retriever_node_preserves_rag_503_error_metadata():
         user_message="未知制度",
         permission_scopes=["rag:retrieve"],
     )
+    _prepare_rag_call(state)
 
     try:
         node(state)
@@ -241,3 +282,94 @@ def test_rag_retriever_node_preserves_rag_503_error_metadata():
         assert exc.http_status == 503
     else:
         raise AssertionError("expected rag retriever to raise structured error")
+
+
+def test_retriever_requires_explicit_ready_rag_call():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"contexts": []})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
+    node = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="差旅报销需要什么？",
+        permission_scopes=["rag:retrieve"],
+    )
+
+    with pytest.raises(RagSearchError) as exc_info:
+        node(state)
+
+    assert exc_info.value.code == "rag_call_not_ready"
+    assert calls == []
+
+
+def test_retriever_executes_only_ready_call_id_and_clears_ready_state():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = request.read()
+        return httpx.Response(
+            200,
+            json={
+                "query": {"standalone": "ready query"},
+                "contexts": [],
+                "metadata": {"contextCount": 0, "durationMs": 1},
+            },
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
+    node = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="原始问题",
+        permission_scopes=["rag:retrieve"],
+    )
+    state["plan"] = {
+        "tool_policy": {"allowed_tools": ["rag_search"]},
+        "requested_tools": [
+            ToolCallRequest(
+                call_id="call_first",
+                tool_name="rag_search",
+                arguments={
+                    "query": "wrong query",
+                    "tenant_id": "t1",
+                    "user_id": "u1",
+                    "top_k": 2,
+                },
+                purpose="不应执行",
+            ),
+            ToolCallRequest(
+                call_id="call_ready",
+                tool_name="rag_search",
+                arguments={
+                    "query": "ready query",
+                    "tenant_id": "t1",
+                    "user_id": "u1",
+                    "top_k": 3,
+                },
+                purpose="当前可执行检索",
+            ),
+        ],
+    }
+    state["ready_tool_call"] = ReadyToolCall(
+        call_id="call_ready",
+        step_index=1,
+        request_fingerprint=tool_call_fingerprint(
+            state["plan"]["requested_tools"][1]
+        ),
+        tool_name="rag_search",
+    )
+
+    result = node(state)
+
+    assert b"ready query" in captured["payload"]
+    assert b"wrong query" not in captured["payload"]
+    assert result["tool_calls"][0].call_id == "call_ready"
+    assert result["ready_tool_call"] is None

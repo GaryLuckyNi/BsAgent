@@ -58,7 +58,9 @@ Approval API
 
 使用 UTF-8、字段排序、紧凑分隔符计算 SHA-256。审批恢复时，Approval Gate 和 Tool Execution Gateway 都重新计算；名称、版本或参数任一变化都会拒绝执行。
 
-指纹只用于参数防篡改，执行去重使用可信 `call_id`。Tool Agent 每次只为当前已解析请求生成一个 `pending_tool_approval`；Approval Gate 不遍历 Planner 的后续请求，也不接受 Planner 提供的展示参数。批准后清理当前 descriptor，返回 Tool Agent 执行该实例，再推进下一步骤。
+指纹只用于参数防篡改，执行去重使用可信 `call_id`。Graph State 与 Gateway 使用不可拆分的 `ApprovedToolCall(call_id, arguments_hash)`，不允许拆分集合形成笛卡尔积，也不允许无 `call_id` 的 hash-only 授权。Tool Agent 每次只为当前已解析请求生成一个 `pending_tool_approval`；Approval Gate 不遍历 Planner 的后续请求，也不接受 Planner 提供的展示参数。批准后清理当前 descriptor，返回 Tool Agent 执行该实例，再推进下一步骤。
+
+RAG 使用独立 `ready_tool_call` 执行游标。只有 Tool Agent 已对当前 RAG 实例完成可信调用 ID、参数解析、运行时 ToolSpec 风险提升和审批校验后，Runtime 才可路由 Retriever；Retriever 复核 call ID、步骤位置和指纹，完成后清理 ready。前置失败不产生后续审批或检索。
 
 ## 审批记录
 
@@ -142,7 +144,7 @@ Mock 角色：
 ## 测试
 
 - 指纹稳定性和参数篡改检测。
-- Tool Gateway permission scope 与审批 `call_id + hash` 校验。
+- Tool Gateway permission scope 与审批 `(call_id, hash)` 原子 pair 校验。
 - 连续高风险调用逐个审批、相同参数的不同调用实例分别执行。
 - 内联连接凭证拒绝、集中脱敏和 Trace/checkpoint 敏感数据边界。
 - Approval Repository 幂等创建和状态迁移。

@@ -4,7 +4,12 @@ from typing import Any
 from langgraph.types import interrupt
 
 from app.graph.state import AgentState
-from app.schemas.approvals import ApprovalRequest, ApprovalStatus, PendingToolApproval
+from app.schemas.approvals import (
+    ApprovalRequest,
+    ApprovalStatus,
+    ApprovedToolCall,
+    PendingToolApproval,
+)
 from app.schemas.tools import ToolCallRequest
 from app.tools.fingerprints import tool_call_fingerprint
 
@@ -80,10 +85,12 @@ def approval_gate_node(state: AgentState) -> AgentState:
         }
         return state
 
-    if arguments_hash not in state["approved_tool_call_hashes"]:
-        state["approved_tool_call_hashes"].append(arguments_hash)
-    if descriptor.call_id not in state["approved_tool_call_ids"]:
-        state["approved_tool_call_ids"].append(descriptor.call_id)
+    approval = ApprovedToolCall(
+        call_id=descriptor.call_id,
+        arguments_hash=arguments_hash,
+    )
+    if approval not in state["approved_tool_calls"]:
+        state["approved_tool_calls"].append(approval)
     state["approval_status"] = ApprovalStatus(required=True, status="approved")
     return state
 

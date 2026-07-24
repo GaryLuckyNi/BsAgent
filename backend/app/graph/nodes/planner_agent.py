@@ -6,6 +6,7 @@ from app.graph.state import AgentState
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolCallRequest, ToolSpec
 from app.tools.default_registry import list_default_tool_specs
+from app.tools.redaction import reject_server_injected_arguments
 
 
 def build_planner_agent_node(
@@ -253,6 +254,11 @@ def _build_tool_call_request(
     payload.setdefault("purpose", "执行用户请求的工具操作")
     payload["approval_required"] = (
         intent.get("risk_level") == "high" or tool_spec.risk_level == "high"
+    )
+    reject_server_injected_arguments(
+        payload.get("arguments", {}),
+        schema=tool_spec.input_schema,
+        server_injected_fields=tool_spec.server_injected_fields,
     )
     return ToolCallRequest.model_validate(payload)
 

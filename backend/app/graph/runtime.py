@@ -58,6 +58,7 @@ def _mock_retrieval_node(state: AgentState) -> AgentState:
             )
         ],
     )
+    state["ready_tool_call"] = None
     return state
 
 
@@ -110,15 +111,13 @@ def _route_after_skill_agent(state: AgentState) -> str:
         return "tool_agent"
     if _has_pending_tool_approval(state):
         return "approval_gate"
-    if _has_rag_search_request(state):
-        return "retriever_agent"
     return "synthesizer"
 
 
 def _route_after_tool_agent(state: AgentState) -> str:
     if _has_pending_tool_approval(state):
         return "approval_gate"
-    if _has_rag_search_request(state):
+    if _has_ready_rag_call(state):
         return "retriever_agent"
     return "synthesizer"
 
@@ -128,17 +127,12 @@ def _route_after_approval_gate(state: AgentState) -> str:
         return "synthesizer"
     if _requested_tools(state):
         return "tool_agent"
-    if _has_rag_search_request(state):
-        return "retriever_agent"
     return "synthesizer"
 
 
-def _has_non_rag_tool_requests(state: AgentState) -> bool:
-    return any(request.tool_name != "rag_search" for request in _requested_tools(state))
-
-
-def _has_rag_search_request(state: AgentState) -> bool:
-    return any(request.tool_name == "rag_search" for request in _requested_tools(state))
+def _has_ready_rag_call(state: AgentState) -> bool:
+    ready_call = state.get("ready_tool_call")
+    return ready_call is not None and ready_call.tool_name == "rag_search"
 
 
 def _has_pending_tool_approval(state: AgentState) -> bool:

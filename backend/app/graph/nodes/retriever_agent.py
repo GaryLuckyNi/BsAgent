@@ -15,8 +15,9 @@ from app.schemas.tools import ToolCallResult
 from app.schemas.tools import ToolCallRecord, ToolCallRequest
 from app.tools.agent import ToolAgentExecutor
 from app.tools.execution_gateway import ToolExecutionContext
-from app.tools.rag_search import RagSearchError, RagSearchInput, RagSearchTool
+from app.tools.rag_search import RagSearchError, RagSearchTool
 from app.tools.registry import ToolRegistry
+from app.tools.fingerprints import tool_call_fingerprint
 
 
 def retriever_agent_node(state: AgentState) -> AgentState:
@@ -29,10 +30,7 @@ def build_rag_retriever_node(
     top_k: int = 8,
 ) -> Callable[[AgentState], AgentState]:
     def node(state: AgentState) -> AgentState:
-        request = _requested_rag_search_call(state) or _default_rag_search_request(
-            state=state,
-            top_k=top_k,
-        )
+        request = _ready_rag_search_call(state)
         result = asyncio.run(
             _execute_tool_request(
                 request=request,
@@ -65,10 +63,7 @@ def build_default_rag_retriever_node(
     resolved_timeout_seconds = timeout_seconds or settings.rag_timeout_seconds
 
     def node(state: AgentState) -> AgentState:
-        request = _requested_rag_search_call(state) or _default_rag_search_request(
-            state=state,
-            top_k=top_k,
-        )
+        request = _ready_rag_search_call(state)
 
         async def run_tool() -> ToolCallResult:
             async with httpx.AsyncClient(
@@ -132,6 +127,7 @@ def _apply_rag_result(
             for index, chunk in enumerate(chunks)
         ],
     )
+    state["ready_tool_call"] = None
 
 
 async def _execute_tool_request(
@@ -150,38 +146,39 @@ async def _execute_tool_request(
     )
 
 
-def _requested_rag_search_call(state: AgentState) -> ToolCallRequest | None:
+def _ready_rag_search_call(state: AgentState) -> ToolCallRequest:
+    ready = state.get("ready_tool_call")
+    if ready is None:
+        raise RagSearchError(
+            code="rag_call_not_ready",
+            message="RAG tool call has not been prepared by Tool Agent.",
+            http_status=409,
+        )
     plan = state["plan"] or {}
     requested_tools = plan.get("requested_tools", [])
-    for request in requested_tools:
-        parsed_request = (
-            request
-            if isinstance(request, ToolCallRequest)
-            else ToolCallRequest.model_validate(request)
+    if ready.step_index >= len(requested_tools):
+        raise RagSearchError(
+            code="rag_call_not_ready",
+            message="Prepared RAG tool step no longer exists.",
+            http_status=409,
         )
-        if parsed_request.tool_name == RagSearchTool.name:
-            return parsed_request
-    return None
-
-
-def _default_rag_search_request(
-    *,
-    state: AgentState,
-    top_k: int,
-) -> ToolCallRequest:
-    input_data = RagSearchInput(
-        query=state["user_message"],
-        tenant_id=state["tenant_id"],
-        user_id=state["user_id"],
-        top_k=top_k,
-        retrieval_mode="hybrid",
+    raw_request = requested_tools[ready.step_index]
+    request = (
+        raw_request
+        if isinstance(raw_request, ToolCallRequest)
+        else ToolCallRequest.model_validate(raw_request)
     )
-    return ToolCallRequest(
-        tool_name=RagSearchTool.name,
-        tool_version=RagSearchTool.version,
-        arguments=input_data.model_dump(),
-        purpose="retrieve_policy_evidence",
-    )
+    if (
+        request.tool_name != RagSearchTool.name
+        or request.call_id != ready.call_id
+        or tool_call_fingerprint(request) != ready.request_fingerprint
+    ):
+        raise RagSearchError(
+            code="rag_call_not_ready",
+            message="Prepared RAG tool call no longer matches the execution plan.",
+            http_status=409,
+        )
+    return request
 
 
 def _raise_for_unrecoverable_rag_error(result: ToolCallResult) -> None:

@@ -4,13 +4,17 @@ from hashlib import sha256
 
 from app.graph.state import AgentState
 from app.graph.tool_context import build_tool_execution_context
-from app.schemas.approvals import PendingToolApproval
+from app.schemas.approvals import PendingToolApproval, ReadyToolCall
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolSpec
 from app.tools.default_registry import get_default_tool_registry
 from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchInput, RagSearchTool
-from app.tools.redaction import redact_sensitive_data, reject_inline_credentials
+from app.tools.redaction import (
+    redact_sensitive_data,
+    reject_inline_credentials,
+    reject_server_injected_arguments,
+)
 from app.tools.registry import ToolRegistry
 
 
@@ -29,10 +33,15 @@ def build_tool_agent_node(
         )
         requests = _requested_tool_calls(state)
         if not requests:
+            state["pending_tool_approval"] = None
+            state["ready_tool_call"] = None
             return state
 
         async def run_tools() -> tuple[
-            list[ToolCallRequest], list[ToolCallRecord], PendingToolApproval | None
+            list[ToolCallRequest],
+            list[ToolCallRecord],
+            PendingToolApproval | None,
+            ReadyToolCall | None,
         ]:
             context = build_tool_execution_context(state)
             return await _advance_requests(
@@ -44,7 +53,9 @@ def build_tool_agent_node(
                 run_id=state["request_id"],
             )
 
-        staged_requests, new_records, pending_approval = asyncio.run(run_tools())
+        staged_requests, new_records, pending_approval, ready_call = asyncio.run(
+            run_tools()
+        )
         plan = state["plan"] or {}
         state["plan"] = {
             **plan,
@@ -52,6 +63,7 @@ def build_tool_agent_node(
         }
         state["tool_calls"].extend(new_records)
         state["pending_tool_approval"] = pending_approval
+        state["ready_tool_call"] = ready_call
         return state
 
     return node
@@ -66,7 +78,10 @@ async def _advance_requests(
     existing_records: list[ToolCallRecord],
     run_id: str,
 ) -> tuple[
-    list[ToolCallRequest], list[ToolCallRecord], PendingToolApproval | None
+    list[ToolCallRequest],
+    list[ToolCallRecord],
+    PendingToolApproval | None,
+    ReadyToolCall | None,
 ]:
     executor = ToolExecutionGateway(registry=registry)
     staged_requests = list(requests)
@@ -78,8 +93,10 @@ async def _advance_requests(
         if record.result is not None and record.result.status == "success"
         and (record.call_id or record.request.call_id) is not None
     }
-    approved_hashes = set(context.approved_tool_call_hashes)
-    approved_call_ids = set(context.approved_tool_call_ids)
+    approved_calls = {
+        (approval.call_id, approval.arguments_hash)
+        for approval in context.approved_tool_calls
+    }
     for index, request in enumerate(requests):
         reject_inline_credentials(request.arguments)
         request = request.model_copy(
@@ -87,33 +104,54 @@ async def _advance_requests(
         )
         resolved_request = _resolve_request_placeholders(request, resolution_values)
         resolved_request = _normalize_request_risk(resolved_request, registry)
+        tool_spec = _trusted_tool_spec(registry, resolved_request)
+        if tool_spec is not None:
+            reject_server_injected_arguments(
+                resolved_request.arguments,
+                schema=tool_spec.input_schema,
+                server_injected_fields=tool_spec.server_injected_fields,
+            )
         staged_requests[index] = resolved_request
         request_hash = tool_call_fingerprint(resolved_request)
         if resolved_request.call_id in completed_call_ids:
             continue
         if _contains_unresolved_placeholder(resolved_request.arguments):
             break
-        if resolved_request.approval_required and not (
-            request_hash in approved_hashes
-            and resolved_request.call_id in approved_call_ids
-        ):
-            tool_spec = _trusted_tool_spec(registry, resolved_request)
+        if resolved_request.approval_required and (
+            resolved_request.call_id,
+            request_hash,
+        ) not in approved_calls:
             safe_arguments = redact_sensitive_data(
                 resolved_request.arguments,
                 schema=tool_spec.input_schema if tool_spec else None,
             )
-            return staged_requests, records, PendingToolApproval(
-                call_id=resolved_request.call_id,
-                step_index=index,
-                request_fingerprint=request_hash,
-                tool_name=resolved_request.tool_name,
-                tool_version=resolved_request.tool_version,
-                risk_level="high",
-                safe_arguments=safe_arguments,
-                purpose=resolved_request.purpose,
+            return (
+                staged_requests,
+                records,
+                PendingToolApproval(
+                    call_id=resolved_request.call_id,
+                    step_index=index,
+                    request_fingerprint=request_hash,
+                    tool_name=resolved_request.tool_name,
+                    tool_version=resolved_request.tool_version,
+                    risk_level="high",
+                    safe_arguments=safe_arguments,
+                    purpose=resolved_request.purpose,
+                ),
+                None,
             )
         if resolved_request.tool_name == RagSearchTool.name:
-            continue
+            return (
+                staged_requests,
+                records,
+                None,
+                ReadyToolCall(
+                    call_id=resolved_request.call_id,
+                    step_index=index,
+                    request_fingerprint=request_hash,
+                    tool_name=resolved_request.tool_name,
+                ),
+            )
         result = await executor.execute(
             resolved_request,
             trace_id=trace_id,
@@ -132,7 +170,7 @@ async def _advance_requests(
             break
         resolution_values.update(result.result or {})
         completed_call_ids.add(resolved_request.call_id)
-    return staged_requests, records, None
+    return staged_requests, records, None, None
 
 
 def _trusted_call_id(*, run_id: str, step_index: int) -> str:

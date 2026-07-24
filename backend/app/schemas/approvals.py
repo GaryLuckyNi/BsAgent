@@ -26,3 +26,15 @@ class PendingToolApproval(BaseModel):
     risk_level: Literal["low", "medium", "high"]
     safe_arguments: dict[str, Any] = Field(default_factory=dict)
     purpose: str
+
+
+class ApprovedToolCall(BaseModel):
+    call_id: str = Field(min_length=1)
+    arguments_hash: str = Field(min_length=1)
+
+
+class ReadyToolCall(BaseModel):
+    call_id: str = Field(min_length=1)
+    step_index: int = Field(ge=0)
+    request_fingerprint: str = Field(min_length=1)
+    tool_name: str

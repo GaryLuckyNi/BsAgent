@@ -243,7 +243,7 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 - `mcp.mock.stock.announcement_search`
 - `mcp.mock.stock.risk_events`
 
-`rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，但 Tool Agent 会先完成可信规范化、风险提升和审批准备，不会直接调用 RAG Provider。Skill 分支中，工具按计划顺序推进；轮到 `rag_search` 且已满足审批条件后，Graph 才进入 Retriever。
+`rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，但 Tool Agent 会先完成可信规范化、风险提升和审批准备，不会直接调用 RAG Provider。只有当前 RAG 实例完成 `call_id`、真实参数、ToolSpec 风险和审批校验后，Tool Agent 才写入 `ready_tool_call`；Runtime 不扫描计划中的工具名，Retriever 也只消费该 ready 实例并在完成后清理。前置失败不会误路由 Retriever，高风险 RAG 未获批也不会 ready。
 
 依赖前置结果的工具使用 `$resolved_<output_key>` 占位协议，例如 resolver 返回 `symbol` 时，后续 `$resolved_symbol` 会被替换。解析逻辑不依赖工具名或证券代码字段：Tool Agent 按请求顺序汇总已成功工具的结构化输出，递归解析当前请求的占位值，再读取该工具的真实 `ToolSpec.risk_level`。安全前置工具可以先执行；真实参数需要审批时，Tool Agent 把解析后的请求写回 plan，并生成唯一 `pending_tool_approval` 后返回 Graph，绝不提前审批后续占位请求或调用高风险 Provider。批准恢复后，已成功请求按可信 `call_id` 跳过，不重复执行前置工具；指纹只用于审批防篡改，不用于合并两个有意的相同调用。
 
@@ -262,11 +262,11 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 工具调用是否需要人工审批由上游 Agent、Skill 和服务端工具风险共同决定。`ToolExecutionGateway` 不信任模型降低风险：即使 `ToolCallRequest.approval_required=false`，注册端 `ToolSpec.risk_level=high` 仍会强制返回 `denied`。
 
-Tool Agent 在执行前使用本次运行实际 `ToolRegistry` 中的 `ToolSpec` 规范化请求。可信规范化层按 `run_id + step_index` 生成稳定 `call_id`，会覆盖模型提供的任意 ID。只要注册端 `risk_level=high`，就会把对应请求提升为 `approval_required=true`；若当前 `call_id + 参数指纹` 尚未同时批准，Tool Agent 不执行任何 Provider，而是让 Graph 路由到 Approval Gate。该判断不依赖工具名称枚举，也不信任 Skill 将风险标成 medium 或 low。
+Tool Agent 在执行前使用本次运行实际 `ToolRegistry` 中的 `ToolSpec` 规范化请求。可信规范化层按 `run_id + step_index` 生成稳定 `call_id`，会覆盖模型提供的任意 ID。只要注册端 `risk_level=high`，就会把对应请求提升为 `approval_required=true`；若 `ApprovedToolCall(call_id, arguments_hash)` 中不存在当前调用的精确 pair，Tool Agent 不执行任何 Provider，而是让 Graph 路由到 Approval Gate。ID 和哈希不再分开授权，也不存在 hash-only 兼容放行。该判断不依赖工具名称枚举，也不信任 Skill 将风险标成 medium 或 low。
 
-审批展示参数由 `tools/redaction.py` 集中生成，`ToolCallRequest` 不包含可由模型伪造的 `safe_arguments`。脱敏器对 snake/camel/kebab 键名分词后匹配 `database_password`、`oauth_access_token`、`clientSecret`、`private-key` 等敏感词组，并递归处理 Pydantic、dataclass、对象、数组和集合；JSON Schema 支持 `properties/items/additionalProperties/patternProperties/allOf/anyOf/oneOf`、本地 `$defs/definitions` 引用和循环引用保护，任一分支的 `writeOnly=true` 或 `x-sensitive=true` 都会整值脱敏。Tool Agent 从 Registry 取得 schema 后生成安全展示副本并绑定 `call_id + fingerprint`，Approval Gate 和 Approval API 不返回完整秘密。`arguments_hash` 始终基于原始真实参数计算，不使用脱敏值。
+审批展示参数由 `tools/redaction.py` 集中生成，`ToolCallRequest` 不包含可由模型伪造的 `safe_arguments`。脱敏器对 snake/camel/kebab 键名分词后匹配敏感词组，并递归处理 Pydantic、dataclass、数组、集合和循环对象；JSON Schema 支持 `properties/items/prefixItems/additionalProperties/patternProperties/allOf/anyOf/oneOf`、本地 `$defs/definitions` 引用和循环引用保护。任一分支的 `writeOnly=true` 或 `x-sensitive=true` 都会整值脱敏，无法解析的本地安全引用或未知安全结构按整值 `***` fail-closed。Tool Agent 从 Registry 取得 schema 后生成安全展示副本并绑定 `call_id + fingerprint`，Approval Gate 和 Approval API 不返回完整秘密。`arguments_hash` 始终基于原始真实参数计算，不使用脱敏值。
 
-连接凭证不得作为模型、Skill 或 MCP 参数进入 Agent State/checkpoint。内联 `client_secret`、`database_password`、access token、private key 等字段会以 `inline_credentials_forbidden` 拒绝；连接凭证应由 Gateway/Adapter 在服务端注入。当前 checkpoint 未加密，普通敏感业务参数的生产治理仍需要加密 saver、字段加密和保留策略。
+连接凭证不得作为模型、Skill 或 MCP 参数进入 Agent State/checkpoint。通用 DTO 边界拒绝连接字段、credential 容器、带 userinfo 的数据库 URI、Bearer/API key/JWT 等明显凭证内容；Planner 使用真实 ToolSpec 拒绝 `server_injected_fields`、`writeOnly` 与 `x-sensitive` 参数，Skill 等来源由 Tool Agent 做 schema 驱动二次校验。连接凭证只能由 Gateway/Adapter 服务端注入，不支持明文或假 `SecretRef`。当前 checkpoint 未加密，普通敏感业务参数仍需要加密 saver、字段加密和保留策略。
 
 当前高风险工具审批链路已经形成闭环：
 
@@ -289,6 +289,8 @@ Planner / Skill 生成 ToolCallRequest
 
 当前 TraceStore 仍在进程内。业务收尾回滚后，只要原进程存活，相同决定重试可补齐 Trace；若进程在事件入库前退出，内存 Trace 无法仅靠已完成 checkpoint 跨进程恢复。本阶段不把该链路描述为持久观测或分布式 exactly-once。
 
+Trace Artifact 使用固定白名单摘要，只记录数量、状态、证据 ID、工具名、call ID、耗时、错误码和正文长度；不记录用户消息、analysis、工具参数/结果、草稿与最终回答正文。`event.error` 在写入 TraceStore 和 API 返回前都会截断并清洗 Bearer、JWT、URI userinfo 和 `key=value` 内容。该边界不改变面向用户的正常 `final_response`。
+
 当前 `MockRbacProvider` 仅供本地开发和测试，通过固定配置模拟角色与工具 scope。它不是生产鉴权：不验证 JWT、签名、令牌有效期或真实租户归属，生产环境不得启用。生产权限必须来自经过验证的身份主体及企业 IAM、OPA 或 Casbin 等可信权限源，不能把请求体、模型输出或 Prompt 内容当作授权依据。
 
 ## 测试覆盖
@@ -306,7 +308,7 @@ Planner / Skill 生成 ToolCallRequest
 - 多工具前置解析、真实参数审批和恢复后前置工具不重放。
 - 连续高风险调用逐个审批，相同指纹的不同调用实例不合并。
 - 审批参数键名/schema 脱敏，原始参数指纹保持不变。
-- Planner/Skill 内联凭证在进入可持久 Plan 前拒绝，Trace 摘要/API 不返回明文秘密。
+- 通用内联凭证在 DTO 边界拒绝，Planner/Tool Agent 按 ToolSpec 拒绝服务端注入字段；Trace 摘要/API 不返回正文或明文秘密。
 - 工具权限 scope 拒绝与放行。
 - 审批参数哈希稳定性及参数变化拒绝。
 - Graph 高风险工具中断、批准恢复、拒绝恢复与旧哈希拒绝。

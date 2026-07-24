@@ -4,6 +4,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from app.schemas.tools import ToolCallRequest, ToolCallResult
+from app.schemas.approvals import ApprovedToolCall
 from app.tools.agent import ToolAgentExecutor
 from app.tools.base import Tool
 from app.tools.execution_gateway import ToolExecutionContext
@@ -42,8 +43,7 @@ def _context(
     allowed_tools: list[str] | None = None,
     skill_allowed_tools: list[str] | None = None,
     permission_scopes: list[str] | None = None,
-    approved_tool_call_hashes: list[str] | None = None,
-    approved_tool_call_ids: list[str] | None = None,
+    approved_tool_calls: list[ApprovedToolCall] | None = None,
 ) -> ToolExecutionContext:
     return ToolExecutionContext(
         tenant_id="tenant_1",
@@ -53,8 +53,7 @@ def _context(
         skill_name="test_skill" if skill_allowed_tools is not None else None,
         skill_allowed_tools=skill_allowed_tools,
         permission_scopes=permission_scopes or [],
-        approved_tool_call_hashes=approved_tool_call_hashes or [],
-        approved_tool_call_ids=approved_tool_call_ids or [],
+        approved_tool_calls=approved_tool_calls or [],
     )
 
 
@@ -161,7 +160,7 @@ def test_tool_agent_denies_approval_required_call_before_execution():
     )
 
     assert result.status == "denied"
-    assert result.error.code == "tool_approval_required"
+    assert result.error.code == "tool_trusted_call_id_required"
 
 
 def test_tool_agent_denies_tool_outside_plan_allowlist():
@@ -219,7 +218,7 @@ def test_tool_agent_uses_registered_high_risk_level_as_server_side_approval_gate
     )
 
     assert result.status == "denied"
-    assert result.error.code == "tool_approval_required"
+    assert result.error.code == "tool_trusted_call_id_required"
 
 
 def test_tool_agent_rejects_success_result_that_violates_output_schema():
@@ -295,6 +294,56 @@ def test_tool_call_request_rejects_inline_credentials(credential_key):
     assert exc_info.value.errors()[0]["type"] == "inline_credentials_forbidden"
 
 
+@pytest.mark.parametrize(
+    ("arguments", "secret"),
+    [
+        ({"database_url": "postgresql://db/prod"}, "postgresql://db/prod"),
+        ({"connectionString": "Server=db"}, "Server=db"),
+        ({"dsn": "host=db user=app"}, "host=db user=app"),
+        ({"credentials": {"username": "app"}}, "app"),
+        ({"endpoint": "postgresql://user:secret@db/prod"}, "secret"),
+        ({"authorization_value": "Bearer abc.def-123_xyz"}, "Bearer"),
+        ({"header": "api_key=sk-live-secret"}, "sk-live-secret"),
+        (
+            {
+                "assertion": (
+                    "eyJhbGciOiJIUzI1NiJ9."
+                    "eyJzdWIiOiJ1c2VyLTEiLCJleHAiOjQ3OTk5OTk5OTl9."
+                    "abcdefghijklmnopqrstuvwxyz123456"
+                )
+            },
+            "eyJhbGci",
+        ),
+    ],
+)
+def test_tool_call_request_rejects_structured_and_content_credentials(
+    arguments, secret
+):
+    with pytest.raises(ValidationError) as exc_info:
+        ToolCallRequest(
+            tool_name="echo",
+            arguments=arguments,
+            purpose="验证通用凭证检测",
+        )
+
+    assert exc_info.value.errors()[0]["type"] == "inline_credentials_forbidden"
+    assert secret in str(arguments)
+
+
+def test_tool_call_request_allows_normal_url_and_business_token_text():
+    request = ToolCallRequest(
+        tool_name="echo",
+        arguments={
+            "callback_url": "https://example.com/callback?status=ok",
+            "description": "研究 token economics 对业务模式的影响",
+            "token_count": 128,
+        },
+        purpose="验证明显误报控制",
+    )
+
+    assert request.arguments["token_count"] == 128
+
+
 def test_tool_agent_denies_missing_registered_permission_scope():
     class ScopedEchoTool(EchoTool):
         permission_scope = ["mcp:mock"]
@@ -324,6 +373,7 @@ def test_tool_agent_allows_approved_high_risk_call_with_matching_hash():
         permission_scope = ["mcp:mock"]
 
     request = ToolCallRequest(
+        call_id="call_approved",
         tool_name="echo",
         arguments={"text": "hello"},
         purpose="验证已批准调用",
@@ -338,7 +388,12 @@ def test_tool_agent_allows_approved_high_risk_call_with_matching_hash():
             trace_id="trace_1",
             context=_context(
                 permission_scopes=["mcp:mock"],
-                approved_tool_call_hashes=[tool_call_fingerprint(request)],
+                approved_tool_calls=[
+                    ApprovedToolCall(
+                        call_id=request.call_id,
+                        arguments_hash=tool_call_fingerprint(request),
+                    )
+                ],
             ),
         )
     )
@@ -351,6 +406,7 @@ def test_tool_agent_denies_approved_hash_when_arguments_are_changed():
         risk_level = "high"
 
     approved_request = ToolCallRequest(
+        call_id="call_approved",
         tool_name="echo",
         arguments={"text": "approved"},
         purpose="批准前参数",
@@ -367,7 +423,12 @@ def test_tool_agent_denies_approved_hash_when_arguments_are_changed():
             changed_request,
             trace_id="trace_1",
             context=_context(
-                approved_tool_call_hashes=[tool_call_fingerprint(approved_request)],
+                approved_tool_calls=[
+                    ApprovedToolCall(
+                        call_id=approved_request.call_id,
+                        arguments_hash=tool_call_fingerprint(approved_request),
+                    )
+                ],
             ),
         )
     )
@@ -396,8 +457,9 @@ def test_tool_agent_requires_approval_for_matching_call_instance_and_fingerprint
             request,
             trace_id="trace_1",
             context=_context(
-                approved_tool_call_hashes=[fingerprint],
-                approved_tool_call_ids=["call_2"],
+                approved_tool_calls=[
+                    ApprovedToolCall(call_id="call_2", arguments_hash=fingerprint)
+                ],
             ),
         )
     )
@@ -406,8 +468,9 @@ def test_tool_agent_requires_approval_for_matching_call_instance_and_fingerprint
             request,
             trace_id="trace_1",
             context=_context(
-                approved_tool_call_hashes=[fingerprint],
-                approved_tool_call_ids=["call_1"],
+                approved_tool_calls=[
+                    ApprovedToolCall(call_id="call_1", arguments_hash=fingerprint)
+                ],
             ),
         )
     )
@@ -415,3 +478,79 @@ def test_tool_agent_requires_approval_for_matching_call_instance_and_fingerprint
     assert denied.status == "denied"
     assert denied.error.code == "tool_approval_required"
     assert allowed.status == "success"
+
+
+def test_tool_execution_context_uses_atomic_approval_pairs_only():
+    assert "approved_tool_calls" in ToolExecutionContext.model_fields
+    assert "approved_tool_call_hashes" not in ToolExecutionContext.model_fields
+    assert "approved_tool_call_ids" not in ToolExecutionContext.model_fields
+
+
+def test_gateway_rejects_cartesian_product_of_legacy_ids_and_hashes():
+    class HighRiskEchoTool(EchoTool):
+        risk_level = "high"
+
+    request = ToolCallRequest(
+        call_id="call_a",
+        tool_name="echo",
+        arguments={"text": "payload_b"},
+        purpose="验证不可拆分授权对",
+        approval_required=True,
+    )
+    registry = ToolRegistry()
+    registry.register(HighRiskEchoTool())
+    other_arguments = request.model_copy(update={"arguments": {"text": "payload_a"}})
+
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            request,
+            trace_id="trace_1",
+            context=_context(
+                approved_tool_calls=[
+                    ApprovedToolCall(
+                        call_id="call_a",
+                        arguments_hash=tool_call_fingerprint(other_arguments),
+                    ),
+                    ApprovedToolCall(
+                        call_id="call_b",
+                        arguments_hash=tool_call_fingerprint(request),
+                    ),
+                ]
+            ),
+        )
+    )
+
+    assert result.status == "denied"
+    assert result.error.code == "tool_approval_required"
+
+
+def test_gateway_requires_non_empty_trusted_call_id_for_high_risk_request():
+    class HighRiskEchoTool(EchoTool):
+        risk_level = "high"
+
+    request = ToolCallRequest(
+        tool_name="echo",
+        arguments={"text": "approved"},
+        purpose="验证高风险调用必须有可信实例 ID",
+        approval_required=True,
+    )
+    registry = ToolRegistry()
+    registry.register(HighRiskEchoTool())
+
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            request,
+            trace_id="trace_1",
+            context=_context(
+                approved_tool_calls=[
+                    ApprovedToolCall(
+                        call_id="call_legacy",
+                        arguments_hash=tool_call_fingerprint(request),
+                    )
+                ]
+            ),
+        )
+    )
+
+    assert result.status == "denied"
+    assert result.error.code == "tool_trusted_call_id_required"

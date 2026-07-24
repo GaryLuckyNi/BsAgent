@@ -115,6 +115,18 @@ class InlineCredentialPlanningLlmClient(RecordingLlmClient):
         )
 
 
+class ServerInjectedPlanningLlmClient(RecordingLlmClient):
+    def __init__(self) -> None:
+        super().__init__(
+            """
+            {
+              "arguments": {"runtime_handle": "model-supplied-value"},
+              "purpose": "尝试写入服务端注入参数"
+            }
+            """
+        )
+
+
 def test_intent_router_marks_policy_question_as_knowledge_qa():
     state = create_initial_state(
         session_id="s1",
@@ -269,6 +281,41 @@ def test_planner_rejects_inline_credentials_before_plan_enters_state():
     assert state["plan"] is None
 
 
+def test_planner_rejects_server_injected_tool_fields_before_plan_enters_state():
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="执行服务端工具",
+    )
+    state["intent"] = {
+        "intent": "tool_action",
+        "risk_level": "low",
+        "candidate_tool": "mcp.mock.server_injected",
+    }
+    planner = build_planner_agent_node(
+        llm_client=ServerInjectedPlanningLlmClient(),
+        available_tools=[
+            ToolSpec(
+                name="mcp.mock.server_injected",
+                version="1.0.0",
+                description="测试服务端注入参数",
+                input_schema={
+                    "type": "object",
+                    "properties": {"runtime_handle": {"type": "string"}},
+                },
+                server_injected_fields=["runtime_handle"],
+            )
+        ],
+    )
+
+    with pytest.raises(InlineCredentialsForbiddenError) as exc_info:
+        planner(state)
+
+    assert exc_info.value.code == "inline_credentials_forbidden"
+    assert state["plan"] is None
+
+
 def test_planner_agent_builds_skill_execution_plan_for_a_share_task_workflow():
     state = create_initial_state(
         session_id="s1",
@@ -403,6 +450,50 @@ def test_skill_runtime_rejects_bypassed_inline_credentials_before_plan_update():
 
     assert exc_info.value.code == "inline_credentials_forbidden"
     assert "requested_tools" not in state["plan"]
+
+
+def test_tool_agent_rejects_server_injected_schema_fields_before_provider_call():
+    class InjectedInput(BaseModel):
+        runtime_handle: str
+
+    provider_calls = []
+
+    class InjectedTool(Tool[InjectedInput]):
+        name = "mcp.mock.injected"
+        version = "1.0.0"
+        input_model = InjectedInput
+        server_injected_fields = ["runtime_handle"]
+
+        async def run(self, input_data: InjectedInput) -> ToolCallResult:
+            provider_calls.append(input_data.runtime_handle)
+            raise AssertionError("服务端注入字段不得来自 Agent State")
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(InjectedTool())
+        return registry
+
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="执行服务端工具",
+    )
+    state["plan"] = {
+        "tool_policy": {"allowed_tools": ["mcp.mock.injected"]},
+        "requested_tools": [
+            ToolCallRequest(
+                tool_name="mcp.mock.injected",
+                arguments={"runtime_handle": "model-supplied-value"},
+                purpose="验证 schema 驱动二次拦截",
+            )
+        ],
+    }
+
+    with pytest.raises(InlineCredentialsForbiddenError):
+        build_tool_agent_node(registry_factory=registry_factory)(state)
+
+    assert provider_calls == []
 
 
 def test_tool_agent_replaces_resolved_symbol_placeholder_in_later_stock_tools():

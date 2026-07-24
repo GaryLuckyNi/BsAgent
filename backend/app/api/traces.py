@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.harness.tracing import TraceArtifact, TraceEvent, get_trace_store
-from app.tools.redaction import redact_sensitive_data
+from app.tools.redaction import redact_sensitive_data, sanitize_trace_error
 
 router = APIRouter(prefix="/api/traces", tags=["traces"])
 
@@ -34,7 +34,7 @@ def _event_to_dict(event: TraceEvent) -> dict[str, Any]:
         "latency_ms": event.latency_ms,
         "input_ref": event.input_ref,
         "output_ref": event.output_ref,
-        "error": event.error,
+        "error": sanitize_trace_error(event.error),
         "metadata": redact_sensitive_data(event.metadata),
     }
 

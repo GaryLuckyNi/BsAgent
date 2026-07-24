@@ -126,3 +126,45 @@ def test_redaction_normalizes_dataclass_and_set_containers():
         "payload": {"client_secret": "***", "labels": ["visible"]},
         "items": [{"database_password": "***"}],
     }
+
+
+def test_redaction_applies_prefix_items_with_composed_local_ref():
+    schema = {
+        "$defs": {
+            "SensitiveValue": {"type": "string", "x-sensitive": True},
+        },
+        "allOf": [
+            {
+                "type": "array",
+                "prefixItems": [
+                    {"type": "string"},
+                    {"$ref": "#/$defs/SensitiveValue"},
+                ],
+                "items": {"type": "string"},
+            }
+        ],
+    }
+
+    assert redact_sensitive_data(["visible", "hidden", "tail"], schema=schema) == [
+        "visible",
+        "***",
+        "tail",
+    ]
+
+
+def test_redaction_fails_closed_for_unresolved_local_ref_and_unknown_security_shape():
+    assert redact_sensitive_data(
+        {"value": "must-not-leak"},
+        schema={"$ref": "#/$defs/Missing"},
+    ) == "***"
+    assert redact_sensitive_data(
+        "must-not-leak",
+        schema={"x-sensitive": {"when": "production"}},
+    ) == "***"
+
+
+def test_redaction_stops_recursive_runtime_objects():
+    value = {"name": "visible"}
+    value["self"] = value
+
+    assert redact_sensitive_data(value) == {"name": "visible", "self": "***"}

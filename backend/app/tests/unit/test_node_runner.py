@@ -72,14 +72,13 @@ def test_node_runner_records_sanitized_input_and_output_artifacts():
     input_artifact = trace_store.get_artifact(event.input_ref)
     output_artifact = trace_store.get_artifact(event.output_ref)
 
-    assert input_artifact.payload["plan"]["objective"] == "回答问题"
+    assert "objective" not in input_artifact.payload["plan"]
     assert input_artifact.payload["plan"]["requested_tools"] == [
         {
+            "call_id": None,
             "tool_name": "mcp.mock.write",
             "tool_version": None,
-            "purpose": "验证 Trace 摘要",
             "approval_required": False,
-            "argument_keys": ["database_password", "value"],
         }
     ]
     assert "plan-secret" not in repr(input_artifact.payload)
@@ -142,7 +141,8 @@ def test_node_runner_records_tool_agent_execution_metadata_for_new_records_only(
     assert metadata["summary"] == "完成 2 次工具调用"
     assert metadata["tool_execution"]["executed_count"] == 1
     assert metadata["tool_execution"]["records"][0]["tool_name"] == "mcp.mock.calculate_sum"
-    assert metadata["tool_execution"]["records"][0]["result_summary"]["total"] == 6
+    assert metadata["tool_execution"]["records"][0]["status"] == "success"
+    assert "result_summary" not in metadata["tool_execution"]["records"][0]
 
 
 def test_node_runner_records_error_and_updates_state():

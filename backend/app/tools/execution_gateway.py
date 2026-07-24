@@ -7,6 +7,7 @@ from jsonschema.exceptions import SchemaError, ValidationError as JsonSchemaVali
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError
+from app.schemas.approvals import ApprovedToolCall
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolRegistry
 
@@ -21,8 +22,7 @@ class ToolExecutionContext(BaseModel):
     skill_name: str | None = None
     skill_allowed_tools: tuple[str, ...] | None = None
     permission_scopes: tuple[str, ...] = Field(default_factory=tuple)
-    approved_tool_call_hashes: tuple[str, ...] = Field(default_factory=tuple)
-    approved_tool_call_ids: tuple[str, ...] = Field(default_factory=tuple)
+    approved_tool_calls: tuple[ApprovedToolCall, ...] = Field(default_factory=tuple)
 
 
 class ToolExecutionGateway:
@@ -180,13 +180,19 @@ def _policy_error(
             "tool_permission_denied",
             f"Permission scope denied for tool: {request.tool_name}",
         )
-    call_hash = tool_call_fingerprint(request)
-    approval_granted = call_hash in context.approved_tool_call_hashes
-    if request.call_id is not None:
-        approval_granted = (
-            approval_granted and request.call_id in context.approved_tool_call_ids
+    approval_required = request.approval_required or tool_risk_level == "high"
+    if approval_required and not request.call_id:
+        return (
+            "tool_trusted_call_id_required",
+            "High-risk tool call requires a trusted call instance ID.",
         )
-    if (request.approval_required or tool_risk_level == "high") and not approval_granted:
+    call_hash = tool_call_fingerprint(request)
+    approval_granted = any(
+        approval.call_id == request.call_id
+        and approval.arguments_hash == call_hash
+        for approval in context.approved_tool_calls
+    )
+    if approval_required and not approval_granted:
         return (
             "tool_approval_required",
             "Tool call requires approval before execution.",

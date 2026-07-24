@@ -17,6 +17,7 @@ class Tool(ABC, Generic[InputT]):
     timeout_ms: int = 30_000
     permission_scope: ClassVar[list[str]] = []
     risk_level: Literal["low", "medium", "high"] = "low"
+    server_injected_fields: ClassVar[list[str]] = []
 
     @property
     def spec(self) -> ToolSpec:
@@ -29,6 +30,7 @@ class Tool(ABC, Generic[InputT]):
             timeout_ms=self.timeout_ms,
             permission_scope=self.permission_scope,
             risk_level=self.risk_level,
+            server_injected_fields=self.server_injected_fields,
         )
 
     @abstractmethod

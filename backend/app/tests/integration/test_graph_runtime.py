@@ -16,6 +16,7 @@ from app.graph.runtime import (
     run_question_answer_graph,
 )
 from app.graph.state import create_initial_state
+from app.schemas.approvals import ReadyToolCall
 from app.harness.tracing import InMemoryTraceStore
 from app.llm.schemas import LlmCompletionResult
 from app.schemas.evidence import EvidenceItem, EvidencePackage
@@ -174,6 +175,7 @@ def test_question_answer_graph_returns_final_response_with_trace():
 
     assert result["final_response"]["trace_id"].startswith("trace_")
     assert "差旅报销需要提交发票和审批单" in result["final_response"]["content"]
+    assert result["ready_tool_call"] is None
     assert result["selected_skill"]["skill_name"] == "policy_qa"
     assert result["selected_skill"]["status"] == "needs_retrieval"
     assert result["plan"]["requested_tools"][0].tool_name == "rag_search"
@@ -450,6 +452,21 @@ def test_question_answer_graph_executes_structured_skill_tools_before_retrieval(
                 ),
             )
         )
+        rag_request = next(
+            item
+            for item in state["plan"]["requested_tools"]
+            if item.tool_name == "rag_search"
+        ).model_copy(update={"call_id": "call_ready_rag"})
+        state["plan"] = {
+            **state["plan"],
+            "requested_tools": [request, rag_request],
+        }
+        state["ready_tool_call"] = ReadyToolCall(
+            call_id=rag_request.call_id,
+            step_index=1,
+            request_fingerprint=tool_call_fingerprint(rag_request),
+            tool_name=rag_request.tool_name,
+        )
         return state
 
     def fake_retriever(state):
@@ -484,6 +501,7 @@ def test_question_answer_graph_executes_structured_skill_tools_before_retrieval(
         tool_agent_node=fake_tool_agent,
         retriever_node=fake_retriever,
         trace_store=trace_store,
+        permission_scopes=["mcp:mock"],
     )
 
     node_names = [event.node_name for event in trace_store.events]
@@ -526,6 +544,7 @@ def test_question_answer_graph_completes_a_share_company_snapshot():
             registry=_a_share_company_snapshot_skill_registry()
         ),
         trace_store=trace_store,
+        permission_scopes=["mcp:mock"],
     )
 
     content = result["final_response"]["content"]
@@ -733,9 +752,10 @@ def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():
 
     assert exc_info.value.code == "approval_payload_mismatch"
     snapshot = graph.get_state(config)
-    assert old_approval["arguments_hash"] not in snapshot.values[
-        "approved_tool_call_hashes"
-    ]
+    assert all(
+        approval.arguments_hash != old_approval["arguments_hash"]
+        for approval in snapshot.values["approved_tool_calls"]
+    )
 
 
 def test_registered_high_risk_tool_is_normalized_into_approval_gate():
@@ -926,7 +946,7 @@ def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
     ]
 
 
-def test_approval_arguments_use_schema_and_normalized_key_redaction():
+def test_graph_rejects_schema_sensitive_arguments_before_approval():
     class NestedInput(BaseModel):
         internal_note: str = Field(json_schema_extra={"writeOnly": True})
         visible_nested: str
@@ -982,28 +1002,20 @@ def test_approval_arguments_use_schema_and_normalized_key_redaction():
         }
         return state
 
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="差旅报销需要什么？",
-        skill_agent_node=secret_skill,
-        tool_agent_node=build_tool_agent_node(registry_factory=registry_factory),
-        checkpointer=InMemorySaver(),
-    )
+    with pytest.raises(AgentGraphExecutionError) as exc_info:
+        run_question_answer_graph(
+            session_id="s1",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            user_message="差旅报销需要什么？",
+            skill_agent_node=secret_skill,
+            tool_agent_node=build_tool_agent_node(registry_factory=registry_factory),
+            checkpointer=InMemorySaver(),
+        )
 
-    interrupt_payload = result["__interrupt__"][0].value
-    staged_request = result["plan"]["requested_tools"][0]
-    assert interrupt_payload["arguments"] == {
-        "approval_code": "***",
-        "signing_material": "***",
-        "nested": {
-            "internal_note": "***",
-            "visible_nested": "safe-nested",
-        },
-        "visible": "safe-value",
-    }
-    assert interrupt_payload["arguments_hash"] == tool_call_fingerprint(staged_request)
+    assert exc_info.value.code == "inline_credentials_forbidden"
+    assert "write-only-value" not in str(exc_info.value)
+    assert "schema-sensitive-value" not in str(exc_info.value)
 
 
 def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
@@ -1354,6 +1366,75 @@ def test_failed_prerequisite_does_not_create_later_approval():
     assert write_calls == []
 
 
+def test_failed_prerequisite_does_not_route_later_rag_request():
+    class LookupInput(BaseModel):
+        value: str
+
+    retriever_calls = []
+
+    class FailingLookupTool(Tool[LookupInput]):
+        name = "mcp.mock.failed_before_rag"
+        version = "1.0.0"
+        input_model = LookupInput
+
+        async def run(self, input_data: LookupInput) -> ToolCallResult:
+            return ToolCallResult(
+                tool_call_id="provider_lookup",
+                tool_name=self.name,
+                status="failed",
+                error={"code": "lookup_failed", "message": "lookup failed"},
+                trace_id="trace_tool",
+            )
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(FailingLookupTool())
+        return registry
+
+    def skill(state):
+        allowed = ["mcp.mock.failed_before_rag", "rag_search"]
+        state["selected_skill"] = {
+            "skill_name": "failed_then_rag",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": allowed,
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": allowed},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="mcp.mock.failed_before_rag",
+                    arguments={"value": "target"},
+                    purpose="失败的前置调用",
+                ),
+                ToolCallRequest(
+                    tool_name="rag_search",
+                    arguments={"query": "不得执行的检索"},
+                    purpose="后续检索",
+                ),
+            ],
+        }
+        return state
+
+    def retriever(state):
+        retriever_calls.append(state["request_id"])
+        return state
+
+    result = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=skill,
+        tool_agent_node=build_tool_agent_node(registry_factory=registry_factory),
+        retriever_node=retriever,
+    )
+
+    assert result["tool_calls"][0].result.status == "failed"
+    assert result.get("ready_tool_call") is None
+    assert retriever_calls == []
+
+
 def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
     class SearchInput(BaseModel):
         query: str
@@ -1507,7 +1588,9 @@ def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
     assert completed["final_response"] is not None
     assert calls == [approval["call_id"]]
     assert completed["pending_tool_approval"] is None
-    assert completed["approved_tool_call_ids"] == [approval["call_id"]]
+    assert [item.call_id for item in completed["approved_tool_calls"]] == [
+        approval["call_id"]
+    ]
     build_graph_checkpointer.cache_clear()
 
 

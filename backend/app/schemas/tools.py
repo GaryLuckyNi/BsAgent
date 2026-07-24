@@ -21,6 +21,7 @@ class ToolSpec(BaseModel):
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     permission_scope: list[str] = Field(default_factory=list)
     risk_level: Literal["low", "medium", "high"] = "low"
+    server_injected_fields: list[str] = Field(default_factory=list)
 
 
 class ToolError(BaseModel):
