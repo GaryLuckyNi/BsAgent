@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
@@ -127,6 +128,76 @@ def test_persist_agent_run_deduplicates_same_trace_event_on_retry():
         saved_events = session.scalars(select(AgentTraceEvent)).all()
 
     assert len(saved_events) == 1
+
+
+def test_persist_agent_run_rejects_trace_event_from_another_trace():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="执行高风险工具",
+    )
+    trace_event = TraceEvent(
+        trace_id="trace_from_another_run",
+        node_name="tool_agent",
+        status="success",
+        latency_ms=2,
+    )
+
+    with Session(engine) as session:
+        with pytest.raises(RuntimeError) as exc_info:
+            persist_agent_run(
+                session=session,
+                state=state,
+                trace_events=[trace_event],
+                status="completed",
+            )
+
+    assert exc_info.value.code == "trace_event_integrity_error"
+
+
+def test_persist_agent_run_rejects_conflicting_existing_trace_event():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="执行高风险工具",
+    )
+    original = TraceEvent(
+        trace_id=state["trace_id"],
+        node_name="tool_agent",
+        status="success",
+        latency_ms=2,
+    )
+    conflicting = TraceEvent(
+        event_id=original.event_id,
+        trace_id=state["trace_id"],
+        node_name="approval_gate",
+        status="error",
+        latency_ms=5,
+        error="changed event",
+    )
+
+    with Session(engine) as session:
+        persist_agent_run(
+            session=session,
+            state=state,
+            trace_events=[original],
+            status="completed",
+        )
+        with pytest.raises(RuntimeError) as exc_info:
+            persist_agent_run(
+                session=session,
+                state=state,
+                trace_events=[conflicting],
+                status="completed",
+            )
+
+    assert exc_info.value.code == "trace_event_integrity_error"
 
 
 def test_persist_agent_run_stores_and_merges_memory_candidates():

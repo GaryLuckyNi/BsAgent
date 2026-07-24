@@ -4,7 +4,7 @@ import re
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
@@ -23,6 +23,7 @@ from app.skills.configured import ConfiguredSkill
 from app.skills.definitions import SkillDefinition, SkillExecutionGuide
 from app.skills.registry import SkillRegistry
 from app.tools.base import Tool
+from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolRegistry
 
 
@@ -802,6 +803,213 @@ def test_registered_high_risk_tool_is_normalized_into_approval_gate():
     assert interrupt_payload["tool_name"] == "mcp.mock.write_value"
     assert execution_calls == []
     assert result["tool_calls"] == []
+
+
+def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
+    class LookupInput(BaseModel):
+        query: str
+
+    class SubmitInput(BaseModel):
+        entity_id: str
+
+    lookup_calls = []
+    submit_calls = []
+
+    class LookupEntityTool(Tool[LookupInput]):
+        name = "mcp.mock.lookup_entity"
+        version = "1.0.0"
+        input_model = LookupInput
+        permission_scope = ["mcp:mock"]
+
+        async def run(self, input_data: LookupInput) -> ToolCallResult:
+            lookup_calls.append(input_data.query)
+            return ToolCallResult(
+                tool_call_id="tool_lookup",
+                tool_name=self.name,
+                status="success",
+                result={"entity_id": "ENTITY-42"},
+                trace_id="trace_tool",
+            )
+
+    class SubmitEntityTool(Tool[SubmitInput]):
+        name = "mcp.mock.submit_entity"
+        version = "1.0.0"
+        input_model = SubmitInput
+        permission_scope = ["mcp:mock"]
+        risk_level = "high"
+
+        async def run(self, input_data: SubmitInput) -> ToolCallResult:
+            submit_calls.append(input_data.entity_id)
+            return ToolCallResult(
+                tool_call_id="tool_submit",
+                tool_name=self.name,
+                status="success",
+                result={"submitted": input_data.entity_id},
+                trace_id="trace_tool",
+            )
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(LookupEntityTool())
+        registry.register(SubmitEntityTool())
+        return registry
+
+    def staged_skill(state):
+        allowed_tools = ["mcp.mock.lookup_entity", "mcp.mock.submit_entity"]
+        state["selected_skill"] = {
+            "skill_name": "staged_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": allowed_tools,
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": allowed_tools},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="mcp.mock.lookup_entity",
+                    tool_version="1.0.0",
+                    arguments={"query": "目标实体"},
+                    purpose="解析实体",
+                ),
+                ToolCallRequest(
+                    tool_name="mcp.mock.submit_entity",
+                    tool_version="1.0.0",
+                    arguments={"entity_id": "$resolved_entity_id"},
+                    purpose="提交高风险实体操作",
+                    approval_required=True,
+                ),
+            ],
+        }
+        return state
+
+    checkpointer = InMemorySaver()
+    tool_agent = build_tool_agent_node(registry_factory=registry_factory)
+    initial = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=staged_skill,
+        tool_agent_node=tool_agent,
+        checkpointer=checkpointer,
+        permission_scopes=["mcp:mock"],
+    )
+
+    interrupt_payload = initial["__interrupt__"][0].value
+    resolved_request = initial["plan"]["requested_tools"][1]
+    assert lookup_calls == ["目标实体"]
+    assert submit_calls == []
+    assert resolved_request.arguments == {"entity_id": "ENTITY-42"}
+    assert resolved_request.approval_required is True
+    assert interrupt_payload["arguments"] == {"entity_id": "ENTITY-42"}
+    assert interrupt_payload["arguments_hash"] == tool_call_fingerprint(resolved_request)
+
+    resumed = resume_question_answer_graph(
+        checkpoint_thread_id=initial["request_id"],
+        approval_decision={
+            "approval_id": interrupt_payload["approval_id"],
+            "arguments_hash": interrupt_payload["arguments_hash"],
+            "decision": "approved",
+        },
+        skill_agent_node=staged_skill,
+        tool_agent_node=tool_agent,
+        checkpointer=checkpointer,
+        permission_scopes=["mcp:mock"],
+    )
+
+    assert lookup_calls == ["目标实体"]
+    assert submit_calls == ["ENTITY-42"]
+    assert [record.result.status for record in resumed["tool_calls"]] == [
+        "success",
+        "success",
+    ]
+
+
+def test_approval_arguments_use_schema_and_normalized_key_redaction():
+    class SecretInput(BaseModel):
+        client_secret: str
+        accessToken: str
+        approval_code: str = Field(json_schema_extra={"writeOnly": True})
+        signing_material: str = Field(json_schema_extra={"x-sensitive": True})
+        nested: dict
+        visible: str
+
+    class SecretTool(Tool[SecretInput]):
+        name = "mcp.mock.secret_write"
+        version = "1.0.0"
+        input_model = SecretInput
+        risk_level = "high"
+
+        async def run(self, input_data: SecretInput) -> ToolCallResult:
+            raise AssertionError("high-risk provider must not run before approval")
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(SecretTool())
+        return registry
+
+    raw_arguments = {
+        "client_secret": "client-secret-value",
+        "accessToken": "access-token-value",
+        "approval_code": "write-only-value",
+        "signing_material": "schema-sensitive-value",
+        "nested": {
+            "refresh-token": "refresh-value",
+            "bearerToken": "bearer-value",
+            "private_key": "private-key-value",
+            "visible_nested": "safe-nested",
+        },
+        "visible": "safe-value",
+    }
+
+    def secret_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "secret_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": ["mcp.mock.secret_write"],
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": ["mcp.mock.secret_write"]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="mcp.mock.secret_write",
+                    tool_version="1.0.0",
+                    arguments=raw_arguments,
+                    purpose="验证审批参数脱敏",
+                )
+            ],
+        }
+        return state
+
+    result = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=secret_skill,
+        tool_agent_node=build_tool_agent_node(registry_factory=registry_factory),
+        checkpointer=InMemorySaver(),
+    )
+
+    interrupt_payload = result["__interrupt__"][0].value
+    staged_request = result["plan"]["requested_tools"][0]
+    assert interrupt_payload["arguments"] == {
+        "client_secret": "***",
+        "accessToken": "***",
+        "approval_code": "***",
+        "signing_material": "***",
+        "nested": {
+            "refresh-token": "***",
+            "bearerToken": "***",
+            "private_key": "***",
+            "visible_nested": "safe-nested",
+        },
+        "visible": "safe-value",
+    }
+    assert interrupt_payload["arguments_hash"] == tool_call_fingerprint(
+        staged_request.model_copy(update={"safe_arguments": None})
+    )
 
 
 def test_question_answer_graph_routes_llm_detected_sum_expression_to_tool_agent():

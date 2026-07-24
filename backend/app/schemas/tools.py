@@ -31,6 +31,7 @@ class ToolCallRequest(BaseModel):
     arguments: dict[str, Any]
     purpose: str
     approval_required: bool = False
+    safe_arguments: dict[str, Any] | None = None
 
 
 class ToolCallResult(BaseModel):

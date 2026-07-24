@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,12 +17,11 @@ from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import AgentGraphExecutionError, resume_question_answer_graph
 from app.harness.tracing import get_trace_store
 from app.llm.factory import maybe_build_llm_client
-from app.memory.factory import build_experience_store
-from app.memory.retriever import ExperienceMemoryRetriever
 from app.security.rbac import RbacProvider, get_rbac_provider
 from app.storage.database import get_db
 from app.storage.models import AgentRun, ApprovalRecord
 from app.storage.repositories import persist_agent_run
+from app.tools.redaction import redact_sensitive_data
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
@@ -30,6 +30,17 @@ class ApprovalDecisionRequest(BaseModel):
     tenant_id: str
     actor_id: str
     decision: Literal["approved", "rejected"]
+
+
+@dataclass(frozen=True)
+class ApprovalResumeSnapshot:
+    approval_id: str
+    run_id: str
+    tenant_id: str
+    request_user_id: str
+    arguments_hash: str
+    checkpoint_thread_id: str
+    claim_token: str
 
 
 @router.get("/pending")
@@ -70,6 +81,12 @@ def decide_approval(
             decision=request.decision,
             decided_by=request.actor_id,
         )
+        approval_payload = _approval_payload(claim.record)
+        resume_snapshot = (
+            _resume_snapshot(claim.record, claim.claim_token)
+            if claim.acquired
+            else None
+        )
         db.commit()
     except ApprovalNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "approval_not_found"}) from exc
@@ -84,34 +101,34 @@ def decide_approval(
             detail={"code": "approval_already_decided", "message": str(exc)},
         ) from exc
 
-    record = claim.record
     if not claim.acquired:
-        persisted_run = db.get(AgentRun, record.run_id)
+        persisted_run = db.get(AgentRun, approval_payload["run_id"])
         return {
-            "approval": _approval_payload(record),
-            "run_id": record.run_id,
+            "approval": approval_payload,
+            "run_id": approval_payload["run_id"],
             "run_status": (
-                persisted_run.status if persisted_run is not None else record.status
+                persisted_run.status
+                if persisted_run is not None
+                else approval_payload["status"]
             ),
             "final_response": None,
         }
 
+    assert resume_snapshot is not None
     request_principal = rbac.resolve_principal(
-        tenant_id=record.tenant_id,
-        user_id=record.request_user_id,
+        tenant_id=resume_snapshot.tenant_id,
+        user_id=resume_snapshot.request_user_id,
     )
     trace_store = get_trace_store()
-    experience_store = build_experience_store(session=db)
     try:
         state = resume_question_answer_graph(
-            checkpoint_thread_id=record.checkpoint_thread_id,
+            checkpoint_thread_id=resume_snapshot.checkpoint_thread_id,
             approval_decision={
-                "approval_id": record.approval_id,
-                "arguments_hash": record.arguments_hash,
+                "approval_id": resume_snapshot.approval_id,
+                "arguments_hash": resume_snapshot.arguments_hash,
                 "decision": request.decision,
             },
             mock_evidence=settings.use_mock_rag,
-            memory_retriever=ExperienceMemoryRetriever(experience_store),
             trace_store=trace_store,
             checkpointer=build_graph_checkpointer(),
             llm_client=maybe_build_llm_client(),
@@ -121,8 +138,7 @@ def decide_approval(
         _record_resume_failure(
             db=db,
             repository=repository,
-            record=record,
-            claim_token=claim.claim_token,
+            snapshot=resume_snapshot,
             error=f"{exc.code}: {exc.message}",
         )
         raise HTTPException(
@@ -133,8 +149,7 @@ def decide_approval(
         _record_resume_failure(
             db=db,
             repository=repository,
-            record=record,
-            claim_token=claim.claim_token,
+            snapshot=resume_snapshot,
             error=f"{type(exc).__name__}: {exc}",
         )
         raise HTTPException(
@@ -160,21 +175,20 @@ def decide_approval(
             state=state,
             trace_events=trace_events,
             status=run_status,
-            experience_store=experience_store,
             commit=False,
         )
         record = repository.complete_resume(
-            approval_id=record.approval_id,
-            tenant_id=record.tenant_id,
-            claim_token=claim.claim_token,
+            approval_id=resume_snapshot.approval_id,
+            tenant_id=resume_snapshot.tenant_id,
+            claim_token=resume_snapshot.claim_token,
         )
+        approval_payload = _approval_payload(record)
         db.commit()
     except Exception as exc:
         _record_resume_failure(
             db=db,
             repository=repository,
-            record=record,
-            claim_token=claim.claim_token,
+            snapshot=resume_snapshot,
             error=f"{type(exc).__name__}: {exc}",
         )
         raise HTTPException(
@@ -185,7 +199,7 @@ def decide_approval(
             },
         ) from exc
     return {
-        "approval": _approval_payload(record),
+        "approval": approval_payload,
         "run_id": state["request_id"],
         "run_status": run_status,
         "final_response": state["final_response"],
@@ -196,15 +210,14 @@ def _record_resume_failure(
     *,
     db: Session,
     repository: ApprovalRepository,
-    record: ApprovalRecord,
-    claim_token: str,
+    snapshot: ApprovalResumeSnapshot,
     error: str,
 ) -> None:
     db.rollback()
     repository.fail_resume(
-        approval_id=record.approval_id,
-        tenant_id=record.tenant_id,
-        claim_token=claim_token,
+        approval_id=snapshot.approval_id,
+        tenant_id=snapshot.tenant_id,
+        claim_token=snapshot.claim_token,
         error=error,
     )
     db.commit()
@@ -236,7 +249,7 @@ def _approval_payload(record: ApprovalRecord) -> dict:
         "tool_name": record.tool_name,
         "tool_version": record.tool_version,
         "arguments_hash": record.arguments_hash,
-        "payload": json.loads(record.payload_json),
+        "payload": redact_sensitive_data(json.loads(record.payload_json)),
         "checkpoint_thread_id": record.checkpoint_thread_id,
         "status": record.status,
         "decision": record.decision,
@@ -250,3 +263,20 @@ def _approval_payload(record: ApprovalRecord) -> dict:
         "created_at": record.created_at.isoformat(),
         "decided_at": record.decided_at.isoformat() if record.decided_at else None,
     }
+
+
+def _resume_snapshot(
+    record: ApprovalRecord,
+    claim_token: str | None,
+) -> ApprovalResumeSnapshot:
+    if claim_token is None:
+        raise ApprovalConflictError("Approval resume claim token is missing.")
+    return ApprovalResumeSnapshot(
+        approval_id=record.approval_id,
+        run_id=record.run_id,
+        tenant_id=record.tenant_id,
+        request_user_id=record.request_user_id,
+        arguments_hash=record.arguments_hash,
+        checkpoint_thread_id=record.checkpoint_thread_id,
+        claim_token=claim_token,
+    )

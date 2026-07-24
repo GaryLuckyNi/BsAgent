@@ -72,11 +72,17 @@ Approval API
 - `payload_json`
 - `checkpoint_thread_id`
 - `status`
+- `decision`
+- `resume_claim_token`
+- `resume_attempts`
+- `last_resume_error`
+- `resume_claimed_by`
+- `resume_claimed_at`
 - `decided_by`
 - `created_at`
 - `decided_at`
 
-状态只允许 `pending -> approved|rejected`。重复提交相同决定返回当前结果；冲突决定返回 `409`。
+状态机为 `pending -> resuming -> approved|rejected|resume_failed`，其中 `resume_failed` 只允许使用相同 `decision` 再次进入 `resuming`。`resuming` 通过数据库 CAS claim token 保证同一时刻只有一个请求可以恢复 Graph；重复提交相同终态决定返回当前结果，冲突决定返回 `409`。首次业务决定的 `decision/decided_by/decided_at` 不可被恢复重试人覆盖，最近恢复执行人和失败证据使用独立字段记录。
 
 ## RBAC
 
@@ -137,4 +143,3 @@ Mock 角色：
 - Graph 首次运行中断、批准恢复、拒绝恢复。
 - RBAC 无权限、跨租户和 approver 成功路径。
 - Session/Approval API 全链路与 Run 状态更新。
-

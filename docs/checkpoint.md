@@ -37,6 +37,8 @@ pending
 
 API 不会在恢复前把审批直接写成终态。它先提交 `resuming` claim，使并发请求只能有一个 claimant；恢复失败时写入 `resume_failed` 并稳定返回 `409`，`AgentRun` 保持 `interrupted`；恢复成功后，`AgentRun` 更新和审批终态在同一次业务数据库提交中完成。未取得 claim 的请求不得调用 Graph resume。
 
+claim 提交前，API 会把恢复所需字段复制到不可变标量快照。提交后不再访问 expired ORM record，也不把请求 Session 绑定的 `ExperienceStore` 带入 Graph；Graph、LLM 和工具执行期间请求 Session 必须处于无事务状态。Graph 返回后才开启短事务写入 Run、Trace 和审批终态，异常先 rollback，再按 claim token 记录 `resume_failed`。
+
 审批决定与恢复尝试使用不同审计字段：`decision/decided_by/decided_at` 在第一次从 `pending` 取得恢复权时写入，此后相同决定重试不得改写；`resume_claimed_by/resume_claimed_at` 表示最近一次恢复 claimant 及其 claim 时间，`resume_attempts` 只增不减。新的 claim 和最终成功都不会清空 `last_resume_error`，因此终态记录仍能说明此前发生过的最近一次恢复失败。当前保存的是最近失败摘要，不是每次尝试的不可变事件流水。
 
 Graph 节点事件使用稳定 `event_id` 写入 `agent_trace_events`。`persist_agent_run` 每次接收当前 TraceStore 中该 trace 的全部可用事件，并依据数据库已有 `event_id` 补写缺失项；数据库唯一键处理并发或重复重试，业务事务回滚后，同一进程内再次收尾不会因内存列表游标前移而丢 Trace，也不会重复插入。
@@ -44,6 +46,10 @@ Graph 节点事件使用稳定 `event_id` 写入 `agent_trace_events`。`persist
 当前 `InMemoryTraceStore` 仍是进程内存储。如果进程在 Graph 已完成、业务事务回滚后退出，尚未入库的 TraceEvent 会随进程丢失；新进程仅靠 checkpoint 完成态不能还原这批事件。本阶段不声称 Trace 可跨进程补偿，生产环境需要持久 Trace sink、Outbox 或外部观测后端承接该窗口。
 
 这里不声称跨 PostgreSQL、LangGraph checkpoint 和外部工具实现分布式 exactly-once。CAS 可以阻止并发审批请求重复 resume，但进程在外部工具已产生副作用、业务终态尚未提交的极端窗口仍需要工具侧幂等键、Outbox/Inbox 或工作流编排器进一步治理。
+
+`20260713_0004` 使用集合式 SQL 为历史 `agent_trace_events` 回填稳定事件 ID，不把全表 ID 载入应用进程，也不逐行更新。该迁移仍会更新大表并创建唯一索引，SQLite 和 PostgreSQL 上都可能持有较长时间的写锁或 DDL 锁；大表生产上线必须安排维护窗口，或按目标 PostgreSQL 版本拆分为分批回填与 `CREATE UNIQUE INDEX CONCURRENTLY` 等在线方案，不能把当前迁移描述为无锁。
+
+当前 CAS 并发测试使用 SQLite 验证“仅一个 claimant”语义；尚未在真实 PostgreSQL 上执行竞争事务集成测试。该验证应随生产 Compose 和 PostgreSQL 测试环境补齐。
 
 ## 当前后端
 
@@ -60,3 +66,5 @@ SQLite 路径由 `BS_AGENT_GRAPH_CHECKPOINT_SQLITE_PATH` 控制，默认是 `./b
 生产环境不要依赖 `memory`。人工审批、节点级恢复和跨进程续跑需要持久化 saver。当前默认 SQLite 已经能提供本地持久化；多实例生产部署时优先接 LangGraph 官方 Postgres saver。
 
 当前 `MockRbacProvider` 只用于本地开发和自动化测试，通过配置中的固定用户映射模拟 analyst、approver 和 admin。它不验证 JWT、签名、issuer、audience 或真实租户归属，生产环境不得启用，也不能把请求体中的 `tenant_id`、`user_id`、角色或 Prompt 内容当作可信授权信息。生产鉴权应由经过验签的身份主体和企业 IAM、OPA 或 Casbin 等权限源提供。
+
+已记录但不在本轮扩展的事项：重复相同终态决定目前只返回 Run 状态，`final_response` 仍为 `None`；审批 API 的 Graph 编排后续可在接口继续增长时提取为独立应用服务。

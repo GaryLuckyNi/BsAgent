@@ -1,9 +1,10 @@
 import httpx
+import pytest
 
 from app.graph.nodes.retriever_agent import build_rag_retriever_node
 from app.graph.state import create_initial_state
 from app.schemas.tools import ToolCallRequest
-from app.tools.rag_search import RagSearchTool
+from app.tools.rag_search import RagSearchError, RagSearchTool
 
 
 def test_rag_retriever_node_maps_search_results_to_evidence_package():
@@ -103,6 +104,68 @@ def test_rag_retriever_node_executes_skill_requested_tool_call():
     assert result["tool_calls"][0].request.purpose == "由 policy_qa skill 请求检索"
     assert result["tool_calls"][0].request.arguments["top_k"] == 3
     assert result["evidence"].query_set == ["差旅报销材料"]
+
+
+def test_rag_retriever_node_enforces_plan_tool_policy():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"contexts": []})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
+    node = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+        permission_scopes=["rag:retrieve"],
+    )
+    state["plan"] = {
+        "tool_policy": {"allowed_tools": ["another_tool"]},
+        "requested_tools": [],
+    }
+
+    with pytest.raises(RagSearchError) as exc_info:
+        node(state)
+
+    assert exc_info.value.code == "tool_not_allowed_by_plan"
+    assert calls == []
+
+
+def test_rag_retriever_node_enforces_selected_skill_tool_policy():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"contexts": []})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
+    node = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+        permission_scopes=["rag:retrieve"],
+    )
+    state["plan"] = {
+        "tool_policy": {"allowed_tools": ["rag_search"]},
+        "requested_tools": [],
+    }
+    state["selected_skill"] = {
+        "skill_name": "restricted_skill",
+        "skill_version": "1.0.0",
+        "status": "ready",
+        "allowed_tools": ["another_tool"],
+    }
+
+    with pytest.raises(RagSearchError) as exc_info:
+        node(state)
+
+    assert exc_info.value.code == "tool_not_allowed_by_skill"
+    assert calls == []
 
 
 def test_rag_retriever_node_marks_empty_results_as_no_coverage():

@@ -18,12 +18,14 @@ def upgrade() -> None:
         sa.column("id", sa.Integer()),
         sa.column("event_id", sa.String(length=64)),
     )
-    for event_id in connection.scalars(sa.select(trace_events.c.id)).all():
-        connection.execute(
-            trace_events.update()
-            .where(trace_events.c.id == event_id)
-            .values(event_id=f"legacy_traceevt_{event_id}")
+    connection.execute(
+        trace_events.update()
+        .where(trace_events.c.event_id.is_(None))
+        .values(
+            event_id=sa.literal("legacy_traceevt_")
+            + sa.cast(trace_events.c.id, sa.String())
         )
+    )
     with op.batch_alter_table("agent_trace_events") as batch_op:
         batch_op.alter_column("event_id", nullable=False)
     op.create_index(

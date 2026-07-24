@@ -7,15 +7,7 @@ from app.graph.state import AgentState
 from app.schemas.approvals import ApprovalRequest, ApprovalStatus
 from app.schemas.tools import ToolCallRequest
 from app.tools.fingerprints import tool_call_fingerprint
-
-
-SENSITIVE_ARGUMENT_KEYS = {
-    "api_key",
-    "authorization",
-    "password",
-    "secret",
-    "token",
-}
+from app.tools.redaction import redact_sensitive_data
 
 
 class ApprovalResumeError(ValueError):
@@ -31,6 +23,9 @@ def approval_gate_node(state: AgentState) -> AgentState:
     for request in _pending_approval_requests(state):
         arguments_hash = tool_call_fingerprint(request)
         approval_id = _approval_id(state["request_id"], arguments_hash)
+        safe_arguments = request.safe_arguments or redact_sensitive_data(
+            request.arguments
+        )
         approval_request = ApprovalRequest(
             approval_id=approval_id,
             run_id=state["request_id"],
@@ -40,7 +35,7 @@ def approval_gate_node(state: AgentState) -> AgentState:
                 "tool_name": request.tool_name,
                 "tool_version": request.tool_version,
                 "arguments_hash": arguments_hash,
-                "arguments": _redact_arguments(request.arguments),
+                "arguments": safe_arguments,
                 "purpose": request.purpose,
             },
         )
@@ -58,7 +53,7 @@ def approval_gate_node(state: AgentState) -> AgentState:
                 "tool_name": request.tool_name,
                 "tool_version": request.tool_version,
                 "arguments_hash": arguments_hash,
-                "arguments": _redact_arguments(request.arguments),
+                "arguments": safe_arguments,
                 "purpose": request.purpose,
                 "checkpoint_thread_id": state["request_id"],
                 "status": "pending",
@@ -135,16 +130,3 @@ def _upsert_approval_request(
         if existing.approval_id != approval_request.approval_id
     ]
     state["approval_requests"].append(approval_request)
-
-
-def _redact_arguments(value: Any, *, key: str | None = None) -> Any:
-    if key is not None and key.lower() in SENSITIVE_ARGUMENT_KEYS:
-        return "***"
-    if isinstance(value, dict):
-        return {
-            item_key: _redact_arguments(item_value, key=item_key)
-            for item_key, item_value in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact_arguments(item) for item in value]
-    return value

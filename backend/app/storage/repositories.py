@@ -13,6 +13,10 @@ from app.memory.store import SqlAlchemyMemoryStore
 from app.storage.models import AgentRun, AgentSession, AgentTraceEvent
 
 
+class TraceEventIntegrityError(RuntimeError):
+    code = "trace_event_integrity_error"
+
+
 def persist_agent_run(
     *,
     session: Session,
@@ -79,42 +83,93 @@ def _persist_trace_events(
     run: AgentRun,
     trace_events: Sequence[TraceEvent],
 ) -> None:
+    for event in trace_events:
+        if event.trace_id != run.trace_id:
+            raise TraceEventIntegrityError(
+                f"Trace event {event.event_id} belongs to {event.trace_id}, "
+                f"but run {run.run_id} belongs to {run.trace_id}."
+            )
+
     event_ids = {event.event_id for event in trace_events}
-    existing_ids = set()
+    existing_events: dict[str, AgentTraceEvent] = {}
     if event_ids:
-        existing_ids.update(
-            session.scalars(
-                select(AgentTraceEvent.event_id).where(
+        existing_events.update(
+            (
+                event.event_id,
+                event,
+            )
+            for event in session.scalars(
+                select(AgentTraceEvent).where(
                     AgentTraceEvent.event_id.in_(event_ids)
                 )
             )
         )
 
     for event in trace_events:
-        if event.event_id in existing_ids:
+        existing_event = existing_events.get(event.event_id)
+        if existing_event is not None:
+            _validate_existing_trace_event(
+                existing_event=existing_event,
+                event=event,
+                run=run,
+            )
             continue
         try:
             with session.begin_nested():
-                session.add(
-                    AgentTraceEvent(
-                        event_id=event.event_id,
-                        trace_id=event.trace_id,
-                        run_id=run.run_id,
-                        node_name=event.node_name,
-                        event_type="node",
-                        status=event.status,
-                        latency_ms=event.latency_ms,
-                        error=event.error,
-                    )
+                stored_event = AgentTraceEvent(
+                    event_id=event.event_id,
+                    trace_id=event.trace_id,
+                    run_id=run.run_id,
+                    node_name=event.node_name,
+                    event_type="node",
+                    status=event.status,
+                    latency_ms=event.latency_ms,
+                    error=event.error,
                 )
+                session.add(stored_event)
                 session.flush()
         except IntegrityError:
             # 另一个事务可能已写入同一稳定事件；唯一键将并发重试收敛为幂等成功。
-            persisted_event_id = session.scalar(
-                select(AgentTraceEvent.event_id).where(
+            stored_event = session.scalar(
+                select(AgentTraceEvent).where(
                     AgentTraceEvent.event_id == event.event_id
                 )
             )
-            if persisted_event_id is None:
+            if stored_event is None:
                 raise
-        existing_ids.add(event.event_id)
+            _validate_existing_trace_event(
+                existing_event=stored_event,
+                event=event,
+                run=run,
+            )
+        existing_events[event.event_id] = stored_event
+
+
+def _validate_existing_trace_event(
+    *,
+    existing_event: AgentTraceEvent,
+    event: TraceEvent,
+    run: AgentRun,
+) -> None:
+    expected = (
+        run.run_id,
+        run.trace_id,
+        event.node_name,
+        "node",
+        event.status,
+        event.latency_ms,
+        event.error,
+    )
+    actual = (
+        existing_event.run_id,
+        existing_event.trace_id,
+        existing_event.node_name,
+        existing_event.event_type,
+        existing_event.status,
+        existing_event.latency_ms,
+        existing_event.error,
+    )
+    if actual != expected:
+        raise TraceEventIntegrityError(
+            f"Trace event {event.event_id} conflicts with its persisted record."
+        )

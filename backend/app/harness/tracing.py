@@ -4,6 +4,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from app.graph.state import AgentState
+from app.tools.redaction import redact_sensitive_data
 
 
 @dataclass
@@ -372,19 +373,4 @@ def _result_summary(result: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def _redact(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: "[REDACTED]" if _is_sensitive_key(str(key)) else _redact(nested)
-            for key, nested in value.items()
-        }
-    if isinstance(value, list):
-        return [_redact(item) for item in value]
-    return value
-
-
-def _is_sensitive_key(key: str) -> bool:
-    lowered = key.lower()
-    return any(
-        marker in lowered
-        for marker in ("api_key", "apikey", "token", "secret", "password", "authorization")
-    )
+    return redact_sensitive_data(value, replacement="[REDACTED]")

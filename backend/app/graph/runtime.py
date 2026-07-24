@@ -99,18 +99,18 @@ def _route_after_planner(state: AgentState) -> str:
     plan = state["plan"] or {}
     if plan.get("execution_mode") == "direct_response":
         return "synthesizer"
-    if _has_pending_tool_approval(state):
-        return "approval_gate"
     if plan.get("execution_mode") == "tool_execution":
         return "tool_agent"
+    if _has_pending_tool_approval(state):
+        return "approval_gate"
     return "skill_agent"
 
 
 def _route_after_skill_agent(state: AgentState) -> str:
-    if _has_pending_tool_approval(state):
-        return "approval_gate"
     if _has_non_rag_tool_requests(state):
         return "tool_agent"
+    if _has_pending_tool_approval(state):
+        return "approval_gate"
     if _has_rag_search_request(state):
         return "retriever_agent"
     return "synthesizer"

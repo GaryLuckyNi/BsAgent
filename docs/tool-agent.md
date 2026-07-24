@@ -136,6 +136,8 @@ SkillOutput.requested_tools
 
 `ToolExecutionContext` 携带 tenant、user、session、Plan 白名单、Skill 白名单、当前权限 scope 和已批准工具调用哈希。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
 
+Tool Agent 与 Retriever 统一通过 `graph/tool_context.py` 构造执行上下文。Plan 白名单只来自 `plan.tool_policy.allowed_tools`；Skill 声明了 `selected_skill.allowed_tools` 时再叠加 Skill 白名单；permission scopes 与 approved hashes 均来自运行状态。Retriever 不得用当前请求名自授权。只有 Plan 未提供 `tool_policy.allowed_tools` 时，Retriever 才使用代码中命名的系统默认检索策略 `DEFAULT_RETRIEVAL_ALLOWED_TOOLS=("rag_search",)`；显式空白名单仍表示拒绝。
+
 `ToolExecutionContext` 是强制安全边界。任何调用省略 context 时，Gateway 都会在工具发现和 Provider 调用前返回 `denied/tool_execution_context_required`；系统不存在自动补充 `permission_scopes=["*"]` 的兼容管理员上下文。
 
 `tools/agent.py` 暂时保留 `ToolAgentExecutor` 兼容导入，主运行链路使用 `ToolExecutionGateway`。
@@ -241,7 +243,7 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 `rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，Tool Agent 会跳过 `rag_search` 请求。Skill 分支中，非 RAG 工具先由 Tool Agent 执行；如果 Skill 同时请求了 `rag_search`，图会在结构化工具执行后进入 Retriever。
 
-依赖证券代码的 stock 工具必须先执行 `stock.resolve_company`。Tool Agent 会把 resolver 返回的 `symbol` 回填到后续请求中的 `$resolved_symbol` 占位符，避免真实 MCP 工具拿占位符执行。
+依赖前置结果的工具使用 `$resolved_<output_key>` 占位协议，例如 resolver 返回 `symbol` 时，后续 `$resolved_symbol` 会被替换。解析逻辑不依赖工具名或证券代码字段：Tool Agent 按请求顺序汇总已成功工具的结构化输出，递归解析下一个请求的占位值，再读取该工具的真实 `ToolSpec.risk_level`。安全前置工具可以先执行；真实参数需要审批时，Tool Agent 把解析后的请求写回 plan 并返回 Graph，由 Approval Gate 中断，绝不调用高风险 Provider。批准恢复后，已成功请求按真实调用指纹跳过，不重复执行前置工具。
 
 `McpGateway` 属于 MCP 控制面，只负责 MCP Server 配置、工具发现和协议标准化。它不负责通用权限与风险决策；这些职责属于 `ToolExecutionGateway`。
 
@@ -260,10 +262,13 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 Tool Agent 在执行前使用本次运行实际 `ToolRegistry` 中的 `ToolSpec` 规范化请求。只要注册端 `risk_level=high`，就会把对应请求提升为 `approval_required=true`；若当前调用哈希尚未批准，Tool Agent 不执行任何 Provider，而是让 Graph 路由到 Approval Gate。该判断不依赖工具名称枚举，也不信任 Skill 将风险标成 medium 或 low。
 
+审批展示参数由 `tools/redaction.py` 集中生成。键名会移除 snake/camel/kebab 分隔差异后匹配 `client_secret`、`refresh_token`、`private_key`、`accessToken`、`bearerToken` 等敏感名称，并递归处理嵌套对象和数组；Tool input schema 中的 `writeOnly=true` 或 `x-sensitive=true` 优先标记敏感字段。Tool Agent 从 Registry 取得 schema 后生成安全展示副本，Approval Gate 和 Approval API 不返回完整秘密。`arguments_hash` 始终基于原始真实参数计算，不使用脱敏值。
+
 当前高风险工具审批链路已经形成闭环：
 
 ```text
 Planner / Skill 生成 ToolCallRequest
+-> Tool Agent 执行安全前置步骤、解析占位参数并按 ToolSpec 提升风险
 -> Approval Gate 计算规范化参数哈希并调用 interrupt()
 -> ApprovalRecord 持久化 pending 业务审批
 -> Approval API 原子记录 approved/rejected
@@ -291,7 +296,10 @@ Planner / Skill 生成 ToolCallRequest
 - 参数 schema 不合法拒绝。
 - 需要审批的调用拒绝执行。
 - Plan/Skill 白名单越权拒绝。
+- Retriever Plan/Skill 白名单越权拒绝，默认 RAG 策略不做请求自授权。
 - 注册端高风险工具强制审批。
+- 多工具前置解析、真实参数审批和恢复后前置工具不重放。
+- 审批参数键名/schema 脱敏，原始参数指纹保持不变。
 - 工具权限 scope 拒绝与放行。
 - 审批参数哈希稳定性及参数变化拒绝。
 - Graph 高风险工具中断、批准恢复、拒绝恢复与旧哈希拒绝。
