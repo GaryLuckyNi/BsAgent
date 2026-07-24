@@ -3,9 +3,16 @@ import re
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from app.graph.nodes.skill_agent import build_skill_agent_node
-from app.graph.runtime import AgentGraphExecutionError, run_question_answer_graph
+from app.graph.runtime import (
+    AgentGraphExecutionError,
+    build_question_answer_graph,
+    resume_question_answer_graph,
+    run_question_answer_graph,
+)
+from app.graph.state import create_initial_state
 from app.harness.tracing import InMemoryTraceStore
 from app.llm.schemas import LlmCompletionResult
 from app.schemas.evidence import EvidenceItem, EvidencePackage
@@ -167,7 +174,7 @@ def test_question_answer_graph_returns_final_response_with_trace():
     assert result["verification"]["verdict"] == "pass"
 
 
-def test_question_answer_graph_writes_checkpoint_by_session_id():
+def test_question_answer_graph_writes_checkpoint_by_run_id():
     checkpointer = InMemorySaver()
 
     result = run_question_answer_graph(
@@ -180,7 +187,7 @@ def test_question_answer_graph_writes_checkpoint_by_session_id():
     )
 
     checkpoint = checkpointer.get_tuple(
-        {"configurable": {"thread_id": result["session_id"]}}
+        {"configurable": {"thread_id": result["request_id"]}}
     )
 
     assert checkpoint is not None
@@ -375,6 +382,7 @@ def test_question_answer_graph_executes_real_mcp_stdio_tool_action():
         user_id="user_1",
         user_message="计算1加到50",
         llm_client=ToolRoutingLlmClient(),
+        permission_scopes=["mcp:mock"],
     )
 
     assert result["plan"]["execution_mode"] == "tool_execution"
@@ -530,8 +538,9 @@ def test_question_answer_graph_completes_a_share_company_snapshot():
     assert "不构成投资建议" in content
 
 
-def test_question_answer_graph_requests_approval_for_high_risk_rag_skill_before_retrieval():
+def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     trace_store = InMemoryTraceStore()
+    checkpointer = InMemorySaver()
 
     def fake_skill_agent(state):
         state["selected_skill"] = {
@@ -560,8 +569,27 @@ def test_question_answer_graph_requests_approval_for_high_risk_rag_skill_before_
         }
         return state
 
-    def failing_retriever(_):
-        raise AssertionError("approval-required rag_search should not execute")
+    retrieval_calls = []
+
+    def fake_retriever(state):
+        retrieval_calls.append(state["request_id"])
+        state["evidence"] = EvidencePackage(
+            evidence_package_id="evp_approved",
+            query_set=[state["user_message"]],
+            coverage="sufficient",
+            items=[
+                EvidenceItem(
+                    evidence_id="ev_approved",
+                    chunk_id="chunk_approved",
+                    document_id="doc_approved",
+                    source_uri="kb://approved",
+                    title="审批后证据",
+                    content="审批通过后才允许执行检索。",
+                    score=0.99,
+                )
+            ],
+        )
+        return state
 
     result = run_question_answer_graph(
         session_id="s1",
@@ -570,15 +598,138 @@ def test_question_answer_graph_requests_approval_for_high_risk_rag_skill_before_
         user_message="差旅报销需要什么？",
         mock_evidence=False,
         skill_agent_node=fake_skill_agent,
-        retriever_node=failing_retriever,
+        retriever_node=fake_retriever,
         trace_store=trace_store,
+        checkpointer=checkpointer,
+        permission_scopes=["rag:retrieve"],
     )
 
     node_names = [event.node_name for event in trace_store.events]
+    interrupt_payload = result["__interrupt__"][0].value
 
-    assert result["verification"]["verdict"] == "needs_approval"
-    assert result["approval_status"].status == "pending"
+    assert interrupt_payload["approval_type"] == "tool_call"
+    assert interrupt_payload["tool_name"] == "rag_search"
+    assert interrupt_payload["checkpoint_thread_id"] == result["request_id"]
+    assert retrieval_calls == []
     assert "retriever_agent" not in node_names
+
+    resumed = resume_question_answer_graph(
+        checkpoint_thread_id=result["request_id"],
+        approval_decision={
+            "approval_id": interrupt_payload["approval_id"],
+            "arguments_hash": interrupt_payload["arguments_hash"],
+            "decision": "approved",
+        },
+        retriever_node=fake_retriever,
+        skill_agent_node=fake_skill_agent,
+        trace_store=trace_store,
+        checkpointer=checkpointer,
+        permission_scopes=["rag:retrieve"],
+    )
+
+    assert retrieval_calls == [result["request_id"]]
+    assert resumed["approval_requests"][0].status == "approved"
+    assert resumed["final_response"]["approval_status"] == "approved"
+    assert resumed["final_response"] is not None
+
+    rejected_checkpointer = InMemorySaver()
+    rejected_initial = run_question_answer_graph(
+        session_id="s2",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+        mock_evidence=False,
+        skill_agent_node=fake_skill_agent,
+        retriever_node=fake_retriever,
+        checkpointer=rejected_checkpointer,
+        permission_scopes=["rag:retrieve"],
+    )
+    rejected_payload = rejected_initial["__interrupt__"][0].value
+    rejected = resume_question_answer_graph(
+        checkpoint_thread_id=rejected_initial["request_id"],
+        approval_decision={
+            "approval_id": rejected_payload["approval_id"],
+            "arguments_hash": rejected_payload["arguments_hash"],
+            "decision": "rejected",
+        },
+        retriever_node=fake_retriever,
+        skill_agent_node=fake_skill_agent,
+        checkpointer=rejected_checkpointer,
+        permission_scopes=["rag:retrieve"],
+    )
+
+    assert retrieval_calls == [result["request_id"]]
+    assert rejected["final_response"]["approval_status"] == "rejected"
+    assert "未执行任何外部操作" in rejected["final_response"]["content"]
+
+
+def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():
+    checkpointer = InMemorySaver()
+
+    def fake_skill_agent(state):
+        state["plan"] = state["plan"] | {
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="rag_search",
+                    tool_version="1.0.0",
+                    arguments={"query": "原始查询"},
+                    purpose="高风险检索",
+                    approval_required=True,
+                )
+            ]
+        }
+        return state
+
+    graph = build_question_answer_graph(
+        retriever_node=lambda state: state,
+        skill_agent_node=fake_skill_agent,
+        checkpointer=checkpointer,
+    )
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="执行高风险检索",
+        permission_scopes=["rag:retrieve"],
+    )
+    config = {"configurable": {"thread_id": state["request_id"]}}
+
+    initial = graph.invoke(state, config=config)
+    old_approval = initial["__interrupt__"][0].value
+    changed_plan = {
+        **initial["plan"],
+        "requested_tools": [
+            ToolCallRequest(
+                tool_name="rag_search",
+                tool_version="1.0.0",
+                arguments={"query": "审批后被修改的查询"},
+                purpose="高风险检索",
+                approval_required=True,
+            )
+        ],
+    }
+    graph.update_state(config, {"plan": changed_plan}, as_node="skill_agent")
+    changed = graph.invoke(None, config=config)
+    changed_approval = changed["__interrupt__"][0].value
+
+    assert changed_approval["arguments_hash"] != old_approval["arguments_hash"]
+    with pytest.raises(AgentGraphExecutionError) as exc_info:
+        graph.invoke(
+            Command(
+                resume={
+                    "approval_id": old_approval["approval_id"],
+                    "arguments_hash": old_approval["arguments_hash"],
+                    "decision": "approved",
+                }
+            ),
+            config=config,
+        )
+
+    assert exc_info.value.code == "approval_payload_mismatch"
+    snapshot = graph.get_state(config)
+    assert old_approval["arguments_hash"] not in snapshot.values[
+        "approved_tool_call_hashes"
+    ]
 
 
 def test_question_answer_graph_routes_llm_detected_sum_expression_to_tool_agent():
@@ -614,6 +765,7 @@ def test_question_answer_graph_routes_llm_detected_sum_expression_to_tool_agent(
         tool_agent_node=fake_tool_agent,
         trace_store=trace_store,
         llm_client=llm_client,
+        permission_scopes=["mcp:mock"],
     )
 
     node_names = [event.node_name for event in trace_store.events]
@@ -646,6 +798,7 @@ def test_question_answer_graph_routes_short_sum_expression_to_tool_agent():
         retriever_node=failing_retriever,
         trace_store=trace_store,
         llm_client=llm_client,
+        permission_scopes=["mcp:mock"],
     )
 
     node_names = [event.node_name for event in trace_store.events]

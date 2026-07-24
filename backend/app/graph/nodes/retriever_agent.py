@@ -10,6 +10,7 @@ from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.tools import ToolCallResult
 from app.schemas.tools import ToolCallRecord, ToolCallRequest
 from app.tools.agent import ToolAgentExecutor
+from app.tools.execution_gateway import ToolExecutionContext
 from app.tools.rag_search import RagSearchError, RagSearchInput, RagSearchTool
 from app.tools.registry import ToolRegistry
 
@@ -33,6 +34,7 @@ def build_rag_retriever_node(
                 request=request,
                 tool=tool,
                 trace_id=state["trace_id"],
+                context=_execution_context(state, request),
             )
         )
         _raise_for_unrecoverable_rag_error(result)
@@ -70,6 +72,7 @@ def build_default_rag_retriever_node(
                     request=request,
                     tool=RagSearchTool(client=client),
                     trace_id=state["trace_id"],
+                    context=_execution_context(state, request),
                 )
 
         result = asyncio.run(run_tool())
@@ -125,10 +128,29 @@ async def _execute_tool_request(
     request: ToolCallRequest,
     tool: RagSearchTool,
     trace_id: str,
+    context: ToolExecutionContext,
 ) -> ToolCallResult:
     registry = ToolRegistry()
     registry.register(tool)
-    return await ToolAgentExecutor(registry=registry).execute(request, trace_id=trace_id)
+    return await ToolAgentExecutor(registry=registry).execute(
+        request,
+        trace_id=trace_id,
+        context=context,
+    )
+
+
+def _execution_context(
+    state: AgentState,
+    request: ToolCallRequest,
+) -> ToolExecutionContext:
+    return ToolExecutionContext(
+        tenant_id=state["tenant_id"],
+        user_id=state["user_id"],
+        session_id=state["session_id"],
+        allowed_tools=[request.tool_name],
+        permission_scopes=state["permission_scopes"],
+        approved_tool_call_hashes=state["approved_tool_call_hashes"],
+    )
 
 
 def _requested_rag_search_call(state: AgentState) -> ToolCallRequest | None:

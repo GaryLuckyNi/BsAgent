@@ -6,16 +6,18 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.approvals.repository import ApprovalRepository
+from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import AgentGraphExecutionError, run_question_answer_graph
 from app.graph.state import AgentState
-from app.core.config import settings
 from app.harness.tracing import get_trace_store
 from app.llm.factory import maybe_build_llm_client
 from app.memory.factory import build_experience_store
 from app.memory.retriever import ExperienceMemoryRetriever
 from app.memory.short_term_factory import build_short_term_memory_store
 from app.memory.short_term_store import ShortTermMemoryStore
+from app.security.rbac import Principal, RbacProvider, get_rbac_provider
 from app.storage.database import get_db
 from app.storage.repositories import persist_agent_run
 
@@ -33,6 +35,8 @@ class SessionMessageResponse(BaseModel):
     trace_id: str
     cited_evidence_ids: list[str]
     approval_status: str
+    run_id: str
+    approval_ids: list[str] = []
 
 
 @router.post("/{session_id}/messages", response_model=SessionMessageResponse)
@@ -57,7 +61,7 @@ def post_message(
             },
         ) from exc
 
-    return SessionMessageResponse(**state["final_response"])
+    return _session_message_response(state)
 
 
 @router.post("/{session_id}/messages/stream")
@@ -84,6 +88,12 @@ def _run_and_persist_agent_message(
 ) -> AgentState:
     trace_store = get_trace_store()
     experience_store = build_experience_store(session=db)
+    rbac = get_rbac_provider()
+    principal = _authorize_agent_invocation(
+        rbac=rbac,
+        tenant_id=request.tenant_id,
+        user_id=request.user_id,
+    )
     state = run_question_answer_graph(
         session_id=session_id,
         tenant_id=request.tenant_id,
@@ -94,19 +104,24 @@ def _run_and_persist_agent_message(
         trace_store=trace_store,
         checkpointer=build_graph_checkpointer(),
         llm_client=maybe_build_llm_client(),
+        permission_scopes=list(rbac.tool_scopes(principal)),
     )
 
+    interrupt_payloads = _interrupt_payloads(state)
+    for payload in interrupt_payloads:
+        ApprovalRepository(db).create_pending_from_interrupt(payload)
     persist_agent_run(
         session=db,
         state=state,
         trace_events=trace_store.list_events(state["trace_id"]),
-        status="completed",
+        status="interrupted" if interrupt_payloads else "completed",
         experience_store=experience_store,
     )
-    _record_short_term_session_event(
-        store=build_short_term_memory_store(),
-        state=state,
-    )
+    if not interrupt_payloads:
+        _record_short_term_session_event(
+            store=build_short_term_memory_store(),
+            state=state,
+        )
     return state
 
 
@@ -134,6 +149,21 @@ def _stream_agent_message(
             },
         )
         yield _sse("done", {"ok": False})
+        return
+
+    interrupt_payloads = _interrupt_payloads(state)
+    if interrupt_payloads:
+        yield _sse(
+            "approval_required",
+            {
+                "run_id": state["request_id"],
+                "trace_id": state["trace_id"],
+                "approval_ids": [
+                    payload["approval_id"] for payload in interrupt_payloads
+                ],
+            },
+        )
+        yield _sse("done", {"ok": True, "pending_approval": True})
         return
 
     final_response = state["final_response"]
@@ -203,3 +233,44 @@ def _record_short_term_session_event(
         )
     except Exception:
         return None
+
+
+def _authorize_agent_invocation(
+    *,
+    rbac: RbacProvider,
+    tenant_id: str,
+    user_id: str,
+) -> Principal:
+    principal = rbac.resolve_principal(tenant_id=tenant_id, user_id=user_id)
+    if not rbac.has_permission(principal, "agent:invoke"):
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "permission_denied", "permission": "agent:invoke"},
+        )
+    return principal
+
+
+def _interrupt_payloads(state: AgentState) -> list[dict]:
+    return [interrupt.value for interrupt in state.get("__interrupt__", [])]
+
+
+def _session_message_response(state: AgentState) -> SessionMessageResponse:
+    interrupt_payloads = _interrupt_payloads(state)
+    if interrupt_payloads:
+        return SessionMessageResponse(
+            content="",
+            trace_id=state["trace_id"],
+            cited_evidence_ids=[],
+            approval_status="pending",
+            run_id=state["request_id"],
+            approval_ids=[payload["approval_id"] for payload in interrupt_payloads],
+        )
+    final_response = state["final_response"] or {}
+    return SessionMessageResponse(
+        content=final_response.get("content", ""),
+        trace_id=final_response.get("trace_id", state["trace_id"]),
+        cited_evidence_ids=final_response.get("cited_evidence_ids", []),
+        approval_status=final_response.get("approval_status", "not_required"),
+        run_id=state["request_id"],
+        approval_ids=[],
+    )

@@ -302,6 +302,9 @@ def _render_direct_response_content(
     llm_client: LlmClient | None,
 ) -> str:
     fallback = _fallback_direct_response_content(state)
+    if response_policy.get("response_type") == "approval_rejected_response":
+        response_policy["llm_rendering"] = "bypassed_for_control_response"
+        return fallback
     if llm_client is None:
         response_policy["llm_rendering"] = "disabled"
         return fallback
@@ -354,6 +357,8 @@ def _fallback_direct_response_content(state: AgentState) -> str:
         return f"我理解这是一个任务流程请求，但当前还没有可执行工作流：{state['user_message']}"
     if response_type == "memory_query_not_ready_response":
         return f"我理解你想查询记忆，但当前记忆查询回答链路还没有完善：{state['user_message']}"
+    if response_type == "approval_rejected_response":
+        return "该工具操作已被审批人拒绝，未执行任何外部操作。"
     if intent.get("intent") == "unsupported":
         return f"当前我还不能可靠处理这个请求：{state['user_message']}"
     return f"我已收到你的请求：{state['user_message']}"

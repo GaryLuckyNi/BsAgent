@@ -1,11 +1,12 @@
 from fastapi.testclient import TestClient
 import pytest
+from langgraph.types import Interrupt
 from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.api import sessions
+from app.api import approvals, sessions
 from app.graph.state import create_initial_state
 from app.graph.runtime import AgentGraphExecutionError
 from app.llm.schemas import LlmCompletionResult
@@ -13,7 +14,13 @@ from app.main import create_app
 from app.schemas.approvals import ApprovalRequest
 from app.schemas.memory import MemoryCandidate
 from app.storage.database import get_db
-from app.storage.models import AgentRun, AgentTraceEvent, Base, ExperienceEntryRecord
+from app.storage.models import (
+    AgentRun,
+    AgentTraceEvent,
+    ApprovalRecord,
+    Base,
+    ExperienceEntryRecord,
+)
 
 
 class PolicyQaLlmClient:
@@ -388,13 +395,226 @@ def test_post_session_message_recalls_experience_memory_for_response(monkeypatch
     assert response.json()["content"].startswith("按你的中文偏好回答：")
 
 
-def test_approval_health_endpoint_returns_empty_pending_list():
-    client = TestClient(create_app())
+def test_approval_endpoint_rejects_analyst_and_allows_mock_approver():
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as session:
+        session.add(
+            ApprovalRecord(
+                approval_id="approval_1",
+                run_id="run_1",
+                session_id="session_1",
+                tenant_id="tenant_1",
+                request_user_id="user_1",
+                approval_type="tool_call",
+                tool_name="mcp.mock.trade.submit",
+                tool_version="1.0.0",
+                arguments_hash="hash_1",
+                payload_json="{}",
+                checkpoint_thread_id="run_1",
+                status="pending",
+            )
+        )
+        session.commit()
+    client = TestClient(app)
 
-    response = client.get("/api/approvals/pending")
+    denied = client.get(
+        "/api/approvals/pending",
+        params={"tenant_id": "tenant_1", "actor_id": "user_1"},
+    )
+    response = client.get(
+        "/api/approvals/pending",
+        params={"tenant_id": "tenant_1", "actor_id": "approver_1"},
+    )
+
+    assert denied.status_code == 403
+    assert response.status_code == 200
+    assert response.json()["items"][0]["approval_id"] == "approval_1"
+
+
+def test_post_session_message_persists_pending_tool_approval(monkeypatch):
+    def interrupted_graph(**kwargs):
+        state = create_initial_state(
+            session_id=kwargs["session_id"],
+            tenant_id=kwargs["tenant_id"],
+            user_id=kwargs["user_id"],
+            user_message=kwargs["user_message"],
+            permission_scopes=kwargs["permission_scopes"],
+        )
+        state["intent"] = {
+            "intent": "tool_action",
+            "risk_level": "high",
+            "needs_clarification": False,
+        }
+        state["__interrupt__"] = [
+            Interrupt(
+                value={
+                    "approval_id": "approval_1",
+                    "approval_type": "tool_call",
+                    "run_id": state["request_id"],
+                    "session_id": state["session_id"],
+                    "tenant_id": state["tenant_id"],
+                    "request_user_id": state["user_id"],
+                    "tool_name": "mcp.mock.trade.submit",
+                    "tool_version": "1.0.0",
+                    "arguments_hash": "hash_1",
+                    "arguments": {"symbol": "600519"},
+                    "purpose": "提交模拟交易",
+                    "checkpoint_thread_id": state["request_id"],
+                    "status": "pending",
+                }
+            )
+        ]
+        return state
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", interrupted_graph)
+    app, testing_session_local = create_test_app_with_database()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/sessions/s1/messages",
+        json={
+            "tenant_id": "tenant_1",
+            "user_id": "user_1",
+            "message": "提交一笔模拟交易",
+        },
+    )
 
     assert response.status_code == 200
-    assert response.json() == {"items": []}
+    assert response.json()["approval_status"] == "pending"
+    assert response.json()["approval_ids"] == ["approval_1"]
+    with testing_session_local() as session:
+        approval = session.get(ApprovalRecord, "approval_1")
+        run = session.scalars(select(AgentRun)).one()
+    assert approval.arguments_hash == "hash_1"
+    assert run.status == "interrupted"
+
+
+def test_mock_approver_decision_resumes_checkpoint_with_request_user_scopes(monkeypatch):
+    captured = {}
+
+    def fake_resume(**kwargs):
+        captured.update(kwargs)
+        state = create_initial_state(
+            session_id="session_1",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            user_message="提交一笔模拟交易",
+            permission_scopes=kwargs["permission_scopes"],
+        )
+        state["request_id"] = "run_1"
+        state["trace_id"] = "trace_1"
+        state["final_response"] = {
+            "content": "模拟交易已提交。",
+            "trace_id": "trace_1",
+            "cited_evidence_ids": [],
+            "approval_status": "approved",
+        }
+        return state
+
+    monkeypatch.setattr(approvals, "resume_question_answer_graph", fake_resume)
+    monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as session:
+        session.add(
+            ApprovalRecord(
+                approval_id="approval_1",
+                run_id="run_1",
+                session_id="session_1",
+                tenant_id="tenant_1",
+                request_user_id="user_1",
+                approval_type="tool_call",
+                tool_name="mcp.mock.trade.submit",
+                tool_version="1.0.0",
+                arguments_hash="hash_1",
+                payload_json="{}",
+                checkpoint_thread_id="run_1",
+                status="pending",
+            )
+        )
+        session.commit()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/approvals/approval_1/decision",
+        json={
+            "tenant_id": "tenant_1",
+            "actor_id": "approver_1",
+            "decision": "approved",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["checkpoint_thread_id"] == "run_1"
+    assert captured["approval_decision"] == {
+        "approval_id": "approval_1",
+        "arguments_hash": "hash_1",
+        "decision": "approved",
+    }
+    assert set(captured["permission_scopes"]) >= {"mcp:mock", "rag:retrieve"}
+    assert response.json()["run_status"] == "completed"
+    with testing_session_local() as session:
+        approval = session.get(ApprovalRecord, "approval_1")
+        run = session.get(AgentRun, "run_1")
+    assert approval.status == "approved"
+    assert approval.decided_by == "approver_1"
+    assert run.status == "completed"
+
+
+def test_repeated_same_approval_decision_does_not_resume_checkpoint_again(monkeypatch):
+    resume_calls = []
+
+    def unexpected_resume(**kwargs):
+        resume_calls.append(kwargs)
+        raise AssertionError("相同审批决定不应重复恢复 checkpoint")
+
+    monkeypatch.setattr(approvals, "resume_question_answer_graph", unexpected_resume)
+    monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as session:
+        session.add(
+            ApprovalRecord(
+                approval_id="approval_1",
+                run_id="run_1",
+                session_id="session_1",
+                tenant_id="tenant_1",
+                request_user_id="user_1",
+                approval_type="tool_call",
+                tool_name="mcp.mock.trade.submit",
+                tool_version="1.0.0",
+                arguments_hash="hash_1",
+                payload_json="{}",
+                checkpoint_thread_id="run_1",
+                status="approved",
+                decided_by="approver_1",
+            )
+        )
+        session.add(
+            AgentRun(
+                run_id="run_1",
+                session_id="session_1",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                trace_id="trace_1",
+                status="completed",
+            )
+        )
+        session.commit()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/approvals/approval_1/decision",
+        json={
+            "tenant_id": "tenant_1",
+            "actor_id": "approver_1",
+            "decision": "approved",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["approval"]["status"] == "approved"
+    assert response.json()["run_status"] == "completed"
+    assert response.json()["final_response"] is None
+    assert resume_calls == []
 
 
 def test_post_session_message_returns_500_for_graph_execution_error(monkeypatch):

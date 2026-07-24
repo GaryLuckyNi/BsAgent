@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.graph.runtime import run_question_answer_graph
 from app.graph.state import create_initial_state
-from app.harness.tracing import InMemoryTraceStore
+from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.schemas.approvals import ApprovalRequest
 from app.schemas.memory import ExperienceCommitPayload
 from app.schemas.memory import MemoryCandidate
@@ -48,6 +48,50 @@ def test_persist_agent_run_stores_session_run_and_trace_events():
     assert saved_run.intent == "knowledge_qa"
     assert saved_run.risk_level == "medium"
     assert {event.node_name for event in saved_events} >= {"intent_router", "final_response"}
+
+
+def test_persist_agent_run_updates_existing_run_when_resumed():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="执行高风险工具",
+    )
+    first_event = TraceEvent(
+        trace_id=state["trace_id"],
+        node_name="approval_gate",
+        status="success",
+        latency_ms=1,
+    )
+    resumed_event = TraceEvent(
+        trace_id=state["trace_id"],
+        node_name="tool_agent",
+        status="success",
+        latency_ms=2,
+    )
+
+    with Session(engine) as session:
+        persist_agent_run(
+            session=session,
+            state=state,
+            trace_events=[first_event],
+            status="interrupted",
+        )
+        persist_agent_run(
+            session=session,
+            state=state,
+            trace_events=[resumed_event],
+            status="completed",
+        )
+
+        saved_runs = session.scalars(select(AgentRun)).all()
+        saved_events = session.scalars(select(AgentTraceEvent)).all()
+
+    assert len(saved_runs) == 1
+    assert saved_runs[0].status == "completed"
+    assert [event.node_name for event in saved_events] == ["approval_gate", "tool_agent"]
 
 
 def test_persist_agent_run_stores_and_merges_memory_candidates():

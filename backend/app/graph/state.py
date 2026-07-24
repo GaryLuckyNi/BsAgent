@@ -115,12 +115,19 @@ class AgentState(TypedDict):
     memory_candidates: list[MemoryCandidate]
     approval_requests: list[ApprovalRequest]
     approval_status: ApprovalStatus | None
+    permission_scopes: list[str]
+    approved_tool_call_hashes: list[str]
     final_response: AgentResponse | None
     errors: list[AgentError]
 
 
 def create_initial_state(
-    *, session_id: str, tenant_id: str, user_id: str, user_message: str
+    *,
+    session_id: str,
+    tenant_id: str,
+    user_id: str,
+    user_message: str,
+    permission_scopes: list[str] | None = None,
 ) -> AgentState:
     return {
         "session_id": session_id,
@@ -144,6 +151,8 @@ def create_initial_state(
         "memory_candidates": [],
         "approval_requests": [],
         "approval_status": None,
+        "permission_scopes": list(permission_scopes or []),
+        "approved_tool_call_hashes": [],
         "final_response": None,
         "errors": [],
     }

@@ -35,6 +35,7 @@ def test_rag_retriever_node_maps_search_results_to_evidence_package():
         tenant_id="t1",
         user_id="u1",
         user_message="差旅报销需要什么？",
+        permission_scopes=["rag:retrieve"],
     )
 
     result = node(state)
@@ -78,6 +79,7 @@ def test_rag_retriever_node_executes_skill_requested_tool_call():
         tenant_id="tenant_1",
         user_id="user_1",
         user_message="差旅报销需要什么？",
+        permission_scopes=["rag:retrieve"],
     )
     state["plan"] = {
         "requested_tools": [
@@ -122,6 +124,7 @@ def test_rag_retriever_node_marks_empty_results_as_no_coverage():
         tenant_id="t1",
         user_id="u1",
         user_message="未知制度",
+        permission_scopes=["rag:retrieve"],
     )
 
     result = node(state)
@@ -143,6 +146,7 @@ def test_rag_retriever_node_maps_rag_404_to_no_coverage():
         tenant_id="t1",
         user_id="u1",
         user_message="未知制度",
+        permission_scopes=["rag:retrieve"],
     )
 
     result = node(state)
@@ -164,6 +168,7 @@ def test_rag_retriever_node_preserves_rag_503_error_metadata():
         tenant_id="t1",
         user_id="u1",
         user_message="未知制度",
+        permission_scopes=["rag:retrieve"],
     )
 
     try:

@@ -6,6 +6,7 @@ from app.schemas.tools import ToolCallRequest, ToolCallResult
 from app.tools.agent import ToolAgentExecutor
 from app.tools.base import Tool
 from app.tools.execution_gateway import ToolExecutionContext
+from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolRegistry
 
 
@@ -39,6 +40,8 @@ def _context(
     *,
     allowed_tools: list[str] | None = None,
     skill_allowed_tools: list[str] | None = None,
+    permission_scopes: list[str] | None = None,
+    approved_tool_call_hashes: list[str] | None = None,
 ) -> ToolExecutionContext:
     return ToolExecutionContext(
         tenant_id="tenant_1",
@@ -47,6 +50,8 @@ def _context(
         allowed_tools=allowed_tools or ["echo"],
         skill_name="test_skill" if skill_allowed_tools is not None else None,
         skill_allowed_tools=skill_allowed_tools,
+        permission_scopes=permission_scopes or [],
+        approved_tool_call_hashes=approved_tool_call_hashes or [],
     )
 
 
@@ -218,3 +223,113 @@ def test_tool_agent_rejects_success_result_that_violates_output_schema():
     assert result.status == "failed"
     assert result.error.code == "tool_output_validation_failed"
     assert result.result is None
+
+
+def test_tool_call_fingerprint_is_stable_for_argument_key_order():
+    left = ToolCallRequest(
+        tool_name="echo",
+        tool_version="1.0.0",
+        arguments={"second": 2, "first": 1},
+        purpose="left",
+    )
+    right = ToolCallRequest(
+        tool_name="echo",
+        tool_version="1.0.0",
+        arguments={"first": 1, "second": 2},
+        purpose="right",
+    )
+
+    assert tool_call_fingerprint(left) == tool_call_fingerprint(right)
+
+
+def test_tool_call_fingerprint_changes_when_arguments_change():
+    left = ToolCallRequest(
+        tool_name="echo",
+        tool_version="1.0.0",
+        arguments={"text": "before"},
+        purpose="test",
+    )
+    right = left.model_copy(update={"arguments": {"text": "after"}})
+
+    assert tool_call_fingerprint(left) != tool_call_fingerprint(right)
+
+
+def test_tool_agent_denies_missing_registered_permission_scope():
+    class ScopedEchoTool(EchoTool):
+        permission_scope = ["mcp:mock"]
+
+    registry = ToolRegistry()
+    registry.register(ScopedEchoTool())
+
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证工具权限",
+            ),
+            trace_id="trace_1",
+            context=_context(permission_scopes=["rag:retrieve"]),
+        )
+    )
+
+    assert result.status == "denied"
+    assert result.error.code == "tool_permission_denied"
+
+
+def test_tool_agent_allows_approved_high_risk_call_with_matching_hash():
+    class HighRiskScopedEchoTool(EchoTool):
+        risk_level = "high"
+        permission_scope = ["mcp:mock"]
+
+    request = ToolCallRequest(
+        tool_name="echo",
+        arguments={"text": "hello"},
+        purpose="验证已批准调用",
+        approval_required=True,
+    )
+    registry = ToolRegistry()
+    registry.register(HighRiskScopedEchoTool())
+
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            request,
+            trace_id="trace_1",
+            context=_context(
+                permission_scopes=["mcp:mock"],
+                approved_tool_call_hashes=[tool_call_fingerprint(request)],
+            ),
+        )
+    )
+
+    assert result.status == "success"
+
+
+def test_tool_agent_denies_approved_hash_when_arguments_are_changed():
+    class HighRiskEchoTool(EchoTool):
+        risk_level = "high"
+
+    approved_request = ToolCallRequest(
+        tool_name="echo",
+        arguments={"text": "approved"},
+        purpose="批准前参数",
+        approval_required=True,
+    )
+    changed_request = approved_request.model_copy(
+        update={"arguments": {"text": "changed"}}
+    )
+    registry = ToolRegistry()
+    registry.register(HighRiskEchoTool())
+
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            changed_request,
+            trace_id="trace_1",
+            context=_context(
+                approved_tool_call_hashes=[tool_call_fingerprint(approved_request)],
+            ),
+        )
+    )
+
+    assert result.status == "denied"
+    assert result.error.code == "tool_approval_required"

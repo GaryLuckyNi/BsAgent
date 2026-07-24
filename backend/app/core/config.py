@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
     llm_timeout_seconds: float = 30.0
+    rbac_backend: Literal["mock"] = "mock"
+    mock_rbac_approver_user_ids: list[str] = ["approver_1"]
+    mock_rbac_admin_user_ids: list[str] = ["admin_1"]
 
     model_config = SettingsConfigDict(env_prefix="BS_AGENT_")
 

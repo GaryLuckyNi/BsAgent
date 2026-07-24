@@ -128,12 +128,13 @@ SkillOutput.requested_tools
 - 版本冲突：返回 `tool_version_mismatch`。
 - 不在 Plan 白名单：返回 `tool_not_allowed_by_plan`。
 - 不在已选择 Skill 白名单：返回 `tool_not_allowed_by_skill`。
+- 缺少工具注册端声明的权限 scope：返回 `tool_permission_denied`。
 - 参数不符合 schema：返回 `tool_argument_validation_failed`。
-- 请求标记需要审批或注册工具风险等级为 `high`：返回 `tool_approval_required`，不执行工具。
+- 请求标记需要审批或注册工具风险等级为 `high`，且当前调用指纹不在已批准集合：返回 `tool_approval_required`，不执行工具。
 - 工具运行异常：返回 `tool_execution_failed`。
 - 成功结果不符合输出 schema：返回 `tool_output_validation_failed`，原始结果不进入 Agent State。
 
-`ToolExecutionContext` 携带 tenant、user、session、Plan 白名单和 Skill 白名单。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
+`ToolExecutionContext` 携带 tenant、user、session、Plan 白名单、Skill 白名单、当前权限 scope 和已批准工具调用哈希。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
 
 `tools/agent.py` 暂时保留 `ToolAgentExecutor` 兼容导入，主运行链路使用 `ToolExecutionGateway`。
 
@@ -255,9 +256,22 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 工具调用是否需要人工审批由上游 Agent、Skill 和服务端工具风险共同决定。`ToolExecutionGateway` 不信任模型降低风险：即使 `ToolCallRequest.approval_required=false`，注册端 `ToolSpec.risk_level=high` 仍会强制返回 `denied`。
 
-当前 Approval Coordinator 只能把状态标记为 `pending`，审批任务持久化、批准/拒绝接口、参数摘要绑定和 checkpoint resume 尚未形成闭环。
+当前高风险工具审批链路已经形成闭环：
 
-`permission_scope` 当前仍是工具目录元数据。租户 RBAC/ABAC 必须在接入可信身份和权限数据源后实现，不能把模型输出或 Prompt 内容当成授权依据。
+```text
+Planner / Skill 生成 ToolCallRequest
+-> Approval Gate 计算规范化参数哈希并调用 interrupt()
+-> ApprovalRecord 持久化 pending 业务审批
+-> Approval API 原子记录 approved/rejected
+-> Command(resume=...) 恢复 Run 级 checkpoint
+-> Approval Gate 重新核对 approval_id 与参数哈希
+-> ToolExecutionGateway 再次核对权限 scope 与已批准哈希
+-> Tool Provider
+```
+
+`ApprovalRecord` 是业务审批审计记录；LangGraph checkpoint 保存节点执行现场并负责中断恢复；`AgentRun` 保存单次运行的业务状态与结果索引。三者相互关联但不可互相替代。相同审批决定是幂等请求，不会重复恢复已经完成的 checkpoint；相反决定返回冲突。工具名称、版本或参数任一变化都会产生不同指纹，旧审批不能授权新调用。
+
+当前 `MockRbacProvider` 仅供本地开发和测试，通过固定配置模拟角色与工具 scope。它不是生产鉴权：不验证 JWT、签名、令牌有效期或真实租户归属，生产环境不得启用。生产权限必须来自经过验证的身份主体及企业 IAM、OPA 或 Casbin 等可信权限源，不能把请求体、模型输出或 Prompt 内容当作授权依据。
 
 ## 测试覆盖
 
@@ -270,6 +284,10 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 - 需要审批的调用拒绝执行。
 - Plan/Skill 白名单越权拒绝。
 - 注册端高风险工具强制审批。
+- 工具权限 scope 拒绝与放行。
+- 审批参数哈希稳定性及参数变化拒绝。
+- Graph 高风险工具中断、批准恢复、拒绝恢复与旧哈希拒绝。
+- 审批记录跨租户不可见、重复决定幂等和冲突决定拒绝。
 - 工具输出 schema 不合法拒绝。
 - MCP Gateway 动态发现委托。
 - function calling JSON 参数解析。

@@ -2,6 +2,8 @@ from collections.abc import Callable
 from copy import deepcopy
 from time import perf_counter
 
+from langgraph.errors import GraphInterrupt
+
 from app.graph.state import AgentState
 from app.harness.tracing import (
     InMemoryTraceStore,
@@ -65,6 +67,8 @@ class NodeRunner:
                 )
             )
             return result
+        except GraphInterrupt:
+            raise
         except Exception as exc:
             state["errors"].append(
                 {

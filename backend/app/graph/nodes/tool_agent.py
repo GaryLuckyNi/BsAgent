@@ -123,4 +123,6 @@ def _execution_context(state: AgentState) -> ToolExecutionContext:
         skill_allowed_tools=(
             selected_skill.get("allowed_tools", []) if selected_skill is not None else None
         ),
+        permission_scopes=state["permission_scopes"],
+        approved_tool_call_hashes=state["approved_tool_call_hashes"],
     )

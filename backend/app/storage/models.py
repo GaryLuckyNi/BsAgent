@@ -79,3 +79,26 @@ class ExperienceEntryRecord(Base):
     sensitivity: Mapped[str] = mapped_column(String(32), default="low")
     source: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+
+
+class ApprovalRecord(Base):
+    __tablename__ = "approval_records"
+
+    approval_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(64), index=True)
+    session_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    request_user_id: Mapped[str] = mapped_column(String(64), index=True)
+    approval_type: Mapped[str] = mapped_column(String(32), index=True)
+    tool_name: Mapped[str] = mapped_column(String(256), index=True)
+    tool_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    arguments_hash: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[str] = mapped_column(Text)
+    checkpoint_thread_id: Mapped[str] = mapped_column(String(128), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
+    decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    decided_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

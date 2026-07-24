@@ -1,9 +1,10 @@
 from collections.abc import Callable
 
 from langgraph.graph import END, StateGraph
-from langgraph.types import Checkpointer
+from langgraph.types import Checkpointer, Command
 
 from app.graph.nodes.analysis_agent import analysis_agent_node
+from app.graph.nodes.approval_gate import approval_gate_node
 from app.graph.nodes.approval_coordinator import approval_coordinator_node
 from app.graph.nodes.intent_router import build_llm_intent_router_node
 from app.graph.nodes.memory_manager import MemoryRetriever
@@ -22,6 +23,7 @@ from app.harness.tracing import InMemoryTraceStore
 from app.llm.factory import LlmClient
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.tools import ToolCallRequest
+from app.tools.fingerprints import tool_call_fingerprint
 
 
 class AgentGraphExecutionError(RuntimeError):
@@ -97,6 +99,8 @@ def _route_after_planner(state: AgentState) -> str:
     plan = state["plan"] or {}
     if plan.get("execution_mode") == "direct_response":
         return "synthesizer"
+    if _has_pending_tool_approval(state):
+        return "approval_gate"
     if plan.get("execution_mode") == "tool_execution":
         return "tool_agent"
     return "skill_agent"
@@ -104,7 +108,7 @@ def _route_after_planner(state: AgentState) -> str:
 
 def _route_after_skill_agent(state: AgentState) -> str:
     if _has_pending_tool_approval(state):
-        return "synthesizer"
+        return "approval_gate"
     if _has_non_rag_tool_requests(state):
         return "tool_agent"
     if _has_rag_search_request(state):
@@ -114,7 +118,17 @@ def _route_after_skill_agent(state: AgentState) -> str:
 
 def _route_after_tool_agent(state: AgentState) -> str:
     if _has_pending_tool_approval(state):
+        return "approval_gate"
+    if _has_rag_search_request(state):
+        return "retriever_agent"
+    return "synthesizer"
+
+
+def _route_after_approval_gate(state: AgentState) -> str:
+    if state["approval_status"] is not None and state["approval_status"].status == "rejected":
         return "synthesizer"
+    if _has_non_rag_tool_requests(state):
+        return "tool_agent"
     if _has_rag_search_request(state):
         return "retriever_agent"
     return "synthesizer"
@@ -129,14 +143,15 @@ def _has_rag_search_request(state: AgentState) -> bool:
 
 
 def _has_pending_tool_approval(state: AgentState) -> bool:
-    approved_or_executed_tool_names = {
-        record.request.tool_name
+    approved_or_executed_hashes = {
+        tool_call_fingerprint(record.request)
         for record in state["tool_calls"]
         if record.result is not None and record.result.status != "denied"
     }
+    approved_or_executed_hashes.update(state["approved_tool_call_hashes"])
     return any(
         request.approval_required
-        and request.tool_name not in approved_or_executed_tool_names
+        and tool_call_fingerprint(request) not in approved_or_executed_hashes
         for request in _requested_tools(state)
     )
 
@@ -203,6 +218,10 @@ def build_question_answer_graph(
         "tool_agent",
         _with_harness("tool_agent", tool_agent_node or default_tool_agent_node, runner),
     )
+    graph.add_node(
+        "approval_gate",
+        _with_harness("approval_gate", approval_gate_node, runner),
+    )
     graph.add_node("retriever_agent", _with_harness("retriever_agent", retriever_node, runner))
     graph.add_node("analysis_agent", _with_harness("analysis_agent", analysis_agent_node, runner))
     graph.add_node(
@@ -229,6 +248,7 @@ def build_question_answer_graph(
         {
             "skill_agent": "skill_agent",
             "tool_agent": "tool_agent",
+            "approval_gate": "approval_gate",
             "synthesizer": "synthesizer",
         },
     )
@@ -237,6 +257,7 @@ def build_question_answer_graph(
         _route_after_skill_agent,
         {
             "tool_agent": "tool_agent",
+            "approval_gate": "approval_gate",
             "retriever_agent": "retriever_agent",
             "synthesizer": "synthesizer",
         },
@@ -245,6 +266,16 @@ def build_question_answer_graph(
         "tool_agent",
         _route_after_tool_agent,
         {
+            "approval_gate": "approval_gate",
+            "retriever_agent": "retriever_agent",
+            "synthesizer": "synthesizer",
+        },
+    )
+    graph.add_conditional_edges(
+        "approval_gate",
+        _route_after_approval_gate,
+        {
+            "tool_agent": "tool_agent",
             "retriever_agent": "retriever_agent",
             "synthesizer": "synthesizer",
         },
@@ -272,12 +303,14 @@ def run_question_answer_graph(
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
+    permission_scopes: list[str] | None = None,
 ) -> AgentState:
     state = create_initial_state(
         session_id=session_id,
         tenant_id=tenant_id,
         user_id=user_id,
         user_message=user_message,
+        permission_scopes=permission_scopes,
     )
     selected_retriever_node = retriever_node
     if selected_retriever_node is None:
@@ -293,5 +326,47 @@ def run_question_answer_graph(
         checkpointer=checkpointer,
         llm_client=llm_client,
     )
-    config = {"configurable": {"thread_id": session_id}} if checkpointer is not None else None
+    config = (
+        {"configurable": {"thread_id": state["request_id"]}}
+        if checkpointer is not None
+        else None
+    )
     return graph.invoke(state, config=config)
+
+
+def resume_question_answer_graph(
+    *,
+    checkpoint_thread_id: str,
+    approval_decision: dict,
+    mock_evidence: bool = True,
+    retriever_node: Callable[[AgentState], AgentState] | None = None,
+    skill_agent_node: Callable[[AgentState], AgentState] | None = None,
+    tool_agent_node: Callable[[AgentState], AgentState] | None = None,
+    memory_retriever: MemoryRetriever | None = None,
+    trace_store: InMemoryTraceStore | None = None,
+    checkpointer: Checkpointer,
+    llm_client: LlmClient | None = None,
+    permission_scopes: list[str] | None = None,
+) -> AgentState:
+    selected_retriever_node = retriever_node
+    if selected_retriever_node is None:
+        selected_retriever_node = (
+            _mock_retrieval_node if mock_evidence else build_default_rag_retriever_node()
+        )
+    graph = build_question_answer_graph(
+        retriever_node=selected_retriever_node,
+        skill_agent_node=skill_agent_node,
+        tool_agent_node=tool_agent_node,
+        memory_retriever=memory_retriever,
+        trace_store=trace_store,
+        checkpointer=checkpointer,
+        llm_client=llm_client,
+    )
+    command = Command(
+        resume=approval_decision,
+        update={"permission_scopes": list(permission_scopes or [])},
+    )
+    return graph.invoke(
+        command,
+        config={"configurable": {"thread_id": checkpoint_thread_id}},
+    )

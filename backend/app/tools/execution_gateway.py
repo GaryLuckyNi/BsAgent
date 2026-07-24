@@ -7,6 +7,7 @@ from jsonschema.exceptions import SchemaError, ValidationError as JsonSchemaVali
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError
+from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolRegistry
 
 
@@ -19,6 +20,8 @@ class ToolExecutionContext(BaseModel):
     allowed_tools: tuple[str, ...] = Field(default_factory=tuple)
     skill_name: str | None = None
     skill_allowed_tools: tuple[str, ...] | None = None
+    permission_scopes: tuple[str, ...] = Field(default_factory=tuple)
+    approved_tool_call_hashes: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class ToolExecutionGateway:
@@ -57,6 +60,7 @@ class ToolExecutionGateway:
         policy_error = _policy_error(
             request=request,
             tool_risk_level=tool.spec.risk_level,
+            required_permission_scopes=tool.spec.permission_scope,
             context=execution_context,
         )
         if policy_error is not None:
@@ -143,6 +147,7 @@ def _policy_error(
     *,
     request: ToolCallRequest,
     tool_risk_level: str,
+    required_permission_scopes: list[str],
     context: ToolExecutionContext,
 ) -> tuple[str, str] | None:
     if not _matches_any(request.tool_name, context.allowed_tools):
@@ -158,7 +163,17 @@ def _policy_error(
             "tool_not_allowed_by_skill",
             f"Tool is not allowed by skill {context.skill_name}: {request.tool_name}",
         )
-    if request.approval_required or tool_risk_level == "high":
+    if not _has_required_scopes(
+        granted=context.permission_scopes,
+        required=required_permission_scopes,
+    ):
+        return (
+            "tool_permission_denied",
+            f"Permission scope denied for tool: {request.tool_name}",
+        )
+    call_hash = tool_call_fingerprint(request)
+    approval_granted = call_hash in context.approved_tool_call_hashes
+    if (request.approval_required or tool_risk_level == "high") and not approval_granted:
         return (
             "tool_approval_required",
             "Tool call requires approval before execution.",
@@ -170,10 +185,15 @@ def _matches_any(tool_name: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatchcase(tool_name, pattern) for pattern in patterns)
 
 
+def _has_required_scopes(*, granted: tuple[str, ...], required: list[str]) -> bool:
+    return not required or "*" in granted or set(required).issubset(granted)
+
+
 def _compatibility_context(request: ToolCallRequest) -> ToolExecutionContext:
     return ToolExecutionContext(
         tenant_id="compatibility",
         user_id="compatibility",
         session_id="compatibility",
         allowed_tools=[request.tool_name],
+        permission_scopes=["*"],
     )
