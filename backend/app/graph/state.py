@@ -77,10 +77,14 @@ class DraftAnswer(TypedDict, total=False):
     assumptions: list[str]
     confidence: float
     response_policy: dict
+    response_type: str
+    business_error_code: str
 
 
 class VerificationResult(TypedDict, total=False):
-    verdict: Literal["pass", "needs_revision", "needs_approval", "fail"]
+    verdict: Literal[
+        "pass", "needs_revision", "needs_approval", "fail", "execution_error"
+    ]
     faithfulness_score: float
     citation_errors: list[str]
     risk_flags: list[str]
@@ -100,6 +104,8 @@ class AgentResponse(TypedDict, total=False):
     trace_id: str
     cited_evidence_ids: list[str]
     approval_status: str
+    response_type: str
+    business_error_code: str
 
 
 class AgentState(TypedDict):
@@ -108,6 +114,7 @@ class AgentState(TypedDict):
     user_id: str
     request_id: str
     trace_id: str
+    tool_catalog_digest: str
     user_message: str
     conversation_history: list[Message]
     intent: IntentDecision | None
@@ -137,6 +144,7 @@ def create_initial_state(
     user_id: str,
     user_message: str,
     permission_scopes: list[str] | None = None,
+    tool_catalog_digest: str = "",
 ) -> AgentState:
     return {
         "session_id": session_id,
@@ -144,6 +152,7 @@ def create_initial_state(
         "user_id": user_id,
         "request_id": f"req_{uuid4().hex}",
         "trace_id": f"trace_{uuid4().hex}",
+        "tool_catalog_digest": tool_catalog_digest,
         "user_message": user_message,
         "conversation_history": [
             Message(role="user", content=user_message),

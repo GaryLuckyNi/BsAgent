@@ -371,6 +371,7 @@ def test_question_answer_graph_executes_mcp_calculate_sum_tool_action():
         user_id="user_1",
         user_message="计算1加到50",
         tool_agent_node=fake_tool_agent,
+        allow_test_tool_agent_override=True,
         trace_store=trace_store,
         llm_client=ToolRoutingLlmClient(),
     )
@@ -503,6 +504,7 @@ def test_question_answer_graph_executes_structured_skill_tools_before_retrieval(
         mock_evidence=False,
         skill_agent_node=fake_skill_agent,
         tool_agent_node=fake_tool_agent,
+        allow_test_tool_agent_override=True,
         retriever_node=fake_retriever,
         trace_store=trace_store,
         permission_scopes=["mcp:mock"],
@@ -830,6 +832,93 @@ def test_registered_high_risk_tool_is_normalized_into_approval_gate():
     assert result["tool_calls"] == []
 
 
+def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
+    class WriteInput(BaseModel):
+        value: str
+
+    class CatalogWriteTool(Tool[WriteInput]):
+        name = "mcp.mock.catalog_write"
+        version = "1.0.0"
+        input_model = WriteInput
+        risk_level = "high"
+        permission_scope = ["mcp:mock"]
+
+        async def run(self, input_data: WriteInput) -> ToolCallResult:
+            return ToolCallResult(
+                tool_call_id="tool_catalog_write",
+                tool_name=self.name,
+                status="success",
+                result={"value": input_data.value},
+                trace_id="trace_tool",
+            )
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(CatalogWriteTool())
+        return registry
+
+    def catalog_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "catalog_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": ["mcp.mock.catalog_write"],
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": ["mcp.mock.catalog_write"]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="mcp.mock.catalog_write",
+                    tool_version="1.0.0",
+                    arguments={"value": "approved-only"},
+                    purpose="验证恢复目录摘要",
+                )
+            ],
+        }
+        return state
+
+    checkpointer = InMemorySaver()
+    initial = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=catalog_skill,
+        checkpointer=checkpointer,
+        permission_scopes=["mcp:mock"],
+        tool_registry_factory=registry_factory,
+    )
+    approval = initial["__interrupt__"][0].value
+
+    def changed_registry_factory():
+        tool = CatalogWriteTool()
+        tool.risk_level = "low"
+        tool.output_schema = {"type": "object", "required": ["changed"]}
+        registry = ToolRegistry()
+        registry.register(tool)
+        return registry
+
+    with pytest.raises(AgentGraphExecutionError) as exc_info:
+        resume_question_answer_graph(
+            checkpoint_thread_id=initial["request_id"],
+            approval_decision={
+                "approval_id": approval["approval_id"],
+                "arguments_hash": approval["arguments_hash"],
+                "decision": "approved",
+            },
+            skill_agent_node=catalog_skill,
+            checkpointer=checkpointer,
+            permission_scopes=["mcp:mock"],
+            tool_registry_factory=changed_registry_factory,
+        )
+
+    assert exc_info.value.code == "tool_catalog_changed"
+    snapshot = checkpointer.get_tuple(
+        {"configurable": {"thread_id": initial["request_id"]}}
+    )
+    assert initial["tool_catalog_digest"] in repr(snapshot.checkpoint)
+
+
 def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
     class LookupInput(BaseModel):
         query: str
@@ -1105,6 +1194,143 @@ def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
 
 
 @pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
+def test_skill_url_query_credentials_never_enter_checkpoint(
+    checkpoint_backend,
+    tmp_path,
+):
+    if checkpoint_backend == "memory":
+        checkpointer = InMemorySaver()
+    else:
+        checkpointer = build_graph_checkpointer(
+            backend="sqlite",
+            sqlite_path=str(tmp_path / "query-credential.sqlite"),
+        )
+
+    def unsafe_skill(state):
+        state["plan"] = (state["plan"] or {}) | {
+            "tool_policy": {"allowed_tools": ["callback"]},
+            "requested_tools": [
+                ToolCallRequest.model_construct(
+                    tool_name="callback",
+                    arguments={
+                        "url": "https://example.com/cb?REFRESH_TOKEN=query-checkpoint-secret"
+                    },
+                    purpose="验证 query 凭证不得入 checkpoint",
+                )
+            ],
+        }
+        return state
+
+    state = create_initial_state(
+        session_id="s_query_guard",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+    )
+    graph = build_question_answer_graph(
+        retriever_node=lambda current: current,
+        skill_agent_node=unsafe_skill,
+        checkpointer=checkpointer,
+        tool_registry_factory=ToolRegistry,
+    )
+    config = {"configurable": {"thread_id": state["request_id"]}}
+
+    with pytest.raises(AgentGraphExecutionError) as exc_info:
+        graph.invoke(state, config=config)
+
+    assert exc_info.value.code == "inline_credentials_forbidden"
+    assert all(
+        "query-checkpoint-secret" not in repr(checkpoint.checkpoint)
+        for checkpoint in checkpointer.list(config)
+    )
+    if checkpoint_backend == "sqlite":
+        checkpointer.conn.close()
+        build_graph_checkpointer.cache_clear()
+
+
+@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
+def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final(
+    checkpoint_backend,
+    tmp_path,
+):
+    class FailureInput(BaseModel):
+        value: str
+
+    class FailingTool(Tool[FailureInput]):
+        name = "mcp.mock.safe_failure"
+        version = "1.0.0"
+        input_model = FailureInput
+
+        async def run(self, input_data: FailureInput) -> ToolCallResult:
+            raise RuntimeError(
+                "Authorization: Basic dXNlcjpwYXNz "
+                "https://api.test/cb?access_token=tool-checkpoint-secret"
+            )
+
+    registry = ToolRegistry()
+    registry.register(FailingTool())
+    if checkpoint_backend == "memory":
+        checkpointer = InMemorySaver()
+    else:
+        checkpointer = build_graph_checkpointer(
+            backend="sqlite",
+            sqlite_path=str(tmp_path / "tool-failure.sqlite"),
+        )
+    trace_store = InMemoryTraceStore()
+
+    def failing_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "failing_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": [FailingTool.name],
+        }
+        state["plan"] = (state["plan"] or {}) | {
+            "tool_policy": {"allowed_tools": [FailingTool.name]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name=FailingTool.name,
+                    tool_version=FailingTool.version,
+                    arguments={"value": "safe"},
+                    purpose="验证异常安全归一化",
+                )
+            ],
+        }
+        return state
+
+    state = create_initial_state(
+        session_id="s_tool_failure",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+    )
+    graph = build_question_answer_graph(
+        retriever_node=lambda current: current,
+        skill_agent_node=failing_skill,
+        checkpointer=checkpointer,
+        trace_store=trace_store,
+        tool_registry_factory=lambda: registry,
+    )
+    config = {"configurable": {"thread_id": state["request_id"]}}
+
+    result = graph.invoke(state, config=config)
+
+    assert result["final_response"]["response_type"] == "execution_error_response"
+    assert result["final_response"]["business_error_code"] == "tool_execution_failed"
+    serialized = repr(result)
+    serialized += repr(trace_store.list_events(result["trace_id"]))
+    serialized += repr(trace_store.list_artifacts(result["trace_id"]))
+    serialized += "".join(
+        repr(checkpoint.checkpoint) for checkpoint in checkpointer.list(config)
+    )
+    assert "tool-checkpoint-secret" not in serialized
+    assert "dXNlcjpwYXNz" not in serialized
+    if checkpoint_backend == "sqlite":
+        checkpointer.conn.close()
+        build_graph_checkpointer.cache_clear()
+
+
+@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
 def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
     checkpoint_backend,
     tmp_path,
@@ -1180,6 +1406,15 @@ def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
     assert result["errors"][-1]["http_status"] == 503
     assert "provider-checkpoint-secret" not in repr(result)
     assert "检索服务暂不可用" in result["final_response"]["content"]
+    assert result["draft_answer"]["claims"] == []
+    assert result["draft_answer"]["cited_evidence_ids"] == []
+    assert result["draft_answer"]["response_type"] == "execution_error_response"
+    assert result["draft_answer"]["business_error_code"] == "rag_index_unavailable"
+    assert result["verification"]["verdict"] == "execution_error"
+    assert result["approval_status"].status == "not_required"
+    assert result["approval_requests"] == []
+    assert result["final_response"]["response_type"] == "execution_error_response"
+    assert result["final_response"]["business_error_code"] == "rag_index_unavailable"
     assert len(provider_calls) == 1
     snapshot = graph.get_state(config)
     assert snapshot.values["ready_tool_call"] is None
@@ -1367,6 +1602,7 @@ def test_identical_tool_steps_execute_as_distinct_call_instances():
             ),
         ],
     }
+    state["tool_catalog_digest"] = registry_factory().catalog_digest
 
     result = build_tool_agent_node(registry_factory=registry_factory)(state)
 
@@ -1534,6 +1770,7 @@ def test_failed_prerequisite_does_not_create_later_approval():
             ),
         ],
     }
+    state["tool_catalog_digest"] = registry_factory().catalog_digest
 
     result = build_tool_agent_node(registry_factory=registry_factory)(state)
 
@@ -1801,6 +2038,7 @@ def test_question_answer_graph_routes_llm_detected_sum_expression_to_tool_agent(
         user_message="你可以帮我算一下1+2+3+4+5+6+7+8+9+10等于多少吗",
         retriever_node=failing_retriever,
         tool_agent_node=fake_tool_agent,
+        allow_test_tool_agent_override=True,
         trace_store=trace_store,
         llm_client=llm_client,
         permission_scopes=["mcp:mock"],

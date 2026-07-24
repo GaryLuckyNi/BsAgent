@@ -129,6 +129,11 @@ def _apply_rag_result(
             for index, chunk in enumerate(chunks)
         ],
     )
+    if (
+        result.status != "success"
+        and (result.error is None or result.error.code != "rag_no_evidence")
+    ):
+        state["evidence"] = None
     state["ready_tool_call"] = None
 
 

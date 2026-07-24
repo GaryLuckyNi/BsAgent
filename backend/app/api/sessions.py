@@ -37,6 +37,8 @@ class SessionMessageResponse(BaseModel):
     approval_status: str
     run_id: str
     approval_ids: list[str] = []
+    response_type: str | None = None
+    business_error_code: str | None = None
 
 
 @router.post("/{session_id}/messages", response_model=SessionMessageResponse)
@@ -273,4 +275,6 @@ def _session_message_response(state: AgentState) -> SessionMessageResponse:
         approval_status=final_response.get("approval_status", "not_required"),
         run_id=state["request_id"],
         approval_ids=[],
+        response_type=final_response.get("response_type"),
+        business_error_code=final_response.get("business_error_code"),
     )

@@ -29,6 +29,17 @@ def _draft_has_evidence_overlap(content: str, evidence_contents: list[str]) -> b
 
 
 def verifier_node(state: AgentState) -> AgentState:
+    draft_answer = state["draft_answer"] or {}
+    if draft_answer.get("response_type") == "execution_error_response":
+        state["verification"] = {
+            "verdict": "execution_error",
+            "faithfulness_score": 0.0,
+            "citation_errors": [],
+            "risk_flags": [],
+            "required_action": "respond_with_execution_error",
+        }
+        return state
+
     pending_approval_tools = _pending_approval_tools(state)
     if pending_approval_tools:
         state["verification"] = {
@@ -53,7 +64,6 @@ def verifier_node(state: AgentState) -> AgentState:
         }
         return state
 
-    draft_answer = state["draft_answer"] or {}
     cited_evidence_ids = draft_answer.get("cited_evidence_ids", [])
     plan_response_policy = (state["plan"] or {}).get("response_policy", {})
     citation_required = plan_response_policy.get("citation_required", True)

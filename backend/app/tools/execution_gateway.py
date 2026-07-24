@@ -12,6 +12,31 @@ from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolRegistry
 
 
+SAFE_TOOL_ERROR_MESSAGES = {
+    "tool_execution_context_required": "缺少工具执行上下文。",
+    "tool_not_found": "工具未注册。",
+    "tool_version_mismatch": "工具版本不匹配。",
+    "tool_not_allowed_by_plan": "工具未被执行计划授权。",
+    "tool_not_allowed_by_skill": "工具未被当前 Skill 授权。",
+    "tool_permission_denied": "工具权限不足。",
+    "tool_trusted_call_id_required": "高风险工具缺少可信调用标识。",
+    "tool_approval_required": "工具调用需要审批。",
+    "tool_argument_validation_failed": "工具参数校验失败。",
+    "tool_execution_failed": "工具执行失败。",
+    "mcp_tool_execution_failed": "MCP 工具执行失败。",
+    "mcp_tool_timeout": "MCP 工具执行超时。",
+    "provider_failed": "工具提供方执行失败。",
+    "tool_output_schema_invalid": "工具输出契约无效。",
+    "tool_output_validation_failed": "工具输出校验失败。",
+    "rag_index_unavailable": "检索服务暂不可用。",
+    "rag_upstream_error": "检索上游服务执行失败。",
+    "rag_http_error": "检索服务请求失败。",
+    "rag_no_evidence": "未检索到相关证据。",
+    "rag_service_timeout": "检索服务响应超时。",
+    "rag_service_unreachable": "检索服务不可达。",
+}
+
+
 class ToolExecutionContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -42,7 +67,6 @@ class ToolExecutionGateway:
                 request,
                 trace_id=trace_id,
                 code="tool_execution_context_required",
-                message="Tool execution context is required.",
                 status="denied",
                 start=start,
             )
@@ -51,25 +75,23 @@ class ToolExecutionGateway:
                 request,
                 trace_id=trace_id,
                 code="tool_not_found",
-                message=f"Tool is not registered: {request.tool_name}",
                 start=start,
             )
 
         try:
-            tool = self._registry.get(request.tool_name, request.tool_version)
-        except ValueError as exc:
+            entry = self._registry.get(request.tool_name, request.tool_version)
+        except ValueError:
             return self._failure(
                 request,
                 trace_id=trace_id,
                 code="tool_version_mismatch",
-                message=str(exc),
                 start=start,
             )
 
         policy_error = _policy_error(
             request=request,
-            tool_risk_level=tool.spec.risk_level,
-            required_permission_scopes=tool.spec.permission_scope,
+            tool_risk_level=entry.spec.risk_level,
+            required_permission_scopes=entry.spec.permission_scope,
             context=context,
         )
         if policy_error is not None:
@@ -77,57 +99,55 @@ class ToolExecutionGateway:
                 request,
                 trace_id=trace_id,
                 code=policy_error[0],
-                message=policy_error[1],
                 status="denied",
                 start=start,
             )
 
         try:
-            input_data = tool.input_model.model_validate(request.arguments)
-        except ValidationError as exc:
+            input_data = entry.executor.input_model.model_validate(request.arguments)
+        except ValidationError:
             return self._failure(
                 request,
                 trace_id=trace_id,
                 code="tool_argument_validation_failed",
-                message=str(exc),
                 start=start,
             )
 
         try:
-            result = await tool.run(input_data)
+            result = await entry.executor.run(input_data)
         except Exception as exc:
-            code = getattr(exc, "code", "tool_execution_failed")
+            code = _safe_error_code(getattr(exc, "code", "tool_execution_failed"))
             return self._failure(
                 request,
                 trace_id=trace_id,
                 code=code,
-                message=str(exc),
                 start=start,
             )
 
         if not result.trace_id:
             result.trace_id = trace_id
-        if result.status != "success" or not tool.spec.output_schema:
+        tool_spec = entry.spec
+        if result.status != "success":
+            return normalize_failed_tool_result(result)
+        if not tool_spec.output_schema:
             return result
 
         try:
-            validator = Draft202012Validator(tool.spec.output_schema)
-            validator.check_schema(tool.spec.output_schema)
+            validator = Draft202012Validator(tool_spec.output_schema)
+            validator.check_schema(tool_spec.output_schema)
             validator.validate(result.result)
-        except SchemaError as exc:
+        except SchemaError:
             return self._failure(
                 request,
                 trace_id=trace_id,
                 code="tool_output_schema_invalid",
-                message=exc.message,
                 start=start,
             )
-        except JsonSchemaValidationError as exc:
+        except JsonSchemaValidationError:
             return self._failure(
                 request,
                 trace_id=trace_id,
                 code="tool_output_validation_failed",
-                message=exc.message,
                 start=start,
             )
         return result
@@ -138,7 +158,6 @@ class ToolExecutionGateway:
         *,
         trace_id: str,
         code: str,
-        message: str,
         start: float,
         status: str = "failed",
     ) -> ToolCallResult:
@@ -146,7 +165,7 @@ class ToolExecutionGateway:
             tool_call_id=f"tool_{uuid4().hex}",
             tool_name=request.tool_name,
             status=status,
-            error=ToolError(code=code, message=message),
+            error=ToolError(code=code, message=_safe_error_message(code)),
             latency_ms=int((perf_counter() - start) * 1000),
             trace_id=trace_id,
         )
@@ -198,6 +217,29 @@ def _policy_error(
             "Tool call requires approval before execution.",
         )
     return None
+
+
+def normalize_failed_tool_result(result: ToolCallResult) -> ToolCallResult:
+    if result.status == "success":
+        return result
+    code = _safe_error_code(result.error.code if result.error else "tool_execution_failed")
+    return result.model_copy(
+        update={
+            "result": None,
+            "error": ToolError(code=code, message=_safe_error_message(code)),
+        }
+    )
+
+
+def _safe_error_code(code: object) -> str:
+    candidate = str(code)
+    if candidate in SAFE_TOOL_ERROR_MESSAGES:
+        return candidate
+    return "tool_execution_failed"
+
+
+def _safe_error_message(code: str) -> str:
+    return SAFE_TOOL_ERROR_MESSAGES.get(code, SAFE_TOOL_ERROR_MESSAGES["tool_execution_failed"])
 
 
 def _matches_any(tool_name: str, patterns: tuple[str, ...]) -> bool:

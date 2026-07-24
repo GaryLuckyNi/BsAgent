@@ -87,7 +87,7 @@ SkillOutput.requested_tools
 -> EvidencePackage
 ```
 
-没有 skill tool request 时，Retriever Agent 保留默认 `rag_search` 请求作为兼容路径。RAG 的 `404` 会映射为无证据结果，其它结构化 RAG 错误会继续抛给 graph harness，由 Session API 返回结构化错误。
+没有 skill tool request 时，Retriever Agent 保留默认 `rag_search` 请求作为兼容路径。RAG 的 `404` 映射为正常无证据结果；已经消费 ready call 的 Provider 失败会提交为 `execution_error_response`，执行前的 ready/call ID/指纹契约错误才由 graph harness 终止运行。
 
 Graph 主链中的 `rag_search` 在进入 Retriever 前也必须先经过 Tool Agent 的可信准备阶段：生成 `call_id`、解析当前参数、读取运行时 ToolSpec 并按真实风险决定是否审批。Tool Agent 不调用 RAG Provider，实际检索仍由 Retriever 执行；这样既保留 EvidencePackage 转换职责，也不会让高风险 RAG 绕过 Approval Gate。
 
@@ -115,12 +115,13 @@ Graph 主链中的 `rag_search` 在进入 Retriever 前也必须先经过 Tool A
 
 ### `tools/registry.py`
 
-`ToolRegistry` 是工具发现层，负责：
+`ToolRegistry` 是工具发现层。注册时会把 `ToolSpec` 深拷贝并规范化序列化到不可变 `RegistryEntry`，executor 只保留为运行引用；因此构图后修改 executor 的风险、权限或 schema 不会改变安全策略。`snapshot()` 返回只读目录，负责：
 
 - 注册 Tool。
 - 按名称获取 Tool。
 - 校验请求版本和实际工具版本是否一致。
 - 输出当前可用工具的 `ToolSpec` 列表。
+- 计算覆盖工具名、版本、风险、权限、schema 和服务端注入字段的稳定 `tool_catalog_digest`。
 
 ### `tools/execution_gateway.py`
 
@@ -135,6 +136,7 @@ Graph 主链中的 `rag_search` 在进入 Retriever 前也必须先经过 Tool A
 - 请求标记需要审批或注册工具风险等级为 `high`，且当前 `call_id + 参数指纹` 未同时获批：返回 `tool_approval_required`，不执行工具。
 - 工具运行异常：返回 `tool_execution_failed`。
 - 成功结果不符合输出 schema：返回 `tool_output_validation_failed`，原始结果不进入 Agent State。
+- Provider 异常、Pydantic 参数错误、JSON Schema 错误和 Provider 自带 failed result 都转换为稳定 error code 与白名单安全消息；原始 `str(exc)`、输入值和失败结果正文不会进入 State、Trace 或 checkpoint，Tool Agent 写 State 前还会二次归一化。
 
 `ToolExecutionContext` 携带 tenant、user、session、Plan 白名单、Skill 白名单、当前权限 scope、已批准调用实例 ID 和参数哈希。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
 
@@ -245,7 +247,7 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 `rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，但 Tool Agent 会先完成可信规范化、风险提升和审批准备，不会直接调用 RAG Provider。只有当前 RAG 实例完成 `call_id`、真实参数、ToolSpec 风险和审批校验后，Tool Agent 才写入 `ready_tool_call`；Runtime 不扫描计划中的工具名，Retriever 也只消费该 ready 实例并在完成后清理。前置失败不会误路由 Retriever，高风险 RAG 未获批也不会 ready。
 
-RAG Provider 返回 502/503、超时、不可达或 Gateway 策略拒绝时，Retriever 不再抛异常使旧 checkpoint 保留 ready。它会正常返回节点状态：记录失败 `ToolCallRecord`、清理 ready、追加带安全 message 的结构化错误，再由 Synthesizer 生成“检索服务暂不可用/请求未通过策略”的最终回答。Session API 对这类已归一化执行失败返回 HTTP 200，业务错误码保留在 Run State/Trace；`rag_call_not_ready`、call ID 或指纹不匹配仍按执行契约错误终止 Graph。
+RAG Provider 返回 502/503、超时、不可达或 Gateway 策略拒绝时，Retriever 不再抛异常使旧 checkpoint 保留 ready。它会记录失败 `ToolCallRecord`、清理 ready、追加安全结构化错误，再由 Synthesizer 生成 `execution_error_response`。该响应没有 claims/evidence，携带稳定 `business_error_code`，Verifier 不执行 citation 规则，ApprovalCoordinator 设置 `not_required`，也不会创建 `ApprovalRecord`。Session API 保留 HTTP 200，客户端必须检查 `response_type/business_error_code`。`rag_no_evidence` 仍是正常无覆盖结果；`rag_call_not_ready`、call ID 或指纹不匹配仍按执行契约错误终止 Graph。
 
 依赖前置结果的工具使用 `$resolved_<output_key>` 占位协议，例如 resolver 返回 `symbol` 时，后续 `$resolved_symbol` 会被替换。解析逻辑不依赖工具名或证券代码字段：Tool Agent 按请求顺序汇总已成功工具的结构化输出，递归解析当前请求的占位值，再读取该工具的真实 `ToolSpec.risk_level`。安全前置工具可以先执行；真实参数需要审批时，Tool Agent 把解析后的请求写回 plan，并生成唯一 `pending_tool_approval` 后返回 Graph，绝不提前审批后续占位请求或调用高风险 Provider。批准恢复后，已成功请求按可信 `call_id` 跳过，不重复执行前置工具；指纹只用于审批防篡改，不用于合并两个有意的相同调用。
 
@@ -268,7 +270,7 @@ Tool Agent 在执行前使用本次运行实际 `ToolRegistry` 中的 `ToolSpec`
 
 审批展示参数由 `tools/redaction.py` 集中生成，`ToolCallRequest` 不包含可由模型伪造的 `safe_arguments`。脱敏器对 snake/camel/kebab 键名分词后匹配敏感词组，并递归处理 Pydantic、dataclass、数组、集合和循环对象；JSON Schema 支持 `properties/items/prefixItems/additionalProperties/patternProperties/allOf/anyOf/oneOf`、本地 `$defs/definitions` 引用和循环引用保护。任一分支的 `writeOnly=true` 或 `x-sensitive=true` 都会整值脱敏，无法解析的本地安全引用或未知安全结构按整值 `***` fail-closed。Tool Agent 从 Registry 取得 schema 后生成安全展示副本并绑定 `call_id + fingerprint`，Approval Gate 和 Approval API 不返回完整秘密。`arguments_hash` 始终基于原始真实参数计算，不使用脱敏值。
 
-连接凭证不得作为模型、Skill 或 MCP 参数进入 Agent State/checkpoint。通用 DTO 边界使用 URL/query/header 结构识别连接字段、credential 容器、URI userinfo、query token、Basic/Bearer、Proxy-Authorization、冒号赋值和 JWT。Graph 启动时冻结一次 ToolRegistry 快照，Planner、Skill 出站 guard 与 Tool Agent 共享该快照；默认或自定义 Skill 的请求在节点返回 checkpoint 前都必须通过真实 ToolSpec 的 `server_injected_fields/writeOnly/x-sensitive` 校验，失败会恢复调用前 State。连接凭证只能由 Gateway/Adapter 服务端注入，不支持明文或假 `SecretRef`。当前没有业务 token 字段例外，checkpoint 也未加密，普通敏感业务参数仍需要加密 saver、字段加密和保留策略。
+连接凭证不得作为模型、Skill 或 MCP 参数进入 Agent State/checkpoint。URL query key 复用统一敏感分词规则，支持 URL 编码、大小写和重复参数，同时保留普通 URL、`token_count`、token economics 与 A 股 symbol 的反误报边界。Graph 启动时冻结一次 ToolRegistry 快照，Planner、Skill 出站 guard、Tool Agent 和 Gateway 共享该快照；目录安全契约摘要写入 State/checkpoint，Tool Agent、Approval Gate 和恢复入口发现变化时以 `tool_catalog_changed` fail closed。默认或自定义 Skill 的请求在节点返回 checkpoint 前都必须通过真实 ToolSpec 的 `server_injected_fields/writeOnly/x-sensitive` 校验，失败会恢复调用前 State。连接凭证只能由 Gateway/Adapter 服务端注入，不支持明文或假 `SecretRef`。当前 checkpoint 未加密，普通敏感业务参数仍需要加密 saver、字段加密和保留策略。
 
 当前高风险工具审批链路已经形成闭环：
 

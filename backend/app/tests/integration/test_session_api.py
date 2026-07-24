@@ -14,7 +14,7 @@ from app.graph.runtime import AgentGraphExecutionError
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.llm.schemas import LlmCompletionResult
 from app.main import create_app
-from app.schemas.approvals import ApprovalRequest
+from app.schemas.approvals import ApprovalRequest, ApprovalStatus
 from app.schemas.memory import MemoryCandidate
 from app.storage.database import get_db
 from app.storage.models import (
@@ -1173,6 +1173,60 @@ def test_post_session_message_uses_graph_error_http_status(monkeypatch):
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "rag_index_unavailable"
+
+
+def test_execution_error_response_is_completed_without_approval_record(monkeypatch):
+    def execution_error_graph(**kwargs):
+        state = create_initial_state(
+            session_id=kwargs["session_id"],
+            tenant_id=kwargs["tenant_id"],
+            user_id=kwargs["user_id"],
+            user_message=kwargs["user_message"],
+        )
+        state["draft_answer"] = {
+            "content": "检索服务暂不可用。",
+            "claims": [],
+            "cited_evidence_ids": [],
+            "response_type": "execution_error_response",
+            "business_error_code": "rag_index_unavailable",
+        }
+        state["verification"] = {
+            "verdict": "execution_error",
+            "required_action": "respond_with_execution_error",
+        }
+        state["approval_status"] = ApprovalStatus(
+            required=False,
+            status="not_required",
+        )
+        state["final_response"] = {
+            "content": "检索服务暂不可用。",
+            "trace_id": state["trace_id"],
+            "cited_evidence_ids": [],
+            "approval_status": "not_required",
+            "response_type": "execution_error_response",
+            "business_error_code": "rag_index_unavailable",
+        }
+        return state
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", execution_error_graph)
+    app, testing_session_local = create_test_app_with_database()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/sessions/s1/messages",
+        json={
+            "tenant_id": "t1",
+            "user_id": "u1",
+            "message": "查询投研资料",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["response_type"] == "execution_error_response"
+    assert response.json()["business_error_code"] == "rag_index_unavailable"
+    assert response.json()["approval_status"] == "not_required"
+    with testing_session_local() as session:
+        assert session.scalars(select(ApprovalRecord)).all() == []
 
 
 def test_post_session_message_stream_returns_answer_deltas_and_final(monkeypatch):

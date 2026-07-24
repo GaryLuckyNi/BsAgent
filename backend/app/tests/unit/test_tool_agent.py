@@ -1,9 +1,9 @@
 import asyncio
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
-from app.schemas.tools import ToolCallRequest, ToolCallResult
+from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError
 from app.schemas.approvals import ApprovedToolCall
 from app.tools.agent import ToolAgentExecutor
 from app.tools.base import Tool
@@ -249,6 +249,82 @@ def test_tool_agent_rejects_success_result_that_violates_output_schema():
     assert result.result is None
 
 
+@pytest.mark.parametrize(
+    "failure_kind",
+    ["argument_validation", "provider_exception", "provider_failed_result", "output_validation"],
+)
+def test_gateway_failure_results_never_expose_raw_diagnostics(failure_kind):
+    secret = "database_password=super-secret"
+
+    class SafeInput(BaseModel):
+        text: str
+
+        @field_validator("text")
+        @classmethod
+        def reject_unsafe_value(cls, value):
+            if failure_kind == "argument_validation":
+                raise ValueError(f"invalid input {secret}")
+            return value
+
+    class FailingTool(Tool[SafeInput]):
+        name = "safe_failure"
+        version = "1.0.0"
+        input_model = SafeInput
+        output_schema = {
+            "type": "object",
+            "properties": {"value": {"type": "integer"}},
+            "required": ["value"],
+        }
+
+        async def run(self, input_data: SafeInput) -> ToolCallResult:
+            if failure_kind == "provider_exception":
+                raise RuntimeError(f"Authorization: Basic dXNlcjpwYXNz {secret}")
+            if failure_kind == "provider_failed_result":
+                return ToolCallResult(
+                    tool_call_id="tool_failed",
+                    tool_name=self.name,
+                    status="failed",
+                    error=ToolError(
+                        code="provider_failed",
+                        message="https://api.test/cb?access_token=query-secret",
+                    ),
+                    trace_id="trace_provider",
+                )
+            return ToolCallResult(
+                tool_call_id="tool_output",
+                tool_name=self.name,
+                status="success",
+                result={"value": secret},
+                trace_id="trace_provider",
+            )
+
+    registry = ToolRegistry()
+    registry.register(FailingTool())
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="safe_failure",
+                arguments={"text": "safe-input"},
+                purpose="验证 Gateway 安全失败消息",
+            ),
+            trace_id="trace_1",
+            context=ToolExecutionContext(
+                tenant_id="tenant_1",
+                user_id="user_1",
+                session_id="session_1",
+                allowed_tools=("safe_failure",),
+            ),
+        )
+    )
+
+    serialized = result.model_dump_json()
+    assert result.status == "failed"
+    assert result.result is None
+    assert "super-secret" not in serialized
+    assert "dXNlcjpwYXNz" not in serialized
+    assert "query-secret" not in serialized
+
+
 def test_tool_call_fingerprint_is_stable_for_argument_key_order():
     left = ToolCallRequest(
         tool_name="echo",
@@ -363,6 +439,48 @@ def test_tool_call_request_allows_normal_url_and_business_token_text():
     )
 
     assert request.arguments["token_count"] == 128
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "refresh_token=refresh-secret",
+        "PASSWORD=db-secret",
+        "Authorization=Basic%20dXNlcjpwYXNz",
+        "credential=runtime-secret",
+        "credentials=runtime-secret",
+        "se%63ret=url-encoded-secret",
+        "page=1&token=first&token=second",
+    ],
+)
+def test_tool_call_request_rejects_sensitive_url_query_keys(query):
+    with pytest.raises(ValidationError) as exc_info:
+        ToolCallRequest(
+            tool_name="echo",
+            arguments={"endpoint": f"https://example.com/callback?{query}"},
+            purpose="验证 URL query 凭证键复用统一规则",
+        )
+
+    assert exc_info.value.errors()[0]["type"] == "inline_credentials_forbidden"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "token_count=128",
+        "topic=token%20economics",
+        "symbol=600519.SH",
+        "status=authorized",
+    ],
+)
+def test_tool_call_request_allows_noncredential_url_query_keys(query):
+    request = ToolCallRequest(
+        tool_name="echo",
+        arguments={"endpoint": f"https://example.com/callback?{query}"},
+        purpose="验证 URL query 反误报",
+    )
+
+    assert request.arguments["endpoint"].endswith(query)
 
 
 def test_tool_agent_denies_missing_registered_permission_scope():

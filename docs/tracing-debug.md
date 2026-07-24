@@ -50,7 +50,7 @@ Trace 首先使用固定字段白名单，不保存用户消息、工具参数/�
 - metadata 仅保留 `error_code`、`exception_type` 和服务端白名单 message。
 - Store/API 防御性清洗 URI userinfo/query、Authorization Basic/Bearer、Proxy-Authorization、JWT、冒号/等号凭证赋值，并截断异常字段。
 
-RAG Provider 的 502/503 等已归一化失败会作为成功提交的节点状态出现：Retriever 事件本身为 success，工具记录和 State error 带业务错误码，最终返回安全错误回答。只有 ready/call ID/指纹等执行契约错误才记录失败节点事件。
+RAG Provider 的 502/503 等已归一化失败会作为成功提交的节点状态出现：Retriever 事件本身为 success，工具记录和 State error 带业务错误码，最终返回 `execution_error_response`。该终态通过 `response_type/business_error_code` 暴露给调用方，不走 citation 校验或业务审批；Trace 仍只保存错误码与正文长度，不保存 Provider 原始诊断。只有 ready/call ID/指纹等执行契约错误才记录失败节点事件。
 
 当前仍是进程内存储，服务重启后会丢失。后续可接数据库或对象存储。
 

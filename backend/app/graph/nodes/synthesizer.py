@@ -50,6 +50,8 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
                 "assumptions": [],
                 "confidence": 0.0,
                 "response_policy": response_policy,
+                "response_type": "execution_error_response",
+                "business_error_code": handled_error["code"],
             }
             return state
 

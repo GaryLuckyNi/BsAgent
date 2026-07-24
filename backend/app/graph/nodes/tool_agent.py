@@ -7,7 +7,11 @@ from app.graph.tool_context import build_tool_execution_context
 from app.schemas.approvals import PendingToolApproval, ReadyToolCall
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolSpec
 from app.tools.default_registry import get_default_tool_registry
-from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
+from app.tools.execution_gateway import (
+    ToolExecutionContext,
+    ToolExecutionGateway,
+    normalize_failed_tool_result,
+)
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchInput, RagSearchTool
 from app.tools.redaction import (
@@ -16,6 +20,7 @@ from app.tools.redaction import (
     reject_server_injected_arguments,
 )
 from app.tools.registry import ToolRegistry
+from app.tools.registry import ToolCatalogChangedError
 
 
 RESOLVED_VALUE_PREFIX = "$resolved_"
@@ -31,6 +36,7 @@ def build_tool_agent_node(
             if registry_factory is not None
             else get_default_tool_registry()
         )
+        _validate_tool_catalog(state, registry)
         requests = _requested_tool_calls(state)
         if not requests:
             state["pending_tool_approval"] = None
@@ -62,12 +68,45 @@ def build_tool_agent_node(
             "requested_tools": _merge_staged_requests(staged_requests),
         }
         state["tool_calls"].extend(new_records)
+        _record_tool_execution_error(state, new_records)
         state["pending_tool_approval"] = pending_approval
         state["ready_tool_call"] = ready_call
         return state
 
     node.tool_registry_factory = registry_factory or get_default_tool_registry
+    node.is_trusted_tool_agent = True
     return node
+
+
+def _record_tool_execution_error(
+    state: AgentState,
+    records: list[ToolCallRecord],
+) -> None:
+    failed = next(
+        (
+            record.result
+            for record in reversed(records)
+            if record.result is not None and record.result.status != "success"
+        ),
+        None,
+    )
+    if failed is None or failed.error is None:
+        return
+    state["errors"].append(
+        {
+            "node": "tool_agent",
+            "message": failed.error.message,
+            "code": failed.error.code,
+            "http_status": 500,
+            "handled": True,
+        }
+    )
+
+
+def _validate_tool_catalog(state: AgentState, registry: ToolRegistry) -> None:
+    expected = state.get("tool_catalog_digest")
+    if not expected or expected != registry.catalog_digest:
+        raise ToolCatalogChangedError()
 
 
 async def _advance_requests(
@@ -158,6 +197,7 @@ async def _advance_requests(
             trace_id=trace_id,
             context=context,
         )
+        result = normalize_failed_tool_result(result)
         if not result.trace_id:
             result.trace_id = trace_id
         records.append(

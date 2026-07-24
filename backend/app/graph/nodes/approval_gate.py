@@ -12,6 +12,7 @@ from app.schemas.approvals import (
 )
 from app.schemas.tools import ToolCallRequest
 from app.tools.fingerprints import tool_call_fingerprint
+from app.tools.registry import ToolCatalogChangedError
 
 
 class ApprovalResumeError(ValueError):
@@ -93,6 +94,15 @@ def approval_gate_node(state: AgentState) -> AgentState:
         state["approved_tool_calls"].append(approval)
     state["approval_status"] = ApprovalStatus(required=True, status="approved")
     return state
+
+
+def build_approval_gate_node(*, tool_catalog_digest: str):
+    def node(state: AgentState) -> AgentState:
+        if state.get("tool_catalog_digest") != tool_catalog_digest:
+            raise ToolCatalogChangedError()
+        return approval_gate_node(state)
+
+    return node
 
 
 def _descriptor_request(

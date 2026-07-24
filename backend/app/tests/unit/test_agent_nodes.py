@@ -489,6 +489,7 @@ def test_tool_agent_rejects_server_injected_schema_fields_before_provider_call()
             )
         ],
     }
+    state["tool_catalog_digest"] = registry_factory().catalog_digest
 
     with pytest.raises(InlineCredentialsForbiddenError):
         build_tool_agent_node(registry_factory=registry_factory)(state)
@@ -563,6 +564,7 @@ def test_tool_agent_replaces_resolved_symbol_placeholder_in_later_stock_tools():
             ),
         ]
     }
+    state["tool_catalog_digest"] = registry_factory().catalog_digest
 
     result = build_tool_agent_node(registry_factory=registry_factory)(state)
 
@@ -609,6 +611,7 @@ def test_tool_agent_node_enforces_plan_tool_policy():
             )
         ],
     }
+    state["tool_catalog_digest"] = registry_factory().catalog_digest
 
     result = build_tool_agent_node(registry_factory=registry_factory)(state)
 

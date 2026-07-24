@@ -51,7 +51,6 @@ COLON_CREDENTIAL_PATTERN = re.compile(
     r"\b(?:client[-_\s]*secret|database[-_\s]*password)\s*:\s*[^\s,;]+",
     re.IGNORECASE,
 )
-SENSITIVE_QUERY_KEYS = {"accesstoken", "clientsecret", "apikey"}
 TRACE_URI_USERINFO_PATTERN = re.compile(
     r"(?P<scheme>\b[a-z][a-z0-9+.-]*://)[^\s/@]+:[^\s/@]+@",
     re.IGNORECASE,
@@ -382,7 +381,7 @@ def _contains_url_credentials(value: str) -> bool:
             query_items = parse_qsl(parsed.query, keep_blank_values=True)
         except ValueError:
             continue
-        if any(_normalized_key(key) in SENSITIVE_QUERY_KEYS for key, _ in query_items):
+        if any(_is_sensitive_key(key) for key, _ in query_items):
             return True
     return False
 
@@ -394,6 +393,8 @@ def _is_sensitive_key(key: str) -> bool:
     if any(token in {"authorization", "credential", "credentials", "dsn"} for token in tokens):
         return True
     if tokens and tokens[-1] in {"password", "secret"}:
+        return True
+    if tokens and tokens[-1] == "token":
         return True
     return any(_contains_sequence(tokens, phrase) for phrase in SENSITIVE_TOKEN_SEQUENCES)
 

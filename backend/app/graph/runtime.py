@@ -4,7 +4,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import Checkpointer, Command
 
 from app.graph.nodes.analysis_agent import analysis_agent_node
-from app.graph.nodes.approval_gate import approval_gate_node
+from app.graph.nodes.approval_gate import build_approval_gate_node
 from app.graph.nodes.approval_coordinator import approval_coordinator_node
 from app.graph.nodes.intent_router import build_llm_intent_router_node
 from app.graph.nodes.memory_manager import MemoryRetriever
@@ -27,7 +27,7 @@ from app.llm.factory import LlmClient
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.tools import ToolCallRequest
 from app.tools.default_registry import get_default_tool_registry
-from app.tools.registry import ToolRegistry
+from app.tools.registry import ToolCatalogChangedError, ToolRegistry
 
 
 class AgentGraphExecutionError(RuntimeError):
@@ -67,6 +67,17 @@ def _mock_retrieval_node(state: AgentState) -> AgentState:
     return state
 
 
+def _catalog_guard_node(*, catalog_digest: str):
+    def node(state: AgentState) -> AgentState:
+        existing = state.get("tool_catalog_digest")
+        if existing and existing != catalog_digest:
+            raise ToolCatalogChangedError()
+        state["tool_catalog_digest"] = catalog_digest
+        return state
+
+    return node
+
+
 def final_response_node(state: AgentState) -> AgentState:
     draft = state["draft_answer"]
     approval_status = state["approval_status"]
@@ -76,6 +87,12 @@ def final_response_node(state: AgentState) -> AgentState:
         "cited_evidence_ids": draft.get("cited_evidence_ids", []) if draft else [],
         "approval_status": approval_status.status if approval_status else "not_required",
     }
+    if draft and draft.get("response_type"):
+        state["final_response"]["response_type"] = draft["response_type"]
+    if draft and draft.get("business_error_code"):
+        state["final_response"]["business_error_code"] = draft[
+            "business_error_code"
+        ]
     return state
 
 
@@ -169,28 +186,39 @@ def build_question_answer_graph(
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
+    tool_registry_snapshot: ToolRegistry | None = None,
+    allow_test_tool_agent_override: bool = False,
 ):
     runner = NodeRunner(trace_store=trace_store)
-    selected_registry_factory = (
-        tool_registry_factory
-        or getattr(tool_agent_node, "tool_registry_factory", None)
-        or get_default_tool_registry
-    )
-    tool_registry_snapshot = selected_registry_factory().snapshot()
+    selected_registry_factory = tool_registry_factory or getattr(
+        tool_agent_node, "tool_registry_factory", None
+    ) or get_default_tool_registry
+    tool_registry_snapshot = tool_registry_snapshot or selected_registry_factory().snapshot()
     tool_specs_snapshot = tuple(tool_registry_snapshot.specs())
     selected_skill_agent_node = guard_skill_agent_node(
         skill_agent_node or default_skill_agent_node,
         tool_specs=tool_specs_snapshot,
     )
-    selected_tool_agent_node = tool_agent_node or build_tool_agent_node(
-        registry_factory=lambda: tool_registry_snapshot
-    )
+    if tool_agent_node is not None and not getattr(
+        tool_agent_node, "is_trusted_tool_agent", False
+    ):
+        if not allow_test_tool_agent_override:
+            raise ValueError("任意 ToolAgent callable 仅允许通过显式测试钩子注入。")
+        selected_tool_agent_node = tool_agent_node
+    else:
+        selected_tool_agent_node = build_tool_agent_node(
+            registry_factory=lambda: tool_registry_snapshot
+        )
     selected_memory_manager_node = memory_manager_node
     if memory_retriever is not None:
         selected_memory_manager_node = build_memory_manager_node(
             manager=MemoryManager(retrieve_memory=memory_retriever)
         )
     graph = StateGraph(AgentState)
+    graph.add_node(
+        "catalog_guard",
+        _catalog_guard_node(catalog_digest=tool_registry_snapshot.catalog_digest),
+    )
     graph.add_node(
         "memory_manager",
         _with_harness("memory_manager", selected_memory_manager_node, runner),
@@ -228,7 +256,13 @@ def build_question_answer_graph(
     )
     graph.add_node(
         "approval_gate",
-        _with_harness("approval_gate", approval_gate_node, runner),
+        _with_harness(
+            "approval_gate",
+            build_approval_gate_node(
+                tool_catalog_digest=tool_registry_snapshot.catalog_digest
+            ),
+            runner,
+        ),
     )
     graph.add_node("retriever_agent", _with_harness("retriever_agent", retriever_node, runner))
     graph.add_node("analysis_agent", _with_harness("analysis_agent", analysis_agent_node, runner))
@@ -247,7 +281,8 @@ def build_question_answer_graph(
     )
     graph.add_node("final_response", _with_harness("final_response", final_response_node, runner))
 
-    graph.set_entry_point("memory_manager")
+    graph.set_entry_point("catalog_guard")
+    graph.add_edge("catalog_guard", "memory_manager")
     graph.add_edge("memory_manager", "intent_router")
     graph.add_edge("intent_router", "planner_agent")
     graph.add_conditional_edges(
@@ -313,13 +348,19 @@ def run_question_answer_graph(
     llm_client: LlmClient | None = None,
     permission_scopes: list[str] | None = None,
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
+    allow_test_tool_agent_override: bool = False,
 ) -> AgentState:
+    selected_registry_factory = tool_registry_factory or getattr(
+        tool_agent_node, "tool_registry_factory", None
+    ) or get_default_tool_registry
+    tool_registry_snapshot = selected_registry_factory().snapshot()
     state = create_initial_state(
         session_id=session_id,
         tenant_id=tenant_id,
         user_id=user_id,
         user_message=user_message,
         permission_scopes=permission_scopes,
+        tool_catalog_digest=tool_registry_snapshot.catalog_digest,
     )
     selected_retriever_node = retriever_node
     if selected_retriever_node is None:
@@ -335,6 +376,8 @@ def run_question_answer_graph(
         checkpointer=checkpointer,
         llm_client=llm_client,
         tool_registry_factory=tool_registry_factory,
+        tool_registry_snapshot=tool_registry_snapshot,
+        allow_test_tool_agent_override=allow_test_tool_agent_override,
     )
     config = (
         {"configurable": {"thread_id": state["request_id"]}}
@@ -358,7 +401,12 @@ def resume_question_answer_graph(
     llm_client: LlmClient | None = None,
     permission_scopes: list[str] | None = None,
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
+    allow_test_tool_agent_override: bool = False,
 ) -> AgentState:
+    selected_registry_factory = tool_registry_factory or getattr(
+        tool_agent_node, "tool_registry_factory", None
+    ) or get_default_tool_registry
+    tool_registry_snapshot = selected_registry_factory().snapshot()
     selected_retriever_node = retriever_node
     if selected_retriever_node is None:
         selected_retriever_node = (
@@ -373,12 +421,24 @@ def resume_question_answer_graph(
         checkpointer=checkpointer,
         llm_client=llm_client,
         tool_registry_factory=tool_registry_factory,
+        tool_registry_snapshot=tool_registry_snapshot,
+        allow_test_tool_agent_override=allow_test_tool_agent_override,
     )
+    config = {"configurable": {"thread_id": checkpoint_thread_id}}
+    snapshot = graph.get_state(config)
+    checkpoint_digest = snapshot.values.get("tool_catalog_digest")
+    if snapshot.values and checkpoint_digest != tool_registry_snapshot.catalog_digest:
+        raise AgentGraphExecutionError(
+            node_name="catalog_guard",
+            message="工具目录已变化，不能继续审批恢复。",
+            code="tool_catalog_changed",
+            http_status=409,
+        )
     command = Command(
         resume=approval_decision,
         update={"permission_scopes": list(permission_scopes or [])},
     )
     return graph.invoke(
         command,
-        config={"configurable": {"thread_id": checkpoint_thread_id}},
+        config=config,
     )

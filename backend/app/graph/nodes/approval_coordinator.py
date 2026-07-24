@@ -10,6 +10,12 @@ def build_approval_coordinator_node(
 ):
     def node(state: AgentState) -> AgentState:
         verification = state["verification"] or {}
+        if verification.get("verdict") == "execution_error":
+            state["approval_status"] = ApprovalStatus(
+                required=False,
+                status="not_required",
+            )
+            return state
         requires_approval = verification.get("verdict") == "needs_approval"
         existing_status = state["approval_status"]
         if existing_status is not None and existing_status.status in {
