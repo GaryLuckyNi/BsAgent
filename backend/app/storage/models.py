@@ -96,6 +96,14 @@ class ApprovalRecord(Base):
     payload_json: Mapped[str] = mapped_column(Text)
     checkpoint_thread_id: Mapped[str] = mapped_column(String(128), index=True)
     status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
+    decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resume_claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resume_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_resume_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resume_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
     decided_at: Mapped[datetime | None] = mapped_column(

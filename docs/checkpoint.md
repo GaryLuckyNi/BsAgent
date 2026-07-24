@@ -18,6 +18,27 @@ AgentRun：单次运行的业务状态与查询索引
 
 删除 `ApprovalRecord` 不等于删除 checkpoint；只有审批记录而没有对应 checkpoint 也无法恢复执行。恢复时 Approval Gate 和 Tool Execution Gateway 都会重新计算工具调用指纹，旧哈希不能授权参数已经变化的新调用。
 
+## 审批恢复状态机
+
+`ApprovalRecord.status` 使用以下状态：
+
+```text
+pending
+  -> resuming
+       -> approved | rejected
+       -> resume_failed
+            -> resuming（仅允许相同 decision 重试）
+```
+
+- `pending`：等待审批决定，尚未有人取得恢复权。
+- `resuming`：某个请求已经通过数据库 CAS 取得 `resume_claim_token`，只有该 claimant 可以调用 `Command(resume=...)`。
+- `resume_failed`：checkpoint 缺失、参数哈希不匹配或恢复异常；保留 `decision`、`resume_attempts` 和 `last_resume_error` 供审计，相同决定可以重新 claim。
+- `approved/rejected`：Graph 恢复与业务持久化完成后的终态；相同决定幂等返回，不再次恢复 checkpoint，相反决定返回冲突。
+
+API 不会在恢复前把审批直接写成终态。它先提交 `resuming` claim，使并发请求只能有一个 claimant；恢复失败时写入 `resume_failed` 并稳定返回 `409`，`AgentRun` 保持 `interrupted`；恢复成功后，`AgentRun` 更新和审批终态在同一次业务数据库提交中完成。未取得 claim 的请求不得调用 Graph resume。
+
+这里不声称跨 PostgreSQL、LangGraph checkpoint 和外部工具实现分布式 exactly-once。CAS 可以阻止并发审批请求重复 resume，但进程在外部工具已产生副作用、业务终态尚未提交的极端窗口仍需要工具侧幂等键、Outbox/Inbox 或工作流编排器进一步治理。
+
 ## 当前后端
 
 `BS_AGENT_GRAPH_CHECKPOINTER_BACKEND` 支持：

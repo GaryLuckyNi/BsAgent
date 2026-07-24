@@ -65,12 +65,30 @@ def test_tool_agent_executes_registered_tool_with_validated_arguments():
                 purpose="验证工具代理执行路径",
             ),
             trace_id="trace_1",
+            context=_context(),
         )
     )
 
     assert result.status == "success"
     assert result.result == {"text": "hello"}
     assert result.tool_name == "echo"
+
+
+def test_tool_agent_denies_execution_when_context_is_missing():
+    result = asyncio.run(
+        _executor().execute(
+            ToolCallRequest(
+                tool_name="echo",
+                tool_version="1.0.0",
+                arguments={"text": "hello"},
+                purpose="验证缺失执行上下文时 fail closed",
+            ),
+            trace_id="trace_1",
+        )
+    )
+
+    assert result.status == "denied"
+    assert result.error.code == "tool_execution_context_required"
 
 
 def test_tool_agent_rejects_unknown_tool():
@@ -82,6 +100,7 @@ def test_tool_agent_rejects_unknown_tool():
                 purpose="验证未知工具被拒绝",
             ),
             trace_id="trace_1",
+            context=_context(),
         )
     )
 
@@ -99,6 +118,7 @@ def test_tool_agent_rejects_tool_version_mismatch():
                 purpose="验证工具版本冲突被拒绝",
             ),
             trace_id="trace_1",
+            context=_context(),
         )
     )
 
@@ -115,6 +135,7 @@ def test_tool_agent_rejects_invalid_arguments_before_execution():
                 purpose="验证参数 schema 拦截",
             ),
             trace_id="trace_1",
+            context=_context(),
         )
     )
 
@@ -132,6 +153,7 @@ def test_tool_agent_denies_approval_required_call_before_execution():
                 approval_required=True,
             ),
             trace_id="trace_1",
+            context=_context(),
         )
     )
 

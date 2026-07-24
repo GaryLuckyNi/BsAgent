@@ -18,6 +18,7 @@ def persist_agent_run(
     trace_events: Sequence[TraceEvent],
     status: str,
     experience_store: ExperienceStore | None = None,
+    commit: bool = True,
 ) -> AgentRun:
     agent_session = session.get(AgentSession, state["session_id"])
     if agent_session is None:
@@ -74,5 +75,8 @@ def persist_agent_run(
         state=state,
         experience_store=experience_store or build_experience_store(session=session),
     )
-    session.commit()
+    if commit:
+        session.commit()
+    else:
+        session.flush()
     return run

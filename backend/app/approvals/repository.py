@@ -1,9 +1,12 @@
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.storage.models import ApprovalRecord
@@ -15,6 +18,17 @@ class ApprovalConflictError(RuntimeError):
 
 class ApprovalNotFoundError(RuntimeError):
     pass
+
+
+class ApprovalResumeInProgressError(ApprovalConflictError):
+    pass
+
+
+@dataclass(frozen=True)
+class ApprovalResumeClaim:
+    record: ApprovalRecord
+    acquired: bool
+    claim_token: str | None
 
 
 class ApprovalRecordCreate(BaseModel):
@@ -38,11 +52,7 @@ class ApprovalRepository:
     def create_pending(self, data: ApprovalRecordCreate) -> ApprovalRecord:
         existing = self._session.get(ApprovalRecord, data.approval_id)
         if existing is not None:
-            if not _matches_create(existing, data):
-                raise ApprovalConflictError(
-                    f"Approval {data.approval_id} payload does not match existing record."
-                )
-            return existing
+            return _validate_existing_create(existing, data)
 
         record = ApprovalRecord(
             approval_id=data.approval_id,
@@ -63,9 +73,19 @@ class ApprovalRepository:
             checkpoint_thread_id=data.checkpoint_thread_id,
             status="pending",
         )
-        self._session.add(record)
-        self._session.flush()
-        return record
+        try:
+            with self._session.begin_nested():
+                self._session.add(record)
+                self._session.flush()
+            return record
+        except IntegrityError:
+            self._session.expire_all()
+            existing = self._session.get(ApprovalRecord, data.approval_id)
+            if existing is None:
+                raise ApprovalConflictError(
+                    f"Approval {data.approval_id} could not be created idempotently."
+                )
+            return _validate_existing_create(existing, data)
 
     def create_pending_from_interrupt(self, payload: dict[str, Any]) -> ApprovalRecord:
         return self.create_pending(
@@ -98,47 +118,141 @@ class ApprovalRepository:
                 select(ApprovalRecord)
                 .where(
                     ApprovalRecord.tenant_id == tenant_id,
-                    ApprovalRecord.status == "pending",
+                    ApprovalRecord.status.in_(
+                        ("pending", "resuming", "resume_failed")
+                    ),
                 )
                 .order_by(ApprovalRecord.created_at, ApprovalRecord.approval_id)
             )
         )
 
-    def decide(
+    def claim_resume(
         self,
         *,
         approval_id: str,
         tenant_id: str,
         decision: Literal["approved", "rejected"],
         decided_by: str,
-    ) -> ApprovalRecord:
-        decided_at = datetime.now(UTC)
+    ) -> ApprovalResumeClaim:
+        claim_token = uuid4().hex
+        claimed_at = datetime.now(UTC)
         result = self._session.execute(
             update(ApprovalRecord)
             .where(
                 ApprovalRecord.approval_id == approval_id,
                 ApprovalRecord.tenant_id == tenant_id,
-                ApprovalRecord.status == "pending",
+                or_(
+                    and_(
+                        ApprovalRecord.status == "pending",
+                        ApprovalRecord.decision.is_(None),
+                    ),
+                    and_(
+                        ApprovalRecord.status == "resume_failed",
+                        ApprovalRecord.decision == decision,
+                    ),
+                ),
             )
             .values(
-                status=decision,
+                status="resuming",
+                decision=decision,
+                resume_claim_token=claim_token,
+                resume_attempts=ApprovalRecord.resume_attempts + 1,
+                last_resume_error=None,
+                resume_claimed_at=claimed_at,
                 decided_by=decided_by,
-                decided_at=decided_at,
+                decided_at=claimed_at,
             )
+            .execution_options(synchronize_session=False)
         )
         self._session.flush()
         self._session.expire_all()
         record = self.get(approval_id=approval_id, tenant_id=tenant_id)
         if result.rowcount == 1 and record is not None:
-            return record
+            return ApprovalResumeClaim(
+                record=record,
+                acquired=True,
+                claim_token=claim_token,
+            )
         if record is None:
             raise ApprovalNotFoundError(f"Approval not found: {approval_id}")
-        if record.status == decision:
-            return record
+        if record.decision is not None and record.decision != decision:
+            raise ApprovalConflictError(
+                f"Approval {approval_id} was already decided as {record.decision}."
+            )
+        if record.status == "resuming":
+            raise ApprovalResumeInProgressError(
+                f"Approval {approval_id} resume is already in progress."
+            )
+        if record.status in {"approved", "rejected"}:
+            return ApprovalResumeClaim(record=record, acquired=False, claim_token=None)
         raise ApprovalConflictError(
-            f"Approval {approval_id} was already decided as {record.status}."
+            f"Approval {approval_id} cannot be claimed from status {record.status}."
         )
 
+    def complete_resume(
+        self,
+        *,
+        approval_id: str,
+        tenant_id: str,
+        claim_token: str,
+    ) -> ApprovalRecord:
+        result = self._session.execute(
+            update(ApprovalRecord)
+            .where(
+                ApprovalRecord.approval_id == approval_id,
+                ApprovalRecord.tenant_id == tenant_id,
+                ApprovalRecord.status == "resuming",
+                ApprovalRecord.resume_claim_token == claim_token,
+            )
+            .values(
+                status=ApprovalRecord.decision,
+                resume_claim_token=None,
+                resume_claimed_at=None,
+                last_resume_error=None,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        self._session.flush()
+        self._session.expire_all()
+        record = self.get(approval_id=approval_id, tenant_id=tenant_id)
+        if result.rowcount != 1 or record is None:
+            raise ApprovalConflictError(
+                f"Approval {approval_id} resume claim is no longer owned."
+            )
+        return record
+
+    def fail_resume(
+        self,
+        *,
+        approval_id: str,
+        tenant_id: str,
+        claim_token: str,
+        error: str,
+    ) -> ApprovalRecord:
+        result = self._session.execute(
+            update(ApprovalRecord)
+            .where(
+                ApprovalRecord.approval_id == approval_id,
+                ApprovalRecord.tenant_id == tenant_id,
+                ApprovalRecord.status == "resuming",
+                ApprovalRecord.resume_claim_token == claim_token,
+            )
+            .values(
+                status="resume_failed",
+                resume_claim_token=None,
+                resume_claimed_at=None,
+                last_resume_error=error[:4000],
+            )
+            .execution_options(synchronize_session=False)
+        )
+        self._session.flush()
+        self._session.expire_all()
+        record = self.get(approval_id=approval_id, tenant_id=tenant_id)
+        if result.rowcount != 1 or record is None:
+            raise ApprovalConflictError(
+                f"Approval {approval_id} resume claim is no longer owned."
+            )
+        return record
 
 def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
     return (
@@ -152,3 +266,14 @@ def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
         and record.arguments_hash == data.arguments_hash
         and record.checkpoint_thread_id == data.checkpoint_thread_id
     )
+
+
+def _validate_existing_create(
+    record: ApprovalRecord,
+    data: ApprovalRecordCreate,
+) -> ApprovalRecord:
+    if not _matches_create(record, data):
+        raise ApprovalConflictError(
+            f"Approval {data.approval_id} payload does not match existing record."
+        )
+    return record

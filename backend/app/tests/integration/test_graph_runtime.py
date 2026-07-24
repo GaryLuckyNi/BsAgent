@@ -4,8 +4,10 @@ import re
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
+from pydantic import BaseModel
 
 from app.graph.nodes.skill_agent import build_skill_agent_node
+from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.runtime import (
     AgentGraphExecutionError,
     build_question_answer_graph,
@@ -20,6 +22,8 @@ from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
 from app.skills.configured import ConfiguredSkill
 from app.skills.definitions import SkillDefinition, SkillExecutionGuide
 from app.skills.registry import SkillRegistry
+from app.tools.base import Tool
+from app.tools.registry import ToolRegistry
 
 
 class FakeLlmClient:
@@ -730,6 +734,74 @@ def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():
     assert old_approval["arguments_hash"] not in snapshot.values[
         "approved_tool_call_hashes"
     ]
+
+
+def test_registered_high_risk_tool_is_normalized_into_approval_gate():
+    class WriteInput(BaseModel):
+        value: str
+
+    execution_calls = []
+
+    class HighRiskWriteTool(Tool[WriteInput]):
+        name = "mcp.mock.write_value"
+        version = "1.0.0"
+        input_model = WriteInput
+        risk_level = "high"
+        permission_scope = ["mcp:mock"]
+
+        async def run(self, input_data: WriteInput) -> ToolCallResult:
+            execution_calls.append(input_data.value)
+            return ToolCallResult(
+                tool_call_id="tool_write",
+                tool_name=self.name,
+                status="success",
+                result={"value": input_data.value},
+                trace_id="trace_tool",
+            )
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(HighRiskWriteTool())
+        return registry
+
+    def medium_risk_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "medium_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": ["mcp.mock.write_value"],
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": ["mcp.mock.write_value"]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="mcp.mock.write_value",
+                    tool_version="1.0.0",
+                    arguments={"value": "approved-only"},
+                    purpose="验证注册端高风险升级",
+                    approval_required=False,
+                )
+            ],
+        }
+        return state
+
+    result = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=medium_risk_skill,
+        tool_agent_node=build_tool_agent_node(registry_factory=registry_factory),
+        checkpointer=InMemorySaver(),
+        permission_scopes=["mcp:mock"],
+    )
+
+    interrupt_payload = result["__interrupt__"][0].value
+    normalized_request = result["plan"]["requested_tools"][0]
+    assert normalized_request.approval_required is True
+    assert interrupt_payload["tool_name"] == "mcp.mock.write_value"
+    assert execution_calls == []
+    assert result["tool_calls"] == []
 
 
 def test_question_answer_graph_routes_llm_detected_sum_expression_to_tool_agent():

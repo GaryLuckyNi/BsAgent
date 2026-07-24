@@ -5,6 +5,7 @@ from app.graph.state import AgentState
 from app.schemas.tools import ToolCallRecord, ToolCallRequest
 from app.tools.default_registry import get_default_tool_registry
 from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
+from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolRegistry
 
 
@@ -16,20 +17,19 @@ def build_tool_agent_node(
     registry_factory: Callable[[], ToolRegistry] | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def node(state: AgentState) -> AgentState:
-        requests = _requested_tool_calls(state)
+        registry = (
+            registry_factory()
+            if registry_factory is not None
+            else get_default_tool_registry()
+        )
+        requests = _normalize_requested_tool_calls(state, registry)
         if not requests:
+            return state
+        if _has_pending_approval(state, requests):
             return state
 
         async def run_tools() -> list[ToolCallRecord]:
             context = _execution_context(state)
-            if registry_factory is None:
-                return await _execute_requests(
-                    requests=requests,
-                    registry=get_default_tool_registry(),
-                    trace_id=state["trace_id"],
-                    context=context,
-                )
-            registry = registry_factory()
             return await _execute_requests(
                 requests=requests,
                 registry=registry,
@@ -109,6 +109,44 @@ def _requested_tool_calls(state: AgentState) -> list[ToolCallRequest]:
         ]
         if parsed_request.tool_name != "rag_search"
     ]
+
+
+def _normalize_requested_tool_calls(
+    state: AgentState,
+    registry: ToolRegistry,
+) -> list[ToolCallRequest]:
+    plan = state["plan"] or {}
+    normalized_requests = []
+    for raw_request in plan.get("requested_tools", []):
+        request = (
+            raw_request
+            if isinstance(raw_request, ToolCallRequest)
+            else ToolCallRequest.model_validate(raw_request)
+        )
+        if request.tool_name != "rag_search" and registry.has(request.tool_name):
+            try:
+                registered_tool = registry.get(request.tool_name, request.tool_version)
+            except ValueError:
+                registered_tool = None
+            if registered_tool is not None and registered_tool.spec.risk_level == "high":
+                request = request.model_copy(update={"approval_required": True})
+        normalized_requests.append(request)
+    state["plan"] = {**plan, "requested_tools": normalized_requests}
+    return [
+        request for request in normalized_requests if request.tool_name != "rag_search"
+    ]
+
+
+def _has_pending_approval(
+    state: AgentState,
+    requests: list[ToolCallRequest],
+) -> bool:
+    approved_hashes = set(state["approved_tool_call_hashes"])
+    return any(
+        request.approval_required
+        and tool_call_fingerprint(request) not in approved_hashes
+        for request in requests
+    )
 
 
 def _execution_context(state: AgentState) -> ToolExecutionContext:

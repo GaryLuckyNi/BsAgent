@@ -9,10 +9,11 @@ from app.approvals.repository import (
     ApprovalConflictError,
     ApprovalNotFoundError,
     ApprovalRepository,
+    ApprovalResumeInProgressError,
 )
 from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
-from app.graph.runtime import resume_question_answer_graph
+from app.graph.runtime import AgentGraphExecutionError, resume_question_answer_graph
 from app.harness.tracing import get_trace_store
 from app.llm.factory import maybe_build_llm_client
 from app.memory.factory import build_experience_store
@@ -62,27 +63,8 @@ def decide_approval(
         permission="approval:decide",
     )
     repository = ApprovalRepository(db)
-    existing = repository.get(
-        approval_id=approval_id,
-        tenant_id=request.tenant_id,
-    )
-    if existing is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "approval_not_found"},
-        )
-    if existing.status == request.decision:
-        persisted_run = db.get(AgentRun, existing.run_id)
-        return {
-            "approval": _approval_payload(existing),
-            "run_id": existing.run_id,
-            "run_status": (
-                persisted_run.status if persisted_run is not None else existing.status
-            ),
-            "final_response": None,
-        }
     try:
-        record = repository.decide(
+        claim = repository.claim_resume(
             approval_id=approval_id,
             tenant_id=request.tenant_id,
             decision=request.decision,
@@ -91,11 +73,28 @@ def decide_approval(
         db.commit()
     except ApprovalNotFoundError as exc:
         raise HTTPException(status_code=404, detail={"code": "approval_not_found"}) from exc
+    except ApprovalResumeInProgressError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "approval_resume_in_progress", "message": str(exc)},
+        ) from exc
     except ApprovalConflictError as exc:
         raise HTTPException(
             status_code=409,
             detail={"code": "approval_already_decided", "message": str(exc)},
         ) from exc
+
+    record = claim.record
+    if not claim.acquired:
+        persisted_run = db.get(AgentRun, record.run_id)
+        return {
+            "approval": _approval_payload(record),
+            "run_id": record.run_id,
+            "run_status": (
+                persisted_run.status if persisted_run is not None else record.status
+            ),
+            "final_response": None,
+        }
 
     request_principal = rbac.resolve_principal(
         tenant_id=record.tenant_id,
@@ -106,43 +105,112 @@ def decide_approval(
     trace_id = persisted_run.trace_id if persisted_run is not None else None
     existing_event_count = len(trace_store.list_events(trace_id)) if trace_id else 0
     experience_store = build_experience_store(session=db)
-    state = resume_question_answer_graph(
-        checkpoint_thread_id=record.checkpoint_thread_id,
-        approval_decision={
-            "approval_id": record.approval_id,
-            "arguments_hash": record.arguments_hash,
-            "decision": record.status,
-        },
-        mock_evidence=settings.use_mock_rag,
-        memory_retriever=ExperienceMemoryRetriever(experience_store),
-        trace_store=trace_store,
-        checkpointer=build_graph_checkpointer(),
-        llm_client=maybe_build_llm_client(),
-        permission_scopes=list(rbac.tool_scopes(request_principal)),
-    )
-    new_events = trace_store.list_events(state["trace_id"])[existing_event_count:]
-    interrupt_payloads = [
-        interrupt.value for interrupt in state.get("__interrupt__", [])
-    ]
-    for payload in interrupt_payloads:
-        repository.create_pending_from_interrupt(payload)
-    interrupted = bool(interrupt_payloads)
-    run_status = "interrupted" if interrupted else (
-        "rejected" if request.decision == "rejected" else "completed"
-    )
-    persist_agent_run(
-        session=db,
-        state=state,
-        trace_events=new_events,
-        status=run_status,
-        experience_store=experience_store,
-    )
+    try:
+        state = resume_question_answer_graph(
+            checkpoint_thread_id=record.checkpoint_thread_id,
+            approval_decision={
+                "approval_id": record.approval_id,
+                "arguments_hash": record.arguments_hash,
+                "decision": request.decision,
+            },
+            mock_evidence=settings.use_mock_rag,
+            memory_retriever=ExperienceMemoryRetriever(experience_store),
+            trace_store=trace_store,
+            checkpointer=build_graph_checkpointer(),
+            llm_client=maybe_build_llm_client(),
+            permission_scopes=list(rbac.tool_scopes(request_principal)),
+        )
+    except AgentGraphExecutionError as exc:
+        _record_resume_failure(
+            db=db,
+            repository=repository,
+            record=record,
+            claim_token=claim.claim_token,
+            error=f"{exc.code}: {exc.message}",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code, "node": exc.node_name, "message": exc.message},
+        ) from exc
+    except Exception as exc:
+        _record_resume_failure(
+            db=db,
+            repository=repository,
+            record=record,
+            claim_token=claim.claim_token,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "approval_resume_failed",
+                "message": "审批已记录，但 checkpoint 恢复失败，可使用相同决定重试。",
+            },
+        ) from exc
+    try:
+        new_events = trace_store.list_events(state["trace_id"])[existing_event_count:]
+        interrupt_payloads = [
+            interrupt.value for interrupt in state.get("__interrupt__", [])
+        ]
+        for payload in interrupt_payloads:
+            repository.create_pending_from_interrupt(payload)
+        interrupted = bool(interrupt_payloads)
+        run_status = "interrupted" if interrupted else (
+            "rejected" if request.decision == "rejected" else "completed"
+        )
+        persist_agent_run(
+            session=db,
+            state=state,
+            trace_events=new_events,
+            status=run_status,
+            experience_store=experience_store,
+            commit=False,
+        )
+        record = repository.complete_resume(
+            approval_id=record.approval_id,
+            tenant_id=record.tenant_id,
+            claim_token=claim.claim_token,
+        )
+        db.commit()
+    except Exception as exc:
+        _record_resume_failure(
+            db=db,
+            repository=repository,
+            record=record,
+            claim_token=claim.claim_token,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "approval_resume_failed",
+                "message": "审批恢复收尾失败，可使用相同决定重试。",
+            },
+        ) from exc
     return {
         "approval": _approval_payload(record),
         "run_id": state["request_id"],
         "run_status": run_status,
         "final_response": state["final_response"],
     }
+
+
+def _record_resume_failure(
+    *,
+    db: Session,
+    repository: ApprovalRepository,
+    record: ApprovalRecord,
+    claim_token: str,
+    error: str,
+) -> None:
+    db.rollback()
+    repository.fail_resume(
+        approval_id=record.approval_id,
+        tenant_id=record.tenant_id,
+        claim_token=claim_token,
+        error=error,
+    )
+    db.commit()
 
 
 def _require_permission(
@@ -174,6 +242,9 @@ def _approval_payload(record: ApprovalRecord) -> dict:
         "payload": json.loads(record.payload_json),
         "checkpoint_thread_id": record.checkpoint_thread_id,
         "status": record.status,
+        "decision": record.decision,
+        "resume_attempts": record.resume_attempts,
+        "last_resume_error": record.last_resume_error,
         "decided_by": record.decided_by,
         "created_at": record.created_at.isoformat(),
         "decided_at": record.decided_at.isoformat() if record.decided_at else None,

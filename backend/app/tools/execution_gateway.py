@@ -36,6 +36,15 @@ class ToolExecutionGateway:
         context: ToolExecutionContext | None = None,
     ) -> ToolCallResult:
         start = perf_counter()
+        if context is None:
+            return self._failure(
+                request,
+                trace_id=trace_id,
+                code="tool_execution_context_required",
+                message="Tool execution context is required.",
+                status="denied",
+                start=start,
+            )
         if not self._registry.has(request.tool_name):
             return self._failure(
                 request,
@@ -56,12 +65,11 @@ class ToolExecutionGateway:
                 start=start,
             )
 
-        execution_context = context or _compatibility_context(request)
         policy_error = _policy_error(
             request=request,
             tool_risk_level=tool.spec.risk_level,
             required_permission_scopes=tool.spec.permission_scope,
-            context=execution_context,
+            context=context,
         )
         if policy_error is not None:
             return self._failure(
@@ -187,13 +195,3 @@ def _matches_any(tool_name: str, patterns: tuple[str, ...]) -> bool:
 
 def _has_required_scopes(*, granted: tuple[str, ...], required: list[str]) -> bool:
     return not required or "*" in granted or set(required).issubset(granted)
-
-
-def _compatibility_context(request: ToolCallRequest) -> ToolExecutionContext:
-    return ToolExecutionContext(
-        tenant_id="compatibility",
-        user_id="compatibility",
-        session_id="compatibility",
-        allowed_tools=[request.tool_name],
-        permission_scopes=["*"],
-    )

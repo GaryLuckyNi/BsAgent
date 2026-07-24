@@ -136,6 +136,8 @@ SkillOutput.requested_tools
 
 `ToolExecutionContext` 携带 tenant、user、session、Plan 白名单、Skill 白名单、当前权限 scope 和已批准工具调用哈希。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
 
+`ToolExecutionContext` 是强制安全边界。任何调用省略 context 时，Gateway 都会在工具发现和 Provider 调用前返回 `denied/tool_execution_context_required`；系统不存在自动补充 `permission_scopes=["*"]` 的兼容管理员上下文。
+
 `tools/agent.py` 暂时保留 `ToolAgentExecutor` 兼容导入，主运行链路使用 `ToolExecutionGateway`。
 
 这层不负责选择工具，也不负责检索策略。选择工具属于 Skill Agent / Planner / Retriever Agent；策略属于对应 Agent；Tool Agent 只做边界治理。
@@ -256,6 +258,8 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 工具调用是否需要人工审批由上游 Agent、Skill 和服务端工具风险共同决定。`ToolExecutionGateway` 不信任模型降低风险：即使 `ToolCallRequest.approval_required=false`，注册端 `ToolSpec.risk_level=high` 仍会强制返回 `denied`。
 
+Tool Agent 在执行前使用本次运行实际 `ToolRegistry` 中的 `ToolSpec` 规范化请求。只要注册端 `risk_level=high`，就会把对应请求提升为 `approval_required=true`；若当前调用哈希尚未批准，Tool Agent 不执行任何 Provider，而是让 Graph 路由到 Approval Gate。该判断不依赖工具名称枚举，也不信任 Skill 将风险标成 medium 或 low。
+
 当前高风险工具审批链路已经形成闭环：
 
 ```text
@@ -269,7 +273,7 @@ Planner / Skill 生成 ToolCallRequest
 -> Tool Provider
 ```
 
-`ApprovalRecord` 是业务审批审计记录；LangGraph checkpoint 保存节点执行现场并负责中断恢复；`AgentRun` 保存单次运行的业务状态与结果索引。三者相互关联但不可互相替代。相同审批决定是幂等请求，不会重复恢复已经完成的 checkpoint；相反决定返回冲突。工具名称、版本或参数任一变化都会产生不同指纹，旧审批不能授权新调用。
+`ApprovalRecord` 是业务审批审计记录；LangGraph checkpoint 保存节点执行现场并负责中断恢复；`AgentRun` 保存单次运行的业务状态与结果索引。三者相互关联但不可互相替代。审批 API 使用 `pending -> resuming -> approved/rejected|resume_failed` 状态机和数据库 CAS claim token：并发请求只有一个可以恢复，失败会记录错误并允许相同决定重试。相同终态决定是幂等请求，相反决定返回冲突。工具名称、版本或参数任一变化都会产生不同指纹，旧审批不能授权新调用。
 
 当前 `MockRbacProvider` 仅供本地开发和测试，通过固定配置模拟角色与工具 scope。它不是生产鉴权：不验证 JWT、签名、令牌有效期或真实租户归属，生产环境不得启用。生产权限必须来自经过验证的身份主体及企业 IAM、OPA 或 Casbin 等可信权限源，不能把请求体、模型输出或 Prompt 内容当作授权依据。
 
