@@ -5,7 +5,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, case, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -157,10 +157,16 @@ class ApprovalRepository:
                 decision=decision,
                 resume_claim_token=claim_token,
                 resume_attempts=ApprovalRecord.resume_attempts + 1,
-                last_resume_error=None,
+                resume_claimed_by=decided_by,
                 resume_claimed_at=claimed_at,
-                decided_by=decided_by,
-                decided_at=claimed_at,
+                decided_by=case(
+                    (ApprovalRecord.status == "pending", decided_by),
+                    else_=ApprovalRecord.decided_by,
+                ),
+                decided_at=case(
+                    (ApprovalRecord.status == "pending", claimed_at),
+                    else_=ApprovalRecord.decided_at,
+                ),
             )
             .execution_options(synchronize_session=False)
         )
@@ -207,8 +213,6 @@ class ApprovalRepository:
             .values(
                 status=ApprovalRecord.decision,
                 resume_claim_token=None,
-                resume_claimed_at=None,
-                last_resume_error=None,
             )
             .execution_options(synchronize_session=False)
         )
@@ -240,7 +244,6 @@ class ApprovalRepository:
             .values(
                 status="resume_failed",
                 resume_claim_token=None,
-                resume_claimed_at=None,
                 last_resume_error=error[:4000],
             )
             .execution_options(synchronize_session=False)

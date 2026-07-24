@@ -275,6 +275,10 @@ Planner / Skill 生成 ToolCallRequest
 
 `ApprovalRecord` 是业务审批审计记录；LangGraph checkpoint 保存节点执行现场并负责中断恢复；`AgentRun` 保存单次运行的业务状态与结果索引。三者相互关联但不可互相替代。审批 API 使用 `pending -> resuming -> approved/rejected|resume_failed` 状态机和数据库 CAS claim token：并发请求只有一个可以恢复，失败会记录错误并允许相同决定重试。相同终态决定是幂等请求，相反决定返回冲突。工具名称、版本或参数任一变化都会产生不同指纹，旧审批不能授权新调用。
 
+`decision/decided_by/decided_at` 是首次业务决定，写入后不可被恢复重试人覆盖；`resume_claimed_by/resume_claimed_at` 记录最近一次恢复 claimant，`resume_attempts` 记录总尝试数，`last_resume_error` 在新 claim 或最终成功时仍保留最近失败证据。TraceEvent 使用稳定 `event_id`，`persist_agent_run` 依据数据库记录幂等补写，不再使用进程内事件数量作为持久化游标。
+
+当前 TraceStore 仍在进程内。业务收尾回滚后，只要原进程存活，相同决定重试可补齐 Trace；若进程在事件入库前退出，内存 Trace 无法仅靠已完成 checkpoint 跨进程恢复。本阶段不把该链路描述为持久观测或分布式 exactly-once。
+
 当前 `MockRbacProvider` 仅供本地开发和测试，通过固定配置模拟角色与工具 scope。它不是生产鉴权：不验证 JWT、签名、令牌有效期或真实租户归属，生产环境不得启用。生产权限必须来自经过验证的身份主体及企业 IAM、OPA 或 Casbin 等可信权限源，不能把请求体、模型输出或 Prompt 内容当作授权依据。
 
 ## 测试覆盖

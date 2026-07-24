@@ -181,6 +181,7 @@ def test_approval_repository_failed_resume_can_be_reclaimed_by_same_decision(ses
         decision="approved",
         decided_by="approver_1",
     )
+    original_decided_at = first.record.decided_at
     repository.fail_resume(
         approval_id="approval_1",
         tenant_id="tenant_1",
@@ -196,7 +197,12 @@ def test_approval_repository_failed_resume_can_be_reclaimed_by_same_decision(ses
         approval_id="approval_1",
         tenant_id="tenant_1",
         decision="approved",
-        decided_by="approver_1",
+        decided_by="approver_2",
+    )
+    completed = repository.complete_resume(
+        approval_id="approval_1",
+        tenant_id="tenant_1",
+        claim_token=retry.claim_token,
     )
 
     assert failed_status == "resume_failed"
@@ -205,6 +211,10 @@ def test_approval_repository_failed_resume_can_be_reclaimed_by_same_decision(ses
     assert retry.acquired is True
     assert retry.claim_token != first.claim_token
     assert retry.record.resume_attempts == 2
+    assert completed.decided_by == "approver_1"
+    assert completed.decided_at == original_decided_at
+    assert completed.resume_claimed_by == "approver_2"
+    assert completed.last_resume_error == "checkpoint missing"
 
 
 def test_approval_repository_concurrent_create_pending_is_idempotent(tmp_path):

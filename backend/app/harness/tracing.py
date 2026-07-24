@@ -12,6 +12,7 @@ class TraceEvent:
     node_name: str
     status: Literal["success", "error"]
     latency_ms: int
+    event_id: str = field(default_factory=lambda: f"traceevt_{uuid4().hex}")
     input_ref: str | None = None
     output_ref: str | None = None
     error: str | None = None

@@ -26,6 +26,7 @@ def get_trace(trace_id: str) -> dict[str, Any]:
 
 def _event_to_dict(event: TraceEvent) -> dict[str, Any]:
     return {
+        "event_id": event.event_id,
         "trace_id": event.trace_id,
         "node_name": event.node_name,
         "status": event.status,

@@ -1,5 +1,7 @@
 from collections.abc import Sequence
 
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.graph.state import AgentState
@@ -51,18 +53,7 @@ def persist_agent_run(
         run.status = status
         run.intent = intent.get("intent")
         run.risk_level = intent.get("risk_level")
-    session.add_all(
-        AgentTraceEvent(
-            trace_id=event.trace_id,
-            run_id=run.run_id,
-            node_name=event.node_name,
-            event_type="node",
-            status=event.status,
-            latency_ms=event.latency_ms,
-            error=event.error,
-        )
-        for event in trace_events
-    )
+    _persist_trace_events(session=session, run=run, trace_events=trace_events)
     candidate_store = SqlAlchemyMemoryStore(session)
     for candidate in state["memory_candidates"]:
         candidate_store.save_candidate(
@@ -80,3 +71,50 @@ def persist_agent_run(
     else:
         session.flush()
     return run
+
+
+def _persist_trace_events(
+    *,
+    session: Session,
+    run: AgentRun,
+    trace_events: Sequence[TraceEvent],
+) -> None:
+    event_ids = {event.event_id for event in trace_events}
+    existing_ids = set()
+    if event_ids:
+        existing_ids.update(
+            session.scalars(
+                select(AgentTraceEvent.event_id).where(
+                    AgentTraceEvent.event_id.in_(event_ids)
+                )
+            )
+        )
+
+    for event in trace_events:
+        if event.event_id in existing_ids:
+            continue
+        try:
+            with session.begin_nested():
+                session.add(
+                    AgentTraceEvent(
+                        event_id=event.event_id,
+                        trace_id=event.trace_id,
+                        run_id=run.run_id,
+                        node_name=event.node_name,
+                        event_type="node",
+                        status=event.status,
+                        latency_ms=event.latency_ms,
+                        error=event.error,
+                    )
+                )
+                session.flush()
+        except IntegrityError:
+            # 另一个事务可能已写入同一稳定事件；唯一键将并发重试收敛为幂等成功。
+            persisted_event_id = session.scalar(
+                select(AgentTraceEvent.event_id).where(
+                    AgentTraceEvent.event_id == event.event_id
+                )
+            )
+            if persisted_event_id is None:
+                raise
+        existing_ids.add(event.event_id)

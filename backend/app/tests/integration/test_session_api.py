@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.api import approvals, sessions
 from app.graph.state import create_initial_state
 from app.graph.runtime import AgentGraphExecutionError
+from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.llm.schemas import LlmCompletionResult
 from app.main import create_app
 from app.schemas.approvals import ApprovalRequest
@@ -768,7 +769,8 @@ def test_approval_resume_failed_can_retry_same_decision(monkeypatch):
         approval = session.get(ApprovalRecord, "approval_1")
     assert approval.status == "approved"
     assert approval.resume_attempts == 2
-    assert approval.last_resume_error is None
+    assert approval.last_resume_error == "checkpoint missing"
+    assert approval.resume_claimed_by == "approver_1"
 
 
 def test_approval_resume_in_progress_request_does_not_call_resume(monkeypatch):
@@ -891,6 +893,116 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
     assert approval.status == "resume_failed"
     assert "run persistence failed" in approval.last_resume_error
     assert run.status == "interrupted"
+
+
+def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
+    trace_store = InMemoryTraceStore()
+    resume_calls = 0
+
+    def resume_with_trace_only_once(**kwargs):
+        nonlocal resume_calls
+        resume_calls += 1
+        state = create_initial_state(
+            session_id="session_1",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            user_message="提交一笔模拟交易",
+            permission_scopes=kwargs["permission_scopes"],
+        )
+        state["request_id"] = "run_1"
+        state["trace_id"] = "trace_1"
+        state["final_response"] = {
+            "content": "模拟交易已提交。",
+            "trace_id": "trace_1",
+            "cited_evidence_ids": [],
+            "approval_status": "approved",
+        }
+        if resume_calls == 1:
+            trace_store.record_event(
+                TraceEvent(
+                    trace_id="trace_1",
+                    node_name="tool_agent",
+                    status="success",
+                    latency_ms=2,
+                )
+            )
+        return state
+
+    original_complete_resume = approvals.ApprovalRepository.complete_resume
+    complete_calls = 0
+
+    def fail_first_finalization(repository, **kwargs):
+        nonlocal complete_calls
+        complete_calls += 1
+        if complete_calls == 1:
+            raise RuntimeError("approval finalization failed")
+        return original_complete_resume(repository, **kwargs)
+
+    monkeypatch.setattr(
+        approvals,
+        "resume_question_answer_graph",
+        resume_with_trace_only_once,
+    )
+    monkeypatch.setattr(approvals, "get_trace_store", lambda: trace_store)
+    monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(
+        approvals.ApprovalRepository,
+        "complete_resume",
+        fail_first_finalization,
+    )
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as session:
+        session.add(
+            ApprovalRecord(
+                approval_id="approval_1",
+                run_id="run_1",
+                session_id="session_1",
+                tenant_id="tenant_1",
+                request_user_id="user_1",
+                approval_type="tool_call",
+                tool_name="mcp.mock.trade.submit",
+                tool_version="1.0.0",
+                arguments_hash="hash_1",
+                payload_json="{}",
+                checkpoint_thread_id="run_1",
+                status="pending",
+            )
+        )
+        session.add(
+            AgentRun(
+                run_id="run_1",
+                session_id="session_1",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                trace_id="trace_1",
+                status="interrupted",
+            )
+        )
+        session.commit()
+    client = TestClient(app, raise_server_exceptions=False)
+    request = {
+        "tenant_id": "tenant_1",
+        "actor_id": "approver_1",
+        "decision": "approved",
+    }
+
+    first_response = client.post(
+        "/api/approvals/approval_1/decision",
+        json=request,
+    )
+    second_response = client.post(
+        "/api/approvals/approval_1/decision",
+        json=request,
+    )
+
+    assert first_response.status_code == 409
+    assert second_response.status_code == 200
+    assert resume_calls == 2
+    with testing_session_local() as session:
+        saved_run = session.get(AgentRun, "run_1")
+        saved_events = session.scalars(select(AgentTraceEvent)).all()
+    assert saved_run.status == "completed"
+    assert [event.node_name for event in saved_events] == ["tool_agent"]
 
 
 def test_post_session_message_returns_500_for_graph_execution_error(monkeypatch):

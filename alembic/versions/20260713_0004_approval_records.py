@@ -8,6 +8,31 @@ depends_on = None
 
 
 def upgrade() -> None:
+    with op.batch_alter_table("agent_trace_events") as batch_op:
+        batch_op.add_column(
+            sa.Column("event_id", sa.String(length=64), nullable=True)
+        )
+    connection = op.get_bind()
+    trace_events = sa.table(
+        "agent_trace_events",
+        sa.column("id", sa.Integer()),
+        sa.column("event_id", sa.String(length=64)),
+    )
+    for event_id in connection.scalars(sa.select(trace_events.c.id)).all():
+        connection.execute(
+            trace_events.update()
+            .where(trace_events.c.id == event_id)
+            .values(event_id=f"legacy_traceevt_{event_id}")
+        )
+    with op.batch_alter_table("agent_trace_events") as batch_op:
+        batch_op.alter_column("event_id", nullable=False)
+    op.create_index(
+        "ux_agent_trace_events_event_id",
+        "agent_trace_events",
+        ["event_id"],
+        unique=True,
+    )
+
     op.create_table(
         "approval_records",
         sa.Column("approval_id", sa.String(length=128), primary_key=True),
@@ -31,6 +56,7 @@ def upgrade() -> None:
             server_default="0",
         ),
         sa.Column("last_resume_error", sa.Text(), nullable=True),
+        sa.Column("resume_claimed_by", sa.String(length=64), nullable=True),
         sa.Column("resume_claimed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("decided_by", sa.String(length=64), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -68,3 +94,9 @@ def downgrade() -> None:
     ):
         op.drop_index(f"ix_approval_records_{column}", table_name="approval_records")
     op.drop_table("approval_records")
+    op.drop_index(
+        "ux_agent_trace_events_event_id",
+        table_name="agent_trace_events",
+    )
+    with op.batch_alter_table("agent_trace_events") as batch_op:
+        batch_op.drop_column("event_id")

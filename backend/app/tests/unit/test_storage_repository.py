@@ -94,6 +94,41 @@ def test_persist_agent_run_updates_existing_run_when_resumed():
     assert [event.node_name for event in saved_events] == ["approval_gate", "tool_agent"]
 
 
+def test_persist_agent_run_deduplicates_same_trace_event_on_retry():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="执行高风险工具",
+    )
+    trace_event = TraceEvent(
+        trace_id=state["trace_id"],
+        node_name="tool_agent",
+        status="success",
+        latency_ms=2,
+    )
+
+    with Session(engine) as session:
+        persist_agent_run(
+            session=session,
+            state=state,
+            trace_events=[trace_event],
+            status="completed",
+        )
+        persist_agent_run(
+            session=session,
+            state=state,
+            trace_events=[trace_event],
+            status="completed",
+        )
+
+        saved_events = session.scalars(select(AgentTraceEvent)).all()
+
+    assert len(saved_events) == 1
+
+
 def test_persist_agent_run_stores_and_merges_memory_candidates():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)

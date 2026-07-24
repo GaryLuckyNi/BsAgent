@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Float, Integer, String, Text
+from sqlalchemy import DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -40,8 +40,12 @@ class AgentRun(Base):
 
 class AgentTraceEvent(Base):
     __tablename__ = "agent_trace_events"
+    __table_args__ = (
+        Index("ux_agent_trace_events_event_id", "event_id", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(String(64))
     trace_id: Mapped[str] = mapped_column(String(128), index=True)
     run_id: Mapped[str] = mapped_column(String(64), index=True)
     node_name: Mapped[str] = mapped_column(String(128))
@@ -100,6 +104,7 @@ class ApprovalRecord(Base):
     resume_claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     resume_attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_resume_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resume_claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     resume_claimed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

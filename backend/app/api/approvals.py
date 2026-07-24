@@ -101,9 +101,6 @@ def decide_approval(
         user_id=record.request_user_id,
     )
     trace_store = get_trace_store()
-    persisted_run = db.get(AgentRun, record.run_id)
-    trace_id = persisted_run.trace_id if persisted_run is not None else None
-    existing_event_count = len(trace_store.list_events(trace_id)) if trace_id else 0
     experience_store = build_experience_store(session=db)
     try:
         state = resume_question_answer_graph(
@@ -148,7 +145,7 @@ def decide_approval(
             },
         ) from exc
     try:
-        new_events = trace_store.list_events(state["trace_id"])[existing_event_count:]
+        trace_events = trace_store.list_events(state["trace_id"])
         interrupt_payloads = [
             interrupt.value for interrupt in state.get("__interrupt__", [])
         ]
@@ -161,7 +158,7 @@ def decide_approval(
         persist_agent_run(
             session=db,
             state=state,
-            trace_events=new_events,
+            trace_events=trace_events,
             status=run_status,
             experience_store=experience_store,
             commit=False,
@@ -245,6 +242,10 @@ def _approval_payload(record: ApprovalRecord) -> dict:
         "decision": record.decision,
         "resume_attempts": record.resume_attempts,
         "last_resume_error": record.last_resume_error,
+        "resume_claimed_by": record.resume_claimed_by,
+        "resume_claimed_at": (
+            record.resume_claimed_at.isoformat() if record.resume_claimed_at else None
+        ),
         "decided_by": record.decided_by,
         "created_at": record.created_at.isoformat(),
         "decided_at": record.decided_at.isoformat() if record.decided_at else None,
