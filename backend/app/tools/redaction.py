@@ -2,6 +2,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import fields, is_dataclass
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import BaseModel
 
@@ -38,6 +39,19 @@ JWT_PATTERN = re.compile(
     r"\b[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\.[a-z0-9_-]{10,}\b",
     re.IGNORECASE,
 )
+URL_CANDIDATE_PATTERN = re.compile(
+    r"\b[a-z][a-z0-9+.-]*://[^\s<>\"']+",
+    re.IGNORECASE,
+)
+AUTHORIZATION_HEADER_PATTERN = re.compile(
+    r"\b(?:proxy[-_\s]*)?authorization\s*:\s*(?:basic|bearer)\s+[^\s,;]+",
+    re.IGNORECASE,
+)
+COLON_CREDENTIAL_PATTERN = re.compile(
+    r"\b(?:client[-_\s]*secret|database[-_\s]*password)\s*:\s*[^\s,;]+",
+    re.IGNORECASE,
+)
+SENSITIVE_QUERY_KEYS = {"accesstoken", "clientsecret", "apikey"}
 TRACE_URI_USERINFO_PATTERN = re.compile(
     r"(?P<scheme>\b[a-z][a-z0-9+.-]*://)[^\s/@]+:[^\s/@]+@",
     re.IGNORECASE,
@@ -103,6 +117,8 @@ def sanitize_trace_error(value: str | None, *, max_length: int = 512) -> str | N
     if value is None:
         return None
     sanitized = TRACE_URI_USERINFO_PATTERN.sub(r"\g<scheme>***@", value)
+    sanitized = AUTHORIZATION_HEADER_PATTERN.sub("Authorization: ***", sanitized)
+    sanitized = COLON_CREDENTIAL_PATTERN.sub("credential: ***", sanitized)
     sanitized = BEARER_PATTERN.sub("Bearer ***", sanitized)
     sanitized = JWT_PATTERN.sub("***", sanitized)
     sanitized = TRACE_ASSIGNMENT_PATTERN.sub(r"\g<key>=***", sanitized)
@@ -338,6 +354,8 @@ def _has_unknown_security_shape(schema: dict[str, Any]) -> bool:
 
 
 def _contains_credential_text(value: str) -> bool:
+    if _contains_url_credentials(value):
+        return True
     return any(
         pattern.search(value)
         for pattern in (
@@ -345,8 +363,28 @@ def _contains_credential_text(value: str) -> bool:
             BEARER_PATTERN,
             API_KEY_ASSIGNMENT_PATTERN,
             JWT_PATTERN,
+            AUTHORIZATION_HEADER_PATTERN,
+            COLON_CREDENTIAL_PATTERN,
         )
     )
+
+
+def _contains_url_credentials(value: str) -> bool:
+    for match in URL_CANDIDATE_PATTERN.finditer(value):
+        candidate = match.group(0).rstrip(".,);]")
+        try:
+            parsed = urlsplit(candidate)
+        except ValueError:
+            continue
+        if parsed.username is not None or parsed.password is not None:
+            return True
+        try:
+            query_items = parse_qsl(parsed.query, keep_blank_values=True)
+        except ValueError:
+            continue
+        if any(_normalized_key(key) in SENSITIVE_QUERY_KEYS for key, _ in query_items):
+            return True
+    return False
 
 
 def _is_sensitive_key(key: str) -> bool:

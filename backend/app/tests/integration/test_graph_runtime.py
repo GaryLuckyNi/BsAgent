@@ -1,12 +1,14 @@
 import json
 import re
 
+import httpx
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from app.graph.nodes.skill_agent import build_skill_agent_node
+from app.graph.nodes.retriever_agent import build_rag_retriever_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import (
@@ -26,6 +28,7 @@ from app.skills.definitions import SkillDefinition, SkillExecutionGuide
 from app.skills.registry import SkillRegistry
 from app.tools.base import Tool
 from app.tools.fingerprints import tool_call_fingerprint
+from app.tools.rag_search import RagSearchTool
 from app.tools.registry import ToolRegistry
 
 
@@ -219,7 +222,8 @@ def test_question_answer_graph_stops_when_node_records_error():
         )
 
     assert exc_info.value.node_name == "retriever_agent"
-    assert "rag unavailable" in str(exc_info.value)
+    assert exc_info.value.code == "agent_node_error"
+    assert str(exc_info.value) == "retriever_agent: 节点执行失败。"
 
 
 def test_question_answer_graph_preserves_structured_node_error_metadata():
@@ -1016,6 +1020,178 @@ def test_graph_rejects_schema_sensitive_arguments_before_approval():
     assert exc_info.value.code == "inline_credentials_forbidden"
     assert "write-only-value" not in str(exc_info.value)
     assert "schema-sensitive-value" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
+@pytest.mark.parametrize("request_version", ["1.0.0", "forged-version"])
+def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
+    checkpoint_backend,
+    request_version,
+    tmp_path,
+):
+    class RuntimeInput(BaseModel):
+        runtime_handle: str
+        value: str
+
+    class RuntimeInjectedTool(Tool[RuntimeInput]):
+        name = "mcp.mock.runtime_injected"
+        version = "1.0.0"
+        input_model = RuntimeInput
+        server_injected_fields = ["runtime_handle"]
+
+        async def run(self, input_data: RuntimeInput) -> ToolCallResult:
+            raise AssertionError("unsafe Skill output must never reach provider")
+
+    registry = ToolRegistry()
+    registry.register(RuntimeInjectedTool())
+    if checkpoint_backend == "memory":
+        checkpointer = InMemorySaver()
+    else:
+        checkpointer = build_graph_checkpointer(
+            backend="sqlite",
+            sqlite_path=str(tmp_path / "skill-guard.sqlite"),
+        )
+
+    def unsafe_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "unsafe_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": [RuntimeInjectedTool.name],
+        }
+        state["plan"] = (state["plan"] or {}) | {
+            "tool_policy": {"allowed_tools": [RuntimeInjectedTool.name]},
+            "requested_tools": [
+                ToolCallRequest.model_construct(
+                    tool_name=RuntimeInjectedTool.name,
+                    tool_version=request_version,
+                    arguments={
+                        "runtime_handle": "checkpoint-secret",
+                        "value": "safe-value",
+                    },
+                    purpose="验证 Skill checkpoint 前校验",
+                )
+            ],
+        }
+        return state
+
+    state = create_initial_state(
+        session_id="s_skill_guard",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="查询投研制度",
+    )
+    graph = build_question_answer_graph(
+        retriever_node=lambda current: current,
+        skill_agent_node=unsafe_skill,
+        checkpointer=checkpointer,
+        tool_registry_factory=lambda: registry,
+    )
+    config = {"configurable": {"thread_id": state["request_id"]}}
+
+    with pytest.raises(AgentGraphExecutionError) as exc_info:
+        graph.invoke(state, config=config)
+
+    assert exc_info.value.code == "inline_credentials_forbidden"
+    checkpoint_state = graph.get_state(config).values
+    assert "checkpoint-secret" not in repr(checkpoint_state)
+    assert all(
+        "checkpoint-secret" not in repr(checkpoint.checkpoint)
+        for checkpoint in checkpointer.list(config)
+    )
+    if checkpoint_backend == "sqlite":
+        checkpointer.conn.close()
+        build_graph_checkpointer.cache_clear()
+
+
+@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
+def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
+    checkpoint_backend,
+    tmp_path,
+):
+    provider_calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        provider_calls.append(request)
+        return httpx.Response(
+            503,
+            json={"detail": "database_password: provider-checkpoint-secret"},
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler),
+        base_url="http://rag",
+    )
+    retriever = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    if checkpoint_backend == "memory":
+        checkpointer = InMemorySaver()
+    else:
+        checkpointer = build_graph_checkpointer(
+            backend="sqlite",
+            sqlite_path=str(tmp_path / "retriever-failure.sqlite"),
+        )
+
+    def rag_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "failing_rag_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": ["rag_search"],
+        }
+        state["plan"] = (state["plan"] or {}) | {
+            "tool_policy": {"allowed_tools": ["rag_search"]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="rag_search",
+                    tool_version="1.0.0",
+                    arguments={
+                        "query": "检索故障测试",
+                        "tenant_id": "tenant_1",
+                        "user_id": "user_1",
+                        "top_k": 3,
+                    },
+                    purpose="验证失败后不重放",
+                )
+            ],
+        }
+        return state
+
+    registry = ToolRegistry()
+    state = create_initial_state(
+        session_id="s_retriever_failure",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="差旅报销需要什么？",
+        permission_scopes=["rag:retrieve"],
+    )
+    graph = build_question_answer_graph(
+        retriever_node=retriever,
+        skill_agent_node=rag_skill,
+        checkpointer=checkpointer,
+        tool_registry_factory=lambda: registry,
+    )
+    config = {"configurable": {"thread_id": state["request_id"]}}
+
+    result = graph.invoke(state, config=config)
+
+    assert result["ready_tool_call"] is None
+    assert result["tool_calls"][0].result.error.code == "rag_index_unavailable"
+    assert result["errors"][-1]["code"] == "rag_index_unavailable"
+    assert result["errors"][-1]["http_status"] == 503
+    assert "provider-checkpoint-secret" not in repr(result)
+    assert "检索服务暂不可用" in result["final_response"]["content"]
+    assert len(provider_calls) == 1
+    snapshot = graph.get_state(config)
+    assert snapshot.values["ready_tool_call"] is None
+    assert "provider-checkpoint-secret" not in repr(snapshot.values)
+
+    replay_result = graph.invoke(None, config=config)
+
+    assert replay_result["ready_tool_call"] is None
+    assert len(provider_calls) == 1
+    if checkpoint_backend == "sqlite":
+        checkpointer.conn.close()
+        build_graph_checkpointer.cache_clear()
 
 
 def test_consecutive_high_risk_steps_are_approved_one_at_a_time():

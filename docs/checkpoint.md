@@ -22,6 +22,10 @@ Graph State 中的 `pending_tool_approval` 是 Tool Agent 为“当前唯一待�
 
 `ready_tool_call` 是 Retriever 的可信执行游标，不是“计划中存在 `rag_search`”的别名。Tool Agent 只有在当前 RAG 步骤已生成可信 `call_id`、完成参数解析、读取真实 `ToolSpec`、完成风险提升并满足审批条件后才写入；Runtime 只路由该实例，Retriever 会复核步骤位置、调用 ID 和指纹，执行后清理 ready 状态。前置工具失败会终止依赖链，不生成后续 pending/ready，也不进入 Retriever。
 
+Graph 构建时会从同一个启动期 `ToolRegistry` 快照生成 Planner、Skill 出站 guard 和 Tool Agent 的 ToolSpec 视图。默认 Skill 与注入的自定义 Skill callable 都必须经过该 guard：节点产出 `requested_tools` 后、返回 LangGraph 前重新执行 `ToolCallRequest`、通用凭证和真实 ToolSpec 的 `server_injected_fields/writeOnly/x-sensitive` 校验。校验失败会恢复 Skill 调用前的完整 State，再由 Harness 记录稳定 `inline_credentials_forbidden`；因此不安全的 `plan` 或 `skill_output` 副本不会进入 InMemory/SQLite checkpoint。
+
+Retriever 对已 ready 的调用采用“消费后提交”语义：Provider 成功、失败或策略拒绝都会写入 `ToolCallRecord` 并清理 `ready_tool_call`。不可恢复失败额外写入结构化 `state.errors`，随后正常进入 Synthesizer 生成安全错误回答，使失败状态能够被 checkpoint；完成后的再次 invoke 不会重放该调用。`ready` 缺失、call ID/指纹不匹配等执行前契约错误仍会终止 Graph，不属于已消费调用。
+
 ## 审批恢复状态机
 
 `ApprovalRecord.status` 使用以下状态：
@@ -51,7 +55,7 @@ Graph 节点事件使用稳定 `event_id` 写入 `agent_trace_events`。`persist
 
 ## 敏感数据边界
 
-模型、Planner、Skill 和 MCP 工具请求不得把连接凭证作为 `ToolCallRequest.arguments` 写入 Agent State。通用 DTO 校验覆盖 `client_secret`、`database_password`、`database_url`、`connection_string`、`dsn`、`credential(s)` 容器及 snake/camel/kebab 变体，并识别 URI userinfo、Bearer、API key 赋值和 JWT 等明显凭证内容；普通 URL 和仅包含 token 单词的业务文本不会因此被拒绝。Planner 在拥有 Registry `ToolSpec` 时还会拒绝 `server_injected_fields`、`writeOnly` 和 `x-sensitive` 字段；Skill 或其他来源在 Tool Agent 可信规范化入口进行同样的 schema 二次检查，错误码为 `inline_credentials_forbidden`。工具连接凭证只能由 Gateway 或 Adapter 从服务端配置、Secret Manager 或工作负载身份注入；当前没有 `SecretResolver`，因此也不接受伪装成引用的明文凭证。
+模型、Planner、Skill 和 MCP 工具请求不得把连接凭证作为 `ToolCallRequest.arguments` 写入 Agent State。通用 DTO 校验覆盖 `client_secret`、`database_password`、`database_url`、`connection_string`、`dsn`、`credential(s)` 容器及 snake/camel/kebab 变体，并使用结构化 URL/query 解析识别 URI userinfo 和 `access_token/client_secret/api_key` query；Authorization Basic/Bearer、Proxy-Authorization、冒号赋值和 JWT 使用边界明确的 header/正则规则兜底。普通 URL、业务文本和 A 股 symbol 不会因此被拒绝。Planner 和 Skill 出站 guard 使用同一 Registry ToolSpec 拒绝 `server_injected_fields`、`writeOnly` 和 `x-sensitive` 字段，Tool Agent 再做执行前二次校验，错误码为 `inline_credentials_forbidden`。当前不提供业务 token 字段例外，也不接受伪装成引用的明文凭证；连接凭证只能由 Gateway 或 Adapter 从服务端配置、Secret Manager 或工作负载身份注入。
 
 当前 SQLite/Postgres LangGraph checkpoint 没有应用层字段加密。凭证按上述规则禁止进入 checkpoint；普通敏感业务参数仍可能存在于 State，生产接入前需要补充加密 checkpointer、字段级加密、访问控制和租户级保留/清理策略，不能把现状描述为“checkpoint 已加密”。Trace 只保存固定白名单元数据：计数、状态、证据 ID、工具名、可信 call ID、耗时、错误码和正文长度，不保存用户消息、analysis、工具参数/结果、草稿或最终回答正文。事件错误在记录和 API 返回前都会截断并清洗 Bearer、JWT、URI userinfo 与 `key=value` 内容；这仍不替代 checkpoint 的数据治理。
 

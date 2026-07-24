@@ -33,6 +33,26 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
         )
         response_policy.update(plan_response_policy)
 
+        handled_error = next(
+            (error for error in reversed(state["errors"]) if error.get("handled")),
+            None,
+        )
+        if handled_error is not None:
+            response_policy["response_type"] = "execution_error_response"
+            state["draft_answer"] = {
+                "content": _finalize_response_content(
+                    handled_error["message"],
+                    state["memory_context"],
+                ),
+                "claims": [],
+                "cited_evidence_ids": [],
+                "missing_information": [handled_error["code"]],
+                "assumptions": [],
+                "confidence": 0.0,
+                "response_policy": response_policy,
+            }
+            return state
+
         if plan.get("execution_mode") == "direct_response":
             content = _render_direct_response_content(
                 state=state,

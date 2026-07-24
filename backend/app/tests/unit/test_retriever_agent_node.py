@@ -164,10 +164,11 @@ def test_rag_retriever_node_enforces_plan_tool_policy():
     }
     _prepare_rag_call(state)
 
-    with pytest.raises(RagSearchError) as exc_info:
-        node(state)
+    result = node(state)
 
-    assert exc_info.value.code == "tool_not_allowed_by_plan"
+    assert result["tool_calls"][-1].result.error.code == "tool_not_allowed_by_plan"
+    assert result["errors"][-1]["code"] == "tool_not_allowed_by_plan"
+    assert result["ready_tool_call"] is None
     assert calls == []
 
 
@@ -199,10 +200,11 @@ def test_rag_retriever_node_enforces_selected_skill_tool_policy():
     }
     _prepare_rag_call(state)
 
-    with pytest.raises(RagSearchError) as exc_info:
-        node(state)
+    result = node(state)
 
-    assert exc_info.value.code == "tool_not_allowed_by_skill"
+    assert result["tool_calls"][-1].result.error.code == "tool_not_allowed_by_skill"
+    assert result["errors"][-1]["code"] == "tool_not_allowed_by_skill"
+    assert result["ready_tool_call"] is None
     assert calls == []
 
 
@@ -275,13 +277,12 @@ def test_rag_retriever_node_preserves_rag_503_error_metadata():
     )
     _prepare_rag_call(state)
 
-    try:
-        node(state)
-    except RuntimeError as exc:
-        assert exc.code == "rag_index_unavailable"
-        assert exc.http_status == 503
-    else:
-        raise AssertionError("expected rag retriever to raise structured error")
+    result = node(state)
+
+    assert result["tool_calls"][-1].result.error.code == "rag_index_unavailable"
+    assert result["errors"][-1]["code"] == "rag_index_unavailable"
+    assert result["errors"][-1]["http_status"] == 503
+    assert result["ready_tool_call"] is None
 
 
 def test_retriever_requires_explicit_ready_rag_call():

@@ -66,6 +66,7 @@ def build_tool_agent_node(
         state["ready_tool_call"] = ready_call
         return state
 
+    node.tool_registry_factory = registry_factory or get_default_tool_registry
     return node
 
 

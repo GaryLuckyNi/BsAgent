@@ -92,6 +92,7 @@ class AgentError(TypedDict):
     message: str
     code: NotRequired[str]
     http_status: NotRequired[int]
+    handled: NotRequired[bool]
 
 
 class AgentResponse(TypedDict, total=False):

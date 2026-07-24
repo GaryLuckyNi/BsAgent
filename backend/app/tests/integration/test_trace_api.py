@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api import sessions
 from app.graph.state import create_initial_state
+from app.harness.node_runner import NodeRunner
 from app.harness.tracing import (
     TraceArtifact,
     TraceEvent,
@@ -257,7 +258,10 @@ def test_trace_event_error_is_sanitized_when_recorded_and_returned_by_api():
             "Bearer bearer-secret-value "
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzNCJ9.signature12345 "
             "postgresql://agent:database-secret@db/prod "
-            "signing_material=signing-secret"
+            "signing_material=signing-secret "
+            "client_secret: colon-secret "
+            "Authorization: Basic dXNlcjpwYXNzd29yZA== "
+            "https://api.example.com/callback?access_token=query-secret"
         ),
     )
 
@@ -272,9 +276,53 @@ def test_trace_event_error_is_sanitized_when_recorded_and_returned_by_api():
         "signature12345",
         "database-secret",
         "signing-secret",
+        "colon-secret",
+        "dXNlcjpwYXNzd29yZA==",
+        "query-secret",
     ):
         assert secret not in serialized
     assert len(response.json()["events"][0]["error"]) <= 512
+
+
+def test_node_runner_trace_never_records_arbitrary_exception_text():
+    store = get_trace_store()
+    store.clear()
+    state = create_initial_state(
+        session_id="session_trace_exception",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="触发安全异常",
+    )
+
+    def failing_node(_):
+        raise RuntimeError(
+            "database_password: db-secret "
+            "client_secret: client-secret "
+            "Authorization: Basic dXNlcjpwYXNzd29yZA== "
+            "https://api.example.com/callback?access_token=query-secret"
+        )
+
+    NodeRunner(trace_store=store).run("secure_failure", failing_node, state)
+
+    event = store.list_events(state["trace_id"])[0]
+    assert event.error == "agent_node_error:RuntimeError"
+    assert event.metadata["error"] == {
+        "error_code": "agent_node_error",
+        "exception_type": "RuntimeError",
+        "message": "节点执行失败。",
+    }
+    response = TestClient(create_test_app_with_database()).get(
+        f"/api/traces/{state['trace_id']}"
+    )
+    assert response.status_code == 200
+    serialized = response.text + repr(store.list_artifacts(state["trace_id"]))
+    for secret in (
+        "db-secret",
+        "client-secret",
+        "dXNlcjpwYXNzd29yZA==",
+        "query-secret",
+    ):
+        assert secret not in serialized
 
 
 def test_session_message_trace_can_be_queried(monkeypatch):

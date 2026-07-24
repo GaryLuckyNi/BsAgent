@@ -245,6 +245,8 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 `rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，但 Tool Agent 会先完成可信规范化、风险提升和审批准备，不会直接调用 RAG Provider。只有当前 RAG 实例完成 `call_id`、真实参数、ToolSpec 风险和审批校验后，Tool Agent 才写入 `ready_tool_call`；Runtime 不扫描计划中的工具名，Retriever 也只消费该 ready 实例并在完成后清理。前置失败不会误路由 Retriever，高风险 RAG 未获批也不会 ready。
 
+RAG Provider 返回 502/503、超时、不可达或 Gateway 策略拒绝时，Retriever 不再抛异常使旧 checkpoint 保留 ready。它会正常返回节点状态：记录失败 `ToolCallRecord`、清理 ready、追加带安全 message 的结构化错误，再由 Synthesizer 生成“检索服务暂不可用/请求未通过策略”的最终回答。Session API 对这类已归一化执行失败返回 HTTP 200，业务错误码保留在 Run State/Trace；`rag_call_not_ready`、call ID 或指纹不匹配仍按执行契约错误终止 Graph。
+
 依赖前置结果的工具使用 `$resolved_<output_key>` 占位协议，例如 resolver 返回 `symbol` 时，后续 `$resolved_symbol` 会被替换。解析逻辑不依赖工具名或证券代码字段：Tool Agent 按请求顺序汇总已成功工具的结构化输出，递归解析当前请求的占位值，再读取该工具的真实 `ToolSpec.risk_level`。安全前置工具可以先执行；真实参数需要审批时，Tool Agent 把解析后的请求写回 plan，并生成唯一 `pending_tool_approval` 后返回 Graph，绝不提前审批后续占位请求或调用高风险 Provider。批准恢复后，已成功请求按可信 `call_id` 跳过，不重复执行前置工具；指纹只用于审批防篡改，不用于合并两个有意的相同调用。
 
 `McpGateway` 属于 MCP 控制面，只负责 MCP Server 配置、工具发现和协议标准化。它不负责通用权限与风险决策；这些职责属于 `ToolExecutionGateway`。
@@ -266,7 +268,7 @@ Tool Agent 在执行前使用本次运行实际 `ToolRegistry` 中的 `ToolSpec`
 
 审批展示参数由 `tools/redaction.py` 集中生成，`ToolCallRequest` 不包含可由模型伪造的 `safe_arguments`。脱敏器对 snake/camel/kebab 键名分词后匹配敏感词组，并递归处理 Pydantic、dataclass、数组、集合和循环对象；JSON Schema 支持 `properties/items/prefixItems/additionalProperties/patternProperties/allOf/anyOf/oneOf`、本地 `$defs/definitions` 引用和循环引用保护。任一分支的 `writeOnly=true` 或 `x-sensitive=true` 都会整值脱敏，无法解析的本地安全引用或未知安全结构按整值 `***` fail-closed。Tool Agent 从 Registry 取得 schema 后生成安全展示副本并绑定 `call_id + fingerprint`，Approval Gate 和 Approval API 不返回完整秘密。`arguments_hash` 始终基于原始真实参数计算，不使用脱敏值。
 
-连接凭证不得作为模型、Skill 或 MCP 参数进入 Agent State/checkpoint。通用 DTO 边界拒绝连接字段、credential 容器、带 userinfo 的数据库 URI、Bearer/API key/JWT 等明显凭证内容；Planner 使用真实 ToolSpec 拒绝 `server_injected_fields`、`writeOnly` 与 `x-sensitive` 参数，Skill 等来源由 Tool Agent 做 schema 驱动二次校验。连接凭证只能由 Gateway/Adapter 服务端注入，不支持明文或假 `SecretRef`。当前 checkpoint 未加密，普通敏感业务参数仍需要加密 saver、字段加密和保留策略。
+连接凭证不得作为模型、Skill 或 MCP 参数进入 Agent State/checkpoint。通用 DTO 边界使用 URL/query/header 结构识别连接字段、credential 容器、URI userinfo、query token、Basic/Bearer、Proxy-Authorization、冒号赋值和 JWT。Graph 启动时冻结一次 ToolRegistry 快照，Planner、Skill 出站 guard 与 Tool Agent 共享该快照；默认或自定义 Skill 的请求在节点返回 checkpoint 前都必须通过真实 ToolSpec 的 `server_injected_fields/writeOnly/x-sensitive` 校验，失败会恢复调用前 State。连接凭证只能由 Gateway/Adapter 服务端注入，不支持明文或假 `SecretRef`。当前没有业务 token 字段例外，checkpoint 也未加密，普通敏感业务参数仍需要加密 saver、字段加密和保留策略。
 
 当前高风险工具审批链路已经形成闭环：
 
@@ -289,7 +291,7 @@ Planner / Skill 生成 ToolCallRequest
 
 当前 TraceStore 仍在进程内。业务收尾回滚后，只要原进程存活，相同决定重试可补齐 Trace；若进程在事件入库前退出，内存 Trace 无法仅靠已完成 checkpoint 跨进程恢复。本阶段不把该链路描述为持久观测或分布式 exactly-once。
 
-Trace Artifact 使用固定白名单摘要，只记录数量、状态、证据 ID、工具名、call ID、耗时、错误码和正文长度；不记录用户消息、analysis、工具参数/结果、草稿与最终回答正文。`event.error` 在写入 TraceStore 和 API 返回前都会截断并清洗 Bearer、JWT、URI userinfo 和 `key=value` 内容。该边界不改变面向用户的正常 `final_response`。
+Trace Artifact 使用固定白名单摘要，只记录数量、状态、证据 ID、工具名、call ID、耗时、错误码和正文长度；不记录用户消息、analysis、工具参数/结果、草稿与最终回答正文。NodeRunner 不保存 `str(exc)`，`event.error` 只使用稳定的 `error_code:ExceptionType`，metadata 只包含 error code、exception type 和服务端白名单 message。TraceStore 与 API 仍执行二次清洗，覆盖 URI userinfo/query、Basic/Bearer、JWT、冒号和等号赋值。原始诊断当前不落 Trace，未来只能进入权限更高的安全日志。该边界不改变面向用户的正常 `final_response`。
 
 当前 `MockRbacProvider` 仅供本地开发和测试，通过固定配置模拟角色与工具 scope。它不是生产鉴权：不验证 JWT、签名、令牌有效期或真实租户归属，生产环境不得启用。生产权限必须来自经过验证的身份主体及企业 IAM、OPA 或 Casbin 等可信权限源，不能把请求体、模型输出或 Prompt 内容当作授权依据。
 

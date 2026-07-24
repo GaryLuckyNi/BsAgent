@@ -11,7 +11,7 @@ from app.graph.tool_context import (
     build_tool_execution_context,
 )
 from app.schemas.evidence import EvidenceItem, EvidencePackage
-from app.schemas.tools import ToolCallResult
+from app.schemas.tools import ToolCallResult, ToolError
 from app.schemas.tools import ToolCallRecord, ToolCallRequest
 from app.tools.agent import ToolAgentExecutor
 from app.tools.execution_gateway import ToolExecutionContext
@@ -42,12 +42,13 @@ def build_rag_retriever_node(
                 ),
             )
         )
-        _raise_for_unrecoverable_rag_error(result)
+        result = _with_safe_rag_error(result)
         _apply_rag_result(
             state=state,
             request=request,
             result=result,
         )
+        _record_unrecoverable_rag_error(state=state, result=result)
         return state
 
     return node
@@ -81,12 +82,13 @@ def build_default_rag_retriever_node(
                 )
 
         result = asyncio.run(run_tool())
-        _raise_for_unrecoverable_rag_error(result)
+        result = _with_safe_rag_error(result)
         _apply_rag_result(
             state=state,
             request=request,
             result=result,
         )
+        _record_unrecoverable_rag_error(state=state, result=result)
         return state
 
     return node
@@ -181,15 +183,52 @@ def _ready_rag_search_call(state: AgentState) -> ToolCallRequest:
     return request
 
 
-def _raise_for_unrecoverable_rag_error(result: ToolCallResult) -> None:
+def _record_unrecoverable_rag_error(
+    *,
+    state: AgentState,
+    result: ToolCallResult,
+) -> None:
     if result.status == "success" or result.error is None:
         return
     if result.error.code == "rag_no_evidence":
         return
-    raise RagSearchError(
-        code=result.error.code,
-        message=result.error.message,
-        http_status=_http_status_for_rag_error(result.error.code),
+    state["errors"].append(
+        {
+            "node": "retriever_agent",
+            "message": _safe_rag_error_message(result.error.code),
+            "code": result.error.code,
+            "http_status": _http_status_for_rag_error(result.error.code),
+            "handled": True,
+        }
+    )
+
+
+def _safe_rag_error_message(code: str) -> str:
+    if code == "rag_no_evidence":
+        return "未检索到相关证据。"
+    if code == "rag_index_unavailable":
+        return "检索服务暂不可用。"
+    if code in {
+        "tool_not_allowed_by_plan",
+        "tool_not_allowed_by_skill",
+        "tool_permission_denied",
+        "tool_approval_required",
+        "tool_trusted_call_id_required",
+    }:
+        return "检索请求未通过执行策略。"
+    return "检索请求执行失败。"
+
+
+def _with_safe_rag_error(result: ToolCallResult) -> ToolCallResult:
+    if result.error is None:
+        return result
+    return result.model_copy(
+        update={
+            "error": ToolError(
+                code=result.error.code,
+                message=_safe_rag_error_message(result.error.code),
+            )
+        }
     )
 
 

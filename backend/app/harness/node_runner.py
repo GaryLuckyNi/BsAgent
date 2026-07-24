@@ -70,11 +70,14 @@ class NodeRunner:
         except GraphInterrupt:
             raise
         except Exception as exc:
+            error_code = getattr(exc, "code", "agent_node_error")
+            exception_type = type(exc).__name__
+            safe_message = _safe_error_message(error_code)
             state["errors"].append(
                 {
                     "node": node_name,
-                    "message": str(exc),
-                    "code": getattr(exc, "code", "agent_node_error"),
+                    "message": safe_message,
+                    "code": error_code,
                     "http_status": getattr(exc, "http_status", 500),
                 }
             )
@@ -87,6 +90,17 @@ class NodeRunner:
                     payload=output_summary,
                 )
             )
+            metadata = summarize_node_transition(
+                node_name=node_name,
+                input_state=input_state_snapshot,
+                output_state=state,
+                error=error_code,
+            )
+            metadata["error"] = {
+                "error_code": error_code,
+                "exception_type": exception_type,
+                "message": safe_message,
+            }
             self.trace_store.record_event(
                 TraceEvent(
                     trace_id=state["trace_id"],
@@ -95,13 +109,18 @@ class NodeRunner:
                     latency_ms=measure_latency_ms(start),
                     input_ref=input_ref,
                     output_ref=output_ref,
-                    error=str(exc),
-                    metadata=summarize_node_transition(
-                        node_name=node_name,
-                        input_state=input_state_snapshot,
-                        output_state=state,
-                        error=str(exc),
-                    ),
+                    error=f"{error_code}:{exception_type}",
+                    metadata=metadata,
                 )
             )
             return state
+
+
+def _safe_error_message(error_code: str) -> str:
+    messages = {
+        "inline_credentials_forbidden": "工具参数包含禁止进入 Agent State 的凭证或服务端字段。",
+        "rag_index_unavailable": "检索服务暂不可用。",
+        "rag_call_not_ready": "检索调用未完成可信准备。",
+        "approval_payload_mismatch": "审批调用参数不匹配。",
+    }
+    return messages.get(error_code, "节点执行失败。")

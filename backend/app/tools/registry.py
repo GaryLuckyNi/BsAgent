@@ -22,3 +22,8 @@ class ToolRegistry:
 
     def specs(self) -> list[ToolSpec]:
         return [tool.spec for tool in self._tools.values()]
+
+    def snapshot(self) -> "ToolRegistry":
+        snapshot = ToolRegistry()
+        snapshot._tools = dict(self._tools)
+        return snapshot

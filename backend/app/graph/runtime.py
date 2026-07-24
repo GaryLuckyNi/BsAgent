@@ -13,9 +13,12 @@ from app.graph.nodes.memory_manager import build_memory_manager_node
 from app.graph.nodes.memory_manager import memory_manager_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.nodes.retriever_agent import build_default_rag_retriever_node
-from app.graph.nodes.skill_agent import skill_agent_node as default_skill_agent_node
+from app.graph.nodes.skill_agent import (
+    guard_skill_agent_node,
+    skill_agent_node as default_skill_agent_node,
+)
 from app.graph.nodes.synthesizer import build_synthesizer_node
-from app.graph.nodes.tool_agent import tool_agent_node as default_tool_agent_node
+from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.nodes.verifier import verifier_node
 from app.graph.state import AgentState, create_initial_state
 from app.harness.node_runner import NodeRunner
@@ -23,6 +26,8 @@ from app.harness.tracing import InMemoryTraceStore
 from app.llm.factory import LlmClient
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.tools import ToolCallRequest
+from app.tools.default_registry import get_default_tool_registry
+from app.tools.registry import ToolRegistry
 
 
 class AgentGraphExecutionError(RuntimeError):
@@ -84,6 +89,8 @@ def _with_harness(
         result = runner.run(node_name, node, state)
         if len(result["errors"]) > previous_error_count:
             error = result["errors"][-1]
+            if error.get("handled"):
+                return result
             raise AgentGraphExecutionError(
                 node_name=error["node"],
                 message=error["message"],
@@ -161,8 +168,23 @@ def build_question_answer_graph(
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
+    tool_registry_factory: Callable[[], ToolRegistry] | None = None,
 ):
     runner = NodeRunner(trace_store=trace_store)
+    selected_registry_factory = (
+        tool_registry_factory
+        or getattr(tool_agent_node, "tool_registry_factory", None)
+        or get_default_tool_registry
+    )
+    tool_registry_snapshot = selected_registry_factory().snapshot()
+    tool_specs_snapshot = tuple(tool_registry_snapshot.specs())
+    selected_skill_agent_node = guard_skill_agent_node(
+        skill_agent_node or default_skill_agent_node,
+        tool_specs=tool_specs_snapshot,
+    )
+    selected_tool_agent_node = tool_agent_node or build_tool_agent_node(
+        registry_factory=lambda: tool_registry_snapshot
+    )
     selected_memory_manager_node = memory_manager_node
     if memory_retriever is not None:
         selected_memory_manager_node = build_memory_manager_node(
@@ -185,7 +207,10 @@ def build_question_answer_graph(
         "planner_agent",
         _with_harness(
             "planner_agent",
-            build_planner_agent_node(llm_client=llm_client),
+            build_planner_agent_node(
+                llm_client=llm_client,
+                available_tools=list(tool_specs_snapshot),
+            ),
             runner,
         ),
     )
@@ -193,13 +218,13 @@ def build_question_answer_graph(
         "skill_agent",
         _with_harness(
             "skill_agent",
-            skill_agent_node or default_skill_agent_node,
+            selected_skill_agent_node,
             runner,
         ),
     )
     graph.add_node(
         "tool_agent",
-        _with_harness("tool_agent", tool_agent_node or default_tool_agent_node, runner),
+        _with_harness("tool_agent", selected_tool_agent_node, runner),
     )
     graph.add_node(
         "approval_gate",
@@ -287,6 +312,7 @@ def run_question_answer_graph(
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
     permission_scopes: list[str] | None = None,
+    tool_registry_factory: Callable[[], ToolRegistry] | None = None,
 ) -> AgentState:
     state = create_initial_state(
         session_id=session_id,
@@ -308,6 +334,7 @@ def run_question_answer_graph(
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
+        tool_registry_factory=tool_registry_factory,
     )
     config = (
         {"configurable": {"thread_id": state["request_id"]}}
@@ -330,6 +357,7 @@ def resume_question_answer_graph(
     checkpointer: Checkpointer,
     llm_client: LlmClient | None = None,
     permission_scopes: list[str] | None = None,
+    tool_registry_factory: Callable[[], ToolRegistry] | None = None,
 ) -> AgentState:
     selected_retriever_node = retriever_node
     if selected_retriever_node is None:
@@ -344,6 +372,7 @@ def resume_question_answer_graph(
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
+        tool_registry_factory=tool_registry_factory,
     )
     command = Command(
         resume=approval_decision,

@@ -14,7 +14,10 @@ def build_planner_agent_node(
     llm_client: LlmClient | None = None,
     available_tools: list[ToolSpec] | None = None,
 ):
-    tool_specs = {tool.name: tool for tool in (available_tools or list_default_tool_specs())}
+    selected_tools = (
+        list_default_tool_specs() if available_tools is None else available_tools
+    )
+    tool_specs = {tool.name: tool for tool in selected_tools}
 
     def node(state: AgentState) -> AgentState:
         state["plan"] = _build_plan(

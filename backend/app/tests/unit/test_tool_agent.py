@@ -305,6 +305,25 @@ def test_tool_call_request_rejects_inline_credentials(credential_key):
         ({"authorization_value": "Bearer abc.def-123_xyz"}, "Bearer"),
         ({"header": "api_key=sk-live-secret"}, "sk-live-secret"),
         (
+            {"endpoint": "https://api.example.com/data?access_token=query-secret"},
+            "query-secret",
+        ),
+        (
+            {"endpoint": "https://api.example.com/data?client_secret=query-secret"},
+            "query-secret",
+        ),
+        (
+            {"endpoint": "https://api.example.com/data?api_key=query-secret"},
+            "query-secret",
+        ),
+        ({"header": "Authorization: Basic dXNlcjpwYXNzd29yZA=="}, "Basic"),
+        (
+            {"header": "Proxy-Authorization: Bearer proxy-secret-value"},
+            "proxy-secret-value",
+        ),
+        ({"text": "client_secret: colon-secret"}, "colon-secret"),
+        ({"text": "database_password: colon-secret"}, "colon-secret"),
+        (
             {
                 "assertion": (
                     "eyJhbGciOiJIUzI1NiJ9."
@@ -335,7 +354,9 @@ def test_tool_call_request_allows_normal_url_and_business_token_text():
         tool_name="echo",
         arguments={
             "callback_url": "https://example.com/callback?status=ok",
+            "quote_url": "https://example.com/quote?symbol=600519.SH",
             "description": "研究 token economics 对业务模式的影响",
+            "symbol": "600519.SH",
             "token_count": 128,
         },
         purpose="验证明显误报控制",
@@ -484,6 +505,20 @@ def test_tool_execution_context_uses_atomic_approval_pairs_only():
     assert "approved_tool_calls" in ToolExecutionContext.model_fields
     assert "approved_tool_call_hashes" not in ToolExecutionContext.model_fields
     assert "approved_tool_call_ids" not in ToolExecutionContext.model_fields
+
+
+def test_tool_registry_snapshot_isolated_from_later_registration():
+    class HighRiskEchoTool(EchoTool):
+        risk_level = "high"
+
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+
+    snapshot = registry.snapshot()
+    registry.register(HighRiskEchoTool())
+
+    assert snapshot.get("echo").spec.risk_level == "low"
+    assert registry.get("echo").spec.risk_level == "high"
 
 
 def test_gateway_rejects_cartesian_product_of_legacy_ids_and_hashes():

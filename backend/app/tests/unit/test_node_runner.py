@@ -161,7 +161,8 @@ def test_node_runner_records_error_and_updates_state():
     result = runner.run("broken", node, state)
 
     assert result["errors"][0]["node"] == "broken"
-    assert "broken node" in result["errors"][0]["message"]
+    assert result["errors"][0]["message"] == "节点执行失败。"
+    assert trace_store.events[0].error == "agent_node_error:RuntimeError"
     assert trace_store.events[0].status == "error"
 
 
