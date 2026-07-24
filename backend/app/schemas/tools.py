@@ -1,6 +1,9 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic_core import PydanticCustomError
+
+from app.tools.redaction import contains_inline_credentials
 
 
 class RetryPolicy(BaseModel):
@@ -26,12 +29,24 @@ class ToolError(BaseModel):
 
 
 class ToolCallRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    call_id: str | None = None
     tool_name: str
     tool_version: str | None = None
     arguments: dict[str, Any]
     purpose: str
     approval_required: bool = False
-    safe_arguments: dict[str, Any] | None = None
+
+    @field_validator("arguments")
+    @classmethod
+    def reject_inline_credentials(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if contains_inline_credentials(value):
+            raise PydanticCustomError(
+                "inline_credentials_forbidden",
+                "工具参数不得包含内联连接凭证，请由 Gateway 或 Adapter 注入。",
+            )
+        return value
 
 
 class ToolCallResult(BaseModel):
@@ -45,5 +60,6 @@ class ToolCallResult(BaseModel):
 
 
 class ToolCallRecord(BaseModel):
+    call_id: str | None = None
     request: ToolCallRequest
     result: ToolCallResult | None = None

@@ -23,7 +23,6 @@ from app.harness.tracing import InMemoryTraceStore
 from app.llm.factory import LlmClient
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.tools import ToolCallRequest
-from app.tools.fingerprints import tool_call_fingerprint
 
 
 class AgentGraphExecutionError(RuntimeError):
@@ -107,7 +106,7 @@ def _route_after_planner(state: AgentState) -> str:
 
 
 def _route_after_skill_agent(state: AgentState) -> str:
-    if _has_non_rag_tool_requests(state):
+    if _requested_tools(state):
         return "tool_agent"
     if _has_pending_tool_approval(state):
         return "approval_gate"
@@ -127,7 +126,7 @@ def _route_after_tool_agent(state: AgentState) -> str:
 def _route_after_approval_gate(state: AgentState) -> str:
     if state["approval_status"] is not None and state["approval_status"].status == "rejected":
         return "synthesizer"
-    if _has_non_rag_tool_requests(state):
+    if _requested_tools(state):
         return "tool_agent"
     if _has_rag_search_request(state):
         return "retriever_agent"
@@ -143,17 +142,7 @@ def _has_rag_search_request(state: AgentState) -> bool:
 
 
 def _has_pending_tool_approval(state: AgentState) -> bool:
-    approved_or_executed_hashes = {
-        tool_call_fingerprint(record.request)
-        for record in state["tool_calls"]
-        if record.result is not None and record.result.status != "denied"
-    }
-    approved_or_executed_hashes.update(state["approved_tool_call_hashes"])
-    return any(
-        request.approval_required
-        and tool_call_fingerprint(request) not in approved_or_executed_hashes
-        for request in _requested_tools(state)
-    )
+    return state["pending_tool_approval"] is not None
 
 
 def _requested_tools(state: AgentState) -> list[ToolCallRequest]:

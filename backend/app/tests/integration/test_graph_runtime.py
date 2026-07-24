@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
+from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import (
     AgentGraphExecutionError,
     build_question_answer_graph,
@@ -926,12 +927,14 @@ def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
 
 
 def test_approval_arguments_use_schema_and_normalized_key_redaction():
+    class NestedInput(BaseModel):
+        internal_note: str = Field(json_schema_extra={"writeOnly": True})
+        visible_nested: str
+
     class SecretInput(BaseModel):
-        client_secret: str
-        accessToken: str
         approval_code: str = Field(json_schema_extra={"writeOnly": True})
         signing_material: str = Field(json_schema_extra={"x-sensitive": True})
-        nested: dict
+        nested: NestedInput
         visible: str
 
     class SecretTool(Tool[SecretInput]):
@@ -949,14 +952,10 @@ def test_approval_arguments_use_schema_and_normalized_key_redaction():
         return registry
 
     raw_arguments = {
-        "client_secret": "client-secret-value",
-        "accessToken": "access-token-value",
         "approval_code": "write-only-value",
         "signing_material": "schema-sensitive-value",
         "nested": {
-            "refresh-token": "refresh-value",
-            "bearerToken": "bearer-value",
-            "private_key": "private-key-value",
+            "internal_note": "schema-nested-value",
             "visible_nested": "safe-nested",
         },
         "visible": "safe-value",
@@ -972,11 +971,12 @@ def test_approval_arguments_use_schema_and_normalized_key_redaction():
         state["plan"] = state["plan"] | {
             "tool_policy": {"allowed_tools": ["mcp.mock.secret_write"]},
             "requested_tools": [
-                ToolCallRequest(
+                ToolCallRequest.model_construct(
                     tool_name="mcp.mock.secret_write",
                     tool_version="1.0.0",
                     arguments=raw_arguments,
                     purpose="验证审批参数脱敏",
+                    safe_arguments={"visible": "forged-approval-display"},
                 )
             ],
         }
@@ -995,21 +995,520 @@ def test_approval_arguments_use_schema_and_normalized_key_redaction():
     interrupt_payload = result["__interrupt__"][0].value
     staged_request = result["plan"]["requested_tools"][0]
     assert interrupt_payload["arguments"] == {
-        "client_secret": "***",
-        "accessToken": "***",
         "approval_code": "***",
         "signing_material": "***",
         "nested": {
-            "refresh-token": "***",
-            "bearerToken": "***",
-            "private_key": "***",
+            "internal_note": "***",
             "visible_nested": "safe-nested",
         },
         "visible": "safe-value",
     }
-    assert interrupt_payload["arguments_hash"] == tool_call_fingerprint(
-        staged_request.model_copy(update={"safe_arguments": None})
+    assert interrupt_payload["arguments_hash"] == tool_call_fingerprint(staged_request)
+
+
+def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
+    class FirstInput(BaseModel):
+        value: str
+
+    class SecondInput(BaseModel):
+        resource_id: str
+
+    first_calls = []
+    second_calls = []
+
+    class FirstWriteTool(Tool[FirstInput]):
+        name = "mcp.mock.first_write"
+        version = "1.0.0"
+        input_model = FirstInput
+        risk_level = "high"
+
+        async def run(self, input_data: FirstInput) -> ToolCallResult:
+            first_calls.append(input_data.value)
+            return ToolCallResult(
+                tool_call_id="provider_first",
+                tool_name=self.name,
+                status="success",
+                result={"resource_id": "RESOURCE-9"},
+                trace_id="trace_tool",
+            )
+
+    class SecondWriteTool(Tool[SecondInput]):
+        name = "mcp.mock.second_write"
+        version = "1.0.0"
+        input_model = SecondInput
+        risk_level = "high"
+
+        async def run(self, input_data: SecondInput) -> ToolCallResult:
+            second_calls.append(input_data.resource_id)
+            return ToolCallResult(
+                tool_call_id="provider_second",
+                tool_name=self.name,
+                status="success",
+                result={"done": True},
+                trace_id="trace_tool",
+            )
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(FirstWriteTool())
+        registry.register(SecondWriteTool())
+        return registry
+
+    def skill(state):
+        allowed = ["mcp.mock.first_write", "mcp.mock.second_write"]
+        state["selected_skill"] = {
+            "skill_name": "two_writes",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": allowed,
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": allowed},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="mcp.mock.first_write",
+                    arguments={"value": "first"},
+                    purpose="第一步写入",
+                ),
+                ToolCallRequest(
+                    tool_name="mcp.mock.second_write",
+                    arguments={"resource_id": "$resolved_resource_id"},
+                    purpose="第二步写入",
+                ),
+            ],
+        }
+        return state
+
+    checkpointer = InMemorySaver()
+    tool_agent = build_tool_agent_node(registry_factory=registry_factory)
+    initial = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=skill,
+        tool_agent_node=tool_agent,
+        checkpointer=checkpointer,
     )
+    first_approval = initial["__interrupt__"][0].value
+
+    assert first_approval["tool_name"] == "mcp.mock.first_write"
+    assert first_calls == []
+    assert second_calls == []
+
+    after_first = resume_question_answer_graph(
+        checkpoint_thread_id=initial["request_id"],
+        approval_decision={
+            "approval_id": first_approval["approval_id"],
+            "arguments_hash": first_approval["arguments_hash"],
+            "decision": "approved",
+        },
+        skill_agent_node=skill,
+        tool_agent_node=tool_agent,
+        checkpointer=checkpointer,
+    )
+    second_approval = after_first["__interrupt__"][0].value
+
+    assert first_calls == ["first"]
+    assert second_calls == []
+    assert second_approval["tool_name"] == "mcp.mock.second_write"
+    assert second_approval["arguments"] == {"resource_id": "RESOURCE-9"}
+    assert second_approval["call_id"] != first_approval["call_id"]
+
+    completed = resume_question_answer_graph(
+        checkpoint_thread_id=initial["request_id"],
+        approval_decision={
+            "approval_id": second_approval["approval_id"],
+            "arguments_hash": second_approval["arguments_hash"],
+            "decision": "approved",
+        },
+        skill_agent_node=skill,
+        tool_agent_node=tool_agent,
+        checkpointer=checkpointer,
+    )
+
+    assert completed["final_response"] is not None
+    assert first_calls == ["first"]
+    assert second_calls == ["RESOURCE-9"]
+
+
+def test_identical_tool_steps_execute_as_distinct_call_instances():
+    class WriteInput(BaseModel):
+        value: str
+
+    calls = []
+
+    class WriteTool(Tool[WriteInput]):
+        name = "mcp.mock.repeat_write"
+        version = "1.0.0"
+        input_model = WriteInput
+
+        async def run(self, input_data: WriteInput) -> ToolCallResult:
+            calls.append(input_data.value)
+            return ToolCallResult(
+                tool_call_id=f"provider_{len(calls)}",
+                tool_name=self.name,
+                status="success",
+                result={"value": input_data.value},
+                trace_id="trace_tool",
+            )
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(WriteTool())
+        return registry
+
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="执行两次",
+    )
+    state["plan"] = {
+        "tool_policy": {"allowed_tools": ["mcp.mock.repeat_write"]},
+        "requested_tools": [
+            ToolCallRequest(
+                tool_name="mcp.mock.repeat_write",
+                arguments={"value": "same"},
+                purpose="第一次",
+            ),
+            ToolCallRequest(
+                tool_name="mcp.mock.repeat_write",
+                arguments={"value": "same"},
+                purpose="第二次",
+            ),
+        ],
+    }
+
+    result = build_tool_agent_node(registry_factory=registry_factory)(state)
+
+    assert calls == ["same", "same"]
+    assert len(result["tool_calls"]) == 2
+    assert result["tool_calls"][0].call_id != result["tool_calls"][1].call_id
+
+
+def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice():
+    class WriteInput(BaseModel):
+        value: str
+
+    calls = []
+
+    class HighRiskWriteTool(Tool[WriteInput]):
+        name = "mcp.mock.repeat_high_write"
+        version = "1.0.0"
+        input_model = WriteInput
+        risk_level = "high"
+
+        async def run(self, input_data: WriteInput) -> ToolCallResult:
+            calls.append(input_data.value)
+            return ToolCallResult(
+                tool_call_id=f"provider_{len(calls)}",
+                tool_name=self.name,
+                status="success",
+                result={"value": input_data.value},
+                trace_id="trace_tool",
+            )
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(HighRiskWriteTool())
+        return registry
+
+    def skill(state):
+        allowed = ["mcp.mock.repeat_high_write"]
+        state["selected_skill"] = {
+            "skill_name": "repeat_write",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": allowed,
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": allowed},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="mcp.mock.repeat_high_write",
+                    arguments={"value": "same"},
+                    purpose="第一次写入",
+                ),
+                ToolCallRequest(
+                    tool_name="mcp.mock.repeat_high_write",
+                    arguments={"value": "same"},
+                    purpose="第二次写入",
+                ),
+            ],
+        }
+        return state
+
+    checkpointer = InMemorySaver()
+    tool_agent = build_tool_agent_node(registry_factory=registry_factory)
+    initial = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=skill,
+        tool_agent_node=tool_agent,
+        checkpointer=checkpointer,
+    )
+    first = initial["__interrupt__"][0].value
+    after_first = resume_question_answer_graph(
+        checkpoint_thread_id=initial["request_id"],
+        approval_decision={
+            "approval_id": first["approval_id"],
+            "arguments_hash": first["arguments_hash"],
+            "decision": "approved",
+        },
+        skill_agent_node=skill,
+        tool_agent_node=tool_agent,
+        checkpointer=checkpointer,
+    )
+    second = after_first["__interrupt__"][0].value
+
+    assert first["arguments_hash"] == second["arguments_hash"]
+    assert first["call_id"] != second["call_id"]
+    assert first["approval_id"] != second["approval_id"]
+    assert calls == ["same"]
+
+    completed = resume_question_answer_graph(
+        checkpoint_thread_id=initial["request_id"],
+        approval_decision={
+            "approval_id": second["approval_id"],
+            "arguments_hash": second["arguments_hash"],
+            "decision": "approved",
+        },
+        skill_agent_node=skill,
+        tool_agent_node=tool_agent,
+        checkpointer=checkpointer,
+    )
+
+    assert completed["final_response"] is not None
+    assert calls == ["same", "same"]
+
+
+def test_failed_prerequisite_does_not_create_later_approval():
+    class LookupInput(BaseModel):
+        value: str
+
+    class WriteInput(BaseModel):
+        resource_id: str
+
+    write_calls = []
+
+    class FailingLookupTool(Tool[LookupInput]):
+        name = "mcp.mock.failing_lookup"
+        version = "1.0.0"
+        input_model = LookupInput
+
+        async def run(self, input_data: LookupInput) -> ToolCallResult:
+            return ToolCallResult(
+                tool_call_id="provider_lookup",
+                tool_name=self.name,
+                status="failed",
+                error={"code": "lookup_failed", "message": "lookup failed"},
+                trace_id="trace_tool",
+            )
+
+    class HighRiskWriteTool(Tool[WriteInput]):
+        name = "mcp.mock.write_after_lookup"
+        version = "1.0.0"
+        input_model = WriteInput
+        risk_level = "high"
+
+        async def run(self, input_data: WriteInput) -> ToolCallResult:
+            write_calls.append(input_data.resource_id)
+            raise AssertionError("后续高风险工具不应执行")
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(FailingLookupTool())
+        registry.register(HighRiskWriteTool())
+        return registry
+
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="先查再写",
+    )
+    allowed = ["mcp.mock.failing_lookup", "mcp.mock.write_after_lookup"]
+    state["plan"] = {
+        "tool_policy": {"allowed_tools": allowed},
+        "requested_tools": [
+            ToolCallRequest(
+                tool_name="mcp.mock.failing_lookup",
+                arguments={"value": "target"},
+                purpose="查询前置资源",
+            ),
+            ToolCallRequest(
+                tool_name="mcp.mock.write_after_lookup",
+                arguments={"resource_id": "$resolved_resource_id"},
+                purpose="写入资源",
+            ),
+        ],
+    }
+
+    result = build_tool_agent_node(registry_factory=registry_factory)(state)
+
+    assert result["tool_calls"][0].result.status == "failed"
+    assert result["pending_tool_approval"] is None
+    assert write_calls == []
+
+
+def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
+    class SearchInput(BaseModel):
+        query: str
+
+    provider_calls = []
+    retriever_calls = []
+
+    class HighRiskRagTool(Tool[SearchInput]):
+        name = "rag_search"
+        version = "1.0.0"
+        input_model = SearchInput
+        risk_level = "high"
+
+        async def run(self, input_data: SearchInput) -> ToolCallResult:
+            provider_calls.append(input_data.query)
+            raise AssertionError("rag_search 应由 Retriever 执行")
+
+    def registry_factory():
+        registry = ToolRegistry()
+        registry.register(HighRiskRagTool())
+        return registry
+
+    def skill(state):
+        state["selected_skill"] = {
+            "skill_name": "high_risk_search",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": ["rag_search"],
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": ["rag_search"]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="rag_search",
+                    tool_version="1.0.0",
+                    arguments={"query": "敏感投研资料"},
+                    purpose="检索投研资料",
+                )
+            ],
+        }
+        return state
+
+    def retriever(state):
+        retriever_calls.append(state["plan"]["requested_tools"][0].call_id)
+        state["evidence"] = EvidencePackage(
+            evidence_package_id="evp_rag",
+            query_set=["敏感投研资料"],
+            coverage="none",
+            items=[],
+        )
+        return state
+
+    checkpointer = InMemorySaver()
+    tool_agent = build_tool_agent_node(registry_factory=registry_factory)
+    initial = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=skill,
+        tool_agent_node=tool_agent,
+        retriever_node=retriever,
+        checkpointer=checkpointer,
+    )
+
+    approval = initial["__interrupt__"][0].value
+    assert approval["tool_name"] == "rag_search"
+    assert approval["call_id"]
+    assert retriever_calls == []
+    assert provider_calls == []
+
+    completed = resume_question_answer_graph(
+        checkpoint_thread_id=initial["request_id"],
+        approval_decision={
+            "approval_id": approval["approval_id"],
+            "arguments_hash": approval["arguments_hash"],
+            "decision": "approved",
+        },
+        skill_agent_node=skill,
+        tool_agent_node=tool_agent,
+        retriever_node=retriever,
+        checkpointer=checkpointer,
+    )
+
+    assert completed["final_response"] is not None
+    assert retriever_calls == [approval["call_id"]]
+    assert provider_calls == []
+
+
+def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
+    build_graph_checkpointer.cache_clear()
+    checkpointer = build_graph_checkpointer(
+        backend="sqlite",
+        sqlite_path=str(tmp_path / "approval-checkpoints.sqlite"),
+    )
+    calls = []
+
+    def skill(state):
+        state["selected_skill"] = {
+            "skill_name": "sqlite_resume",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": ["rag_search"],
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": ["rag_search"]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="rag_search",
+                    arguments={"query": "审批恢复"},
+                    purpose="验证 SQLite 恢复",
+                    approval_required=True,
+                )
+            ],
+        }
+        return state
+
+    def retriever(state):
+        calls.append(state["plan"]["requested_tools"][0].call_id)
+        state["evidence"] = EvidencePackage(
+            evidence_package_id="evp_sqlite",
+            query_set=["审批恢复"],
+            coverage="none",
+            items=[],
+        )
+        return state
+
+    initial = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="差旅报销需要什么？",
+        skill_agent_node=skill,
+        retriever_node=retriever,
+        checkpointer=checkpointer,
+    )
+    approval = initial["__interrupt__"][0].value
+
+    completed = resume_question_answer_graph(
+        checkpoint_thread_id=initial["request_id"],
+        approval_decision={
+            "approval_id": approval["approval_id"],
+            "arguments_hash": approval["arguments_hash"],
+            "decision": "approved",
+        },
+        skill_agent_node=skill,
+        retriever_node=retriever,
+        checkpointer=checkpointer,
+    )
+
+    assert completed["final_response"] is not None
+    assert calls == [approval["call_id"]]
+    assert completed["pending_tool_approval"] is None
+    assert completed["approved_tool_call_ids"] == [approval["call_id"]]
+    build_graph_checkpointer.cache_clear()
 
 
 def test_question_answer_graph_routes_llm_detected_sum_expression_to_tool_agent():

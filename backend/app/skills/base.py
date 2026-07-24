@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.schemas.evidence import EvidencePackage
 from app.schemas.memory import MemoryContext
 from app.schemas.tools import ToolCallRequest
+from app.tools.redaction import reject_inline_credentials
 
 
 class ApprovalPolicy(BaseModel):
@@ -64,6 +65,8 @@ class Skill:
             evidence=evidence,
             memory_context=memory_context,
         )
+        for request in output.requested_tools:
+            reject_inline_credentials(request.arguments)
         requested = {request.tool_name for request in output.requested_tools}
         allowed = set(self.spec.allowed_tools)
         disallowed = requested - allowed

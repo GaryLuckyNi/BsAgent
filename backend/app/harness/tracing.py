@@ -95,10 +95,11 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
                 "preview": state["user_message"][:120],
             },
             "intent": state["intent"],
-            "plan": state["plan"],
+            "plan": _planner_decision_summary(state) if state["plan"] else None,
             "selected_skill": state["selected_skill"],
             "tool_calls": [
                 {
+                    "call_id": record.call_id or record.request.call_id,
                     "tool_name": record.request.tool_name,
                     "status": record.result.status,
                     "error_code": record.result.error.code if record.result.error else None,
@@ -292,6 +293,7 @@ def _tool_execution_summary(
         "executed_count": len(new_records),
         "records": [
             {
+                "call_id": record.call_id or record.request.call_id,
                 "tool_name": record.request.tool_name,
                 "purpose": record.request.purpose,
                 "status": record.result.status if record.result else "not_executed",

@@ -43,7 +43,14 @@ def test_node_runner_records_sanitized_input_and_output_artifacts():
     )
     state["plan"] = {
         "objective": "回答问题",
-        "api_key": "secret_key",
+        "execution_mode": "tool_execution",
+        "requested_tools": [
+            ToolCallRequest.model_construct(
+                tool_name="mcp.mock.write",
+                arguments={"database_password": "plan-secret", "value": "visible"},
+                purpose="验证 Trace 摘要",
+            )
+        ],
     }
     trace_store = InMemoryTraceStore()
     runner = NodeRunner(trace_store=trace_store)
@@ -66,7 +73,16 @@ def test_node_runner_records_sanitized_input_and_output_artifacts():
     output_artifact = trace_store.get_artifact(event.output_ref)
 
     assert input_artifact.payload["plan"]["objective"] == "回答问题"
-    assert input_artifact.payload["plan"]["api_key"] == "[REDACTED]"
+    assert input_artifact.payload["plan"]["requested_tools"] == [
+        {
+            "tool_name": "mcp.mock.write",
+            "tool_version": None,
+            "purpose": "验证 Trace 摘要",
+            "approval_required": False,
+            "argument_keys": ["database_password", "value"],
+        }
+    ]
+    assert "plan-secret" not in repr(input_artifact.payload)
     assert output_artifact.payload["intent"]["intent"] == "knowledge_qa"
     assert trace_store.list_events(result["trace_id"])[0].node_name == "intent_router"
 

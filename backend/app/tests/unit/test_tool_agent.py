@@ -1,6 +1,7 @@
 import asyncio
 
-from pydantic import BaseModel
+import pytest
+from pydantic import BaseModel, ValidationError
 
 from app.schemas.tools import ToolCallRequest, ToolCallResult
 from app.tools.agent import ToolAgentExecutor
@@ -42,6 +43,7 @@ def _context(
     skill_allowed_tools: list[str] | None = None,
     permission_scopes: list[str] | None = None,
     approved_tool_call_hashes: list[str] | None = None,
+    approved_tool_call_ids: list[str] | None = None,
 ) -> ToolExecutionContext:
     return ToolExecutionContext(
         tenant_id="tenant_1",
@@ -52,6 +54,7 @@ def _context(
         skill_allowed_tools=skill_allowed_tools,
         permission_scopes=permission_scopes or [],
         approved_tool_call_hashes=approved_tool_call_hashes or [],
+        approved_tool_call_ids=approved_tool_call_ids or [],
     )
 
 
@@ -276,6 +279,22 @@ def test_tool_call_fingerprint_changes_when_arguments_change():
     assert tool_call_fingerprint(left) != tool_call_fingerprint(right)
 
 
+def test_tool_call_request_does_not_accept_untrusted_safe_arguments():
+    assert "safe_arguments" not in ToolCallRequest.model_fields
+
+
+@pytest.mark.parametrize("credential_key", ["client_secret", "database_password"])
+def test_tool_call_request_rejects_inline_credentials(credential_key):
+    with pytest.raises(ValidationError) as exc_info:
+        ToolCallRequest(
+            tool_name="echo",
+            arguments={credential_key: "plaintext-secret"},
+            purpose="验证凭证不得进入 AgentState",
+        )
+
+    assert exc_info.value.errors()[0]["type"] == "inline_credentials_forbidden"
+
+
 def test_tool_agent_denies_missing_registered_permission_scope():
     class ScopedEchoTool(EchoTool):
         permission_scope = ["mcp:mock"]
@@ -355,3 +374,44 @@ def test_tool_agent_denies_approved_hash_when_arguments_are_changed():
 
     assert result.status == "denied"
     assert result.error.code == "tool_approval_required"
+
+
+def test_tool_agent_requires_approval_for_matching_call_instance_and_fingerprint():
+    class HighRiskEchoTool(EchoTool):
+        risk_level = "high"
+
+    request = ToolCallRequest(
+        call_id="call_1",
+        tool_name="echo",
+        arguments={"text": "approved"},
+        purpose="验证审批绑定调用实例",
+        approval_required=True,
+    )
+    registry = ToolRegistry()
+    registry.register(HighRiskEchoTool())
+    fingerprint = tool_call_fingerprint(request)
+
+    denied = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            request,
+            trace_id="trace_1",
+            context=_context(
+                approved_tool_call_hashes=[fingerprint],
+                approved_tool_call_ids=["call_2"],
+            ),
+        )
+    )
+    allowed = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            request,
+            trace_id="trace_1",
+            context=_context(
+                approved_tool_call_hashes=[fingerprint],
+                approved_tool_call_ids=["call_1"],
+            ),
+        )
+    )
+
+    assert denied.status == "denied"
+    assert denied.error.code == "tool_approval_required"
+    assert allowed.status == "success"

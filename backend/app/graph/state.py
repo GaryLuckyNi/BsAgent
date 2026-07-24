@@ -1,7 +1,7 @@
 from typing import Literal, NotRequired, TypedDict
 from uuid import uuid4
 
-from app.schemas.approvals import ApprovalRequest, ApprovalStatus
+from app.schemas.approvals import ApprovalRequest, ApprovalStatus, PendingToolApproval
 from app.schemas.evidence import EvidencePackage
 from app.schemas.memory import MemoryCandidate, MemoryContext
 from app.schemas.messages import Message
@@ -117,6 +117,8 @@ class AgentState(TypedDict):
     approval_status: ApprovalStatus | None
     permission_scopes: list[str]
     approved_tool_call_hashes: list[str]
+    approved_tool_call_ids: list[str]
+    pending_tool_approval: PendingToolApproval | None
     final_response: AgentResponse | None
     errors: list[AgentError]
 
@@ -153,6 +155,8 @@ def create_initial_state(
         "approval_status": None,
         "permission_scopes": list(permission_scopes or []),
         "approved_tool_call_hashes": [],
+        "approved_tool_call_ids": [],
+        "pending_tool_approval": None,
         "final_response": None,
         "errors": [],
     }

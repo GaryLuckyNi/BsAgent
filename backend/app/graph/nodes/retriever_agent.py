@@ -105,6 +105,7 @@ def _apply_rag_result(
 ) -> None:
     state["tool_calls"].append(
         ToolCallRecord(
+            call_id=request.call_id,
             request=request,
             result=result,
         )

@@ -89,6 +89,8 @@ SkillOutput.requested_tools
 
 没有 skill tool request 时，Retriever Agent 保留默认 `rag_search` 请求作为兼容路径。RAG 的 `404` 会映射为无证据结果，其它结构化 RAG 错误会继续抛给 graph harness，由 Session API 返回结构化错误。
 
+Graph 主链中的 `rag_search` 在进入 Retriever 前也必须先经过 Tool Agent 的可信准备阶段：生成 `call_id`、解析当前参数、读取运行时 ToolSpec 并按真实风险决定是否审批。Tool Agent 不调用 RAG Provider，实际检索仍由 Retriever 执行；这样既保留 EvidencePackage 转换职责，也不会让高风险 RAG 绕过 Approval Gate。
+
 ### `schemas/tools.py`
 
 定义系统级工具契约：
@@ -130,11 +132,11 @@ SkillOutput.requested_tools
 - 不在已选择 Skill 白名单：返回 `tool_not_allowed_by_skill`。
 - 缺少工具注册端声明的权限 scope：返回 `tool_permission_denied`。
 - 参数不符合 schema：返回 `tool_argument_validation_failed`。
-- 请求标记需要审批或注册工具风险等级为 `high`，且当前调用指纹不在已批准集合：返回 `tool_approval_required`，不执行工具。
+- 请求标记需要审批或注册工具风险等级为 `high`，且当前 `call_id + 参数指纹` 未同时获批：返回 `tool_approval_required`，不执行工具。
 - 工具运行异常：返回 `tool_execution_failed`。
 - 成功结果不符合输出 schema：返回 `tool_output_validation_failed`，原始结果不进入 Agent State。
 
-`ToolExecutionContext` 携带 tenant、user、session、Plan 白名单、Skill 白名单、当前权限 scope 和已批准工具调用哈希。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
+`ToolExecutionContext` 携带 tenant、user、session、Plan 白名单、Skill 白名单、当前权限 scope、已批准调用实例 ID 和参数哈希。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
 
 Tool Agent 与 Retriever 统一通过 `graph/tool_context.py` 构造执行上下文。Plan 白名单只来自 `plan.tool_policy.allowed_tools`；Skill 声明了 `selected_skill.allowed_tools` 时再叠加 Skill 白名单；permission scopes 与 approved hashes 均来自运行状态。Retriever 不得用当前请求名自授权。只有 Plan 未提供 `tool_policy.allowed_tools` 时，Retriever 才使用代码中命名的系统默认检索策略 `DEFAULT_RETRIEVAL_ALLOWED_TOOLS=("rag_search",)`；显式空白名单仍表示拒绝。
 
@@ -241,9 +243,9 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 - `mcp.mock.stock.announcement_search`
 - `mcp.mock.stock.risk_events`
 
-`rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，Tool Agent 会跳过 `rag_search` 请求。Skill 分支中，非 RAG 工具先由 Tool Agent 执行；如果 Skill 同时请求了 `rag_search`，图会在结构化工具执行后进入 Retriever。
+`rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，但 Tool Agent 会先完成可信规范化、风险提升和审批准备，不会直接调用 RAG Provider。Skill 分支中，工具按计划顺序推进；轮到 `rag_search` 且已满足审批条件后，Graph 才进入 Retriever。
 
-依赖前置结果的工具使用 `$resolved_<output_key>` 占位协议，例如 resolver 返回 `symbol` 时，后续 `$resolved_symbol` 会被替换。解析逻辑不依赖工具名或证券代码字段：Tool Agent 按请求顺序汇总已成功工具的结构化输出，递归解析下一个请求的占位值，再读取该工具的真实 `ToolSpec.risk_level`。安全前置工具可以先执行；真实参数需要审批时，Tool Agent 把解析后的请求写回 plan 并返回 Graph，由 Approval Gate 中断，绝不调用高风险 Provider。批准恢复后，已成功请求按真实调用指纹跳过，不重复执行前置工具。
+依赖前置结果的工具使用 `$resolved_<output_key>` 占位协议，例如 resolver 返回 `symbol` 时，后续 `$resolved_symbol` 会被替换。解析逻辑不依赖工具名或证券代码字段：Tool Agent 按请求顺序汇总已成功工具的结构化输出，递归解析当前请求的占位值，再读取该工具的真实 `ToolSpec.risk_level`。安全前置工具可以先执行；真实参数需要审批时，Tool Agent 把解析后的请求写回 plan，并生成唯一 `pending_tool_approval` 后返回 Graph，绝不提前审批后续占位请求或调用高风险 Provider。批准恢复后，已成功请求按可信 `call_id` 跳过，不重复执行前置工具；指纹只用于审批防篡改，不用于合并两个有意的相同调用。
 
 `McpGateway` 属于 MCP 控制面，只负责 MCP Server 配置、工具发现和协议标准化。它不负责通用权限与风险决策；这些职责属于 `ToolExecutionGateway`。
 
@@ -260,25 +262,28 @@ A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent �
 
 工具调用是否需要人工审批由上游 Agent、Skill 和服务端工具风险共同决定。`ToolExecutionGateway` 不信任模型降低风险：即使 `ToolCallRequest.approval_required=false`，注册端 `ToolSpec.risk_level=high` 仍会强制返回 `denied`。
 
-Tool Agent 在执行前使用本次运行实际 `ToolRegistry` 中的 `ToolSpec` 规范化请求。只要注册端 `risk_level=high`，就会把对应请求提升为 `approval_required=true`；若当前调用哈希尚未批准，Tool Agent 不执行任何 Provider，而是让 Graph 路由到 Approval Gate。该判断不依赖工具名称枚举，也不信任 Skill 将风险标成 medium 或 low。
+Tool Agent 在执行前使用本次运行实际 `ToolRegistry` 中的 `ToolSpec` 规范化请求。可信规范化层按 `run_id + step_index` 生成稳定 `call_id`，会覆盖模型提供的任意 ID。只要注册端 `risk_level=high`，就会把对应请求提升为 `approval_required=true`；若当前 `call_id + 参数指纹` 尚未同时批准，Tool Agent 不执行任何 Provider，而是让 Graph 路由到 Approval Gate。该判断不依赖工具名称枚举，也不信任 Skill 将风险标成 medium 或 low。
 
-审批展示参数由 `tools/redaction.py` 集中生成。键名会移除 snake/camel/kebab 分隔差异后匹配 `client_secret`、`refresh_token`、`private_key`、`accessToken`、`bearerToken` 等敏感名称，并递归处理嵌套对象和数组；Tool input schema 中的 `writeOnly=true` 或 `x-sensitive=true` 优先标记敏感字段。Tool Agent 从 Registry 取得 schema 后生成安全展示副本，Approval Gate 和 Approval API 不返回完整秘密。`arguments_hash` 始终基于原始真实参数计算，不使用脱敏值。
+审批展示参数由 `tools/redaction.py` 集中生成，`ToolCallRequest` 不包含可由模型伪造的 `safe_arguments`。脱敏器对 snake/camel/kebab 键名分词后匹配 `database_password`、`oauth_access_token`、`clientSecret`、`private-key` 等敏感词组，并递归处理 Pydantic、dataclass、对象、数组和集合；JSON Schema 支持 `properties/items/additionalProperties/patternProperties/allOf/anyOf/oneOf`、本地 `$defs/definitions` 引用和循环引用保护，任一分支的 `writeOnly=true` 或 `x-sensitive=true` 都会整值脱敏。Tool Agent 从 Registry 取得 schema 后生成安全展示副本并绑定 `call_id + fingerprint`，Approval Gate 和 Approval API 不返回完整秘密。`arguments_hash` 始终基于原始真实参数计算，不使用脱敏值。
+
+连接凭证不得作为模型、Skill 或 MCP 参数进入 Agent State/checkpoint。内联 `client_secret`、`database_password`、access token、private key 等字段会以 `inline_credentials_forbidden` 拒绝；连接凭证应由 Gateway/Adapter 在服务端注入。当前 checkpoint 未加密，普通敏感业务参数的生产治理仍需要加密 saver、字段加密和保留策略。
 
 当前高风险工具审批链路已经形成闭环：
 
 ```text
 Planner / Skill 生成 ToolCallRequest
--> Tool Agent 执行安全前置步骤、解析占位参数并按 ToolSpec 提升风险
--> Approval Gate 计算规范化参数哈希并调用 interrupt()
+-> Tool Agent 生成可信 call_id，执行安全前置步骤并只准备当前真实请求
+-> Tool Agent 生成 pending descriptor（call_id + fingerprint + 安全展示参数）
+-> Approval Gate 校验 descriptor 与真实请求后调用 interrupt()
 -> ApprovalRecord 持久化 pending 业务审批
 -> Approval API 原子记录 approved/rejected
 -> Command(resume=...) 恢复 Run 级 checkpoint
--> Approval Gate 重新核对 approval_id 与参数哈希
--> ToolExecutionGateway 再次核对权限 scope 与已批准哈希
+-> Approval Gate 重新核对 approval_id、call_id 与参数哈希
+-> ToolExecutionGateway 再次核对权限 scope 与已批准 call_id + 哈希
 -> Tool Provider
 ```
 
-`ApprovalRecord` 是业务审批审计记录；LangGraph checkpoint 保存节点执行现场并负责中断恢复；`AgentRun` 保存单次运行的业务状态与结果索引。三者相互关联但不可互相替代。审批 API 使用 `pending -> resuming -> approved/rejected|resume_failed` 状态机和数据库 CAS claim token：并发请求只有一个可以恢复，失败会记录错误并允许相同决定重试。相同终态决定是幂等请求，相反决定返回冲突。工具名称、版本或参数任一变化都会产生不同指纹，旧审批不能授权新调用。
+`ApprovalRecord` 是业务审批审计记录；LangGraph checkpoint 保存节点执行现场并负责中断恢复；`AgentRun` 保存单次运行的业务状态与结果索引。三者相互关联但不可互相替代。审批 API 使用 `pending -> resuming -> approved/rejected|resume_failed` 状态机和数据库 CAS claim token：并发请求只有一个可以恢复，失败会记录错误并允许相同决定重试。相同终态决定是幂等请求，相反决定返回冲突。`approval_id` 绑定 `run_id + call_id + fingerprint`；工具名称、版本或参数变化会使旧审批失效，相同工具与参数的两个不同调用实例也各自审批、各自执行。
 
 `decision/decided_by/decided_at` 是首次业务决定，写入后不可被恢复重试人覆盖；`resume_claimed_by/resume_claimed_at` 记录最近一次恢复 claimant，`resume_attempts` 记录总尝试数，`last_resume_error` 在新 claim 或最终成功时仍保留最近失败证据。TraceEvent 使用稳定 `event_id`，`persist_agent_run` 依据数据库记录幂等补写，不再使用进程内事件数量作为持久化游标。
 
@@ -299,7 +304,9 @@ Planner / Skill 生成 ToolCallRequest
 - Retriever Plan/Skill 白名单越权拒绝，默认 RAG 策略不做请求自授权。
 - 注册端高风险工具强制审批。
 - 多工具前置解析、真实参数审批和恢复后前置工具不重放。
+- 连续高风险调用逐个审批，相同指纹的不同调用实例不合并。
 - 审批参数键名/schema 脱敏，原始参数指纹保持不变。
+- Planner/Skill 内联凭证在进入可持久 Plan 前拒绝，Trace 摘要/API 不返回明文秘密。
 - 工具权限 scope 拒绝与放行。
 - 审批参数哈希稳定性及参数变化拒绝。
 - Graph 高风险工具中断、批准恢复、拒绝恢复与旧哈希拒绝。

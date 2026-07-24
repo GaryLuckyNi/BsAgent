@@ -16,7 +16,9 @@ LangGraph checkpoint：节点执行现场与断点恢复
 AgentRun：单次运行的业务状态与查询索引
 ```
 
-删除 `ApprovalRecord` 不等于删除 checkpoint；只有审批记录而没有对应 checkpoint 也无法恢复执行。恢复时 Approval Gate 和 Tool Execution Gateway 都会重新计算工具调用指纹，旧哈希不能授权参数已经变化的新调用。
+删除 `ApprovalRecord` 不等于删除 checkpoint；只有审批记录而没有对应 checkpoint 也无法恢复执行。恢复时 Approval Gate 和 Tool Execution Gateway 都会重新计算工具调用指纹，并同时校验可信 `call_id`。旧哈希不能授权参数已经变化的新调用，同一工具和参数的两个有意步骤也不会因为指纹相同而被合并。
+
+Graph State 中的 `pending_tool_approval` 是 Tool Agent 为“当前唯一待审批调用”生成的可信描述符，包含服务端生成的 `call_id`、步骤位置、真实参数指纹、脱敏展示参数和工具元数据。Approval Gate 只消费该描述符，不遍历或信任 Planner 自报的后续待审批请求。批准或拒绝后描述符会被清理；批准后 Graph 回到 Tool Agent 执行当前调用，再推进下一步骤。
 
 ## 审批恢复状态机
 
@@ -44,6 +46,12 @@ claim 提交前，API 会把恢复所需字段复制到不可变标量快照。�
 Graph 节点事件使用稳定 `event_id` 写入 `agent_trace_events`。`persist_agent_run` 每次接收当前 TraceStore 中该 trace 的全部可用事件，并依据数据库已有 `event_id` 补写缺失项；数据库唯一键处理并发或重复重试，业务事务回滚后，同一进程内再次收尾不会因内存列表游标前移而丢 Trace，也不会重复插入。
 
 当前 `InMemoryTraceStore` 仍是进程内存储。如果进程在 Graph 已完成、业务事务回滚后退出，尚未入库的 TraceEvent 会随进程丢失；新进程仅靠 checkpoint 完成态不能还原这批事件。本阶段不声称 Trace 可跨进程补偿，生产环境需要持久 Trace sink、Outbox 或外部观测后端承接该窗口。
+
+## 敏感数据边界
+
+模型、Planner、Skill 和 MCP 工具请求不得把连接凭证作为 `ToolCallRequest.arguments` 写入 Agent State。`client_secret`、`database_password`、access token、private key 等内联凭证会在 Pydantic 契约和 Tool Agent 可信规范化入口被稳定拒绝，错误码为 `inline_credentials_forbidden`。工具连接凭证只能由 Gateway 或 Adapter 从服务端配置、Secret Manager 或工作负载身份注入；当前没有 `SecretResolver`，因此也不接受伪装成引用的明文凭证。
+
+当前 SQLite/Postgres LangGraph checkpoint 没有应用层字段加密。凭证按上述规则禁止进入 checkpoint；普通敏感业务参数仍可能存在于 State，生产接入前需要补充加密 checkpointer、字段级加密、访问控制和租户级保留/清理策略，不能把现状描述为“checkpoint 已加密”。Trace 仅记录可信计划/工具摘要，API 返回前还会对 Pydantic、dataclass 和容器执行集中脱敏，但它不替代 checkpoint 的数据治理。
 
 这里不声称跨 PostgreSQL、LangGraph checkpoint 和外部工具实现分布式 exactly-once。CAS 可以阻止并发审批请求重复 resume，但进程在外部工具已产生副作用、业务终态尚未提交的极端窗口仍需要工具侧幂等键、Outbox/Inbox 或工作流编排器进一步治理。
 

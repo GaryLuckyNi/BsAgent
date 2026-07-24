@@ -3,6 +3,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.harness.tracing import TraceArtifact, TraceEvent, get_trace_store
+from app.tools.redaction import redact_sensitive_data
 
 router = APIRouter(prefix="/api/traces", tags=["traces"])
 
@@ -34,7 +35,7 @@ def _event_to_dict(event: TraceEvent) -> dict[str, Any]:
         "input_ref": event.input_ref,
         "output_ref": event.output_ref,
         "error": event.error,
-        "metadata": event.metadata,
+        "metadata": redact_sensitive_data(event.metadata),
     }
 
 
@@ -43,5 +44,5 @@ def _artifact_to_dict(artifact: TraceArtifact) -> dict[str, Any]:
         "trace_id": artifact.trace_id,
         "node_name": artifact.node_name,
         "artifact_type": artifact.artifact_type,
-        "payload": artifact.payload,
+        "payload": redact_sensitive_data(artifact.payload),
     }

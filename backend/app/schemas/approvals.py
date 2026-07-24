@@ -15,3 +15,14 @@ class ApprovalRequest(BaseModel):
 class ApprovalStatus(BaseModel):
     required: bool
     status: Literal["not_required", "pending", "approved", "rejected"]
+
+
+class PendingToolApproval(BaseModel):
+    call_id: str
+    step_index: int = Field(ge=0)
+    request_fingerprint: str
+    tool_name: str
+    tool_version: str | None = None
+    risk_level: Literal["low", "medium", "high"]
+    safe_arguments: dict[str, Any] = Field(default_factory=dict)
+    purpose: str

@@ -33,4 +33,5 @@ def build_tool_execution_context(
         skill_allowed_tools=skill_allowed_tools,
         permission_scopes=state["permission_scopes"],
         approved_tool_call_hashes=state["approved_tool_call_hashes"],
+        approved_tool_call_ids=state["approved_tool_call_ids"],
     )

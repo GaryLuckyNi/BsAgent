@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+import pytest
+from pydantic import BaseModel, ValidationError
 
 from app.graph.nodes.approval_coordinator import (
     approval_coordinator_node,
@@ -22,6 +23,7 @@ from app.skills.base import ApprovalPolicy, Skill, SkillOutput, SkillSpec
 from app.skills.registry import SkillRegistry
 from app.tools.base import Tool
 from app.tools.registry import ToolRegistry
+from app.tools.redaction import InlineCredentialsForbiddenError
 
 
 class RecordingExperienceStore:
@@ -96,6 +98,18 @@ class ToolPlanningLlmClient(RecordingLlmClient):
               "arguments": {"numbers": [1, 2, 3]},
               "purpose": "计算用户给出的数字总和",
               "approval_required": false
+            }
+            """
+        )
+
+
+class InlineCredentialPlanningLlmClient(RecordingLlmClient):
+    def __init__(self) -> None:
+        super().__init__(
+            """
+            {
+              "arguments": {"client_secret": "plaintext-secret"},
+              "purpose": "尝试把凭证写入计划"
             }
             """
         )
@@ -223,6 +237,38 @@ def test_planner_agent_builds_dynamic_tool_plan_from_candidate_tool():
     assert request.arguments == {"numbers": [1, 2, 3]}
 
 
+def test_planner_rejects_inline_credentials_before_plan_enters_state():
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="执行需要连接凭证的工具",
+    )
+    state["intent"] = {
+        "intent": "tool_action",
+        "risk_level": "high",
+        "candidate_tool": "mcp.mock.secure_write",
+    }
+    planner = build_planner_agent_node(
+        llm_client=InlineCredentialPlanningLlmClient(),
+        available_tools=[
+            ToolSpec(
+                name="mcp.mock.secure_write",
+                version="1.0.0",
+                description="测试工具",
+                input_schema={"type": "object"},
+                risk_level="high",
+            )
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        planner(state)
+
+    assert exc_info.value.errors()[0]["type"] == "inline_credentials_forbidden"
+    assert state["plan"] is None
+
+
 def test_planner_agent_builds_skill_execution_plan_for_a_share_task_workflow():
     state = create_initial_state(
         session_id="s1",
@@ -310,6 +356,53 @@ def test_skill_agent_selects_and_runs_registered_skill_with_runtime_context():
     assert result["plan"]["skill_output"]["skill_name"] == "recording_skill"
     assert result["plan"]["requested_tools"][0].tool_name == "rag_search"
     assert skill.calls[0]["memory_context"].entries == ["用户偏好：所有回答用中文"]
+
+
+def test_skill_runtime_rejects_bypassed_inline_credentials_before_plan_update():
+    class CredentialSkill(Skill):
+        spec = SkillSpec(
+            name="credential_skill",
+            version="1.0.0",
+            description="验证 Skill 凭证边界",
+            supported_intents=["task_workflow"],
+            risk_level="high",
+            allowed_tools=["mcp.mock.secure_write"],
+        )
+
+        def run(self, **kwargs):
+            return SkillOutput(
+                skill_name=self.spec.name,
+                skill_version=self.spec.version,
+                status="needs_approval",
+                requested_tools=[
+                    ToolCallRequest.model_construct(
+                        tool_name="mcp.mock.secure_write",
+                        arguments={"database_password": "plaintext-secret"},
+                        purpose="尝试绕过 Pydantic 校验",
+                    )
+                ],
+            )
+
+    registry = SkillRegistry()
+    registry.register(CredentialSkill())
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="执行安全写入",
+    )
+    state["intent"] = {
+        "intent": "task_workflow",
+        "candidate_skill": "credential_skill",
+        "risk_level": "high",
+    }
+    state["plan"] = {"selected_skill": {"name": "credential_skill"}}
+
+    with pytest.raises(InlineCredentialsForbiddenError) as exc_info:
+        build_skill_agent_node(registry=registry)(state)
+
+    assert exc_info.value.code == "inline_credentials_forbidden"
+    assert "requested_tools" not in state["plan"]
 
 
 def test_tool_agent_replaces_resolved_symbol_placeholder_in_later_stock_tools():

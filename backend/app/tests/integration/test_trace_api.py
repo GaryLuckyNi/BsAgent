@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 import pytest
+from pydantic import BaseModel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -76,6 +77,54 @@ def test_get_trace_returns_events_and_artifacts():
     assert body["artifacts"][output_ref]["payload"]["intent"]["intent"] == "knowledge_qa"
 
 
+def test_get_trace_redacts_pydantic_values_in_events_and_artifacts():
+    class SensitivePayload(BaseModel):
+        database_password: str
+        visible: str
+
+    store = get_trace_store()
+    store.clear()
+    trace_id = "trace_sensitive_1"
+    artifact_ref = store.save_artifact(
+        TraceArtifact(
+            trace_id=trace_id,
+            node_name="tool_agent",
+            artifact_type="input_summary",
+            payload={
+                "request": SensitivePayload(
+                    database_password="artifact-secret",
+                    visible="safe",
+                )
+            },
+        )
+    )
+    store.record_event(
+        TraceEvent(
+            trace_id=trace_id,
+            node_name="tool_agent",
+            status="success",
+            latency_ms=1,
+            metadata={
+                "request": SensitivePayload(
+                    database_password="event-secret",
+                    visible="safe",
+                )
+            },
+        )
+    )
+
+    response = TestClient(create_test_app_with_database()).get(f"/api/traces/{trace_id}")
+
+    assert response.status_code == 200
+    serialized = response.text
+    assert "artifact-secret" not in serialized
+    assert "event-secret" not in serialized
+    assert response.json()["artifacts"][artifact_ref]["payload"]["request"] == {
+        "database_password": "***",
+        "visible": "safe",
+    }
+
+
 def test_session_message_trace_can_be_queried(monkeypatch):
     monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
     store = get_trace_store()
@@ -101,6 +150,7 @@ def test_session_message_trace_can_be_queried(monkeypatch):
         "intent_router",
         "planner_agent",
         "skill_agent",
+        "tool_agent",
         "retriever_agent",
         "analysis_agent",
         "synthesizer",

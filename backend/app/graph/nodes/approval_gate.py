@@ -4,10 +4,9 @@ from typing import Any
 from langgraph.types import interrupt
 
 from app.graph.state import AgentState
-from app.schemas.approvals import ApprovalRequest, ApprovalStatus
+from app.schemas.approvals import ApprovalRequest, ApprovalStatus, PendingToolApproval
 from app.schemas.tools import ToolCallRequest
 from app.tools.fingerprints import tool_call_fingerprint
-from app.tools.redaction import redact_sensitive_data
 
 
 class ApprovalResumeError(ValueError):
@@ -20,87 +19,99 @@ class ApprovalPayloadMismatchError(ApprovalResumeError):
 
 
 def approval_gate_node(state: AgentState) -> AgentState:
-    for request in _pending_approval_requests(state):
-        arguments_hash = tool_call_fingerprint(request)
-        approval_id = _approval_id(state["request_id"], arguments_hash)
-        safe_arguments = request.safe_arguments or redact_sensitive_data(
-            request.arguments
-        )
-        approval_request = ApprovalRequest(
-            approval_id=approval_id,
-            run_id=state["request_id"],
-            approval_type="tool_call",
-            risk_level="high",
-            payload={
-                "tool_name": request.tool_name,
-                "tool_version": request.tool_version,
-                "arguments_hash": arguments_hash,
-                "arguments": safe_arguments,
-                "purpose": request.purpose,
-            },
-        )
-        _upsert_approval_request(state, approval_request)
-        state["approval_status"] = ApprovalStatus(required=True, status="pending")
+    descriptor = state["pending_tool_approval"]
+    if descriptor is None:
+        return state
+    request = _descriptor_request(state, descriptor)
+    arguments_hash = tool_call_fingerprint(request)
+    if arguments_hash != descriptor.request_fingerprint:
+        raise ApprovalPayloadMismatchError("工具参数已变化，待审批描述符无效。")
+    approval_id = _approval_id(
+        state["request_id"], descriptor.call_id, arguments_hash
+    )
+    safe_arguments = descriptor.safe_arguments
+    approval_request = ApprovalRequest(
+        approval_id=approval_id,
+        run_id=state["request_id"],
+        approval_type="tool_call",
+        risk_level=descriptor.risk_level,
+        payload={
+            "call_id": descriptor.call_id,
+            "tool_name": descriptor.tool_name,
+            "tool_version": descriptor.tool_version,
+            "arguments_hash": arguments_hash,
+            "arguments": safe_arguments,
+            "purpose": descriptor.purpose,
+        },
+    )
+    _upsert_approval_request(state, approval_request)
+    state["approval_status"] = ApprovalStatus(required=True, status="pending")
 
-        decision = interrupt(
-            {
-                "approval_id": approval_id,
-                "approval_type": "tool_call",
-                "run_id": state["request_id"],
-                "session_id": state["session_id"],
-                "tenant_id": state["tenant_id"],
-                "request_user_id": state["user_id"],
-                "tool_name": request.tool_name,
-                "tool_version": request.tool_version,
-                "arguments_hash": arguments_hash,
-                "arguments": safe_arguments,
-                "purpose": request.purpose,
-                "checkpoint_thread_id": state["request_id"],
-                "status": "pending",
-            }
-        )
-        _validate_decision(
-            decision,
-            approval_id=approval_id,
-            arguments_hash=arguments_hash,
-        )
-        approval_request.status = decision["decision"]
-        _upsert_approval_request(state, approval_request)
+    decision = interrupt(
+        {
+            "approval_id": approval_id,
+            "approval_type": "tool_call",
+            "run_id": state["request_id"],
+            "session_id": state["session_id"],
+            "tenant_id": state["tenant_id"],
+            "request_user_id": state["user_id"],
+            "call_id": descriptor.call_id,
+            "tool_name": descriptor.tool_name,
+            "tool_version": descriptor.tool_version,
+            "arguments_hash": arguments_hash,
+            "arguments": safe_arguments,
+            "purpose": descriptor.purpose,
+            "checkpoint_thread_id": state["request_id"],
+            "status": "pending",
+        }
+    )
+    _validate_decision(decision, approval_id=approval_id, arguments_hash=arguments_hash)
+    approval_request.status = decision["decision"]
+    _upsert_approval_request(state, approval_request)
+    state["pending_tool_approval"] = None
 
-        if decision["decision"] == "rejected":
-            state["approval_status"] = ApprovalStatus(required=True, status="rejected")
-            state["plan"] = {
-                **(state["plan"] or {}),
-                "execution_mode": "direct_response",
-                "requested_tools": [],
-                "response_policy": {"response_type": "approval_rejected_response"},
-            }
-            return state
+    if decision["decision"] == "rejected":
+        state["approval_status"] = ApprovalStatus(required=True, status="rejected")
+        state["plan"] = {
+            **(state["plan"] or {}),
+            "execution_mode": "direct_response",
+            "requested_tools": [],
+            "response_policy": {"response_type": "approval_rejected_response"},
+        }
+        return state
 
-        if arguments_hash not in state["approved_tool_call_hashes"]:
-            state["approved_tool_call_hashes"].append(arguments_hash)
-        state["approval_status"] = ApprovalStatus(required=True, status="approved")
+    if arguments_hash not in state["approved_tool_call_hashes"]:
+        state["approved_tool_call_hashes"].append(arguments_hash)
+    if descriptor.call_id not in state["approved_tool_call_ids"]:
+        state["approved_tool_call_ids"].append(descriptor.call_id)
+    state["approval_status"] = ApprovalStatus(required=True, status="approved")
     return state
 
 
-def _pending_approval_requests(state: AgentState) -> list[ToolCallRequest]:
+def _descriptor_request(
+    state: AgentState, descriptor: PendingToolApproval
+) -> ToolCallRequest:
     plan = state["plan"] or {}
-    approved_hashes = set(state["approved_tool_call_hashes"])
-    return [
-        request
-        for raw_request in plan.get("requested_tools", [])
-        for request in [
-            raw_request
-            if isinstance(raw_request, ToolCallRequest)
-            else ToolCallRequest.model_validate(raw_request)
-        ]
-        if request.approval_required
-        and tool_call_fingerprint(request) not in approved_hashes
-    ]
+    requests = plan.get("requested_tools", [])
+    if descriptor.step_index >= len(requests):
+        raise ApprovalPayloadMismatchError("待审批工具步骤不存在。")
+    raw_request = requests[descriptor.step_index]
+    request = (
+        raw_request
+        if isinstance(raw_request, ToolCallRequest)
+        else ToolCallRequest.model_validate(raw_request)
+    )
+    if (
+        request.call_id != descriptor.call_id
+        or request.tool_name != descriptor.tool_name
+        or request.tool_version != descriptor.tool_version
+    ):
+        raise ApprovalPayloadMismatchError("待审批工具调用实例不匹配。")
+    return request
 
 
-def _approval_id(run_id: str, arguments_hash: str) -> str:
-    digest = sha256(f"{run_id}:{arguments_hash}".encode()).hexdigest()
+def _approval_id(run_id: str, call_id: str, arguments_hash: str) -> str:
+    digest = sha256(f"{run_id}:{call_id}:{arguments_hash}".encode()).hexdigest()
     return f"approval_{digest[:32]}"
 
 

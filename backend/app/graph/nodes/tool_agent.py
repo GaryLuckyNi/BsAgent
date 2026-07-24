@@ -1,13 +1,16 @@
 import asyncio
 from collections.abc import Callable
+from hashlib import sha256
 
 from app.graph.state import AgentState
 from app.graph.tool_context import build_tool_execution_context
-from app.schemas.tools import ToolCallRecord, ToolCallRequest
+from app.schemas.approvals import PendingToolApproval
+from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolSpec
 from app.tools.default_registry import get_default_tool_registry
 from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
 from app.tools.fingerprints import tool_call_fingerprint
-from app.tools.redaction import redact_sensitive_data
+from app.tools.rag_search import RagSearchInput, RagSearchTool
+from app.tools.redaction import redact_sensitive_data, reject_inline_credentials
 from app.tools.registry import ToolRegistry
 
 
@@ -28,7 +31,9 @@ def build_tool_agent_node(
         if not requests:
             return state
 
-        async def run_tools() -> tuple[list[ToolCallRequest], list[ToolCallRecord]]:
+        async def run_tools() -> tuple[
+            list[ToolCallRequest], list[ToolCallRecord], PendingToolApproval | None
+        ]:
             context = build_tool_execution_context(state)
             return await _advance_requests(
                 requests=requests,
@@ -36,18 +41,17 @@ def build_tool_agent_node(
                 trace_id=state["trace_id"],
                 context=context,
                 existing_records=state["tool_calls"],
+                run_id=state["request_id"],
             )
 
-        staged_requests, new_records = asyncio.run(run_tools())
+        staged_requests, new_records, pending_approval = asyncio.run(run_tools())
         plan = state["plan"] or {}
         state["plan"] = {
             **plan,
-            "requested_tools": _merge_staged_requests(
-                plan.get("requested_tools", []),
-                staged_requests,
-            ),
+            "requested_tools": _merge_staged_requests(staged_requests),
         }
         state["tool_calls"].extend(new_records)
+        state["pending_tool_approval"] = pending_approval
         return state
 
     return node
@@ -60,28 +64,56 @@ async def _advance_requests(
     trace_id: str,
     context: ToolExecutionContext,
     existing_records: list[ToolCallRecord],
-) -> tuple[list[ToolCallRequest], list[ToolCallRecord]]:
+    run_id: str,
+) -> tuple[
+    list[ToolCallRequest], list[ToolCallRecord], PendingToolApproval | None
+]:
     executor = ToolExecutionGateway(registry=registry)
     staged_requests = list(requests)
     records: list[ToolCallRecord] = []
     resolution_values = _resolution_values(existing_records)
-    completed_hashes = {
-        tool_call_fingerprint(record.request)
+    completed_call_ids = {
+        record.call_id or record.request.call_id
         for record in existing_records
         if record.result is not None and record.result.status == "success"
+        and (record.call_id or record.request.call_id) is not None
     }
     approved_hashes = set(context.approved_tool_call_hashes)
+    approved_call_ids = set(context.approved_tool_call_ids)
     for index, request in enumerate(requests):
+        reject_inline_credentials(request.arguments)
+        request = request.model_copy(
+            update={"call_id": _trusted_call_id(run_id=run_id, step_index=index)}
+        )
         resolved_request = _resolve_request_placeholders(request, resolution_values)
         resolved_request = _normalize_request_risk(resolved_request, registry)
         staged_requests[index] = resolved_request
         request_hash = tool_call_fingerprint(resolved_request)
-        if request_hash in completed_hashes:
+        if resolved_request.call_id in completed_call_ids:
             continue
         if _contains_unresolved_placeholder(resolved_request.arguments):
             break
-        if resolved_request.approval_required and request_hash not in approved_hashes:
-            break
+        if resolved_request.approval_required and not (
+            request_hash in approved_hashes
+            and resolved_request.call_id in approved_call_ids
+        ):
+            tool_spec = _trusted_tool_spec(registry, resolved_request)
+            safe_arguments = redact_sensitive_data(
+                resolved_request.arguments,
+                schema=tool_spec.input_schema if tool_spec else None,
+            )
+            return staged_requests, records, PendingToolApproval(
+                call_id=resolved_request.call_id,
+                step_index=index,
+                request_fingerprint=request_hash,
+                tool_name=resolved_request.tool_name,
+                tool_version=resolved_request.tool_version,
+                risk_level="high",
+                safe_arguments=safe_arguments,
+                purpose=resolved_request.purpose,
+            )
+        if resolved_request.tool_name == RagSearchTool.name:
+            continue
         result = await executor.execute(
             resolved_request,
             trace_id=trace_id,
@@ -89,12 +121,23 @@ async def _advance_requests(
         )
         if not result.trace_id:
             result.trace_id = trace_id
-        records.append(ToolCallRecord(request=resolved_request, result=result))
+        records.append(
+            ToolCallRecord(
+                call_id=resolved_request.call_id,
+                request=resolved_request,
+                result=result,
+            )
+        )
         if result.status != "success":
             break
         resolution_values.update(result.result or {})
-        completed_hashes.add(request_hash)
-    return staged_requests, records
+        completed_call_ids.add(resolved_request.call_id)
+    return staged_requests, records, None
+
+
+def _trusted_call_id(*, run_id: str, step_index: int) -> str:
+    digest = sha256(f"{run_id}:{step_index}".encode()).hexdigest()
+    return f"call_{digest[:24]}"
 
 
 def _resolve_request_placeholders(
@@ -146,47 +189,47 @@ def tool_agent_node(state: AgentState) -> AgentState:
 def _requested_tool_calls(state: AgentState) -> list[ToolCallRequest]:
     plan = state["plan"] or {}
     requested_tools = plan.get("requested_tools", [])
-    return [
-        _parse_request(request)
-        for request in requested_tools
-        if _parse_request(request).tool_name != "rag_search"
-    ]
+    return [_parse_request(request) for request in requested_tools]
 
 
-def _merge_staged_requests(
-    requested_tools: list,
-    staged_requests: list[ToolCallRequest],
-) -> list:
-    staged = iter(staged_requests)
-    return [
-        request if _parse_request(request).tool_name == "rag_search" else next(staged)
-        for request in requested_tools
-    ]
+def _merge_staged_requests(staged_requests: list[ToolCallRequest]) -> list:
+    return list(staged_requests)
 
 
 def _normalize_request_risk(
     request: ToolCallRequest,
     registry: ToolRegistry,
 ) -> ToolCallRequest:
-    if not registry.has(request.tool_name):
-        return request.model_copy(
-            update={"safe_arguments": redact_sensitive_data(request.arguments)}
-        )
-    try:
-        registered_tool = registry.get(request.tool_name, request.tool_version)
-    except ValueError:
-        return request.model_copy(
-            update={"safe_arguments": redact_sensitive_data(request.arguments)}
-        )
-    updates = {
-        "safe_arguments": redact_sensitive_data(
-            request.arguments,
-            schema=registered_tool.spec.input_schema,
-        )
-    }
-    if registered_tool.spec.risk_level == "high":
+    tool_spec = _trusted_tool_spec(registry, request)
+    if tool_spec is None:
+        return request
+    updates = {}
+    if tool_spec.risk_level == "high":
         updates["approval_required"] = True
     return request.model_copy(update=updates)
+
+
+def _trusted_tool_spec(
+    registry: ToolRegistry,
+    request: ToolCallRequest,
+) -> ToolSpec | None:
+    if registry.has(request.tool_name):
+        try:
+            return registry.get(request.tool_name, request.tool_version).spec
+        except ValueError:
+            return None
+    if request.tool_name != RagSearchTool.name:
+        return None
+    if request.tool_version not in {None, RagSearchTool.version}:
+        return None
+    return ToolSpec(
+        name=RagSearchTool.name,
+        version=RagSearchTool.version,
+        description=RagSearchTool.description,
+        input_schema=RagSearchInput.model_json_schema(),
+        permission_scope=RagSearchTool.permission_scope,
+        risk_level=RagSearchTool.risk_level,
+    )
 
 
 def _parse_request(request) -> ToolCallRequest:

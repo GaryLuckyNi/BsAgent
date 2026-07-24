@@ -22,6 +22,7 @@ class ToolExecutionContext(BaseModel):
     skill_allowed_tools: tuple[str, ...] | None = None
     permission_scopes: tuple[str, ...] = Field(default_factory=tuple)
     approved_tool_call_hashes: tuple[str, ...] = Field(default_factory=tuple)
+    approved_tool_call_ids: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class ToolExecutionGateway:
@@ -181,6 +182,10 @@ def _policy_error(
         )
     call_hash = tool_call_fingerprint(request)
     approval_granted = call_hash in context.approved_tool_call_hashes
+    if request.call_id is not None:
+        approval_granted = (
+            approval_granted and request.call_id in context.approved_tool_call_ids
+        )
     if (request.approval_required or tool_risk_level == "high") and not approval_granted:
         return (
             "tool_approval_required",
