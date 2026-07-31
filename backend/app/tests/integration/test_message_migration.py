@@ -58,6 +58,37 @@ def _load_message_migration(project_root):
     return module
 
 
+@contextmanager
+def _live_postgres_migration_database(monkeypatch, prefix):
+    postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL") or os.getenv(
+        "BS_AGENT_TEST_POSTGRES_CHECKPOINT_URL"
+    )
+    if not postgres_url:
+        pytest.skip("未配置真实 PostgreSQL 迁移测试地址。")
+
+    project_root = Path(__file__).resolve().parents[4]
+    schema_name = f"{prefix}_{uuid4().hex}"
+    admin_url = make_url(postgres_url).set(drivername="postgresql+psycopg")
+    admin_engine = create_engine(admin_url)
+    with admin_engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
+
+    migration_url = admin_url.update_query_dict(
+        {"options": f"-csearch_path={schema_name}"}
+    )
+    database_url = migration_url.render_as_string(False)
+    monkeypatch.setattr(settings, "database_url", database_url)
+    config = _alembic_config(project_root, database_url)
+    engine = create_engine(migration_url)
+    try:
+        yield config, engine
+    finally:
+        engine.dispose()
+        with admin_engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema_name}" CASCADE'))
+        admin_engine.dispose()
+
+
 def _insert_legacy_records(connection):
     connection.execute(
         text(
@@ -519,6 +550,23 @@ def test_postgres_invalid_staging_index_is_rebuilt_and_valid_index_is_reused(
         "_postgresql_index_state",
         lambda _table, _index: True,
     )
+    monkeypatch.setattr(
+        migration,
+        "_postgresql_inspector",
+        lambda: type(
+            "FakeInspector",
+            (),
+            {
+                "get_indexes": lambda self, _table: [
+                    {
+                        "name": "ux0011_agent_sessions_session_key_build",
+                        "column_names": ["session_key"],
+                        "unique": True,
+                    }
+                ]
+            },
+        )(),
+    )
     migration._ensure_postgresql_concurrent_index(
         "agent_sessions",
         "ux0011_agent_sessions_session_key_build",
@@ -529,28 +577,10 @@ def test_postgres_invalid_staging_index_is_rebuilt_and_valid_index_is_reused(
 
 
 def test_live_postgres_message_migration_contract(monkeypatch):
-    postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL") or os.getenv(
-        "BS_AGENT_TEST_POSTGRES_CHECKPOINT_URL"
-    )
-    if not postgres_url:
-        pytest.skip("未配置真实 PostgreSQL 迁移测试地址。")
-
-    project_root = Path(__file__).resolve().parents[4]
-    schema_name = f"message_migration_{uuid4().hex}"
-    admin_url = make_url(postgres_url).set(drivername="postgresql+psycopg")
-    admin_engine = create_engine(admin_url)
-    with admin_engine.begin() as connection:
-        connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
-
-    migration_url = admin_url.update_query_dict(
-        {"options": f"-csearch_path={schema_name}"}
-    )
-    database_url = migration_url.render_as_string(False)
-    monkeypatch.setattr(settings, "database_url", database_url)
-    config = _alembic_config(project_root, database_url)
-    engine = create_engine(migration_url)
-
-    try:
+    with _live_postgres_migration_database(
+        monkeypatch,
+        "message_migration",
+    ) as (config, engine):
         command.upgrade(config, "20260727_0010")
         with engine.begin() as connection:
             _insert_legacy_records(connection)
@@ -647,8 +677,180 @@ def test_live_postgres_message_migration_contract(monkeypatch):
             column["name"]
             for column in downgraded_inspector.get_columns("agent_sessions")
         }
-    finally:
-        engine.dispose()
-        with admin_engine.begin() as connection:
-            connection.execute(text(f'DROP SCHEMA "{schema_name}" CASCADE'))
-        admin_engine.dispose()
+
+
+def test_live_postgres_message_migration_recovers_partial_upgrade(monkeypatch):
+    from app.storage.models import AgentMessage
+
+    with _live_postgres_migration_database(
+        monkeypatch,
+        "message_partial_upgrade",
+    ) as (config, engine):
+        command.upgrade(config, "20260727_0010")
+        with engine.begin() as connection:
+            _insert_legacy_records(connection)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO agent_sessions
+                        (session_id, tenant_id, user_id, status,
+                         created_at, updated_at)
+                    VALUES
+                        ('external_second', 'tenant_b', 'user_b', 'active',
+                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    ALTER TABLE agent_sessions
+                        ADD COLUMN session_key VARCHAR(64),
+                        ADD COLUMN active_run_id VARCHAR(64),
+                        ADD COLUMN next_sequence_no INTEGER DEFAULT 1;
+                    ALTER TABLE agent_runs ADD COLUMN session_key VARCHAR(64);
+                    ALTER TABLE approval_records
+                        ADD COLUMN session_key VARCHAR(64);
+                    ALTER TABLE asset_records ADD COLUMN session_key VARCHAR(64)
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    "UPDATE agent_sessions SET session_key = 'duplicate_key'"
+                )
+            )
+
+        with pytest.raises(IntegrityError):
+            with engine.connect().execution_options(
+                isolation_level="AUTOCOMMIT"
+            ) as connection:
+                connection.execute(
+                    text(
+                        "CREATE UNIQUE INDEX CONCURRENTLY "
+                        "ux0011_agent_sessions_session_key_build "
+                        "ON agent_sessions (session_key)"
+                    )
+                )
+
+        expected_key = _expected_session_key(
+            "tenant_a",
+            "user_a",
+            "external_session",
+        )
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE agent_sessions SET session_key = NULL")
+            )
+            connection.execute(
+                text(
+                    "UPDATE agent_sessions SET session_key = :session_key "
+                    "WHERE tenant_id = 'tenant_a'"
+                ),
+                {"session_key": expected_key},
+            )
+            connection.execute(
+                text(
+                    "UPDATE agent_runs SET session_key = :session_key "
+                    "WHERE run_id = 'run_legacy'"
+                ),
+                {"session_key": expected_key},
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE agent_runs "
+                    "ADD CONSTRAINT ck_agent_runs_session_key_nn_0011 "
+                    "CHECK (session_key IS NOT NULL) NOT VALID"
+                )
+            )
+            connection.execute(
+                text(
+                    "ALTER TABLE agent_runs "
+                    "ALTER COLUMN session_key SET NOT NULL"
+                )
+            )
+            connection.execute(
+                text(
+                    "CREATE UNIQUE INDEX "
+                    "ux0011_agent_sessions_tenant_user_external_build "
+                    "ON agent_sessions (tenant_id, user_id, session_id)"
+                )
+            )
+            AgentMessage.__table__.create(connection)
+
+        command.upgrade(config, "head")
+        inspector = inspect_database(engine)
+        assert inspector.get_pk_constraint("agent_sessions")[
+            "constrained_columns"
+        ] == ["session_key"]
+        assert "ck_agent_runs_session_key_nn_0011" not in {
+            constraint["name"]
+            for constraint in inspector.get_check_constraints("agent_runs")
+        }
+        with engine.connect() as connection:
+            assert connection.scalar(
+                text("SELECT COUNT(*) FROM agent_sessions WHERE session_key IS NULL")
+            ) == 0
+
+
+def test_live_postgres_message_migration_recovers_partial_downgrade(monkeypatch):
+    with _live_postgres_migration_database(
+        monkeypatch,
+        "message_partial_downgrade",
+    ) as (config, engine):
+        command.upgrade(config, "head")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    DROP TABLE agent_messages;
+                    DROP INDEX ix_asset_records_session_key;
+                    ALTER TABLE asset_records DROP COLUMN session_key;
+                    CREATE UNIQUE INDEX ux0011_agent_sessions_session_id_downgrade
+                        ON agent_sessions (session_id);
+                    ALTER TABLE agent_sessions DROP CONSTRAINT agent_sessions_pkey;
+                    ALTER TABLE agent_sessions
+                        ADD CONSTRAINT agent_sessions_pkey PRIMARY KEY
+                        USING INDEX ux0011_agent_sessions_session_id_downgrade;
+                    ALTER TABLE agent_sessions
+                        DROP CONSTRAINT uq_agent_sessions_tenant_user_external;
+                    ALTER TABLE agent_sessions DROP COLUMN active_run_id
+                    """
+                )
+            )
+
+        command.downgrade(config, "20260727_0010")
+        inspector = inspect_database(engine)
+        assert inspector.get_pk_constraint("agent_sessions")[
+            "constrained_columns"
+        ] == ["session_id"]
+        assert "agent_messages" not in inspector.get_table_names()
+        for table_name in (
+            "agent_sessions",
+            "agent_runs",
+            "approval_records",
+            "asset_records",
+        ):
+            assert "session_key" not in {
+                column["name"] for column in inspector.get_columns(table_name)
+            }
+
+
+def test_live_postgres_message_migration_rejects_incomplete_message_table(
+    monkeypatch,
+):
+    with _live_postgres_migration_database(
+        monkeypatch,
+        "message_incomplete_table",
+    ) as (config, engine):
+        command.upgrade(config, "20260727_0010")
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE agent_messages "
+                    "(message_id VARCHAR(64) PRIMARY KEY)"
+                )
+            )
+
+        with pytest.raises(RuntimeError, match="agent_messages.*不完整"):
+            command.upgrade(config, "head")

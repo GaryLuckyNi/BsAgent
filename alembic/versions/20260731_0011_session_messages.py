@@ -227,15 +227,16 @@ def _backfill_sqlite_child(
 
 def _upgrade_postgresql() -> None:
     op.execute(sa.text("SET lock_timeout TO '5s'"))
-    op.add_column(
+    _ensure_postgresql_column(
         "agent_sessions",
         sa.Column("session_key", sa.String(length=64), nullable=True),
+        allowed_nullable={True, False},
     )
-    op.add_column(
+    _ensure_postgresql_column(
         "agent_sessions",
         sa.Column("active_run_id", sa.String(length=64), nullable=True),
     )
-    op.add_column(
+    _ensure_postgresql_column(
         "agent_sessions",
         sa.Column(
             "next_sequence_no",
@@ -243,12 +244,18 @@ def _upgrade_postgresql() -> None:
             nullable=True,
             server_default=sa.text("1"),
         ),
+        allowed_nullable={True, False},
     )
-    for table_name in ("agent_runs", "approval_records", "asset_records"):
-        op.add_column(
+    for table_name in ("agent_runs", "approval_records"):
+        _ensure_postgresql_column(
             table_name,
             sa.Column("session_key", sa.String(length=64), nullable=True),
+            allowed_nullable={True, False},
         )
+    _ensure_postgresql_column(
+        "asset_records",
+        sa.Column("session_key", sa.String(length=64), nullable=True),
+    )
 
     _backfill_postgresql_session_keys()
     _backfill_postgresql_child(
@@ -275,6 +282,12 @@ def _upgrade_postgresql() -> None:
             "WHERE next_sequence_no IS NULL"
         )
     )
+    op.alter_column(
+        "agent_sessions",
+        "next_sequence_no",
+        existing_type=sa.Integer(),
+        server_default=sa.text("1"),
+    )
 
     _set_postgresql_not_null("agent_sessions", "session_key", sa.String(64))
     _set_postgresql_not_null("agent_sessions", "next_sequence_no", sa.Integer())
@@ -299,6 +312,54 @@ def _upgrade_postgresql() -> None:
         ["session_key"],
     )
     _create_messages_table()
+
+
+def _postgresql_inspector():
+    return sa.inspect(op.get_bind())
+
+
+def _postgresql_table_exists(table_name: str) -> bool:
+    return table_name in _postgresql_inspector().get_table_names()
+
+
+def _postgresql_column_map(table_name: str) -> dict[str, dict]:
+    if not _postgresql_table_exists(table_name):
+        return {}
+    return {
+        column["name"]: column
+        for column in _postgresql_inspector().get_columns(table_name)
+    }
+
+
+def _postgresql_type_signature(type_: sa.types.TypeEngine) -> str:
+    return str(type_.compile(dialect=op.get_bind().dialect)).lower()
+
+
+def _ensure_postgresql_column(
+    table_name: str,
+    column: sa.Column,
+    *,
+    allowed_nullable: set[bool] | None = None,
+) -> None:
+    columns = _postgresql_column_map(table_name)
+    if column.name not in columns:
+        op.add_column(table_name, column)
+        return
+
+    existing = columns[column.name]
+    expected_type = _postgresql_type_signature(column.type)
+    actual_type = _postgresql_type_signature(existing["type"])
+    if actual_type != expected_type:
+        raise RuntimeError(
+            f"{table_name}.{column.name} 类型不可恢复: "
+            f"期望 {expected_type}，实际 {actual_type}"
+        )
+    nullable_states = allowed_nullable or {bool(column.nullable)}
+    if bool(existing["nullable"]) not in nullable_states:
+        raise RuntimeError(
+            f"{table_name}.{column.name} nullable 状态不可恢复: "
+            f"{existing['nullable']}"
+        )
 
 
 def _backfill_postgresql_session_keys() -> None:
@@ -438,29 +499,56 @@ def _set_postgresql_not_null(
     existing_type: sa.types.TypeEngine,
 ) -> None:
     constraint_name = f"ck_{table_name}_{column_name}_nn_0011"
-    with op.get_context().autocommit_block():
-        op.execute(
-            sa.text(
-                f"ALTER TABLE {table_name} ADD CONSTRAINT {constraint_name} "
-                f"CHECK ({column_name} IS NOT NULL) NOT VALID"
+    columns = _postgresql_column_map(table_name)
+    if column_name not in columns:
+        raise RuntimeError(f"{table_name}.{column_name} 不存在，无法设置 NOT NULL")
+
+    check_names = {
+        constraint["name"]
+        for constraint in _postgresql_inspector().get_check_constraints(table_name)
+    }
+    if not columns[column_name]["nullable"]:
+        if constraint_name in check_names:
+            with op.get_context().autocommit_block():
+                op.drop_constraint(
+                    constraint_name,
+                    table_name,
+                    type_="check",
+                )
+        return
+
+    if constraint_name not in check_names:
+        with op.get_context().autocommit_block():
+            op.create_check_constraint(
+                constraint_name,
+                table_name,
+                f"{column_name} IS NOT NULL",
+                postgresql_not_valid=True,
             )
-        )
+    with op.get_context().autocommit_block():
         op.execute(
             sa.text(
                 f"ALTER TABLE {table_name} VALIDATE CONSTRAINT {constraint_name}"
             )
         )
+    with op.get_context().autocommit_block():
         op.alter_column(
             table_name,
             column_name,
             existing_type=existing_type,
             nullable=False,
         )
-        op.drop_constraint(
-            constraint_name,
-            table_name,
-            type_="check",
-        )
+    check_names = {
+        constraint["name"]
+        for constraint in _postgresql_inspector().get_check_constraints(table_name)
+    }
+    if constraint_name in check_names:
+        with op.get_context().autocommit_block():
+            op.drop_constraint(
+                constraint_name,
+                table_name,
+                type_="check",
+            )
 
 
 def _quote_postgresql_identifier(identifier: str) -> str:
@@ -499,6 +587,55 @@ def _drop_postgresql_index_concurrently(index_name: str) -> None:
         )
 
 
+def _drop_postgresql_index_if_exists(
+    table_name: str,
+    index_name: str,
+) -> None:
+    if not _postgresql_table_exists(table_name):
+        return
+    if _postgresql_index_state(table_name, index_name) is None:
+        return
+    _drop_postgresql_index_concurrently(index_name)
+
+
+def _drop_postgresql_table_if_exists(table_name: str) -> None:
+    if _postgresql_table_exists(table_name):
+        op.drop_table(table_name)
+
+
+def _drop_postgresql_column_if_exists(
+    table_name: str,
+    column_name: str,
+) -> None:
+    if column_name in _postgresql_column_map(table_name):
+        op.drop_column(table_name, column_name)
+
+
+def _drop_postgresql_constraint_if_exists(
+    table_name: str,
+    constraint_name: str,
+    *,
+    constraint_type: str,
+) -> None:
+    if not _postgresql_table_exists(table_name):
+        return
+    inspector = _postgresql_inspector()
+    readers = {
+        "unique": inspector.get_unique_constraints,
+        "check": inspector.get_check_constraints,
+    }
+    constraint_names = {
+        constraint["name"]
+        for constraint in readers[constraint_type](table_name)
+    }
+    if constraint_name in constraint_names:
+        op.drop_constraint(
+            constraint_name,
+            table_name,
+            type_=constraint_type,
+        )
+
+
 def _ensure_postgresql_concurrent_index(
     table_name: str,
     index_name: str,
@@ -511,6 +648,17 @@ def _ensure_postgresql_concurrent_index(
         _drop_postgresql_index_concurrently(index_name)
         index_state = None
     if index_state is True:
+        indexes = {
+            index["name"]: index
+            for index in _postgresql_inspector().get_indexes(table_name)
+        }
+        existing = indexes.get(index_name)
+        if existing is None:
+            raise RuntimeError(f"{table_name}.{index_name} 索引状态无法恢复")
+        if existing["column_names"] != columns or bool(
+            existing.get("unique", False)
+        ) != unique:
+            raise RuntimeError(f"{table_name}.{index_name} 索引契约不匹配")
         return
 
     quoted_table = _quote_postgresql_identifier(table_name)
@@ -555,20 +703,26 @@ def _switch_postgresql_session_primary_key() -> None:
 
 
 def _create_postgresql_session_unique_constraint() -> None:
-    unique_names = {
-        constraint["name"]
+    unique_contracts = {
+        constraint["name"]: constraint["column_names"]
         for constraint in sa.inspect(op.get_bind()).get_unique_constraints(
             "agent_sessions"
         )
     }
-    if "uq_agent_sessions_tenant_user_external" in unique_names:
+    constraint_name = "uq_agent_sessions_tenant_user_external"
+    expected_columns = ["tenant_id", "user_id", "session_id"]
+    if constraint_name in unique_contracts:
+        if unique_contracts[constraint_name] != expected_columns:
+            raise RuntimeError(
+                f"agent_sessions.{constraint_name} 唯一约束契约不匹配"
+            )
         return
 
     staging_index = "ux0011_agent_sessions_tenant_user_external_build"
     _ensure_postgresql_concurrent_index(
         "agent_sessions",
         staging_index,
-        ["tenant_id", "user_id", "session_id"],
+        expected_columns,
         unique=True,
     )
     op.execute(
@@ -581,6 +735,13 @@ def _create_postgresql_session_unique_constraint() -> None:
 
 
 def _create_messages_table() -> None:
+    if (
+        op.get_bind().dialect.name == "postgresql"
+        and _postgresql_table_exists("agent_messages")
+    ):
+        _validate_postgresql_messages_table()
+        return
+
     op.create_table(
         "agent_messages",
         sa.Column("message_id", sa.String(length=64), primary_key=True),
@@ -645,6 +806,110 @@ def _create_messages_table() -> None:
     )
 
 
+def _validate_postgresql_messages_table() -> None:
+    inspector = _postgresql_inspector()
+    expected_columns = {
+        "message_id": (sa.String(length=64), False),
+        "tenant_id": (sa.String(length=64), False),
+        "user_id": (sa.String(length=64), False),
+        "session_key": (sa.String(length=64), False),
+        "run_id": (sa.String(length=64), False),
+        "request_id": (sa.String(length=64), False),
+        "role": (sa.String(length=16), False),
+        "status": (sa.String(length=16), False),
+        "content": (sa.Text(), False),
+        "content_type": (sa.String(length=32), False),
+        "sequence_no": (sa.Integer(), False),
+        "metadata": (MESSAGE_JSON, False),
+        "created_at": (sa.DateTime(timezone=True), False),
+        "completed_at": (sa.DateTime(timezone=True), True),
+        "deleted_at": (sa.DateTime(timezone=True), True),
+    }
+    actual_columns = {
+        column["name"]: column
+        for column in inspector.get_columns("agent_messages")
+    }
+    errors: list[str] = []
+    if set(actual_columns) != set(expected_columns):
+        errors.append("列集合不匹配")
+    for column_name in set(actual_columns) & set(expected_columns):
+        expected_type, expected_nullable = expected_columns[column_name]
+        actual = actual_columns[column_name]
+        if _postgresql_type_signature(actual["type"]) != (
+            _postgresql_type_signature(expected_type)
+        ):
+            errors.append(f"{column_name} 类型不匹配")
+        if bool(actual["nullable"]) != expected_nullable:
+            errors.append(f"{column_name} nullable 不匹配")
+    for column_name, expected_token in {
+        "content_type": "text",
+        "metadata": "{}",
+        "created_at": "now",
+    }.items():
+        default = str(actual_columns.get(column_name, {}).get("default") or "")
+        if expected_token not in default.lower():
+            errors.append(f"{column_name} 默认值不匹配")
+
+    primary_key = inspector.get_pk_constraint("agent_messages")
+    if primary_key["constrained_columns"] != ["message_id"]:
+        errors.append("主键不匹配")
+    unique_contracts = {
+        constraint["name"]: constraint["column_names"]
+        for constraint in inspector.get_unique_constraints("agent_messages")
+    }
+    for constraint_name, columns in {
+        "uq_agent_messages_sequence": ["session_key", "sequence_no"],
+        "uq_agent_messages_tenant_request_role": [
+            "tenant_id",
+            "request_id",
+            "role",
+        ],
+    }.items():
+        if unique_contracts.get(constraint_name) != columns:
+            errors.append(f"{constraint_name} 不匹配")
+    check_contracts = {
+        constraint["name"]: str(constraint.get("sqltext") or "").lower()
+        for constraint in inspector.get_check_constraints("agent_messages")
+    }
+    for constraint_name, required_tokens in {
+        "ck_agent_messages_role": ("role", "user", "assistant"),
+        "ck_agent_messages_status": (
+            "status",
+            "pending",
+            "streaming",
+            "completed",
+            "failed",
+            "interrupted",
+        ),
+    }.items():
+        sqltext = check_contracts.get(constraint_name, "")
+        if not all(token in sqltext for token in required_tokens):
+            errors.append(f"{constraint_name} 不匹配")
+    index_contracts = {
+        index["name"]: index
+        for index in inspector.get_indexes("agent_messages")
+    }
+    for index_name, columns in {
+        "ix_agent_messages_run_id": ["run_id"],
+        "ix_agent_messages_tenant_created": [
+            "tenant_id",
+            "created_at",
+            "message_id",
+        ],
+    }.items():
+        index = index_contracts.get(index_name)
+        if (
+            index is None
+            or index["column_names"] != columns
+            or bool(index.get("unique", False))
+        ):
+            errors.append(f"{index_name} 不匹配")
+    if errors:
+        raise RuntimeError(
+            "agent_messages 契约不完整: " + "；".join(sorted(errors))
+        )
+
+
 def downgrade() -> None:
     _assert_external_session_ids_can_be_global_primary_keys()
     dialect_name = op.get_bind().dialect.name
@@ -657,6 +922,8 @@ def downgrade() -> None:
 
 
 def _assert_external_session_ids_can_be_global_primary_keys() -> None:
+    if "session_id" not in _postgresql_column_map("agent_sessions"):
+        return
     duplicate = op.get_bind().execute(
         sa.text(
             """
@@ -733,20 +1000,22 @@ def _restore_sqlite_sessions() -> None:
 
 def _downgrade_postgresql() -> None:
     op.execute(sa.text("SET lock_timeout TO '5s'"))
-    op.drop_table("agent_messages")
+    _drop_postgresql_table_if_exists("agent_messages")
     for index_name, table_name in (
         ("ix_asset_records_session_key", "asset_records"),
         ("ix_approval_records_session_key", "approval_records"),
         ("ix_agent_runs_session_key", "agent_runs"),
     ):
-        _drop_postgresql_index_concurrently(index_name)
+        _drop_postgresql_index_if_exists(table_name, index_name)
 
     for table_name in ("asset_records", "approval_records", "agent_runs"):
-        op.drop_column(table_name, "session_key")
+        _drop_postgresql_column_if_exists(table_name, "session_key")
 
-    inspector = sa.inspect(op.get_bind())
-    primary_key = inspector.get_pk_constraint("agent_sessions")
-    if primary_key["constrained_columns"] != ["session_id"]:
+    primary_key = _postgresql_inspector().get_pk_constraint("agent_sessions")
+    if (
+        "session_id" in _postgresql_column_map("agent_sessions")
+        and primary_key["constrained_columns"] != ["session_id"]
+    ):
         staging_index = "ux0011_agent_sessions_session_id_downgrade"
         _ensure_postgresql_concurrent_index(
             "agent_sessions",
@@ -757,11 +1026,12 @@ def _downgrade_postgresql() -> None:
         primary_key = sa.inspect(op.get_bind()).get_pk_constraint(
             "agent_sessions"
         )
-        op.drop_constraint(
-            primary_key["name"],
-            "agent_sessions",
-            type_="primary",
-        )
+        if primary_key["name"]:
+            op.drop_constraint(
+                primary_key["name"],
+                "agent_sessions",
+                type_="primary",
+            )
         op.execute(
             sa.text(
                 "ALTER TABLE agent_sessions "
@@ -769,18 +1039,19 @@ def _downgrade_postgresql() -> None:
                 f"PRIMARY KEY USING INDEX {staging_index}"
             )
         )
-    unique_names = {
-        constraint["name"]
-        for constraint in sa.inspect(op.get_bind()).get_unique_constraints(
-            "agent_sessions"
-        )
-    }
-    if "uq_agent_sessions_tenant_user_external" in unique_names:
-        op.drop_constraint(
-            "uq_agent_sessions_tenant_user_external",
-            "agent_sessions",
-            type_="unique",
-        )
-    op.drop_column("agent_sessions", "next_sequence_no")
-    op.drop_column("agent_sessions", "active_run_id")
-    op.drop_column("agent_sessions", "session_key")
+    _drop_postgresql_constraint_if_exists(
+        "agent_sessions",
+        "uq_agent_sessions_tenant_user_external",
+        constraint_type="unique",
+    )
+    for index_name in (
+        "ux0011_agent_sessions_session_key_build",
+        "ux0011_agent_sessions_tenant_user_external_build",
+    ):
+        _drop_postgresql_index_if_exists("agent_sessions", index_name)
+    for column_name in (
+        "next_sequence_no",
+        "active_run_id",
+        "session_key",
+    ):
+        _drop_postgresql_column_if_exists("agent_sessions", column_name)
