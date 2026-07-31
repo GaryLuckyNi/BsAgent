@@ -1,21 +1,41 @@
+import os
 from pathlib import Path
+from uuid import UUID, uuid4, uuid5
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect as inspect_database, text
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
+
+
+_SESSION_KEY_NAMESPACE = UUID("5d1f4f7a-b6c3-5e22-9a3d-58a676d13f91")
+
+
+def _alembic_config(project_root, database_url):
+    config = Config(str(project_root / "alembic.ini"))
+    config.set_main_option("script_location", str(project_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+    return config
 
 
 def _migration_config(tmp_path, monkeypatch, filename):
     project_root = Path(__file__).resolve().parents[4]
     database_url = f"sqlite:///{tmp_path / filename}"
     monkeypatch.setattr(settings, "database_url", database_url)
-    config = Config(str(project_root / "alembic.ini"))
-    config.set_main_option("script_location", str(project_root / "alembic"))
+    config = _alembic_config(project_root, database_url)
     return config, database_url
+
+
+def _expected_session_key(tenant_id, user_id, session_id):
+    canonical = "".join(
+        f"{len(value.encode('utf-8'))}:{value}"
+        for value in (tenant_id, user_id, session_id)
+    )
+    return f"sess_{uuid5(_SESSION_KEY_NAMESPACE, canonical).hex}"
 
 
 def _insert_legacy_records(connection):
@@ -183,8 +203,11 @@ def test_message_migration_creates_contract_and_backfills_session_key(
                 """
             )
         ).one()
-    assert session_key.startswith("sess_")
-    assert "external_session" not in session_key
+    assert session_key == _expected_session_key(
+        "tenant_a",
+        "user_a",
+        "external_session",
+    )
     assert child_keys == (session_key, session_key, session_key)
 
     for table_name in ("agent_runs", "approval_records"):
@@ -277,6 +300,95 @@ def test_message_constraints_and_tenant_scoped_external_session_id(
                 },
             )
 
+    with engine.begin() as connection:
+        connection.execute(
+            text(valid_message),
+            {
+                "message_id": "message_base",
+                "request_id": "request_base",
+                "role": "user",
+                "status": "completed",
+                "sequence_no": 1,
+            },
+        )
+    with pytest.raises(IntegrityError):
+        with engine.begin() as connection:
+            connection.execute(
+                text(valid_message),
+                {
+                    "message_id": "message_duplicate_sequence",
+                    "request_id": "request_other",
+                    "role": "assistant",
+                    "status": "completed",
+                    "sequence_no": 1,
+                },
+            )
+    with pytest.raises(IntegrityError):
+        with engine.begin() as connection:
+            connection.execute(
+                text(valid_message),
+                {
+                    "message_id": "message_duplicate_request",
+                    "request_id": "request_base",
+                    "role": "user",
+                    "status": "completed",
+                    "sequence_no": 2,
+                },
+            )
+
+
+@pytest.mark.parametrize(
+    "table_name",
+    ["agent_runs", "approval_records", "asset_records"],
+)
+def test_message_migration_rejects_orphan_session_records(
+    tmp_path,
+    monkeypatch,
+    table_name,
+):
+    config, database_url = _migration_config(
+        tmp_path,
+        monkeypatch,
+        f"message-orphan-{table_name}.sqlite",
+    )
+    command.upgrade(config, "20260727_0010")
+    engine = create_engine(database_url)
+    statements = {
+        "agent_runs": """
+            INSERT INTO agent_runs
+                (run_id, session_id, tenant_id, user_id, trace_id, status,
+                 graph_version, created_at)
+            VALUES
+                ('orphan_run', 'missing_session', 'tenant_a', 'user_a',
+                 'trace_orphan', 'completed', 'v1', CURRENT_TIMESTAMP)
+        """,
+        "approval_records": """
+            INSERT INTO approval_records
+                (approval_id, run_id, session_id, tenant_id, request_user_id,
+                 approval_type, tool_name, arguments_hash, payload_json,
+                 checkpoint_thread_id, status, created_at)
+            VALUES
+                ('orphan_approval', 'run_missing', 'missing_session', 'tenant_a',
+                 'user_a', 'tool', 'search', 'hash', '{}', 'thread', 'pending',
+                 CURRENT_TIMESTAMP)
+        """,
+        "asset_records": """
+            INSERT INTO asset_records
+                (asset_id, tenant_id, user_id, session_id, object_key, sha256,
+                 media_type, size_bytes, width, height, status, expires_at,
+                 created_at, updated_at)
+            VALUES
+                ('orphan_asset', 'tenant_a', 'user_a', 'missing_session',
+                 'objects/orphan', 'sha', 'image/png', 1, 1, 1, 'ready',
+                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """,
+    }
+    with engine.begin() as connection:
+        connection.execute(text(statements[table_name]))
+
+    with pytest.raises(RuntimeError, match=table_name):
+        command.upgrade(config, "head")
+
 
 def test_message_migration_downgrade_rejects_duplicate_external_session_id(
     tmp_path,
@@ -307,3 +419,88 @@ def test_message_migration_downgrade_rejects_duplicate_external_session_id(
 
     with pytest.raises(RuntimeError, match="external session_id"):
         command.downgrade(config, "20260727_0010")
+
+
+def test_live_postgres_message_migration_contract(monkeypatch):
+    postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL") or os.getenv(
+        "BS_AGENT_TEST_POSTGRES_CHECKPOINT_URL"
+    )
+    if not postgres_url:
+        pytest.skip("未配置真实 PostgreSQL 迁移测试地址。")
+
+    project_root = Path(__file__).resolve().parents[4]
+    schema_name = f"message_migration_{uuid4().hex}"
+    admin_url = make_url(postgres_url).set(drivername="postgresql+psycopg")
+    admin_engine = create_engine(admin_url)
+    with admin_engine.begin() as connection:
+        connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
+
+    migration_url = admin_url.update_query_dict(
+        {"options": f"-csearch_path={schema_name}"}
+    )
+    database_url = migration_url.render_as_string(False)
+    monkeypatch.setattr(settings, "database_url", database_url)
+    config = _alembic_config(project_root, database_url)
+    engine = create_engine(migration_url)
+
+    try:
+        command.upgrade(config, "20260727_0010")
+        with engine.begin() as connection:
+            _insert_legacy_records(connection)
+
+        command.upgrade(config, "head")
+        expected_key = _expected_session_key(
+            "tenant_a",
+            "user_a",
+            "external_session",
+        )
+        with engine.begin() as connection:
+            session_key = connection.scalar(
+                text(
+                    "SELECT session_key FROM agent_sessions "
+                    "WHERE tenant_id = 'tenant_a'"
+                )
+            )
+            child_keys = connection.execute(
+                text(
+                    """
+                    SELECT
+                        (SELECT session_key FROM agent_runs
+                         WHERE run_id = 'run_legacy'),
+                        (SELECT session_key FROM approval_records
+                         WHERE approval_id = 'approval_legacy'),
+                        (SELECT session_key FROM asset_records
+                         WHERE asset_id = 'asset_legacy')
+                    """
+                )
+            ).one()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO agent_sessions
+                        (session_key, session_id, tenant_id, user_id, status,
+                         next_sequence_no, created_at, updated_at)
+                    VALUES
+                        ('sess_second_tenant', 'external_session', 'tenant_b',
+                         'user_a', 'active', 1, CURRENT_TIMESTAMP,
+                         CURRENT_TIMESTAMP)
+                    """
+                )
+            )
+            duplicate_count = connection.scalar(
+                text(
+                    "SELECT COUNT(*) FROM agent_sessions "
+                    "WHERE session_id = 'external_session'"
+                )
+            )
+
+        assert session_key == expected_key
+        assert child_keys == (expected_key, expected_key, expected_key)
+        assert duplicate_count == 2
+        with pytest.raises(RuntimeError, match="external session_id"):
+            command.downgrade(config, "20260727_0010")
+    finally:
+        engine.dispose()
+        with admin_engine.begin() as connection:
+            connection.execute(text(f'DROP SCHEMA "{schema_name}" CASCADE'))
+        admin_engine.dispose()

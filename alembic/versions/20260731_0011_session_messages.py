@@ -1,4 +1,4 @@
-from hashlib import md5
+from uuid import UUID, uuid5
 
 from alembic import op
 import sqlalchemy as sa
@@ -13,6 +13,7 @@ depends_on = None
 
 MESSAGE_JSON = sa.JSON().with_variant(JSONB(), "postgresql")
 BACKFILL_BATCH_SIZE = 10_000
+SESSION_KEY_NAMESPACE = UUID("5d1f4f7a-b6c3-5e22-9a3d-58a676d13f91")
 
 _MESSAGE_ROLE_CHECK = "role IN ('user', 'assistant')"
 _MESSAGE_STATUS_CHECK = (
@@ -101,13 +102,11 @@ def _upgrade_sqlite() -> None:
 
 
 def _stable_session_key(tenant_id: str, user_id: str, session_id: str) -> str:
-    seed = (
-        f"{len(tenant_id)}:{tenant_id}"
-        f"{len(user_id)}:{user_id}"
-        f"{len(session_id)}:{session_id}"
+    canonical = "".join(
+        f"{len(value.encode('utf-8'))}:{value}"
+        for value in (tenant_id, user_id, session_id)
     )
-    digest = md5(seed.encode("utf-8"), usedforsecurity=False).hexdigest()
-    return f"sess_{digest}"
+    return f"sess_{uuid5(SESSION_KEY_NAMESPACE, canonical).hex}"
 
 
 def _rebuild_sqlite_sessions() -> None:
@@ -308,7 +307,7 @@ def _backfill_postgresql_session_keys() -> None:
     while True:
         query = sa.text(
             """
-            SELECT session_id
+            SELECT session_id, tenant_id, user_id
             FROM agent_sessions
             WHERE session_key IS NULL
               AND (:last_session_id IS NULL OR session_id > :last_session_id)
@@ -316,14 +315,14 @@ def _backfill_postgresql_session_keys() -> None:
             LIMIT :batch_size
             """
         )
-        session_ids = connection.execute(
+        sessions = connection.execute(
             query,
             {
                 "last_session_id": last_session_id,
                 "batch_size": BACKFILL_BATCH_SIZE,
             },
-        ).scalars().all()
-        if not session_ids:
+        ).mappings().all()
+        if not sessions:
             return
 
         with op.get_context().autocommit_block():
@@ -331,22 +330,24 @@ def _backfill_postgresql_session_keys() -> None:
                 sa.text(
                     """
                     UPDATE agent_sessions
-                    SET session_key = 'sess_' || md5(
-                        char_length(tenant_id)::text || ':' || tenant_id ||
-                        char_length(user_id)::text || ':' || user_id ||
-                        char_length(session_id)::text || ':' || session_id
-                    )
+                    SET session_key = :session_key
                     WHERE session_key IS NULL
-                      AND session_id >= :first_session_id
-                      AND session_id <= :last_session_id
+                      AND session_id = :session_id
                     """
                 ),
-                {
-                    "first_session_id": session_ids[0],
-                    "last_session_id": session_ids[-1],
-                },
+                [
+                    {
+                        "session_id": session["session_id"],
+                        "session_key": _stable_session_key(
+                            session["tenant_id"],
+                            session["user_id"],
+                            session["session_id"],
+                        ),
+                    }
+                    for session in sessions
+                ],
             )
-        last_session_id = session_ids[-1]
+        last_session_id = sessions[-1]["session_id"]
 
 
 def _backfill_postgresql_child(
