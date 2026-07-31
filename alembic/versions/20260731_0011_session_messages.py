@@ -283,20 +283,20 @@ def _upgrade_postgresql() -> None:
 
     _switch_postgresql_session_primary_key()
     _create_postgresql_session_unique_constraint()
-    _create_postgresql_index(
-        "ix_agent_runs_session_key",
+    _ensure_postgresql_concurrent_index(
         "agent_runs",
-        "session_key",
+        "ix_agent_runs_session_key",
+        ["session_key"],
     )
-    _create_postgresql_index(
-        "ix_approval_records_session_key",
+    _ensure_postgresql_concurrent_index(
         "approval_records",
-        "session_key",
+        "ix_approval_records_session_key",
+        ["session_key"],
     )
-    _create_postgresql_index(
-        "ix_asset_records_session_key",
+    _ensure_postgresql_concurrent_index(
         "asset_records",
-        "session_key",
+        "ix_asset_records_session_key",
+        ["session_key"],
     )
     _create_messages_table()
 
@@ -305,23 +305,33 @@ def _backfill_postgresql_session_keys() -> None:
     connection = op.get_bind()
     last_session_id: str | None = None
     while True:
-        query = sa.text(
-            """
-            SELECT session_id, tenant_id, user_id
-            FROM agent_sessions
-            WHERE session_key IS NULL
-              AND (:last_session_id IS NULL OR session_id > :last_session_id)
-            ORDER BY session_id
-            LIMIT :batch_size
-            """
-        )
-        sessions = connection.execute(
-            query,
-            {
+        if last_session_id is None:
+            query = sa.text(
+                """
+                SELECT session_id, tenant_id, user_id
+                FROM agent_sessions
+                WHERE session_key IS NULL
+                ORDER BY session_id
+                LIMIT :batch_size
+                """
+            )
+            parameters = {"batch_size": BACKFILL_BATCH_SIZE}
+        else:
+            query = sa.text(
+                """
+                SELECT session_id, tenant_id, user_id
+                FROM agent_sessions
+                WHERE session_key IS NULL
+                  AND session_id > :last_session_id
+                ORDER BY session_id
+                LIMIT :batch_size
+                """
+            )
+            parameters = {
                 "last_session_id": last_session_id,
                 "batch_size": BACKFILL_BATCH_SIZE,
-            },
-        ).mappings().all()
+            }
+        sessions = connection.execute(query, parameters).mappings().all()
         if not sessions:
             return
 
@@ -361,6 +371,11 @@ def _backfill_postgresql_child(
     last_identity: str | None = None
     optional_filter = "AND child.session_id IS NOT NULL" if session_optional else ""
     while True:
+        cursor_filter = ""
+        parameters = {"batch_size": BACKFILL_BATCH_SIZE}
+        if last_identity is not None:
+            cursor_filter = f"AND child.{identity_column} > :last_identity"
+            parameters["last_identity"] = last_identity
         identities = connection.execute(
             sa.text(
                 f"""
@@ -368,16 +383,12 @@ def _backfill_postgresql_child(
                 FROM {table_name} AS child
                 WHERE child.session_key IS NULL
                   {optional_filter}
-                  AND (:last_identity IS NULL
-                       OR child.{identity_column} > :last_identity)
+                  {cursor_filter}
                 ORDER BY child.{identity_column}
                 LIMIT :batch_size
                 """
             ),
-            {
-                "last_identity": last_identity,
-                "batch_size": BACKFILL_BATCH_SIZE,
-            },
+            parameters,
         ).scalars().all()
         if not identities:
             break
@@ -452,74 +463,121 @@ def _set_postgresql_not_null(
         )
 
 
-def _create_postgresql_unique_index(
-    index_name: str,
+def _quote_postgresql_identifier(identifier: str) -> str:
+    return op.get_bind().dialect.identifier_preparer.quote(identifier)
+
+
+def _postgresql_index_state(
     table_name: str,
-    columns: str,
-) -> None:
+    index_name: str,
+) -> bool | None:
+    return op.get_bind().scalar(
+        sa.text(
+            """
+            SELECT index_state.indisvalid AND index_state.indisready
+            FROM pg_catalog.pg_index AS index_state
+            JOIN pg_catalog.pg_class AS index_relation
+              ON index_relation.oid = index_state.indexrelid
+            JOIN pg_catalog.pg_class AS table_relation
+              ON table_relation.oid = index_state.indrelid
+            JOIN pg_catalog.pg_namespace AS table_namespace
+              ON table_namespace.oid = table_relation.relnamespace
+            WHERE table_namespace.nspname = current_schema()
+              AND table_relation.relname = :table_name
+              AND index_relation.relname = :index_name
+            """
+        ),
+        {"table_name": table_name, "index_name": index_name},
+    )
+
+
+def _drop_postgresql_index_concurrently(index_name: str) -> None:
+    quoted_index = _quote_postgresql_identifier(index_name)
     with op.get_context().autocommit_block():
         op.execute(
-            sa.text(
-                f"CREATE UNIQUE INDEX CONCURRENTLY {index_name} "
-                f"ON {table_name} ({columns})"
-            )
+            sa.text(f"DROP INDEX CONCURRENTLY IF EXISTS {quoted_index}")
         )
 
 
-def _create_postgresql_index(
-    index_name: str,
+def _ensure_postgresql_concurrent_index(
     table_name: str,
-    columns: str,
+    index_name: str,
+    columns: list[str],
+    *,
+    unique: bool = False,
 ) -> None:
+    index_state = _postgresql_index_state(table_name, index_name)
+    if index_state is False:
+        _drop_postgresql_index_concurrently(index_name)
+        index_state = None
+    if index_state is True:
+        return
+
+    quoted_table = _quote_postgresql_identifier(table_name)
+    quoted_index = _quote_postgresql_identifier(index_name)
+    quoted_columns = ", ".join(
+        _quote_postgresql_identifier(column) for column in columns
+    )
+    unique_keyword = "UNIQUE " if unique else ""
     with op.get_context().autocommit_block():
         op.execute(
             sa.text(
-                f"CREATE INDEX CONCURRENTLY {index_name} "
-                f"ON {table_name} ({columns})"
+                f"CREATE {unique_keyword}INDEX CONCURRENTLY IF NOT EXISTS "
+                f"{quoted_index} ON {quoted_table} ({quoted_columns})"
             )
         )
 
 
 def _switch_postgresql_session_primary_key() -> None:
+    primary_key = sa.inspect(op.get_bind()).get_pk_constraint("agent_sessions")
+    if primary_key["constrained_columns"] == ["session_key"]:
+        return
+
     staging_index = "ux0011_agent_sessions_session_key_build"
-    _create_postgresql_unique_index(
-        staging_index,
+    _ensure_postgresql_concurrent_index(
         "agent_sessions",
-        "session_key",
+        staging_index,
+        ["session_key"],
+        unique=True,
     )
-    primary_key_name = sa.inspect(op.get_bind()).get_pk_constraint(
-        "agent_sessions"
-    )["name"]
-    with op.get_context().autocommit_block():
-        op.drop_constraint(
-            primary_key_name,
-            "agent_sessions",
-            type_="primary",
+    op.drop_constraint(
+        primary_key["name"],
+        "agent_sessions",
+        type_="primary",
+    )
+    op.execute(
+        sa.text(
+            "ALTER TABLE agent_sessions "
+            "ADD CONSTRAINT agent_sessions_pkey "
+            f"PRIMARY KEY USING INDEX {staging_index}"
         )
-        op.execute(
-            sa.text(
-                "ALTER TABLE agent_sessions "
-                "ADD CONSTRAINT agent_sessions_pkey "
-                f"PRIMARY KEY USING INDEX {staging_index}"
-            )
-        )
+    )
 
 
 def _create_postgresql_session_unique_constraint() -> None:
-    staging_index = "ux0011_agent_sessions_tenant_user_external_build"
-    _create_postgresql_unique_index(
-        staging_index,
-        "agent_sessions",
-        "tenant_id, user_id, session_id",
-    )
-    with op.get_context().autocommit_block():
-        op.execute(
-            sa.text(
-                "ALTER TABLE agent_sessions "
-                "ADD CONSTRAINT uq_agent_sessions_tenant_user_external "
-                f"UNIQUE USING INDEX {staging_index}"
-            )
+    unique_names = {
+        constraint["name"]
+        for constraint in sa.inspect(op.get_bind()).get_unique_constraints(
+            "agent_sessions"
         )
+    }
+    if "uq_agent_sessions_tenant_user_external" in unique_names:
+        return
+
+    staging_index = "ux0011_agent_sessions_tenant_user_external_build"
+    _ensure_postgresql_concurrent_index(
+        "agent_sessions",
+        staging_index,
+        ["tenant_id", "user_id", "session_id"],
+        unique=True,
+    )
+    op.execute(
+        sa.text(
+            "ALTER TABLE agent_sessions "
+            "ADD CONSTRAINT uq_agent_sessions_tenant_user_external "
+            f"UNIQUE USING INDEX {staging_index}"
+        )
+    )
 
 
 def _create_messages_table() -> None:
@@ -681,24 +739,26 @@ def _downgrade_postgresql() -> None:
         ("ix_approval_records_session_key", "approval_records"),
         ("ix_agent_runs_session_key", "agent_runs"),
     ):
-        with op.get_context().autocommit_block():
-            op.execute(sa.text(f"DROP INDEX CONCURRENTLY {index_name}"))
+        _drop_postgresql_index_concurrently(index_name)
 
     for table_name in ("asset_records", "approval_records", "agent_runs"):
         op.drop_column(table_name, "session_key")
 
-    staging_index = "ux0011_agent_sessions_session_id_downgrade"
-    _create_postgresql_unique_index(
-        staging_index,
-        "agent_sessions",
-        "session_id",
-    )
-    primary_key_name = sa.inspect(op.get_bind()).get_pk_constraint(
-        "agent_sessions"
-    )["name"]
-    with op.get_context().autocommit_block():
+    inspector = sa.inspect(op.get_bind())
+    primary_key = inspector.get_pk_constraint("agent_sessions")
+    if primary_key["constrained_columns"] != ["session_id"]:
+        staging_index = "ux0011_agent_sessions_session_id_downgrade"
+        _ensure_postgresql_concurrent_index(
+            "agent_sessions",
+            staging_index,
+            ["session_id"],
+            unique=True,
+        )
+        primary_key = sa.inspect(op.get_bind()).get_pk_constraint(
+            "agent_sessions"
+        )
         op.drop_constraint(
-            primary_key_name,
+            primary_key["name"],
             "agent_sessions",
             type_="primary",
         )
@@ -709,6 +769,13 @@ def _downgrade_postgresql() -> None:
                 f"PRIMARY KEY USING INDEX {staging_index}"
             )
         )
+    unique_names = {
+        constraint["name"]
+        for constraint in sa.inspect(op.get_bind()).get_unique_constraints(
+            "agent_sessions"
+        )
+    }
+    if "uq_agent_sessions_tenant_user_external" in unique_names:
         op.drop_constraint(
             "uq_agent_sessions_tenant_user_external",
             "agent_sessions",

@@ -1,11 +1,17 @@
+import ast
+from contextlib import contextmanager
+import importlib.util
+import inspect
 import os
 from pathlib import Path
+import textwrap
 from uuid import UUID, uuid4, uuid5
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect as inspect_database, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
@@ -36,6 +42,20 @@ def _expected_session_key(tenant_id, user_id, session_id):
         for value in (tenant_id, user_id, session_id)
     )
     return f"sess_{uuid5(_SESSION_KEY_NAMESPACE, canonical).hex}"
+
+
+def _load_message_migration(project_root):
+    migration_path = (
+        project_root / "alembic/versions/20260731_0011_session_messages.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "session_messages_migration_0011",
+        migration_path,
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _insert_legacy_records(connection):
@@ -421,6 +441,93 @@ def test_message_migration_downgrade_rejects_duplicate_external_session_id(
         command.downgrade(config, "20260727_0010")
 
 
+def test_postgres_constraint_switches_do_not_run_in_autocommit_blocks():
+    project_root = Path(__file__).resolve().parents[4]
+    migration = _load_message_migration(project_root)
+
+    for function in (
+        migration._switch_postgresql_session_primary_key,
+        migration._create_postgresql_session_unique_constraint,
+        migration._downgrade_postgresql,
+    ):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.With):
+                continue
+            context_source = " ".join(
+                ast.unparse(item.context_expr) for item in node.items
+            )
+            if "autocommit_block" not in context_source:
+                continue
+            body_source = " ".join(ast.unparse(item) for item in node.body)
+            assert "drop_constraint" not in body_source
+            assert "ALTER TABLE" not in body_source
+
+
+def test_postgres_invalid_staging_index_is_rebuilt_and_valid_index_is_reused(
+    monkeypatch,
+):
+    project_root = Path(__file__).resolve().parents[4]
+    migration = _load_message_migration(project_root)
+    records = []
+
+    class FakeContext:
+        depth = 0
+
+        @contextmanager
+        def autocommit_block(self):
+            self.depth += 1
+            try:
+                yield
+            finally:
+                self.depth -= 1
+
+    class FakeBind:
+        dialect = postgresql.dialect()
+
+    context = FakeContext()
+
+    class FakeOp:
+        def get_context(self):
+            return context
+
+        def get_bind(self):
+            return FakeBind()
+
+        def execute(self, statement):
+            records.append((str(statement), context.depth > 0))
+
+    monkeypatch.setattr(migration, "op", FakeOp())
+    monkeypatch.setattr(
+        migration,
+        "_postgresql_index_state",
+        lambda _table, _index: False,
+    )
+    migration._ensure_postgresql_concurrent_index(
+        "agent_sessions",
+        "ux0011_agent_sessions_session_key_build",
+        ["session_key"],
+        unique=True,
+    )
+
+    assert [sql.split()[0] for sql, _ in records] == ["DROP", "CREATE"]
+    assert all(in_autocommit for _, in_autocommit in records)
+
+    records.clear()
+    monkeypatch.setattr(
+        migration,
+        "_postgresql_index_state",
+        lambda _table, _index: True,
+    )
+    migration._ensure_postgresql_concurrent_index(
+        "agent_sessions",
+        "ux0011_agent_sessions_session_key_build",
+        ["session_key"],
+        unique=True,
+    )
+    assert records == []
+
+
 def test_live_postgres_message_migration_contract(monkeypatch):
     postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL") or os.getenv(
         "BS_AGENT_TEST_POSTGRES_CHECKPOINT_URL"
@@ -449,6 +556,34 @@ def test_live_postgres_message_migration_contract(monkeypatch):
             _insert_legacy_records(connection)
 
         command.upgrade(config, "head")
+        inspector = inspect_database(engine)
+        assert inspector.get_pk_constraint("agent_sessions")[
+            "constrained_columns"
+        ] == ["session_key"]
+        session_uniques = {
+            constraint["name"]: constraint["column_names"]
+            for constraint in inspector.get_unique_constraints("agent_sessions")
+        }
+        assert session_uniques["uq_agent_sessions_tenant_user_external"] == [
+            "tenant_id",
+            "user_id",
+            "session_id",
+        ]
+        run_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("agent_runs")
+        }
+        approval_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("approval_records")
+        }
+        asset_columns = {
+            column["name"]: column
+            for column in inspector.get_columns("asset_records")
+        }
+        assert run_columns["session_key"]["nullable"] is False
+        assert approval_columns["session_key"]["nullable"] is False
+        assert asset_columns["session_key"]["nullable"] is True
         expected_key = _expected_session_key(
             "tenant_a",
             "user_a",
@@ -499,6 +634,19 @@ def test_live_postgres_message_migration_contract(monkeypatch):
         assert duplicate_count == 2
         with pytest.raises(RuntimeError, match="external session_id"):
             command.downgrade(config, "20260727_0010")
+        with engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM agent_sessions WHERE tenant_id = 'tenant_b'")
+            )
+        command.downgrade(config, "20260727_0010")
+        downgraded_inspector = inspect_database(engine)
+        assert downgraded_inspector.get_pk_constraint("agent_sessions")[
+            "constrained_columns"
+        ] == ["session_id"]
+        assert "session_key" not in {
+            column["name"]
+            for column in downgraded_inspector.get_columns("agent_sessions")
+        }
     finally:
         engine.dispose()
         with admin_engine.begin() as connection:
