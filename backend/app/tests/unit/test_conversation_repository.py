@@ -259,11 +259,48 @@ def test_list_context_messages_filters_and_returns_stable_recent_window(session)
     session.flush()
 
     messages = ConversationRepository(session).list_context_messages(
+        tenant_id="tenant_1",
+        user_id="user_1",
         session_key="session_key_1",
         limit=2,
     )
 
     assert [message.sequence_no for message in messages] == [5, 6]
+
+
+@pytest.mark.parametrize(
+    ("tenant_id", "user_id"),
+    [
+        ("tenant_2", "user_1"),
+        ("tenant_1", "user_2"),
+    ],
+)
+def test_list_context_messages_requires_message_ownership(
+    session,
+    tenant_id,
+    user_id,
+):
+    session.add(
+        _message(
+            message_id="message_1",
+            session_key="shared_internal_key",
+            run_id="run_1",
+            request_id="request_1",
+            role="user",
+            status="completed",
+            sequence_no=1,
+        )
+    )
+    session.flush()
+
+    messages = ConversationRepository(session).list_context_messages(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        session_key="shared_internal_key",
+        limit=10,
+    )
+
+    assert messages == []
 
 
 def test_list_message_page_is_session_scoped_and_returns_ascending_page(session):
@@ -295,6 +332,8 @@ def test_list_message_page_is_session_scoped_and_returns_ascending_page(session)
     session.flush()
 
     page = ConversationRepository(session).list_message_page(
+        tenant_id="tenant_1",
+        user_id="user_1",
         session_key="session_key_1",
         limit=2,
         before_sequence=5,
@@ -302,6 +341,41 @@ def test_list_message_page_is_session_scoped_and_returns_ascending_page(session)
 
     assert [message.sequence_no for message in page] == [3, 4]
     assert all(message.session_key == "session_key_1" for message in page)
+
+
+@pytest.mark.parametrize(
+    ("tenant_id", "user_id"),
+    [
+        ("tenant_2", "user_1"),
+        ("tenant_1", "user_2"),
+    ],
+)
+def test_list_message_page_requires_message_ownership(
+    session,
+    tenant_id,
+    user_id,
+):
+    session.add(
+        _message(
+            message_id="message_1",
+            session_key="shared_internal_key",
+            run_id="run_1",
+            request_id="request_1",
+            role="user",
+            status="completed",
+            sequence_no=1,
+        )
+    )
+    session.flush()
+
+    page = ConversationRepository(session).list_message_page(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        session_key="shared_internal_key",
+        limit=10,
+    )
+
+    assert page == []
 
 
 def test_repository_never_loads_run_by_bare_id_across_tenants(session):

@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
@@ -8,6 +9,7 @@ from app.conversations.repository import (
     SessionBusyError,
 )
 from app.conversations.service import BeginTurn, ConversationService
+from app.core.config import settings
 from app.storage.models import AgentMessage, AgentRun, AgentSession, Base
 
 
@@ -26,6 +28,7 @@ def _begin(
     user_id: str = "user_1",
     session_id: str = "session_1",
     user_content: str = "hello",
+    metadata: dict | None = None,
 ) -> BeginTurn:
     return BeginTurn(
         tenant_id=tenant_id,
@@ -33,7 +36,8 @@ def _begin(
         session_id=session_id,
         request_id=request_id,
         user_content=user_content,
-        metadata={"source": "unit_test"},
+        metadata=metadata
+        or {"attachment_ids": ("asset-1",), "content_type": "text"},
     )
 
 
@@ -51,7 +55,10 @@ def test_begin_turn_creates_one_run_and_two_consecutive_messages(session):
     assert [message.role for message in messages] == ["user", "assistant"]
     assert [message.status for message in messages] == ["completed", "pending"]
     assert [message.sequence_no for message in messages] == [1, 2]
-    assert messages[0].metadata_json == {"source": "unit_test"}
+    assert messages[0].metadata_json == {
+        "attachment_ids": ["asset-1"],
+        "content_type": "text",
+    }
     assert messages[1].content == ""
     assert runs[0].status == "running"
     assert runs[0].session_key == handle.session_key
@@ -71,6 +78,40 @@ def test_begin_turn_replays_identical_request_without_duplicate_records(session)
     assert repeated.replayed is True
     assert session.scalar(select(func.count()).select_from(AgentRun)) == 1
     assert session.scalar(select(func.count()).select_from(AgentMessage)) == 2
+
+
+def test_begin_turn_rejects_replay_with_different_normalized_metadata(session):
+    service = ConversationService(session)
+    service.begin_turn(_begin(metadata={"attachment_ids": ["asset-1"]}))
+
+    with pytest.raises(ConversationConflictError, match="request_conflict"):
+        service.begin_turn(_begin(metadata={"attachment_ids": ["asset-2"]}))
+
+    assert session.scalar(select(func.count()).select_from(AgentRun)) == 1
+    assert session.scalar(select(func.count()).select_from(AgentMessage)) == 2
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"source": "unit_test"},
+        {"token": "secret"},
+        {"authorization": "Bearer secret"},
+        {"provider_credential": "secret"},
+        {"content_type": "application/json"},
+        {"attachment_ids": ["../unsafe"]},
+        {"attachment_ids": ["a" * 65]},
+        {
+            "attachment_ids": [
+                f"asset-{index}"
+                for index in range(settings.max_message_attachments + 1)
+            ]
+        },
+    ],
+)
+def test_begin_turn_metadata_rejects_unknown_or_unsafe_values(metadata):
+    with pytest.raises(ValidationError):
+        _begin(metadata=metadata)
 
 
 @pytest.mark.parametrize(

@@ -5,12 +5,18 @@ from app.conversations.repository import (
     ConversationRepository,
     SessionBusyError,
 )
-from app.conversations.service import BeginTurn, ConversationService, TurnHandle
+from app.conversations.service import (
+    BeginTurn,
+    ConversationMetadata,
+    ConversationService,
+    TurnHandle,
+)
 
 __all__ = [
     "BeginTurn",
     "ConversationConflictError",
     "ConversationIntegrityError",
+    "ConversationMetadata",
     "ConversationNotFoundError",
     "ConversationRepository",
     "ConversationService",

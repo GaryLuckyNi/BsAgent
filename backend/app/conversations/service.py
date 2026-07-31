@@ -1,10 +1,10 @@
 import hashlib
 import re
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -16,9 +16,28 @@ from app.conversations.repository import (
     ConversationRepository,
     SessionBusyError,
 )
+from app.core.config import settings
 from app.storage.models import AgentMessage, AgentRun, AgentSession
 
+_ATTACHMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$")
 _SAFE_ERROR_CODE = re.compile(r"^[a-z0-9_]{1,64}$")
+
+
+class ConversationMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    attachment_ids: list[str] = Field(
+        default_factory=list,
+        max_length=settings.max_message_attachments,
+    )
+    content_type: Literal["text"] | None = None
+
+    @field_validator("attachment_ids")
+    @classmethod
+    def validate_attachment_ids(cls, value: list[str]) -> list[str]:
+        if any(_ATTACHMENT_ID.fullmatch(attachment_id) is None for attachment_id in value):
+            raise ValueError("invalid_attachment_id")
+        return value
 
 
 class BeginTurn(BaseModel):
@@ -29,7 +48,7 @@ class BeginTurn(BaseModel):
     session_id: str
     request_id: str
     user_content: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: ConversationMetadata = Field(default_factory=ConversationMetadata)
 
 
 class TurnHandle(BaseModel):
@@ -91,7 +110,7 @@ class ConversationService:
             status="completed",
             content=data.user_content,
             sequence_no=session_record.next_sequence_no,
-            metadata_json=dict(data.metadata),
+            metadata_json=data.metadata.model_dump(mode="json"),
             completed_at=datetime.now(UTC),
         )
         assistant_message = AgentMessage(
@@ -257,6 +276,8 @@ class ConversationService:
             user_message.user_id != data.user_id
             or user_message.content != data.user_content
             or session_record.session_id != data.session_id
+            or user_message.metadata_json
+            != data.metadata.model_dump(mode="json")
         ):
             raise ConversationConflictError("request_conflict")
         return self._handle_from_records(

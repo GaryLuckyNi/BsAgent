@@ -97,6 +97,7 @@ class ConversationRepository:
                 AgentSession.user_id == user_id,
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         if record is None:
             raise ConversationNotFoundError("session_not_found")
@@ -169,6 +170,8 @@ class ConversationRepository:
     def list_context_messages(
         self,
         *,
+        tenant_id: str,
+        user_id: str,
         session_key: str,
         limit: int,
     ) -> list[AgentMessage]:
@@ -176,6 +179,8 @@ class ConversationRepository:
             self._session.scalars(
                 select(AgentMessage)
                 .where(
+                    AgentMessage.tenant_id == tenant_id,
+                    AgentMessage.user_id == user_id,
                     AgentMessage.session_key == session_key,
                     AgentMessage.status == "completed",
                     AgentMessage.deleted_at.is_(None),
@@ -191,11 +196,15 @@ class ConversationRepository:
     def list_message_page(
         self,
         *,
+        tenant_id: str,
+        user_id: str,
         session_key: str,
         limit: int,
         before_sequence: int | None = None,
     ) -> list[AgentMessage]:
         statement = select(AgentMessage).where(
+            AgentMessage.tenant_id == tenant_id,
+            AgentMessage.user_id == user_id,
             AgentMessage.session_key == session_key,
             AgentMessage.deleted_at.is_(None),
             AgentMessage.role.in_(("user", "assistant")),
