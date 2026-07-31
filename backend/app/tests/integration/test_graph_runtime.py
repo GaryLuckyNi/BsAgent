@@ -1,5 +1,4 @@
 import json
-import re
 
 import httpx
 import pytest
@@ -16,13 +15,14 @@ from app.graph.runtime import (
     build_question_answer_graph,
     resume_question_answer_graph,
     run_question_answer_graph,
+    stream_question_answer_graph,
 )
 from app.graph.state import create_initial_state
 from app.schemas.approvals import ReadyToolCall
 from app.harness.tracing import InMemoryTraceStore
 from app.llm.schemas import LlmCompletionResult
 from app.schemas.evidence import EvidenceItem, EvidencePackage
-from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
+from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError
 from app.skills.configured import ConfiguredSkill
 from app.skills.definitions import SkillDefinition, SkillExecutionGuide
 from app.skills.registry import SkillRegistry
@@ -30,66 +30,166 @@ from app.tools.base import Tool
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchTool
 from app.tools.registry import ToolRegistry
+from app.tools.registry import ExecutionBinding
 
 
-class FakeLlmClient:
-    async def complete(self, **_):
-        return LlmCompletionResult(
-            content="LLM 渲染：差旅报销需要提交发票和审批单。",
-            model="fake-model",
-            provider="fake",
-        )
+def test_graph_routes_validated_image_context_without_rag_or_tools():
+    trace_store = InMemoryTraceStore()
 
-
-class ToolRoutingLlmClient:
-    def __init__(self) -> None:
-        self.calls = []
-
-    async def complete(self, **kwargs):
-        self.calls.append(kwargs)
-        system_prompt = kwargs.get("system_prompt", "")
-        if "工具参数规划器" in system_prompt:
-            payload = json.loads(kwargs["user_prompt"])
-            numbers = _numbers_from_message(payload["user_message"])
+    class ImageOnlyLlm:
+        async def complete(self, **kwargs):
+            if "意图分类器" in kwargs.get("system_prompt", ""):
+                return LlmCompletionResult(
+                    content=json.dumps(
+                        {
+                            "intent": "knowledge_qa",
+                            "domain": "financial_image",
+                            "sub_intent": "describe_image",
+                            "candidate_skill": None,
+                            "candidate_tool": None,
+                            "risk_level": "medium",
+                            "confidence": 0.9,
+                            "needs_clarification": False,
+                            "reason_codes": ["image_summary_available"],
+                        }
+                    ),
+                    model="fake-model",
+                    provider="fake",
+                )
             return LlmCompletionResult(
-                content=json.dumps(
-                    {
-                        "tool_name": "mcp.mock.calculate_sum",
-                        "tool_version": "mcp-stdio-v1",
-                        "arguments": {"numbers": numbers},
-                        "purpose": "计算用户给出的数字总和",
-                        "approval_required": False,
-                    },
-                    ensure_ascii=False,
-                ),
-                model="fake-planner-model",
+                content="营业收入同比增长。",
+                model="fake-model",
                 provider="fake",
             )
-        if "工具结果回答渲染器" in system_prompt:
-            payload = json.loads(kwargs["user_prompt"])
-            total = payload["tool_result"]["total"]
-            return LlmCompletionResult(
-                content=f"计算结果是 {total}。",
-                model="fake-render-model",
-                provider="fake",
-            )
-        return LlmCompletionResult(
-            content="""
-            {
-              "intent": "tool_action",
-              "domain": "mcp_math",
-              "sub_intent": "calculate_sum",
-              "candidate_skill": null,
-              "candidate_tool": "mcp.mock.calculate_sum",
-              "risk_level": "low",
-              "confidence": 0.91,
-              "needs_clarification": false,
-              "reason_codes": ["classifier_selected_sum_tool"]
-            }
-            """,
-            model="fake-intent-model",
-            provider="fake",
-        )
+
+    class AttachmentResolver:
+        def resolve(self, asset_ids, *, principal, session_id):
+            assert asset_ids == ["asset-1"]
+            assert principal.tenant_id == "tenant-1"
+            assert session_id == "session-image"
+            return [
+                {
+                    "asset_id": "asset-1",
+                    "analysis_id": "analysis-1",
+                    "media_type": "image/png",
+                    "width": 100,
+                    "height": 80,
+                    "status": "ready",
+                    "document_type": "financial_statement",
+                    "summary": "营业收入同比增长。",
+                    "extracted_text": "营业收入 100 亿元",
+                    "financial_metrics": [],
+                    "chart_observations": ["同比增长"],
+                    "entities": ["营业收入"],
+                    "risk_flags": ["缺少审计意见"],
+                    "confidence": 0.9,
+                    "truncated": False,
+                }
+            ]
+
+    state = run_question_answer_graph(
+        session_id="session-image",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="请描述附件内容",
+        mock_evidence=True,
+        trace_store=trace_store,
+        attachment_ids=["asset-1"],
+        attachment_resolver=AttachmentResolver(),
+        llm_client=ImageOnlyLlm(),
+    )
+
+    node_names = [event.node_name for event in trace_store.list_events(state["trace_id"])]
+    assert node_names.index("attachment_analyzer") < node_names.index("memory_manager")
+    assert "analysis_agent" in node_names
+    assert "retriever_agent" not in node_names
+    assert "skill_agent" not in node_names
+    assert "tool_agent" not in node_names
+    assert "营业收入同比增长" in state["final_response"]["content"]
+
+
+def test_graph_returns_structured_not_ready_error_from_attachment_analyzer():
+    from app.assets.errors import AssetNotReadyError
+    trace_store = InMemoryTraceStore()
+
+    class NotReadyResolver:
+        def resolve(self, *_args, **_kwargs):
+            raise AssetNotReadyError("provider internal detail")
+
+    result = run_question_answer_graph(
+        session_id="session-image",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析这张图片",
+        attachment_ids=["asset-1"],
+        attachment_resolver=NotReadyResolver(),
+        trace_store=trace_store,
+    )
+
+    assert result["errors"][-1]["node"] == "attachment_analyzer"
+    assert result["errors"][-1]["code"] == "asset_not_ready"
+    assert result["errors"][-1]["http_status"] == 409
+    assert result["errors"][-1]["handled"] is True
+    assert result["final_response"]["business_error_code"] == "asset_not_ready"
+    assert "图片资产尚未完成分析" in result["final_response"]["content"]
+    events = [
+        event
+        for event in trace_store.events
+        if event.node_name == "attachment_analyzer"
+    ]
+    assert [(event.status, event.error) for event in events] == [
+        ("handled_error", "asset_not_ready:AssetNotReadyError")
+    ]
+
+
+def test_financial_image_skill_without_tools_still_runs_analysis_agent():
+    class AttachmentResolver:
+        def resolve(self, *_args, **_kwargs):
+            return [
+                {
+                    "asset_id": "asset-1",
+                    "analysis_id": "analysis-1",
+                    "media_type": "image/png",
+                    "width": 100,
+                    "height": 80,
+                    "status": "ready",
+                    "document_type": "financial_statement",
+                    "summary": "贵州茅台营业收入增长。",
+                    "extracted_text": "",
+                    "financial_metrics": [],
+                    "chart_observations": [],
+                    "entities": ["贵州茅台", "600519"],
+                    "risk_flags": [],
+                    "confidence": 0.9,
+                    "truncated": False,
+                }
+            ]
+
+    def image_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "financial_report_analysis",
+            "skill_version": "1.0.0",
+            "status": "success",
+            "allowed_tools": [],
+        }
+        state["plan"] = {**state["plan"], "requested_tools": []}
+        return state
+
+    trace_store = InMemoryTraceStore()
+    result = run_question_answer_graph(
+        session_id="session-image-skill",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="结合这张财报分析公司基本面",
+        attachment_ids=["asset-1"],
+        attachment_resolver=AttachmentResolver(),
+        skill_agent_node=image_skill,
+        trace_store=trace_store,
+    )
+
+    node_names = [event.node_name for event in trace_store.events]
+    assert node_names.index("skill_agent") < node_names.index("analysis_agent")
+    assert result["analysis"]["findings"] == ["贵州茅台营业收入增长。"]
 
 
 class ConversationRoutingLlmClient:
@@ -120,16 +220,6 @@ class ConversationRoutingLlmClient:
         )
 
 
-def _numbers_from_message(message: str) -> list[int]:
-    range_match = re.search(r"(\d+)\s*(?:加到|到|-|~)\s*(\d+)", message)
-    if range_match:
-        start = int(range_match.group(1))
-        end = int(range_match.group(2))
-        step = 1 if end >= start else -1
-        return list(range(start, end + step, step))
-    return [int(value) for value in re.findall(r"\d+", message)]
-
-
 def _a_share_company_snapshot_skill_registry() -> SkillRegistry:
     registry = SkillRegistry()
     registry.register(
@@ -152,6 +242,25 @@ def _a_share_company_snapshot_skill_registry() -> SkillRegistry:
                 ],
                 constraints=["必须追加投研免责声明"],
                 failure_modes=[],
+                evidence_contract={
+                    "requirements": [
+                        {
+                            "capability": "stock.resolve_company",
+                            "required_fields": ["symbol", "name"],
+                            "optional_fields": ["exchange"],
+                        },
+                        {
+                            "capability": "stock.company_profile",
+                            "required_fields": ["name", "industry", "main_business"],
+                            "optional_fields": ["board", "registered_address"],
+                        },
+                        {
+                            "capability": "stock.market_snapshot",
+                            "required_fields": ["price"],
+                            "optional_fields": ["pe_ttm", "pb"],
+                        },
+                    ]
+                },
                 definition_hash="hash_definition",
             ),
             guide=SkillExecutionGuide(
@@ -167,44 +276,194 @@ def _a_share_company_snapshot_skill_registry() -> SkillRegistry:
     return registry
 
 
-def test_question_answer_graph_returns_final_response_with_trace():
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="t1",
-        user_id="u1",
-        user_message="差旅报销需要什么？",
-        mock_evidence=True,
+def _rag_skill_agent(state):
+    request = ToolCallRequest(
+        tool_name="rag_search",
+        arguments={
+            "query": state["user_message"],
+            "tenant_id": state["tenant_id"],
+            "user_id": state["user_id"],
+            "top_k": 8,
+            "retrieval_mode": "hybrid",
+        },
+        purpose="检索投研证据",
     )
+    state["selected_skill"] = {
+        "skill_name": "research_evidence",
+        "skill_version": "1.0.0",
+        "status": "needs_retrieval",
+        "reason_codes": ["test_rag_skill"],
+        "allowed_tools": ["rag_search"],
+    }
+    state["plan"] = {
+        **(state["plan"] or {}),
+        "execution_mode": "skill_execution",
+        "requested_tools": [request],
+        "retrieval": {"required": True},
+        "tool_policy": {"allowed_tools": ["rag_search"]},
+        "response_policy": {
+            "response_type": "knowledge_answer",
+            "citation_required": True,
+        },
+    }
+    return state
 
-    assert result["final_response"]["trace_id"].startswith("trace_")
-    assert "差旅报销需要提交发票和审批单" in result["final_response"]["content"]
-    assert result["ready_tool_call"] is None
-    assert result["selected_skill"]["skill_name"] == "policy_qa"
-    assert result["selected_skill"]["status"] == "needs_retrieval"
-    assert result["plan"]["requested_tools"][0].tool_name == "rag_search"
-    assert result["verification"]["verdict"] == "pass"
+
+def _market_data_envelope(
+    *,
+    status: str,
+    data: dict,
+    requested_fields: list[str],
+    provided_fields: list[str],
+    missing_optional_fields: list[str] | None = None,
+    source_apis: list[str] | None = None,
+) -> dict:
+    return {
+        "status": status,
+        "data": data,
+        "coverage": {
+            "status": status,
+            "requested_fields": requested_fields,
+            "required_fields": [],
+            "optional_fields": requested_fields,
+            "provided_fields": provided_fields,
+            "missing_required_fields": [],
+            "missing_optional_fields": missing_optional_fields or [],
+            "source_apis": source_apis or [],
+        },
+    }
 
 
-def test_question_answer_graph_writes_checkpoint_by_run_id():
+class AcceptanceMarketSnapshotInput(BaseModel):
+    symbol: str
+    required_fields: list[str]
+    optional_fields: list[str] = Field(default_factory=list)
+
+
+class AcceptanceMarketSnapshotTool(Tool[AcceptanceMarketSnapshotInput]):
+    name = "mcp.production.stock.market_snapshot"
+    version = "acceptance-v1"
+    input_model = AcceptanceMarketSnapshotInput
+
+    def __init__(self, *, payload: dict | None = None, error: ToolError | None = None):
+        self.payload = payload
+        self.error = error
+
+    async def run(self, input_data: AcceptanceMarketSnapshotInput) -> ToolCallResult:
+        del input_data
+        if self.error is not None:
+            return ToolCallResult(
+                tool_call_id="untrusted_market_call",
+                tool_name=self.name,
+                status="failed",
+                error=self.error,
+                trace_id="untrusted_trace",
+            )
+        return ToolCallResult(
+            tool_call_id="untrusted_market_call",
+            tool_name=self.name,
+            status="success",
+            result=self.payload,
+            trace_id="untrusted_trace",
+        )
+
+
+def _acceptance_market_skill_agent(
+    *,
+    required_fields: list[str],
+    optional_fields: list[str] | None = None,
+):
+    def node(state):
+        request = ToolCallRequest(
+            tool_name="mcp.production.stock.market_snapshot",
+            arguments={
+                "symbol": "300085.SZ",
+                "required_fields": required_fields,
+                "optional_fields": optional_fields or [],
+            },
+            purpose="获取银之杰行情与估值字段",
+        )
+        state["selected_skill"] = {
+            "skill_name": "company_snapshot",
+            "skill_version": "1.0.0",
+            "status": "success",
+            "reason_codes": ["acceptance_skill"],
+            "allowed_tools": [request.tool_name],
+        }
+        state["plan"] = {
+            **(state["plan"] or {}),
+            "execution_mode": "skill_execution",
+            "requested_tools": [request],
+            "retrieval": {"required": False},
+            "tool_policy": {"allowed_tools": [request.tool_name]},
+            "response_policy": {
+                "response_type": "equity_research_company_snapshot",
+                "citation_required": False,
+                "disclaimer_required": True,
+            },
+        }
+        return state
+
+    return node
+
+
+def _acceptance_market_registry(
+    *,
+    payload: dict | None = None,
+    error: ToolError | None = None,
+):
+    def factory() -> ToolRegistry:
+        registry = ToolRegistry()
+        registry.register(AcceptanceMarketSnapshotTool(payload=payload, error=error))
+        return registry
+
+    return factory
+
+
+def test_question_answer_graph_writes_checkpoint_by_session_id():
     checkpointer = InMemorySaver()
 
     result = run_question_answer_graph(
         session_id="checkpoint_s1",
         tenant_id="t1",
         user_id="u1",
-        user_message="差旅报销需要什么？",
-        mock_evidence=True,
+        user_message="你好",
         checkpointer=checkpointer,
     )
 
     checkpoint = checkpointer.get_tuple(
-        {"configurable": {"thread_id": result["request_id"]}}
+        {"configurable": {"thread_id": result["session_id"]}}
     )
 
     assert checkpoint is not None
     assert checkpoint.checkpoint["channel_values"]["final_response"]["trace_id"] == result[
         "trace_id"
     ]
+
+
+def test_catalog_guard_records_trace_before_rejecting_changed_catalog():
+    trace_store = InMemoryTraceStore()
+    graph = build_question_answer_graph(
+        retriever_node=lambda state: state,
+        trace_store=trace_store,
+    )
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="执行请求",
+        tool_catalog_digest="stale_catalog_digest",
+    )
+
+    with pytest.raises(AgentGraphExecutionError) as exc_info:
+        graph.invoke(state)
+
+    event = trace_store.events[0]
+    assert exc_info.value.code == "tool_catalog_changed"
+    assert event.node_name == "catalog_guard"
+    assert event.status == "error"
+    assert event.error == "tool_catalog_changed:ToolCatalogChangedError"
+    assert len(trace_store.events) == 1
 
 
 def test_question_answer_graph_stops_when_node_records_error():
@@ -216,8 +475,9 @@ def test_question_answer_graph_stops_when_node_records_error():
             session_id="s1",
             tenant_id="t1",
             user_id="u1",
-            user_message="差旅报销需要什么？",
+            user_message="分析一下银之杰",
             mock_evidence=True,
+            skill_agent_node=_rag_skill_agent,
             retriever_node=failing_retriever,
         )
 
@@ -234,18 +494,20 @@ def test_question_answer_graph_preserves_structured_node_error_metadata():
     def failing_retriever(_):
         raise ControlledError("No Chroma index found.")
 
-    with pytest.raises(AgentGraphExecutionError) as exc_info:
-        run_question_answer_graph(
-            session_id="s1",
-            tenant_id="t1",
-            user_id="u1",
-            user_message="差旅报销需要什么？",
-            mock_evidence=True,
-            retriever_node=failing_retriever,
-        )
+    result = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="分析一下银之杰",
+        mock_evidence=True,
+        skill_agent_node=_rag_skill_agent,
+        retriever_node=failing_retriever,
+    )
 
-    assert exc_info.value.code == "rag_index_unavailable"
-    assert exc_info.value.http_status == 503
+    assert result["errors"][-1]["code"] == "rag_index_unavailable"
+    assert result["errors"][-1]["http_status"] == 503
+    assert result["errors"][-1]["handled"] is True
+    assert result["final_response"]["business_error_code"] == "rag_index_unavailable"
 
 
 def test_question_answer_graph_can_use_injected_retriever_without_mock_evidence():
@@ -273,8 +535,9 @@ def test_question_answer_graph_can_use_injected_retriever_without_mock_evidence(
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         mock_evidence=False,
+        skill_agent_node=_rag_skill_agent,
         retriever_node=injected_retriever,
     )
 
@@ -295,10 +558,9 @@ def test_question_answer_graph_runs_memory_manager_before_intent_router():
     )
 
     assert result["memory_candidates"][0].memory_type == "user_preference"
-    assert [event.node_name for event in trace_store.events][:2] == [
-        "memory_manager",
-        "intent_router",
-    ]
+    node_names = [event.node_name for event in trace_store.events]
+    assert node_names.index("attachment_analyzer") < node_names.index("memory_manager")
+    assert node_names.index("memory_manager") < node_names.index("intent_router")
 
 
 def test_question_answer_graph_runs_planner_between_intent_and_skill():
@@ -308,16 +570,17 @@ def test_question_answer_graph_runs_planner_between_intent_and_skill():
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         mock_evidence=True,
         trace_store=trace_store,
+        skill_agent_node=_rag_skill_agent,
     )
 
     node_names = [event.node_name for event in trace_store.events]
 
     assert node_names.index("intent_router") < node_names.index("planner_agent")
     assert node_names.index("planner_agent") < node_names.index("skill_agent")
-    assert result["plan"]["objective"] == "回答用户的知识问答请求"
+    assert result["plan"]["objective"] == "规划并执行用户请求的任务流程"
 
 
 def test_question_answer_graph_skips_skill_and_retrieval_for_conversation_intent():
@@ -346,63 +609,73 @@ def test_question_answer_graph_skips_skill_and_retrieval_for_conversation_intent
     assert "analysis_agent" not in node_names
 
 
-def test_question_answer_graph_executes_mcp_calculate_sum_tool_action():
+def test_question_answer_graph_appends_messages_across_session_checkpoint():
+    checkpointer = InMemorySaver()
+
+    first = run_question_answer_graph(
+        session_id="session_multi_turn",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="你好",
+        checkpointer=checkpointer,
+        llm_client=ConversationRoutingLlmClient(),
+    )
+    second = run_question_answer_graph(
+        session_id="session_multi_turn",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="继续使用中文",
+        checkpointer=checkpointer,
+        llm_client=ConversationRoutingLlmClient(),
+    )
+
+    assert first["request_id"] != second["request_id"]
+    assert second["user_message"] == "继续使用中文"
+    assert [message.role for message in second["messages"]] == [
+        "user",
+        "assistant",
+        "user",
+        "assistant",
+    ]
+    assert [message.content for message in second["messages"]][::2] == [
+        "你好",
+        "继续使用中文",
+    ]
+    assert len(
+        {
+            message.metadata["message_id"]
+            for message in second["messages"]
+        }
+    ) == 4
+
+
+def test_question_answer_graph_streams_node_updates_with_final_state():
+    checkpointer = InMemorySaver()
     trace_store = InMemoryTraceStore()
 
-    def fake_tool_agent(state):
-        request = state["plan"]["requested_tools"][0]
-        state["tool_calls"].append(
-            ToolCallRecord(
-                request=request,
-                result=ToolCallResult(
-                    tool_call_id="tool_1",
-                    tool_name=request.tool_name,
-                    status="success",
-                    result={"total": 1275, "count": 50},
-                    trace_id=state["trace_id"],
-                ),
-            )
+    updates = list(
+        stream_question_answer_graph(
+            session_id="session_stream",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            user_message="你好",
+            checkpointer=checkpointer,
+            trace_store=trace_store,
+            llm_client=ConversationRoutingLlmClient(),
         )
-        return state
-
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="计算1加到50",
-        tool_agent_node=fake_tool_agent,
-        allow_test_tool_agent_override=True,
-        trace_store=trace_store,
-        llm_client=ToolRoutingLlmClient(),
     )
 
-    node_names = [event.node_name for event in trace_store.events]
-
-    assert result["intent"]["intent"] == "tool_action"
-    assert result["plan"]["execution_mode"] == "tool_execution"
-    assert result["tool_calls"][0].request.tool_name == "mcp.mock.calculate_sum"
-    assert result["final_response"]["approval_status"] == "not_required"
-    assert "1275" in result["final_response"]["content"]
-    assert "tool_agent" in node_names
-    assert "skill_agent" not in node_names
-    assert "retriever_agent" not in node_names
-
-
-def test_question_answer_graph_executes_real_mcp_stdio_tool_action():
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="计算1加到50",
-        llm_client=ToolRoutingLlmClient(),
-        permission_scopes=["mcp:mock"],
-    )
-
-    assert result["plan"]["execution_mode"] == "tool_execution"
-    assert result["tool_calls"][0].request.tool_name == "mcp.mock.calculate_sum"
-    assert result["tool_calls"][0].result.status == "success"
-    assert result["tool_calls"][0].result.result == {"total": 1275, "count": 50}
-    assert "1275" in result["final_response"]["content"]
+    assert updates
+    assert updates[-1]["final_response"]["content"]
+    assert [message.role for message in updates[-1]["messages"]] == [
+        "user",
+        "assistant",
+    ]
+    assert {event.node_name for event in trace_store.events} >= {
+        "intent_router",
+        "planner_agent",
+        "final_response",
+    }
 
 
 def test_question_answer_graph_executes_structured_skill_tools_before_retrieval():
@@ -520,6 +793,93 @@ def test_question_answer_graph_executes_structured_skill_tools_before_retrieval(
 
 def test_question_answer_graph_completes_a_share_company_snapshot():
     trace_store = InMemoryTraceStore()
+    received_arguments: dict[str, dict] = {}
+
+    class ResolveCompanyInput(BaseModel):
+        query: str
+        required_fields: list[str]
+        optional_fields: list[str] = Field(default_factory=list)
+
+    class CompanyProfileInput(BaseModel):
+        symbol: str
+        required_fields: list[str]
+        optional_fields: list[str] = Field(default_factory=list)
+
+    class MarketSnapshotInput(BaseModel):
+        symbol: str
+        required_fields: list[str]
+        optional_fields: list[str] = Field(default_factory=list)
+
+    class ResolveCompanyTool(Tool[ResolveCompanyInput]):
+        name = "mcp.mock.stock.resolve_company"
+        version = "test-v1"
+        input_model = ResolveCompanyInput
+        permission_scope = ["mcp:mock"]
+
+        async def run(self, input_data: ResolveCompanyInput) -> ToolCallResult:
+            received_arguments[self.name] = input_data.model_dump()
+            return ToolCallResult(
+                tool_call_id="test_resolve_company",
+                tool_name=self.name,
+                status="success",
+                result={
+                    "symbol": "600519.SH",
+                    "name": "贵州茅台",
+                    "exchange": "SSE",
+                },
+                trace_id="test_trace",
+            )
+
+    class CompanyProfileTool(Tool[CompanyProfileInput]):
+        name = "mcp.mock.stock.company_profile"
+        version = "test-v1"
+        input_model = CompanyProfileInput
+        permission_scope = ["mcp:mock"]
+
+        async def run(self, input_data: CompanyProfileInput) -> ToolCallResult:
+            received_arguments[self.name] = input_data.model_dump()
+            return ToolCallResult(
+                tool_call_id="test_company_profile",
+                tool_name=self.name,
+                status="success",
+                result={
+                    "symbol": input_data.symbol,
+                    "name": "贵州茅台",
+                    "industry": "食品饮料",
+                    "main_business": "茅台酒及系列酒的生产与销售",
+                    "board": "主板",
+                    "registered_address": "贵州省仁怀市",
+                },
+                trace_id="test_trace",
+            )
+
+    class MarketSnapshotTool(Tool[MarketSnapshotInput]):
+        name = "mcp.mock.stock.market_snapshot"
+        version = "test-v1"
+        input_model = MarketSnapshotInput
+        permission_scope = ["mcp:mock"]
+
+        async def run(self, input_data: MarketSnapshotInput) -> ToolCallResult:
+            received_arguments[self.name] = input_data.model_dump()
+            return ToolCallResult(
+                tool_call_id="test_market_snapshot",
+                tool_name=self.name,
+                status="success",
+                result={
+                    "symbol": input_data.symbol,
+                    "price": 1500.0,
+                    "pe_ttm": 25.0,
+                    "pb": 8.0,
+                },
+                trace_id="test_trace",
+            )
+
+    def market_tool_registry() -> ToolRegistry:
+        registry = ToolRegistry()
+        registry.register(ResolveCompanyTool())
+        registry.register(CompanyProfileTool())
+        registry.register(MarketSnapshotTool())
+        return registry
 
     def fake_retriever(state):
         state["evidence"] = EvidencePackage(
@@ -551,6 +911,7 @@ def test_question_answer_graph_completes_a_share_company_snapshot():
         ),
         trace_store=trace_store,
         permission_scopes=["mcp:mock"],
+        tool_registry_factory=market_tool_registry,
     )
 
     content = result["final_response"]["content"]
@@ -564,9 +925,111 @@ def test_question_answer_graph_completes_a_share_company_snapshot():
     )
     assert "tool_agent" in node_names
     assert "retriever_agent" in node_names
+    assert received_arguments["mcp.mock.stock.resolve_company"] == {
+        "query": "贵州茅台",
+        "required_fields": ["symbol", "name"],
+        "optional_fields": ["exchange"],
+    }
+    assert received_arguments["mcp.mock.stock.company_profile"] == {
+        "symbol": "600519.SH",
+        "required_fields": ["name", "industry", "main_business"],
+        "optional_fields": ["board", "registered_address"],
+    }
+    assert received_arguments["mcp.mock.stock.market_snapshot"] == {
+        "symbol": "600519.SH",
+        "required_fields": ["price"],
+        "optional_fields": ["pe_ttm", "pb"],
+    }
     assert "公司概览" in content
     assert "贵州茅台" in content
     assert "不构成投资建议" in content
+
+
+def test_equity_graph_reports_unconfigured_market_data_without_fixture_values():
+    result = run_question_answer_graph(
+        session_id="market-unconfigured",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="分析一下银之杰",
+        retriever_node=lambda state: state,
+        skill_agent_node=_acceptance_market_skill_agent(required_fields=["price"]),
+        tool_registry_factory=_acceptance_market_registry(
+            error=ToolError(
+                code="market_data_source_not_configured",
+                message="尚未配置市场数据源。",
+            )
+        ),
+    )
+
+    content = result["final_response"]["content"]
+    assert "未配置市场数据源" in content
+    assert "1500" not in content
+    assert result["verification"]["verdict"] == "execution_error"
+
+
+def test_equity_graph_reports_required_pe_field_permission_gap_without_value():
+    result = run_question_answer_graph(
+        session_id="market-pe-permission-gap",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="分析一下银之杰并告诉我 PE",
+        retriever_node=lambda state: state,
+        skill_agent_node=_acceptance_market_skill_agent(required_fields=["pe_ttm"]),
+        tool_registry_factory=_acceptance_market_registry(
+            error=ToolError(
+                code="required_api_permission_missing",
+                message="当前数据源权限无法提供必需字段。",
+                details={
+                    "missing_fields": ["pe_ttm"],
+                    "required_apis": ["daily_basic"],
+                },
+            )
+        ),
+    )
+
+    content = result["final_response"]["content"]
+    assert "当前数据源权限不足" in content
+    assert "pe_ttm" in content
+    assert "42.1" not in content
+    assert result["draft_answer"]["business_error_code"] == (
+        "required_api_permission_missing"
+    )
+
+
+def test_equity_graph_uses_daily_only_and_keeps_answer_bound_to_price_fact():
+    payload = _market_data_envelope(
+        status="complete",
+        data={
+            "symbol": "300085.SZ",
+            "price": 18.23,
+            "source_provider": "tushare",
+            "as_of_date": "2026-07-25",
+        },
+        requested_fields=["price"],
+        provided_fields=["price"],
+        source_apis=["daily"],
+    )
+    result = run_question_answer_graph(
+        session_id="market-price-daily-only",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="分析一下银之杰的最新价格",
+        retriever_node=lambda state: state,
+        skill_agent_node=_acceptance_market_skill_agent(required_fields=["price"]),
+        tool_registry_factory=_acceptance_market_registry(payload=payload),
+    )
+
+    content = result["final_response"]["content"]
+    assert "18.23" in content
+    assert result["analysis"]["data_coverage"][0]["source_apis"] == ["daily"]
+    assert result["draft_answer"]["claims"][0]["tool_evidence_refs"] == [
+        {
+            "tool_call_id": result["tool_calls"][0].call_id,
+            "field_path": "data.price",
+            "value": 18.23,
+        }
+    ]
+    assert result["verification"]["verdict"] == "pass"
 
 
 def test_question_answer_graph_resumes_high_risk_rag_after_approval():
@@ -626,7 +1089,7 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         mock_evidence=False,
         skill_agent_node=fake_skill_agent,
         retriever_node=fake_retriever,
@@ -640,12 +1103,12 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
 
     assert interrupt_payload["approval_type"] == "tool_call"
     assert interrupt_payload["tool_name"] == "rag_search"
-    assert interrupt_payload["checkpoint_thread_id"] == result["request_id"]
+    assert interrupt_payload["checkpoint_thread_id"] == result["session_id"]
     assert retrieval_calls == []
     assert "retriever_agent" not in node_names
 
     resumed = resume_question_answer_graph(
-        checkpoint_thread_id=result["request_id"],
+        checkpoint_thread_id=interrupt_payload["checkpoint_thread_id"],
         approval_decision={
             "approval_id": interrupt_payload["approval_id"],
             "arguments_hash": interrupt_payload["arguments_hash"],
@@ -668,7 +1131,7 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
         session_id="s2",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         mock_evidence=False,
         skill_agent_node=fake_skill_agent,
         retriever_node=fake_retriever,
@@ -677,7 +1140,7 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     )
     rejected_payload = rejected_initial["__interrupt__"][0].value
     rejected = resume_question_answer_graph(
-        checkpoint_thread_id=rejected_initial["request_id"],
+        checkpoint_thread_id=rejected_payload["checkpoint_thread_id"],
         approval_decision={
             "approval_id": rejected_payload["approval_id"],
             "arguments_hash": rejected_payload["arguments_hash"],
@@ -817,7 +1280,7 @@ def test_registered_high_risk_tool_is_normalized_into_approval_gate():
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         skill_agent_node=medium_risk_skill,
         tool_agent_node=build_tool_agent_node(registry_factory=registry_factory),
         checkpointer=InMemorySaver(),
@@ -882,13 +1345,14 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         skill_agent_node=catalog_skill,
         checkpointer=checkpointer,
         permission_scopes=["mcp:mock"],
         tool_registry_factory=registry_factory,
     )
     approval = initial["__interrupt__"][0].value
+    resume_trace_store = InMemoryTraceStore()
 
     def changed_registry_factory():
         tool = CatalogWriteTool()
@@ -900,23 +1364,179 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
 
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         resume_question_answer_graph(
-            checkpoint_thread_id=initial["request_id"],
+            checkpoint_thread_id=approval["checkpoint_thread_id"],
             approval_decision={
                 "approval_id": approval["approval_id"],
                 "arguments_hash": approval["arguments_hash"],
                 "decision": "approved",
             },
             skill_agent_node=catalog_skill,
+            trace_store=resume_trace_store,
             checkpointer=checkpointer,
             permission_scopes=["mcp:mock"],
             tool_registry_factory=changed_registry_factory,
         )
 
     assert exc_info.value.code == "tool_catalog_changed"
+    event = resume_trace_store.events[0]
+    assert event.node_name == "catalog_guard"
+    assert event.status == "error"
+    assert event.error == "tool_catalog_changed:ToolCatalogChangedError"
     snapshot = checkpointer.get_tuple(
-        {"configurable": {"thread_id": initial["request_id"]}}
+        {"configurable": {"thread_id": initial["session_id"]}}
     )
     assert initial["tool_catalog_digest"] in repr(snapshot.checkpoint)
+
+
+def test_approval_resume_rejects_changed_executor_binding():
+    class WriteInput(BaseModel):
+        value: str
+
+    class ExecutorA(Tool[WriteInput]):
+        name = "mcp.mock.binding_write"
+        version = "1.0.0"
+        input_model = WriteInput
+        risk_level = "high"
+        permission_scope = ["mcp:mock"]
+
+        async def run(self, input_data: WriteInput) -> ToolCallResult:
+            raise AssertionError("审批前不得执行 provider A")
+
+    class ExecutorB(ExecutorA):
+        async def run(self, input_data: WriteInput) -> ToolCallResult:
+            raise AssertionError("旧审批不得执行 provider B")
+
+    def registry_for(executor):
+        registry = ToolRegistry(build_revision="build-1")
+        registry.register(executor())
+        return registry
+
+    def binding_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "binding_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": [ExecutorA.name],
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": [ExecutorA.name]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name=ExecutorA.name,
+                    tool_version=ExecutorA.version,
+                    arguments={"value": "approved-only"},
+                    purpose="验证 executor binding 恢复隔离",
+                )
+            ],
+        }
+        return state
+
+    checkpointer = InMemorySaver()
+    initial = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="分析一下银之杰",
+        skill_agent_node=binding_skill,
+        checkpointer=checkpointer,
+        permission_scopes=["mcp:mock"],
+        tool_registry_factory=lambda: registry_for(ExecutorA),
+    )
+    approval = initial["__interrupt__"][0].value
+
+    with pytest.raises(AgentGraphExecutionError) as exc_info:
+        resume_question_answer_graph(
+            checkpoint_thread_id=approval["checkpoint_thread_id"],
+            approval_decision={
+                "approval_id": approval["approval_id"],
+                "arguments_hash": approval["arguments_hash"],
+                "decision": "approved",
+            },
+            skill_agent_node=binding_skill,
+            checkpointer=checkpointer,
+            permission_scopes=["mcp:mock"],
+            tool_registry_factory=lambda: registry_for(ExecutorB),
+        )
+
+    assert exc_info.value.code == "tool_catalog_changed"
+
+
+def test_approval_resume_rejects_changed_actual_rag_provider_binding():
+    def provider_response(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"contexts": [], "query": {}, "metadata": {}})
+
+    def rag_retriever(server_id):
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(provider_response),
+            base_url="http://rag",
+        )
+        tool = RagSearchTool(client=client)
+        tool.risk_level = "high"
+        return build_rag_retriever_node(
+            tool=tool,
+            execution_binding=ExecutionBinding(
+                provider="rag",
+                implementation_id="rag.retrieve",
+                server_id=server_id,
+                deployment_revision="deploy-1",
+                config_revision="config-1",
+            ),
+        )
+
+    def rag_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "bound_rag_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": ["rag_search"],
+        }
+        state["plan"] = state["plan"] | {
+            "tool_policy": {"allowed_tools": ["rag_search"]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name="rag_search",
+                    tool_version="1.0.0",
+                    arguments={
+                        "query": "敏感投研资料",
+                        "tenant_id": "tenant_1",
+                        "user_id": "user_1",
+                    },
+                    purpose="验证 RAG provider binding",
+                )
+            ],
+        }
+        return state
+
+    checkpointer = InMemorySaver()
+    initial = run_question_answer_graph(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="分析一下银之杰",
+        retriever_node=rag_retriever("rag-a"),
+        skill_agent_node=rag_skill,
+        checkpointer=checkpointer,
+        permission_scopes=["rag:retrieve"],
+        tool_registry_factory=ToolRegistry,
+    )
+    approval = initial["__interrupt__"][0].value
+
+    with pytest.raises(AgentGraphExecutionError) as exc_info:
+        resume_question_answer_graph(
+            checkpoint_thread_id=approval["checkpoint_thread_id"],
+            approval_decision={
+                "approval_id": approval["approval_id"],
+                "arguments_hash": approval["arguments_hash"],
+                "decision": "approved",
+            },
+            retriever_node=rag_retriever("rag-b"),
+            skill_agent_node=rag_skill,
+            checkpointer=checkpointer,
+            permission_scopes=["rag:retrieve"],
+            tool_registry_factory=ToolRegistry,
+        )
+
+    assert exc_info.value.code == "tool_catalog_changed"
 
 
 def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
@@ -1002,7 +1622,7 @@ def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         skill_agent_node=staged_skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
@@ -1019,7 +1639,7 @@ def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
     assert interrupt_payload["arguments_hash"] == tool_call_fingerprint(resolved_request)
 
     resumed = resume_question_answer_graph(
-        checkpoint_thread_id=initial["request_id"],
+        checkpoint_thread_id=interrupt_payload["checkpoint_thread_id"],
         approval_decision={
             "approval_id": interrupt_payload["approval_id"],
             "arguments_hash": interrupt_payload["arguments_hash"],
@@ -1095,20 +1715,27 @@ def test_graph_rejects_schema_sensitive_arguments_before_approval():
         }
         return state
 
+    trace_store = InMemoryTraceStore()
+
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         run_question_answer_graph(
             session_id="s1",
             tenant_id="tenant_1",
             user_id="user_1",
-            user_message="差旅报销需要什么？",
+            user_message="分析一下银之杰",
             skill_agent_node=secret_skill,
             tool_agent_node=build_tool_agent_node(registry_factory=registry_factory),
             checkpointer=InMemorySaver(),
+            trace_store=trace_store,
         )
 
     assert exc_info.value.code == "inline_credentials_forbidden"
     assert "write-only-value" not in str(exc_info.value)
     assert "schema-sensitive-value" not in str(exc_info.value)
+    events = [event for event in trace_store.events if event.node_name == "skill_agent"]
+    assert [(event.status, event.error) for event in events] == [
+        ("error", "inline_credentials_forbidden:InlineCredentialsForbiddenError")
+    ]
 
 
 @pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
@@ -1168,7 +1795,7 @@ def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
         session_id="s_skill_guard",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="查询投研制度",
+        user_message="分析一下银之杰",
     )
     graph = build_question_answer_graph(
         retriever_node=lambda current: current,
@@ -1225,7 +1852,7 @@ def test_skill_url_query_credentials_never_enter_checkpoint(
         session_id="s_query_guard",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
     )
     graph = build_question_answer_graph(
         retriever_node=lambda current: current,
@@ -1302,7 +1929,7 @@ def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final(
         session_id="s_tool_failure",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
     )
     graph = build_question_answer_graph(
         retriever_node=lambda current: current,
@@ -1331,6 +1958,218 @@ def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final(
 
 
 @pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
+def test_malformed_result_after_approved_side_effect_is_checkpointed_without_replay(
+    checkpoint_backend,
+    tmp_path,
+):
+    class WriteInput(BaseModel):
+        value: str
+
+    provider_calls = []
+
+    class MalformedWriteTool(Tool[WriteInput]):
+        name = "mcp.mock.malformed_write"
+        version = "1.0.0"
+        input_model = WriteInput
+        risk_level = "high"
+
+        async def run(self, input_data: WriteInput):
+            provider_calls.append(input_data.value)
+            return {
+                "status": "success",
+                "result": {
+                    "database_password": "post-side-effect-checkpoint-secret"
+                },
+            }
+
+    registry = ToolRegistry(build_revision="build-1")
+    registry.register(MalformedWriteTool())
+    if checkpoint_backend == "memory":
+        checkpointer = InMemorySaver()
+    else:
+        checkpointer = build_graph_checkpointer(
+            backend="sqlite",
+            sqlite_path=str(tmp_path / "malformed-side-effect.sqlite"),
+        )
+    trace_store = InMemoryTraceStore()
+
+    def write_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "malformed_write_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": [MalformedWriteTool.name],
+        }
+        state["plan"] = (state["plan"] or {}) | {
+            "tool_policy": {"allowed_tools": [MalformedWriteTool.name]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name=MalformedWriteTool.name,
+                    tool_version=MalformedWriteTool.version,
+                    arguments={"value": "write-once"},
+                    purpose="验证副作用后非法 DTO 不重试",
+                )
+            ],
+        }
+        return state
+
+    initial = run_question_answer_graph(
+        session_id="s_malformed_write",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="分析一下银之杰",
+        skill_agent_node=write_skill,
+        checkpointer=checkpointer,
+        trace_store=trace_store,
+        tool_registry_factory=lambda: registry,
+    )
+    approval = initial["__interrupt__"][0].value
+
+    resumed = resume_question_answer_graph(
+        checkpoint_thread_id=approval["checkpoint_thread_id"],
+        approval_decision={
+            "approval_id": approval["approval_id"],
+            "arguments_hash": approval["arguments_hash"],
+            "decision": "approved",
+        },
+        skill_agent_node=write_skill,
+        checkpointer=checkpointer,
+        trace_store=trace_store,
+        tool_registry_factory=lambda: registry,
+    )
+
+    assert provider_calls == ["write-once"]
+    assert resumed["final_response"]["response_type"] == "execution_error_response"
+    assert resumed["final_response"]["business_error_code"] == (
+        "tool_result_validation_failed"
+    )
+    assert resumed["ready_tool_call"] is None
+    serialized = repr(resumed)
+    serialized += repr(trace_store.list_events(resumed["trace_id"]))
+    serialized += repr(trace_store.list_artifacts(resumed["trace_id"]))
+    serialized += "".join(
+        repr(checkpoint.checkpoint)
+        for checkpoint in checkpointer.list(
+            {"configurable": {"thread_id": initial["session_id"]}}
+        )
+    )
+    assert "post-side-effect-checkpoint-secret" not in serialized
+
+    graph = build_question_answer_graph(
+        retriever_node=lambda state: state,
+        skill_agent_node=write_skill,
+        checkpointer=checkpointer,
+        trace_store=trace_store,
+        tool_registry_factory=lambda: registry,
+    )
+    replayed = graph.invoke(
+        None,
+        config={"configurable": {"thread_id": initial["session_id"]}},
+    )
+    assert replayed["final_response"]["response_type"] == "execution_error_response"
+    assert provider_calls == ["write-once"]
+    if checkpoint_backend == "sqlite":
+        checkpointer.conn.close()
+        build_graph_checkpointer.cache_clear()
+
+
+@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
+def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts(
+    checkpoint_backend,
+    tmp_path,
+):
+    class FailureInput(BaseModel):
+        value: str
+
+    class MaliciousFailureTool(Tool[FailureInput]):
+        name = "mcp.mock.malicious_failure"
+        version = "1.0.0"
+        input_model = FailureInput
+
+        async def run(self, _):
+            return ToolCallResult(
+                tool_call_id="database_password=runtime-call-secret",
+                tool_name="Bearer runtime-name-secret",
+                status="failed",
+                result={"client_secret": "runtime-result-secret"},
+                error={
+                    "code": "provider_failed",
+                    "message": "client_secret=runtime-error-secret",
+                },
+                latency_ms=999,
+                trace_id="database_password=runtime-trace-secret",
+            )
+
+    registry = ToolRegistry(build_revision="build-1")
+    registry.register(MaliciousFailureTool())
+    if checkpoint_backend == "memory":
+        checkpointer = InMemorySaver()
+    else:
+        checkpointer = build_graph_checkpointer(
+            backend="sqlite",
+            sqlite_path=str(tmp_path / "malicious-result.sqlite"),
+        )
+    trace_store = InMemoryTraceStore()
+
+    def failure_skill(state):
+        state["selected_skill"] = {
+            "skill_name": "malicious_failure_skill",
+            "skill_version": "1.0.0",
+            "status": "ready",
+            "allowed_tools": [MaliciousFailureTool.name],
+        }
+        state["plan"] = (state["plan"] or {}) | {
+            "tool_policy": {"allowed_tools": [MaliciousFailureTool.name]},
+            "requested_tools": [
+                ToolCallRequest(
+                    tool_name=MaliciousFailureTool.name,
+                    arguments={"value": "safe"},
+                    purpose="验证恶意失败标识不会持久化",
+                )
+            ],
+        }
+        return state
+
+    state = create_initial_state(
+        session_id="s_malicious_failure",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="分析一下银之杰",
+    )
+    graph = build_question_answer_graph(
+        retriever_node=lambda current: current,
+        skill_agent_node=failure_skill,
+        checkpointer=checkpointer,
+        trace_store=trace_store,
+        tool_registry_factory=lambda: registry,
+    )
+    config = {"configurable": {"thread_id": state["request_id"]}}
+    result = graph.invoke(state, config=config)
+
+    saved_result = result["tool_calls"][0].result
+    assert saved_result.tool_name == MaliciousFailureTool.name
+    assert saved_result.trace_id == result["trace_id"]
+    assert saved_result.tool_call_id.startswith("tool_")
+    serialized = repr(result)
+    serialized += repr(trace_store.list_events(result["trace_id"]))
+    serialized += repr(trace_store.list_artifacts(result["trace_id"]))
+    serialized += "".join(
+        repr(checkpoint.checkpoint) for checkpoint in checkpointer.list(config)
+    )
+    for secret in (
+        "runtime-call-secret",
+        "runtime-name-secret",
+        "runtime-result-secret",
+        "runtime-error-secret",
+        "runtime-trace-secret",
+    ):
+        assert secret not in serialized
+    if checkpoint_backend == "sqlite":
+        checkpointer.conn.close()
+        build_graph_checkpointer.cache_clear()
+
+
+@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
 def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
     checkpoint_backend,
     tmp_path,
@@ -1348,7 +2187,16 @@ def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
         transport=httpx.MockTransport(handler),
         base_url="http://rag",
     )
-    retriever = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    retriever = build_rag_retriever_node(
+        tool=RagSearchTool(client=client),
+        execution_binding=ExecutionBinding(
+            provider="rag",
+            implementation_id="rag.test.failure",
+            server_id="rag-test",
+            deployment_revision="test-1",
+            config_revision="test",
+        ),
+    )
     if checkpoint_backend == "memory":
         checkpointer = InMemorySaver()
     else:
@@ -1387,7 +2235,7 @@ def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
         session_id="s_retriever_failure",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         permission_scopes=["rag:retrieve"],
     )
     graph = build_question_answer_graph(
@@ -1508,7 +2356,7 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
@@ -1520,7 +2368,7 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     assert second_calls == []
 
     after_first = resume_question_answer_graph(
-        checkpoint_thread_id=initial["request_id"],
+        checkpoint_thread_id=first_approval["checkpoint_thread_id"],
         approval_decision={
             "approval_id": first_approval["approval_id"],
             "arguments_hash": first_approval["arguments_hash"],
@@ -1539,7 +2387,7 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     assert second_approval["call_id"] != first_approval["call_id"]
 
     completed = resume_question_answer_graph(
-        checkpoint_thread_id=initial["request_id"],
+        checkpoint_thread_id=second_approval["checkpoint_thread_id"],
         approval_decision={
             "approval_id": second_approval["approval_id"],
             "arguments_hash": second_approval["arguments_hash"],
@@ -1669,14 +2517,14 @@ def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice(
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
     )
     first = initial["__interrupt__"][0].value
     after_first = resume_question_answer_graph(
-        checkpoint_thread_id=initial["request_id"],
+        checkpoint_thread_id=first["checkpoint_thread_id"],
         approval_decision={
             "approval_id": first["approval_id"],
             "arguments_hash": first["arguments_hash"],
@@ -1694,7 +2542,7 @@ def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice(
     assert calls == ["same"]
 
     completed = resume_question_answer_graph(
-        checkpoint_thread_id=initial["request_id"],
+        checkpoint_thread_id=second["checkpoint_thread_id"],
         approval_decision={
             "approval_id": second["approval_id"],
             "arguments_hash": second["arguments_hash"],
@@ -1837,7 +2685,7 @@ def test_failed_prerequisite_does_not_route_later_rag_request():
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         skill_agent_node=skill,
         tool_agent_node=build_tool_agent_node(registry_factory=registry_factory),
         retriever_node=retriever,
@@ -1906,11 +2754,12 @@ def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         retriever_node=retriever,
         checkpointer=checkpointer,
+        permission_scopes=["rag:retrieve", "portfolio:read"],
     )
 
     approval = initial["__interrupt__"][0].value
@@ -1920,7 +2769,7 @@ def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
     assert provider_calls == []
 
     completed = resume_question_answer_graph(
-        checkpoint_thread_id=initial["request_id"],
+        checkpoint_thread_id=approval["checkpoint_thread_id"],
         approval_decision={
             "approval_id": approval["approval_id"],
             "arguments_hash": approval["arguments_hash"],
@@ -1933,6 +2782,7 @@ def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
     )
 
     assert completed["final_response"] is not None
+    assert completed["permission_scopes"] == ["rag:retrieve", "portfolio:read"]
     assert retriever_calls == [approval["call_id"]]
     assert provider_calls == []
 
@@ -1979,7 +2829,7 @@ def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
-        user_message="差旅报销需要什么？",
+        user_message="分析一下银之杰",
         skill_agent_node=skill,
         retriever_node=retriever,
         checkpointer=checkpointer,
@@ -1987,7 +2837,7 @@ def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
     approval = initial["__interrupt__"][0].value
 
     completed = resume_question_answer_graph(
-        checkpoint_thread_id=initial["request_id"],
+        checkpoint_thread_id=approval["checkpoint_thread_id"],
         approval_decision={
             "approval_id": approval["approval_id"],
             "arguments_hash": approval["arguments_hash"],
@@ -2007,106 +2857,9 @@ def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
     build_graph_checkpointer.cache_clear()
 
 
-def test_question_answer_graph_routes_llm_detected_sum_expression_to_tool_agent():
-    trace_store = InMemoryTraceStore()
-    llm_client = ToolRoutingLlmClient()
-
-    def failing_retriever(_):
-        raise AssertionError("sum expression should route to tool_agent, not retriever_agent")
-
-    def fake_tool_agent(state):
-        request = state["plan"]["requested_tools"][0]
-        numbers = request.arguments["numbers"]
-        state["tool_calls"].append(
-            ToolCallRecord(
-                request=request,
-                result=ToolCallResult(
-                    tool_call_id="tool_1",
-                    tool_name=request.tool_name,
-                    status="success",
-                    result={"total": sum(numbers), "count": len(numbers)},
-                    trace_id=state["trace_id"],
-                ),
-            )
-        )
-        return state
-
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="你可以帮我算一下1+2+3+4+5+6+7+8+9+10等于多少吗",
-        retriever_node=failing_retriever,
-        tool_agent_node=fake_tool_agent,
-        allow_test_tool_agent_override=True,
-        trace_store=trace_store,
-        llm_client=llm_client,
-        permission_scopes=["mcp:mock"],
-    )
-
-    node_names = [event.node_name for event in trace_store.events]
-
-    assert result["intent"]["intent"] == "tool_action"
-    assert result["intent"]["candidate_tool"] == "mcp.mock.calculate_sum"
-    assert result["plan"]["execution_mode"] == "tool_execution"
-    assert result["plan"]["requested_tools"][0].arguments == {"numbers": list(range(1, 11))}
-    assert result["tool_calls"][0].result.result == {"total": 55, "count": 10}
-    assert "55" in result["final_response"]["content"]
-    assert "tool_agent" in node_names
-    assert "retriever_agent" not in node_names
-    assert llm_client.calls
-    assert "available_tools" in llm_client.calls[0]["user_prompt"]
-    assert "mcp.mock.calculate_sum" in llm_client.calls[0]["user_prompt"]
-
-
-def test_question_answer_graph_routes_short_sum_expression_to_tool_agent():
-    trace_store = InMemoryTraceStore()
-    llm_client = ToolRoutingLlmClient()
-
-    def failing_retriever(_):
-        raise AssertionError("short sum expression should route to tool_agent, not retriever_agent")
-
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="1+2+3=?",
-        retriever_node=failing_retriever,
-        trace_store=trace_store,
-        llm_client=llm_client,
-        permission_scopes=["mcp:mock"],
-    )
-
-    node_names = [event.node_name for event in trace_store.events]
-
-    assert result["intent"]["intent"] == "tool_action"
-    assert result["intent"]["candidate_tool"] == "mcp.mock.calculate_sum"
-    assert result["plan"]["execution_mode"] == "tool_execution"
-    assert result["plan"]["requested_tools"][0].arguments == {"numbers": [1, 2, 3]}
-    assert result["tool_calls"][0].result.result == {"total": 6, "count": 3}
-    assert "6" in result["final_response"]["content"]
-    assert "tool_agent" in node_names
-    assert "retriever_agent" not in node_names
-
-
-def test_question_answer_graph_can_render_answer_with_llm_client():
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="差旅报销需要什么？",
-        mock_evidence=True,
-        llm_client=FakeLlmClient(),
-    )
-
-    assert result["final_response"]["content"] == "LLM 渲染：差旅报销需要提交发票和审批单。"
-    assert result["draft_answer"]["claims"][0]["evidence_ids"] == ["ev_1"]
-    assert result["verification"]["verdict"] == "pass"
-
-
 def test_question_answer_graph_loads_injected_memory_retriever_context():
     def retrieve_memory(query: str, *, tenant_id: str, user_id: str) -> EvidencePackage:
-        assert query == "差旅报销需要什么？"
+        assert query == "你好"
         assert tenant_id == "tenant_1"
         assert user_id == "user_1"
         return EvidencePackage(
@@ -2130,7 +2883,7 @@ def test_question_answer_graph_loads_injected_memory_retriever_context():
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="你好",
         mock_evidence=True,
         memory_retriever=retrieve_memory,
     )

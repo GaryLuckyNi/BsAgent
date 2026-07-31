@@ -18,6 +18,7 @@ class Tool(ABC, Generic[InputT]):
     permission_scope: ClassVar[list[str]] = []
     risk_level: Literal["low", "medium", "high"] = "low"
     server_injected_fields: ClassVar[list[str]] = []
+    requires_explicit_execution_binding: ClassVar[bool] = False
 
     @property
     def spec(self) -> ToolSpec:

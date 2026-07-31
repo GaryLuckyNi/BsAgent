@@ -52,6 +52,8 @@ Trace 首先使用固定字段白名单，不保存用户消息、工具参数/�
 
 RAG Provider 的 502/503 等已归一化失败会作为成功提交的节点状态出现：Retriever 事件本身为 success，工具记录和 State error 带业务错误码，最终返回 `execution_error_response`。该终态通过 `response_type/business_error_code` 暴露给调用方，不走 citation 校验或业务审批；Trace 仍只保存错误码与正文长度，不保存 Provider 原始诊断。只有 ready/call ID/指纹等执行契约错误才记录失败节点事件。
 
+Gateway 不信任 Provider 返回的失败 DTO 标识。失败结果写入 Trace 前会重建 `tool_call_id`，固定请求 `tool_name` 和当前 `trace_id`，清空 result，并使用安全 status/error/latency；Provider 在标识、结果或错误文本中植入的内容不会成为 Trace 数据。原始诊断仍只能进入未来的高权限安全日志。
+
 当前仍是进程内存储，服务重启后会丢失。后续可接数据库或对象存储。
 
 ## 当前边界

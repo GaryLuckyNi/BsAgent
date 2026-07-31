@@ -16,10 +16,12 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
-    radial-gradient(circle at 18% 12%, rgba(18, 118, 88, 0.22), transparent 28%),
-    radial-gradient(circle at 86% 8%, rgba(125, 92, 32, 0.18), transparent 24%),
+    linear-gradient(rgba(72, 227, 171, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(231, 183, 94, 0.018) 1px, transparent 1px),
     linear-gradient(135deg, #080b0c 0%, #101615 48%, #090b0c 100%);
+  background-size: 32px 32px, 32px 32px, auto;
 }
 
 button,
@@ -40,6 +42,7 @@ button {
 
 .rail {
   position: relative;
+  min-width: 0;
   padding: 28px 22px;
   border-right: 1px solid rgba(151, 174, 158, 0.16);
   background:
@@ -104,6 +107,7 @@ button {
 .system-card,
 .chat-panel,
 .trace-panel {
+  min-width: 0;
   border: 1px solid rgba(151, 174, 158, 0.15);
   background: rgba(10, 15, 15, 0.74);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.24);
@@ -150,6 +154,12 @@ textarea:focus {
   box-shadow: 0 0 0 3px rgba(72, 227, 171, 0.08);
 }
 
+input:disabled {
+  cursor: not-allowed;
+  color: #8fa59a;
+  opacity: 0.78;
+}
+
 .system-card {
   display: grid;
   gap: 12px;
@@ -159,6 +169,7 @@ textarea:focus {
 
 .system-card__row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 14px;
   color: #a9b8b0;
@@ -166,6 +177,8 @@ textarea:focus {
 }
 
 .system-card__row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
   color: #f0f5ec;
 }
 
@@ -203,6 +216,13 @@ textarea:focus {
   margin-bottom: 22px;
 }
 
+.topbar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .eyebrow {
   display: block;
   margin-bottom: 6px;
@@ -216,7 +236,7 @@ textarea:focus {
 }
 
 .ghost-button,
-.composer button {
+#sendButton {
   border: 1px solid rgba(72, 227, 171, 0.42);
   background: linear-gradient(180deg, rgba(31, 77, 64, 0.92), rgba(15, 36, 32, 0.92));
   color: #e9fff5;
@@ -232,7 +252,7 @@ textarea:focus {
 }
 
 .ghost-button:hover,
-.composer button:hover {
+#sendButton:hover {
   border-color: rgba(72, 227, 171, 0.82);
 }
 
@@ -310,6 +330,127 @@ textarea:focus {
   line-height: 1.68;
 }
 
+.message__thinking {
+  margin-top: 10px;
+  border: 1px solid rgba(231, 183, 94, 0.2);
+  background:
+    linear-gradient(90deg, rgba(231, 183, 94, 0.08), transparent),
+    rgba(12, 15, 13, 0.72);
+}
+
+.message__thinking summary {
+  display: flex;
+  min-height: 38px;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 11px;
+  color: #edc878;
+  font-size: 0.78rem;
+}
+
+.message__thinking summary::-webkit-details-marker {
+  display: none;
+}
+
+.message__thinking summary::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  content: "";
+  border: 1px solid rgba(231, 183, 94, 0.72);
+  transform: rotate(45deg);
+  transition: transform 0.18s ease;
+}
+
+.message__thinking[open] summary::before {
+  transform: rotate(135deg);
+}
+
+.message__thinking summary span {
+  flex: 1;
+  min-width: 0;
+}
+
+.message__thinking summary small {
+  color: #8fa59a;
+  font-size: 0.72rem;
+}
+
+.message__thinking p {
+  margin: 0;
+  border-top: 1px solid rgba(231, 183, 94, 0.14);
+  padding: 10px 11px 12px;
+  color: #cfdcd4;
+  font-size: 0.86rem;
+  line-height: 1.62;
+}
+
+.message__thinking-steps {
+  display: grid;
+  margin: 0;
+  border-top: 1px solid rgba(231, 183, 94, 0.14);
+  padding: 10px 11px 12px;
+  gap: 9px;
+  list-style: none;
+}
+
+.message__thinking-steps li {
+  position: relative;
+  min-height: 34px;
+  padding-left: 18px;
+}
+
+.message__thinking-steps li::before {
+  position: absolute;
+  top: 7px;
+  left: 1px;
+  width: 7px;
+  height: 7px;
+  content: "";
+  border: 1px solid rgba(231, 183, 94, 0.82);
+  background: rgba(231, 183, 94, 0.12);
+  transform: rotate(45deg);
+}
+
+.message__thinking-steps strong {
+  display: block;
+  color: #edc878;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.message__thinking-steps p {
+  margin: 3px 0 0;
+  border: 0;
+  padding: 0;
+  color: #cfdcd4;
+  font-size: 0.85rem;
+  line-height: 1.58;
+}
+
+.message__progress {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  color: #aebfb6;
+  font-size: 0.78rem;
+}
+
+.message__progress span {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #e7b75e;
+  box-shadow: 0 0 0 4px rgba(231, 183, 94, 0.12);
+  animation: progress-pulse 1.2s ease-in-out infinite;
+}
+
 .stream-cursor {
   display: inline-block;
   width: 7px;
@@ -334,13 +475,153 @@ textarea:focus {
   font-size: 0.76rem;
 }
 
+.message__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.message__attachments figure {
+  width: 112px;
+  margin: 0;
+}
+
+.message__attachments img {
+  display: block;
+  width: 112px;
+  height: 84px;
+  object-fit: cover;
+  border: 1px solid rgba(151, 174, 158, 0.2);
+}
+
+.message__attachments figcaption {
+  overflow: hidden;
+  margin-top: 4px;
+  color: #8fa59a;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px;
-  gap: 12px;
+  display: block;
   padding: 14px;
   border-top: 1px solid rgba(151, 174, 158, 0.12);
   background: rgba(8, 11, 12, 0.84);
+}
+
+.composer__controls {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 112px;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.attach-button {
+  width: 42px;
+  min-height: 42px;
+  border: 1px solid rgba(231, 183, 94, 0.42);
+  border-radius: 2px;
+  background: #111717;
+  color: #edc878;
+  font-size: 1.5rem;
+}
+
+.attach-button:hover {
+  border-color: #e7b75e;
+  background: #1a1d19;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.attachment-tray {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.attachment-item {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 28px;
+  gap: 10px;
+  align-items: center;
+  min-height: 68px;
+  border: 1px solid rgba(151, 174, 158, 0.18);
+  padding: 6px;
+  background: #0c1212;
+}
+
+.attachment-item--ready,
+.attachment-item--partial {
+  border-color: rgba(72, 227, 171, 0.45);
+}
+
+.attachment-item--failed {
+  border-color: rgba(255, 92, 79, 0.5);
+}
+
+.attachment-item img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border: 1px solid rgba(151, 174, 158, 0.18);
+}
+
+.attachment-item div {
+  min-width: 0;
+}
+
+.attachment-item strong,
+.attachment-item span,
+.attachment-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-item strong {
+  color: #e7eee9;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.attachment-item span {
+  margin-top: 4px;
+  color: #50e7af;
+  font-size: 0.72rem;
+}
+
+.attachment-item small {
+  display: -webkit-box;
+  margin-top: 3px;
+  color: #8fa59a;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.attachment-item > button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #8fa59a;
+  font-size: 1.15rem;
+}
+
+.attachment-item > button:hover {
+  color: #ff9a8e;
 }
 
 .trace-panel {
@@ -446,6 +727,20 @@ textarea:focus {
   }
 }
 
+@keyframes progress-pulse {
+  50% {
+    opacity: 0.42;
+    transform: scale(0.82);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message__progress span,
+  .stream-cursor {
+    animation: none;
+  }
+}
+
 @media (max-width: 1040px) {
   .shell,
   .console-grid {
@@ -469,7 +764,7 @@ textarea:focus {
   }
 
   .topbar,
-  .composer {
+  .composer__controls {
     grid-template-columns: 1fr;
   }
 
@@ -477,7 +772,19 @@ textarea:focus {
     display: grid;
   }
 
+  .topbar__actions {
+    justify-content: stretch;
+  }
+
+  .topbar__actions button {
+    flex: 1;
+  }
+
   .message {
+    width: 100%;
+  }
+
+  .attach-button {
     width: 100%;
   }
 }

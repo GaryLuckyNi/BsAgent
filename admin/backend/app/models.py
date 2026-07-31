@@ -10,6 +10,10 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _empty_evidence_contract() -> dict[str, list]:
+    return {"requirements": []}
+
+
 class BusinessIntentProfileRecord(Base):
     __tablename__ = "business_intent_profiles"
 
@@ -42,8 +46,27 @@ class SkillProfileRecord(Base):
     supported_domains: Mapped[list[str]] = mapped_column(JSON, default=list)
     supported_sub_intents: Mapped[list[str]] = mapped_column(JSON, default=list)
     allowed_tools: Mapped[list[str]] = mapped_column(JSON, default=list)
+    evidence_contract: Mapped[dict] = mapped_column(JSON, default=_empty_evidence_contract)
     risk_level: Mapped[str] = mapped_column(String(32), default="medium")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utc_now,
+        onupdate=_utc_now,
+    )
+
+
+class MarketDataProviderConfigRecord(Base):
+    __tablename__ = "market_data_provider_configs"
+
+    id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(32), index=True)
+    display_name: Mapped[str] = mapped_column(String(128))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

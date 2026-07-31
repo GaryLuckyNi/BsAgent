@@ -1,0 +1,271 @@
+name: bsagent
+
+x-backend-build: &backend-build
+  context: .
+  dockerfile: backend/Dockerfile
+
+x-backend-environment: &backend-environment
+  BS_AGENT_APP_ENV: production
+  BS_AGENT_AUTH_PROVIDER: jwt
+  BS_AGENT_RBAC_BACKEND: principal
+  BS_AGENT_JWT_ISSUER: ${JWT_ISSUER:?JWT_ISSUER is required}
+  BS_AGENT_JWT_AUDIENCE: ${JWT_AUDIENCE:?JWT_AUDIENCE is required}
+  BS_AGENT_JWT_JWKS_URL: ${JWT_JWKS_URL:?JWT_JWKS_URL is required}
+  BS_AGENT_DATABASE_URL: postgresql+psycopg://bs_agent:${POSTGRES_PASSWORD_URLENCODED:?POSTGRES_PASSWORD_URLENCODED is required}@postgres:5432/bs_agent
+  BS_AGENT_GRAPH_CHECKPOINTER_BACKEND: postgres
+  BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL: postgresql://bs_agent:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bs_agent
+  BS_AGENT_REDIS_URL: redis://:${REDIS_PASSWORD_URLENCODED:?REDIS_PASSWORD_URLENCODED is required}@redis:6379/0
+  BS_AGENT_SHORT_TERM_MEMORY_BACKEND: redis
+  BS_AGENT_CELERY_BROKER_URL: redis://:${REDIS_PASSWORD_URLENCODED}@redis:6379/1
+  BS_AGENT_RATE_LIMIT_BACKEND: redis
+  BS_AGENT_LOG_FORMAT: json
+  BS_AGENT_TRACE_BACKEND: database
+  BS_AGENT_TRACE_SUCCESS_SAMPLE_RATIO: ${TRACE_SUCCESS_SAMPLE_RATIO:-0.1}
+  BS_AGENT_TRACE_DETAILED_SAMPLE_RATIO: ${TRACE_DETAILED_SAMPLE_RATIO:-0.01}
+  BS_AGENT_TRACE_RETENTION_DAYS: ${TRACE_RETENTION_DAYS:-30}
+  BS_AGENT_TRACE_CLEANUP_BATCH_SIZE: ${TRACE_CLEANUP_BATCH_SIZE:-1000}
+  BS_AGENT_TRACE_MAX_EVENTS_PER_RUN: ${TRACE_MAX_EVENTS_PER_RUN:-128}
+  BS_AGENT_TRACE_MAX_ARTIFACTS_PER_RUN: ${TRACE_MAX_ARTIFACTS_PER_RUN:-16}
+  BS_AGENT_TRACE_MAX_ARTIFACT_BYTES: ${TRACE_MAX_ARTIFACT_BYTES:-32768}
+  BS_AGENT_USE_MOCK_RAG: "false"
+  BS_AGENT_RAG_BASE_URL: ${RAG_BASE_URL:?RAG_BASE_URL is required}
+  BS_AGENT_RAG_PROVIDER_REVISION: ${RAG_PROVIDER_REVISION:?RAG_PROVIDER_REVISION is required}
+  BS_AGENT_RAG_CONFIG_REVISION: ${RAG_CONFIG_REVISION:?RAG_CONFIG_REVISION is required}
+  BS_AGENT_SKILL_REGISTRY_BASE_URL: ${SKILL_REGISTRY_BASE_URL:?SKILL_REGISTRY_BASE_URL is required}
+  BS_AGENT_MCP_SERVER_COMMAND: /usr/local/bin/python
+  BS_AGENT_MCP_SERVER_ARGS: '["-m","app.main"]'
+  BS_AGENT_MCP_SERVER_CWD: /app/mcp server
+  BS_AGENT_MCP_SERVER_NAME: research-tools
+  BS_AGENT_MCP_SERVER_REVISION: ${MCP_SERVER_REVISION:?MCP_SERVER_REVISION is required}
+  BS_AGENT_MCP_CONFIG_REVISION: ${MCP_CONFIG_REVISION:?MCP_CONFIG_REVISION is required}
+  BS_AGENT_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
+  BS_AGENT_DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+  BS_AGENT_DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+  BS_AGENT_ASSET_STORE_BACKEND: s3
+  BS_AGENT_ASSET_S3_ENDPOINT_URL: http://minio:9000
+  BS_AGENT_ASSET_S3_BUCKET: bs-agent-private-assets
+  BS_AGENT_ASSET_S3_REGION: us-east-1
+  BS_AGENT_ASSET_S3_SERVER_SIDE_ENCRYPTION: AES256
+  BS_AGENT_ASSET_CLEANUP_BATCH_SIZE: ${ASSET_CLEANUP_BATCH_SIZE:-500}
+  BS_AGENT_ASSET_CLEANUP_INTERVAL_SECONDS: ${ASSET_CLEANUP_INTERVAL_SECONDS:-3600}
+  AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+  BS_AGENT_IMAGE_ANALYSIS_DISPATCHER_BACKEND: celery
+  BS_AGENT_OCR_PROVIDER: paddleocr_http
+  BS_AGENT_OCR_BASE_URL: http://ocr:8000
+  BS_AGENT_OCR_API_KEY: ${OCR_API_KEY:?OCR_API_KEY is required}
+  BS_AGENT_OCR_PROVIDER_VERSION: ${OCR_PROVIDER_VERSION:-paddleocr-3}
+  BS_AGENT_VISION_PROVIDER: openai_compatible
+  BS_AGENT_VISION_API_KEY: ${VISION_API_KEY:?VISION_API_KEY is required}
+  BS_AGENT_VISION_BASE_URL: ${VISION_BASE_URL:?VISION_BASE_URL is required}
+  BS_AGENT_VISION_MODEL: ${VISION_MODEL:?VISION_MODEL is required}
+  BS_AGENT_OTEL_ENABLED: ${OTEL_ENABLED:-true}
+  BS_AGENT_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+  BS_AGENT_OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bs_agent
+      POSTGRES_USER: bs_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bs_agent -d bs_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+
+  redis:
+    image: redis:7.4-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+
+  minio-init:
+    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        mc mb --ignore-existing local/bs-agent-private-assets
+        mc anonymous set none local/bs-agent-private-assets
+    restart: "no"
+    networks: [backend]
+
+  ocr:
+    build:
+      context: .
+      dockerfile: ocr-service/Dockerfile
+    environment:
+      OCR_API_KEY: ${OCR_API_KEY}
+      OCR_MODEL_DIR: /models
+      OCR_MAX_CONCURRENCY: ${OCR_MAX_CONCURRENCY:-2}
+    volumes:
+      - ocr-models:/models
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    restart: unless-stopped
+    networks: [backend]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.132.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    environment:
+      OBSERVABILITY_OTLP_ENDPOINT: ${OBSERVABILITY_OTLP_ENDPOINT:?OBSERVABILITY_OTLP_ENDPOINT is required}
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "components"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks: [backend]
+
+  migrate:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["/app/deploy/run-migrations.sh"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    restart: "no"
+    networks: [backend]
+
+  api:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ocr:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+    networks: [backend, edge]
+
+  worker:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues", "image-analysis,maintenance"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ocr:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  scheduler:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "beat", "--loglevel=INFO", "--schedule", "/tmp/celerybeat-schedule"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      OIDC_AUTHORITY: ${OIDC_AUTHORITY:?OIDC_AUTHORITY is required}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:?OIDC_CLIENT_ID is required}
+      OIDC_SCOPE: ${OIDC_SCOPE:-openid profile}
+      OIDC_REDIRECT_URI: ${PUBLIC_BASE_URL:-http://localhost:8080}/auth/callback
+      OIDC_POST_LOGOUT_REDIRECT_URI: ${PUBLIC_BASE_URL:-http://localhost:8080}/
+      OIDC_CONNECT_SRC: ${OIDC_CONNECT_SRC:?OIDC_CONNECT_SRC is required}
+    ports:
+      - "${FRONTEND_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+    networks: [edge]
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:
+  ocr-models:
+
+networks:
+  backend:
+    internal: true
+  edge:

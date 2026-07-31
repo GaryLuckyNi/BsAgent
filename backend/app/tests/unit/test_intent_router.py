@@ -3,8 +3,9 @@ import pytest
 
 from app.intent.router import HybridIntentRouter, IntentClassificationError
 from app.intent.schemas import IntentDecisionModel
+from app.graph.nodes.intent_router import build_intent_router_node
+from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult
-from app.schemas.tools import ToolSpec
 
 
 class FakeLlmClient:
@@ -21,33 +22,64 @@ class FakeLlmClient:
         )
 
 
-def test_business_intent_catalog_loads_policy_qa_profile_from_default_config():
-    catalog = BusinessIntentCatalog.load_default()
+def test_intent_router_node_passes_safe_image_summaries_to_classifier():
+    class RecordingRouter:
+        def __init__(self):
+            self.context = None
 
-    profile = catalog.match_by_keywords("差旅报销需要提交什么材料？")
+        def route(self, *, message, tenant_id, user_id, context):
+            del message, tenant_id, user_id
+            self.context = context
+            return IntentDecisionModel(
+                intent="task_workflow",
+                domain="a_share_equity_research",
+                sub_intent="analyze_financial_image",
+                risk_level="medium",
+                confidence=0.9,
+            )
 
-    assert profile is not None
-    assert profile.intent == "knowledge_qa"
-    assert profile.domain == "finance_policy"
-    assert profile.sub_intent == "policy_lookup"
-    assert profile.candidate_skill == "policy_qa"
-
-
-def test_hybrid_intent_router_uses_business_profile_for_policy_question():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
-
-    decision = router.route(
-        message="公司差旅报销制度是什么？",
-        tenant_id="tenant_1",
-        user_id="user_1",
+    router = RecordingRouter()
+    state = create_initial_state(
+        session_id="session-1",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="这张图说明了什么？",
     )
+    state["image_analyses"] = [
+        {
+            "asset_id": "asset-1",
+            "analysis_id": "analysis-1",
+            "media_type": "image/png",
+            "width": 100,
+            "height": 80,
+            "status": "partial",
+            "document_type": "financial_statement",
+            "summary": "营业收入同比增长。",
+            "extracted_text": "不得进入意图分类上下文的 OCR 原文",
+            "financial_metrics": [],
+            "chart_observations": [],
+            "entities": ["示例公司"],
+            "risk_flags": ["仅 OCR 可用"],
+            "confidence": 0.72,
+            "truncated": True,
+        }
+    ]
 
-    assert decision.intent == "knowledge_qa"
-    assert decision.domain == "finance_policy"
-    assert decision.sub_intent == "policy_lookup"
-    assert decision.candidate_skill == "policy_qa"
-    assert decision.confidence >= 0.7
-    assert "business_profile:finance_policy.policy_lookup" in decision.reason_codes
+    build_intent_router_node(router=router)(state)
+
+    assert router.context == {
+        "image_analyses": [
+            {
+                "analysis_id": "analysis-1",
+                "document_type": "financial_statement",
+                "summary": "营业收入同比增长。",
+                "entities": ["示例公司"],
+                "warnings": ["仅 OCR 可用"],
+                "confidence": 0.72,
+            }
+        ]
+    }
+    assert "OCR 原文" not in str(router.context)
 
 
 def test_hybrid_intent_router_applies_high_risk_floor_from_rules():
@@ -62,117 +94,6 @@ def test_hybrid_intent_router_applies_high_risk_floor_from_rules():
     assert decision.intent == "tool_action"
     assert decision.risk_level == "high"
     assert "rule_high_risk_action" in decision.reason_codes
-
-
-def test_hybrid_intent_router_detects_calculate_sum_as_tool_action():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
-
-    decision = router.route(
-        message="计算1加到50",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision.intent == "tool_action"
-    assert decision.domain == "mcp_math"
-    assert decision.sub_intent == "calculate_sum"
-    assert decision.candidate_tool == "mcp.mock.calculate_sum"
-    assert decision.confidence >= 0.7
-
-
-def test_hybrid_intent_router_detects_plus_expression_sum_as_tool_action():
-    llm_client = FakeLlmClient(
-        """
-        {
-          "intent": "tool_action",
-          "domain": "mcp_math",
-          "sub_intent": "calculate_sum",
-          "candidate_skill": null,
-          "candidate_tool": "mcp.mock.calculate_sum",
-          "risk_level": "low",
-          "confidence": 0.91,
-          "needs_clarification": false,
-          "reason_codes": ["classifier_selected_sum_tool"]
-        }
-        """
-    )
-    router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
-        llm_client=llm_client,
-        available_tools=[
-            ToolSpec(
-                name="mcp.mock.calculate_sum",
-                version="mcp-stdio-v1",
-                description="计算一组数字的总和",
-                input_schema={
-                    "type": "object",
-                    "properties": {"numbers": {"type": "array", "items": {"type": "number"}}},
-                    "required": ["numbers"],
-                },
-                risk_level="low",
-            )
-        ],
-    )
-
-    decision = router.route(
-        message="你可以帮我算一下1+2+3+4+5+6+7+8+9+10等于多少吗",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision.intent == "tool_action"
-    assert decision.domain == "mcp_math"
-    assert decision.sub_intent == "calculate_sum"
-    assert decision.candidate_tool == "mcp.mock.calculate_sum"
-    assert decision.confidence >= 0.7
-    assert llm_client.calls
-    assert "available_tools" in llm_client.calls[0]["user_prompt"]
-    assert "mcp.mock.calculate_sum" in llm_client.calls[0]["user_prompt"]
-
-
-def test_hybrid_intent_router_sends_short_sum_expression_to_llm_classifier():
-    llm_client = FakeLlmClient(
-        """
-        {
-          "intent": "tool_action",
-          "domain": "mcp_math",
-          "sub_intent": "calculate_sum",
-          "candidate_skill": null,
-          "candidate_tool": "mcp.mock.calculate_sum",
-          "risk_level": "low",
-          "confidence": 0.93,
-          "needs_clarification": false,
-          "reason_codes": ["classifier_selected_sum_tool"]
-        }
-        """
-    )
-    router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
-        llm_client=llm_client,
-        available_tools=[
-            ToolSpec(
-                name="mcp.mock.calculate_sum",
-                version="mcp-stdio-v1",
-                description="计算一组数字的总和",
-                input_schema={
-                    "type": "object",
-                    "properties": {"numbers": {"type": "array", "items": {"type": "number"}}},
-                    "required": ["numbers"],
-                },
-                risk_level="low",
-            )
-        ],
-    )
-
-    decision = router.route(
-        message="1+2+3=?",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision.intent == "tool_action"
-    assert decision.candidate_tool == "mcp.mock.calculate_sum"
-    assert llm_client.calls
 
 
 def test_hybrid_intent_router_can_use_llm_classification_for_business_intent():
@@ -217,24 +138,38 @@ def test_hybrid_intent_router_can_use_llm_classification_for_business_intent():
     assert llm_client.calls
 
 
-def test_hybrid_intent_router_uses_business_rules_before_invalid_llm_output():
-    llm_client = FakeLlmClient("不是 JSON")
+def test_llm_intent_classifier_receives_balanced_research_boundary_policy():
+    llm_client = FakeLlmClient(
+        """
+        {
+          "intent": "unsupported",
+          "domain": "out_of_scope",
+          "sub_intent": "software_development",
+          "candidate_skill": null,
+          "candidate_tool": null,
+          "risk_level": "low",
+          "confidence": 0.94,
+          "needs_clarification": false,
+          "reason_codes": ["outside_research_scope"]
+        }
+        """
+    )
     router = HybridIntentRouter(
         catalog=BusinessIntentCatalog.load_default(),
         llm_client=llm_client,
     )
 
     decision = router.route(
-        message="差旅报销需要什么？",
+        message="帮我写一个 Vue 表格组件",
         tenant_id="tenant_1",
         user_id="user_1",
     )
 
-    assert decision.intent == "knowledge_qa"
-    assert decision.domain == "finance_policy"
-    assert decision.sub_intent == "policy_lookup"
-    assert decision.candidate_skill == "policy_qa"
-    assert not llm_client.calls
+    assert decision.intent == "unsupported"
+    assert decision.domain == "out_of_scope"
+    system_prompt = llm_client.calls[0]["system_prompt"]
+    assert "投研优先" in system_prompt
+    assert "投研无关" in system_prompt
 
 
 def test_hybrid_intent_router_rejects_unknown_intent_without_llm_classifier():

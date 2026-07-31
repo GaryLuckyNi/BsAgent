@@ -28,7 +28,7 @@ def test_persist_agent_run_stores_session_run_and_trace_events():
         session_id="session_1",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="差旅报销需要什么？",
+        user_message="你好",
         trace_store=trace_store,
     )
 
@@ -46,8 +46,8 @@ def test_persist_agent_run_stores_session_run_and_trace_events():
 
     assert saved_session.tenant_id == "tenant_1"
     assert saved_run.trace_id == state["trace_id"]
-    assert saved_run.intent == "knowledge_qa"
-    assert saved_run.risk_level == "medium"
+    assert saved_run.intent == "conversation"
+    assert saved_run.risk_level == "low"
     assert {event.node_name for event in saved_events} >= {"intent_router", "final_response"}
 
 

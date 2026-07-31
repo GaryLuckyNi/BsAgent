@@ -115,13 +115,13 @@ Graph 主链中的 `rag_search` 在进入 Retriever 前也必须先经过 Tool A
 
 ### `tools/registry.py`
 
-`ToolRegistry` 是工具发现层。注册时会把 `ToolSpec` 深拷贝并规范化序列化到不可变 `RegistryEntry`，executor 只保留为运行引用；因此构图后修改 executor 的风险、权限或 schema 不会改变安全策略。`snapshot()` 返回只读目录，负责：
+`ToolRegistry` 是工具发现层。注册时会把完整 `ToolSpec` 和非秘密 `ExecutionBinding` 规范化序列化到不可变 `RegistryEntry`，executor 只保留为运行引用；因此构图后修改 executor 的风险、权限、schema 或实现身份不会改变冻结策略。外部 MCP/RAG/Adapter 注册必须显式提供 provider、server、deployment revision 和 config revision；这些字段只表达身份，禁止放 command 参数、token 或连接凭证。MCP 的 command、args、cwd、timeout 和默认风险配置会规范化后计算不可逆 SHA-256 摘要并写入 config revision，配置变化会改变目录摘要，但原始进程参数不会进入 State、Trace 或 checkpoint。纯本地工具可用 module、qualified class 和 package/build revision 稳定派生。`snapshot()` 返回只读目录，负责：
 
 - 注册 Tool。
 - 按名称获取 Tool。
 - 校验请求版本和实际工具版本是否一致。
 - 输出当前可用工具的 `ToolSpec` 列表。
-- 计算覆盖工具名、版本、风险、权限、schema 和服务端注入字段的稳定 `tool_catalog_digest`。
+- 计算覆盖完整 `ToolSpec.model_dump()` 与 `execution_binding_digest` 的稳定 `tool_catalog_digest`，包括 timeout、retry policy、schema、风险、权限和服务端注入字段。
 
 ### `tools/execution_gateway.py`
 
@@ -132,11 +132,12 @@ Graph 主链中的 `rag_search` 在进入 Retriever 前也必须先经过 Tool A
 - 不在 Plan 白名单：返回 `tool_not_allowed_by_plan`。
 - 不在已选择 Skill 白名单：返回 `tool_not_allowed_by_skill`。
 - 缺少工具注册端声明的权限 scope：返回 `tool_permission_denied`。
-- 参数不符合 schema：返回 `tool_argument_validation_failed`。
+- 参数先按注册时冻结的 JSON Schema 校验，再按 executor 的 Pydantic 模型解析；任一不符合均返回 `tool_argument_validation_failed`，无效输入契约返回 `tool_input_schema_invalid`。
 - 请求标记需要审批或注册工具风险等级为 `high`，且当前 `call_id + 参数指纹` 未同时获批：返回 `tool_approval_required`，不执行工具。
 - 工具运行异常：返回 `tool_execution_failed`。
 - 成功结果不符合输出 schema：返回 `tool_output_validation_failed`，原始结果不进入 Agent State。
-- Provider 异常、Pydantic 参数错误、JSON Schema 错误和 Provider 自带 failed result 都转换为稳定 error code 与白名单安全消息；原始 `str(exc)`、输入值和失败结果正文不会进入 State、Trace 或 checkpoint，Tool Agent 写 State 前还会二次归一化。
+- 参数 `model_validate` 的 `ValidationError/TypeError` 等普通异常、Provider 异常、非法 dict/对象返回、`ToolCallResult` 校验错误和 JSON Schema 构造/校验异常都转换为稳定 error code 与白名单安全消息；`CancelledError`、`KeyboardInterrupt` 和 `SystemExit` 不会被吞掉。
+- Provider 的合法 dict 返回会先经过 `ToolCallResult.model_validate`。无论成功或失败，`tool_call_id` 都由 Gateway 重建，`tool_name` 强制使用请求工具名，`trace_id` 强制使用当前 trace，latency 使用 Gateway 观测值；成功结果清空 Provider 附带的 error，失败结果清空 result 且 status/error 只保留受控枚举和白名单 code/message。Provider 植入这些控制字段的任意内容不会进入 State、Trace 或 checkpoint，Tool Agent 写 State 前还会二次归一化。
 
 `ToolExecutionContext` 携带 tenant、user、session、Plan 白名单、Skill 白名单、当前权限 scope、已批准调用实例 ID 和参数哈希。模型和 Planner 只能提出调用建议，执行网关会在真正调用 Provider 前重新做确定性校验。
 
@@ -216,18 +217,8 @@ BsAgent 默认配置：
 BS_AGENT_MCP_SERVER_COMMAND=<当前 Python 解释器>
 BS_AGENT_MCP_SERVER_ARGS=["-m","app.main"]
 BS_AGENT_MCP_SERVER_CWD=./mcp server
-BS_AGENT_MCP_SERVER_NAME=mock
+BS_AGENT_MCP_SERVER_NAME=local
 BS_AGENT_MCP_TIMEOUT_SECONDS=30
-```
-
-当前打通的测试链路：
-
-```text
-用户输入：计算1加到50
--> IntentRouter: intent=tool_action, domain=mcp_math, sub_intent=calculate_sum
--> Planner: requested_tools=[mcp.mock.calculate_sum]
--> ToolAgent: MCP stdio ClientSession.call_tool("calculate_sum")
--> Synthesizer: 返回总和 1275
 ```
 
 `tools/mcp_stdio.py` 提供通用 `DynamicMcpStdioTool`。它保存 MCP tool 的原始 `inputSchema/outputSchema`，用 `jsonschema` 做动态参数校验，并在执行时通过 `ClientSession.call_tool(...)` 调用真实 MCP tool。
@@ -236,16 +227,36 @@ BS_AGENT_MCP_TIMEOUT_SECONDS=30
 
 A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent 不直接访问财经 API，也不在 Agent 代码中内置数据源 SDK；结构化行情、公司资料、财务指标等能力都必须经过 MCP server 和 Tool Agent 边界。
 
-第一版工具：
+工具名由 MCP server 名称和远端工具名动态组成，不应在 Planner、Skill 或 Analysis 中写死 server 名称。能力示例：
 
-- `mcp.mock.stock.resolve_company`
-- `mcp.mock.stock.company_profile`
-- `mcp.mock.stock.market_snapshot`
-- `mcp.mock.stock.financial_metrics`
-- `mcp.mock.stock.announcement_search`
-- `mcp.mock.stock.risk_events`
+- `mcp.<server>.stock.resolve_company`
+- `mcp.<server>.stock.company_profile`
+- `mcp.<server>.stock.market_snapshot`
+- `mcp.<server>.stock.financial_metrics`
+- `mcp.<server>.stock.announcement_search`
 
-`rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，但 Tool Agent 会先完成可信规范化、风险提升和审批准备，不会直接调用 RAG Provider。只有当前 RAG 实例完成 `call_id`、真实参数、ToolSpec 风险和审批校验后，Tool Agent 才写入 `ready_tool_call`；Runtime 不扫描计划中的工具名，Retriever 也只消费该 ready 实例并在完成后清理。前置失败不会误路由 Retriever，高风险 RAG 未获批也不会 ready。
+当前未提供结构化风险事件能力；风险扫描仅使用真实公告与 RAG 证据。
+
+## 联网实体发现与市场复验
+
+`web_search` 是平台级只读工具，不属于市场数据 MCP，也不由 Tushare Provider 实现。当前 Provider 使用 DeepSeek Anthropic API 的服务端 Web Search，启动时与 MCP 动态工具一起进入冻结的 `ToolRegistry`。
+
+公司精确解析失败后的恢复链路为：
+
+```text
+stock.resolve_company 未命中
+-> web_search 检索法定主体、上市主体、证券代码和公开披露
+-> LLM 仅基于搜索结果 URL 输出单一实体关系
+-> 确定性校验关系、置信度和来源 URL
+-> 原 stock.resolve_company 复验候选名称或代码
+-> 复验成功后才写入 $resolved_symbol/$resolved_name
+```
+
+允许进入复验的关系仅包括同一实体、正式别名、法定名称、明确上市主体、证券代码以及有来源支持的“上市主体之子公司”。`peer_company`、`related_company`、`supplier_customer` 等关系即使置信度很高也会被拒绝。搜索 URL 不在本次搜索结果中、关系不唯一、置信度不足或搜索代码与市场复验代码冲突时，Tool Agent 停止依赖调用并返回实体无法可靠确认。
+
+市场目录中的名称相似候选不再用于自动修复，也不存在“唯一高相似候选直接尝试”的兜底。Web Search 是发现源，`stock.resolve_company` 的成功结果仍是证券身份进入行情、财务和公告工具的唯一入口。
+
+`rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，但实际 Retriever executor 与非秘密 provider binding 会一起加入本次 Runtime Registry。Tool Agent 完成可信规范化、风险提升和审批准备后，把 Registry 中的 `execution_binding_digest` 写入 `ready_tool_call`；Retriever 复核 call ID、参数指纹和 binding digest 后，才通过自身冻结 Registry 中与 Runtime 条目绑定一致的实际 executor 执行。Runtime 不扫描计划中的工具名，前置失败不会误路由 Retriever，高风险 RAG 未获批也不会 ready，RAG provider revision 变化不能复用旧审批或 ready 状态。
 
 RAG Provider 返回 502/503、超时、不可达或 Gateway 策略拒绝时，Retriever 不再抛异常使旧 checkpoint 保留 ready。它会记录失败 `ToolCallRecord`、清理 ready、追加安全结构化错误，再由 Synthesizer 生成 `execution_error_response`。该响应没有 claims/evidence，携带稳定 `business_error_code`，Verifier 不执行 citation 规则，ApprovalCoordinator 设置 `not_required`，也不会创建 `ApprovalRecord`。Session API 保留 HTTP 200，客户端必须检查 `response_type/business_error_code`。`rag_no_evidence` 仍是正常无覆盖结果；`rag_call_not_ready`、call ID 或指纹不匹配仍按执行契约错误终止 Graph。
 
@@ -253,14 +264,13 @@ RAG Provider 返回 502/503、超时、不可达或 Gateway 策略拒绝时，Re
 
 `McpGateway` 属于 MCP 控制面，只负责 MCP Server 配置、工具发现和协议标准化。它不负责通用权限与风险决策；这些职责属于 `ToolExecutionGateway`。
 
-后续接入更多 MCP server 时，MCP Gateway 还需要补充：
+当前 MCP Gateway 已覆盖：
 
-- server 连接管理
-- `list_tools` 刷新策略
-- 参数校验
-- 超时隔离
-- MCP 错误归一化
-- 输出转换为 `ToolCallResult`
+- 启动期 `list_tools` 动态发现和 Runtime Registry 快照。
+- 输入/输出 Schema 校验、超时隔离和 MCP 错误归一化。
+- 市场数据业务 envelope 校验和 `ToolCallResult` 转换。
+- 与 `ToolExecutionGateway` 的 RBAC、风险、审批和凭证注入边界。
+- Analysis 字段级事实引用，以及 Verifier 对 `tool_call_id + JSON path + value` 的回查。
 
 ## 审批与风险
 
@@ -323,5 +333,5 @@ Trace Artifact 使用固定白名单摘要，只记录数量、状态、证据 I
 - function calling dict 参数解析。
 - function calling 非法 JSON 拒绝。
 - MCP manifest 转内部 `ToolSpec`。
-- MCP stdio `calculate_sum` adapter。
-- `tool_action` 图分支执行 `mcp.mock.calculate_sum`。
+- MCP stdio 工具动态发现与通用 adapter。
+- `tool_action` 图分支按 Planner 生成的 ToolCall 执行动态 MCP 工具。

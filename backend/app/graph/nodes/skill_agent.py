@@ -6,9 +6,9 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.graph.state import AgentState
+from app.graph.image_context import summarize_image_analyses
 from app.schemas.tools import ToolCallRequest, ToolSpec
 from app.skills.admin_provider import AdminSkillDefinitionProvider
-from app.skills.policy_qa.skill import PolicyQaSkill
 from app.skills.registry import SkillRegistry
 from app.skills.registry_client import CachedSkillDefinitionProvider
 from app.tools.redaction import (
@@ -39,7 +39,13 @@ def build_skill_agent_node(*, registry: SkillRegistry | None = None):
             tenant_id=state["tenant_id"],
             user_id=state["user_id"],
             user_message=state["user_message"],
-            context={"intent": intent, "selected_skill": state["selected_skill"]},
+            context={
+                "intent": intent,
+                "selected_skill": state["selected_skill"],
+                "image_analyses": summarize_image_analyses(
+                    state["image_analyses"]
+                ),
+            },
             evidence=state["evidence"],
             memory_context=state["memory_context"],
         )
@@ -54,6 +60,7 @@ def build_skill_agent_node(*, registry: SkillRegistry | None = None):
             "skill_output": output.model_dump(),
             "requested_tools": output.requested_tools,
         }
+        _record_evidence_contract_error(state, output.reason_codes)
         return state
 
     return node
@@ -61,6 +68,32 @@ def build_skill_agent_node(*, registry: SkillRegistry | None = None):
 
 def skill_agent_node(state: AgentState) -> AgentState:
     return build_skill_agent_node()(state)
+
+
+def _record_evidence_contract_error(
+    state: AgentState,
+    reason_codes: list[str],
+) -> None:
+    messages = {
+        "skill_evidence_contract_missing": (
+            "Skill 证据契约未配置，请联系管理员完善配置。"
+        ),
+        "skill_evidence_contract_invalid": (
+            "Skill 证据契约无效，请联系管理员检查配置。"
+        ),
+    }
+    code = next((code for code in reason_codes if code in messages), None)
+    if code is None:
+        return
+    state["errors"].append(
+        {
+            "node": "skill_agent",
+            "message": messages[code],
+            "code": code,
+            "http_status": 422,
+            "handled": True,
+        }
+    )
 
 
 def guard_skill_agent_node(
@@ -141,10 +174,6 @@ def _default_skill_registry() -> SkillRegistry:
             AdminSkillDefinitionProvider(client=client),
             ttl_seconds=settings.skill_definition_cache_ttl_seconds,
         )
-        registry = SkillRegistry(definition_provider=provider)
-        registry.register(PolicyQaSkill())
-        return registry
+        return SkillRegistry(definition_provider=provider)
 
-    registry = SkillRegistry()
-    registry.register(PolicyQaSkill())
-    return registry
+    return SkillRegistry()

@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from jsonschema import Draft202012Validator as RealDraft202012Validator
 from pydantic import BaseModel, ValidationError, field_validator
 
 from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError
@@ -323,6 +324,341 @@ def test_gateway_failure_results_never_expose_raw_diagnostics(failure_kind):
     assert "super-secret" not in serialized
     assert "dXNlcjpwYXNz" not in serialized
     assert "query-secret" not in serialized
+
+
+def test_gateway_catches_non_pydantic_argument_validation_exception():
+    class ExplodingInput:
+        @classmethod
+        def model_json_schema(cls):
+            return {"type": "object"}
+
+        @classmethod
+        def model_validate(cls, _):
+            raise TypeError("database_password=validator-secret")
+
+    class ExplodingValidatorTool(EchoTool):
+        input_model = ExplodingInput
+
+    registry = ToolRegistry()
+    registry.register(ExplodingValidatorTool())
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "safe"},
+                purpose="验证 TypeError 安全收敛",
+            ),
+            trace_id="trace_current",
+            context=_context(),
+        )
+    )
+
+    assert result.error.code == "tool_argument_validation_failed"
+    assert "validator-secret" not in result.model_dump_json()
+
+
+def test_gateway_validates_legal_provider_dict_result():
+    class DictResultTool(EchoTool):
+        async def run(self, input_data):
+            return {
+                "tool_call_id": "provider_success",
+                "tool_name": self.name,
+                "status": "success",
+                "result": {"text": input_data.text},
+                "latency_ms": 1,
+                "trace_id": "trace_provider",
+            }
+
+    registry = ToolRegistry()
+    registry.register(DictResultTool())
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证合法 dict 返回",
+            ),
+            trace_id="trace_current",
+            context=_context(),
+        )
+    )
+
+    assert result.status == "success"
+    assert result.result == {"text": "hello"}
+
+
+def test_gateway_overwrites_all_untrusted_success_result_identifiers():
+    class MaliciousSuccessTool(EchoTool):
+        async def run(self, input_data):
+            return ToolCallResult(
+                tool_call_id="database_password=provider-call-secret",
+                tool_name="Bearer provider-name-secret",
+                status="success",
+                result={"text": input_data.text},
+                error=ToolError(
+                    code="provider_success",
+                    message="client_secret=provider-error-secret",
+                ),
+                latency_ms=999,
+                trace_id="database_password=provider-trace-secret",
+            )
+
+    registry = ToolRegistry()
+    registry.register(MaliciousSuccessTool())
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证成功标识可信覆盖",
+            ),
+            trace_id="trace_current",
+            context=_context(),
+        )
+    )
+
+    serialized = result.model_dump_json()
+    assert result.status == "success"
+    assert result.tool_call_id.startswith("tool_")
+    assert result.tool_name == "echo"
+    assert result.trace_id == "trace_current"
+    assert result.error is None
+    assert result.latency_ms != 999
+    for secret in (
+        "provider-call-secret",
+        "provider-name-secret",
+        "provider-error-secret",
+        "provider-trace-secret",
+    ):
+        assert secret not in serialized
+
+
+def test_gateway_validates_arguments_against_frozen_tool_spec_before_provider():
+    provider_calls = []
+
+    class FrozenInput(BaseModel):
+        text: int
+
+    class PermissiveInput(BaseModel):
+        text: str
+
+    class MutableContractTool(Tool[FrozenInput]):
+        name = "mutable_contract"
+        version = "1.0.0"
+        input_model = FrozenInput
+
+        async def run(self, input_data):
+            provider_calls.append(input_data)
+            return ToolCallResult(
+                tool_call_id="provider_call",
+                tool_name=self.name,
+                status="success",
+                result={"text": input_data.text},
+                trace_id="provider_trace",
+            )
+
+    tool = MutableContractTool()
+    registry = ToolRegistry()
+    registry.register(tool)
+    tool.input_model = PermissiveInput
+
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="mutable_contract",
+                arguments={"text": "not-an-integer"},
+                purpose="验证冻结输入契约",
+            ),
+            trace_id="trace_current",
+            context=_context(allowed_tools=["mutable_contract"]),
+        )
+    )
+
+    assert result.status == "failed"
+    assert result.error.code == "tool_argument_validation_failed"
+    assert provider_calls == []
+
+
+@pytest.mark.parametrize(
+    "provider_result",
+    [
+        {"status": "success", "result": {"database_password": "missing-fields-secret"}},
+        object(),
+    ],
+)
+def test_gateway_converts_invalid_provider_result_to_safe_failure(provider_result):
+    class InvalidResultTool(EchoTool):
+        async def run(self, _):
+            return provider_result
+
+    registry = ToolRegistry()
+    registry.register(InvalidResultTool())
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证非法 Provider DTO",
+            ),
+            trace_id="trace_current",
+            context=_context(),
+        )
+    )
+
+    assert result.status == "failed"
+    assert result.error.code == "tool_result_validation_failed"
+    assert "missing-fields-secret" not in result.model_dump_json()
+
+
+def test_gateway_converts_provider_object_attribute_exception_to_safe_failure():
+    class PoisonResult:
+        def __getattr__(self, _):
+            raise RuntimeError("client_secret=attribute-secret")
+
+    class PoisonResultTool(EchoTool):
+        async def run(self, _):
+            return PoisonResult()
+
+    registry = ToolRegistry()
+    registry.register(PoisonResultTool())
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证恶意返回对象",
+            ),
+            trace_id="trace_current",
+            context=_context(),
+        )
+    )
+
+    assert result.error.code == "tool_result_validation_failed"
+    assert "attribute-secret" not in result.model_dump_json()
+
+
+def test_gateway_contains_unexpected_output_schema_validator_exception(monkeypatch):
+    class SchemaTool(EchoTool):
+        output_schema = {"type": "object"}
+
+    def validator_factory(schema):
+        if schema != {"type": "object"}:
+            return RealDraft202012Validator(schema)
+        else:
+            raise TypeError("Authorization: Basic schema-validator-secret")
+
+    monkeypatch.setattr(
+        "app.tools.execution_gateway.Draft202012Validator",
+        validator_factory,
+    )
+    registry = ToolRegistry()
+    registry.register(SchemaTool())
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证 schema validator 异常",
+            ),
+            trace_id="trace_current",
+            context=_context(),
+        )
+    )
+
+    assert result.error.code == "tool_output_schema_invalid"
+    assert "schema-validator-secret" not in result.model_dump_json()
+
+
+def test_gateway_overwrites_all_untrusted_failed_result_identifiers():
+    class MaliciousFailureTool(EchoTool):
+        async def run(self, _):
+            return ToolCallResult(
+                tool_call_id="database_password=provider-call-secret",
+                tool_name="Bearer provider-name-secret",
+                status="failed",
+                result={"client_secret": "provider-result-secret"},
+                error=ToolError(
+                    code="provider_failed",
+                    message="client_secret=provider-error-secret",
+                ),
+                latency_ms=999,
+                trace_id="database_password=provider-trace-secret",
+            )
+
+    registry = ToolRegistry()
+    registry.register(MaliciousFailureTool())
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证失败标识可信覆盖",
+            ),
+            trace_id="trace_current",
+            context=_context(),
+        )
+    )
+
+    serialized = result.model_dump_json()
+    assert result.tool_call_id.startswith("tool_")
+    assert result.tool_name == "echo"
+    assert result.trace_id == "trace_current"
+    assert result.result is None
+    assert result.error.code == "provider_failed"
+    assert result.latency_ms != 999
+    for secret in (
+        "provider-call-secret",
+        "provider-name-secret",
+        "provider-result-secret",
+        "provider-error-secret",
+        "provider-trace-secret",
+    ):
+        assert secret not in serialized
+
+
+@pytest.mark.parametrize("exception_type", [KeyboardInterrupt, SystemExit])
+def test_gateway_does_not_swallow_process_control_exceptions(exception_type):
+    class ProcessControlTool(EchoTool):
+        async def run(self, _):
+            raise exception_type()
+
+    registry = ToolRegistry()
+    registry.register(ProcessControlTool())
+
+    with pytest.raises(exception_type):
+        asyncio.run(
+            ToolAgentExecutor(registry=registry).execute(
+                ToolCallRequest(
+                    tool_name="echo",
+                    arguments={"text": "hello"},
+                    purpose="验证进程控制异常透传",
+                ),
+                trace_id="trace_current",
+                context=_context(),
+            )
+        )
+
+
+def test_gateway_does_not_swallow_cancelled_error():
+    class CancelledTool(EchoTool):
+        async def run(self, _):
+            raise asyncio.CancelledError()
+
+    registry = ToolRegistry()
+    registry.register(CancelledTool())
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(
+            ToolAgentExecutor(registry=registry).execute(
+                ToolCallRequest(
+                    tool_name="echo",
+                    arguments={"text": "hello"},
+                    purpose="验证取消信号透传",
+                ),
+                trace_id="trace_current",
+                context=_context(),
+            )
+        )
 
 
 def test_tool_call_fingerprint_is_stable_for_argument_key_order():

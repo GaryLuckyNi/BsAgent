@@ -3,11 +3,11 @@ import asyncio
 import pytest
 from pydantic import BaseModel
 
-from app.schemas.tools import ToolCallRequest, ToolCallResult
+from app.schemas.tools import RetryPolicy, ToolCallRequest, ToolCallResult
 from app.tools.agent import ToolAgentExecutor
 from app.tools.base import Tool
 from app.tools.execution_gateway import ToolExecutionContext
-from app.tools.registry import ToolRegistry
+from app.tools.registry import ExecutionBinding, ToolRegistry
 
 
 class MutableInput(BaseModel):
@@ -83,3 +83,100 @@ def test_tool_catalog_digest_changes_for_same_version_security_contract_change()
     second.register(changed_tool)
 
     assert first.catalog_digest != second.catalog_digest
+
+
+def test_catalog_digest_covers_complete_spec_and_execution_binding():
+    class ContractTool(MutableTool):
+        @property
+        def spec(self):
+            return super().spec.model_copy(
+                update={"retry_policy": RetryPolicy(max_attempts=3, backoff_ms=250)}
+            )
+
+    first_tool = ContractTool()
+    first = ToolRegistry()
+    first.register(
+        first_tool,
+        execution_binding=ExecutionBinding(
+            provider="mcp",
+            implementation_id="mcp.mock.mutable_tool",
+            server_id="mock-a",
+            deployment_revision="deploy-1",
+            config_revision="config-1",
+        ),
+    )
+
+    changed_timeout = ContractTool()
+    changed_timeout.timeout_ms = first_tool.timeout_ms + 1
+    second = ToolRegistry()
+    second.register(
+        changed_timeout,
+        execution_binding=ExecutionBinding(
+            provider="mcp",
+            implementation_id="mcp.mock.mutable_tool",
+            server_id="mock-a",
+            deployment_revision="deploy-1",
+            config_revision="config-1",
+        ),
+    )
+
+    class ChangedRetryTool(ContractTool):
+        @property
+        def spec(self):
+            return super().spec.model_copy(
+                update={"retry_policy": RetryPolicy(max_attempts=4, backoff_ms=250)}
+            )
+
+    changed_retry = ChangedRetryTool()
+    third = ToolRegistry()
+    third.register(
+        changed_retry,
+        execution_binding=ExecutionBinding(
+            provider="mcp",
+            implementation_id="mcp.mock.mutable_tool",
+            server_id="mock-a",
+            deployment_revision="deploy-1",
+            config_revision="config-1",
+        ),
+    )
+
+    changed_binding = ToolRegistry()
+    changed_binding.register(
+        ContractTool(),
+        execution_binding=ExecutionBinding(
+            provider="mcp",
+            implementation_id="mcp.mock.mutable_tool",
+            server_id="mock-b",
+            deployment_revision="deploy-2",
+            config_revision="config-2",
+        ),
+    )
+
+    assert first.catalog_digest != second.catalog_digest
+    assert first.catalog_digest != third.catalog_digest
+    assert first.catalog_digest != changed_binding.catalog_digest
+    assert first.get("mutable_tool").execution_binding_digest != changed_binding.get(
+        "mutable_tool"
+    ).execution_binding_digest
+
+
+def test_external_tool_registration_requires_explicit_execution_binding():
+    tool = MutableTool()
+    tool.requires_explicit_execution_binding = True
+
+    with pytest.raises(ValueError, match="execution_binding"):
+        ToolRegistry().register(tool)
+
+
+def test_local_tool_binding_is_stable_and_frozen_with_snapshot():
+    registry = ToolRegistry(build_revision="build-42")
+    registry.register(MutableTool())
+    snapshot = registry.snapshot()
+
+    entry = snapshot.get("mutable_tool")
+    assert entry.execution_binding.provider == "local"
+    assert entry.execution_binding.implementation_id.endswith(".MutableTool")
+    assert entry.execution_binding.deployment_revision == "build-42"
+    assert entry.execution_binding_digest == snapshot.get(
+        "mutable_tool"
+    ).execution_binding_digest

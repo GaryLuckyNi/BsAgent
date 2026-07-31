@@ -1,7 +1,8 @@
 import pytest
 from pydantic import ValidationError
 
-from app.graph.state import create_initial_state
+from app.graph.state import add_state_messages, create_initial_state
+from app.schemas.messages import Message
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.memory import MemoryCandidate
 from app.schemas.tools import ToolCallRequest, ToolCallResult
@@ -19,9 +20,48 @@ def test_create_initial_state_contains_trace_and_empty_collections():
     assert state["tenant_id"] == "t1"
     assert state["user_id"] == "u1"
     assert state["user_message"] == "报销制度是什么？"
+    assert [message.role for message in state["messages"]] == ["user"]
+    assert state["messages"][0].content == "报销制度是什么？"
+    assert state["messages"][0].metadata["request_id"] == state["request_id"]
+    assert state["conversation_history"] == state["messages"]
     assert state["trace_id"].startswith("trace_")
     assert state["tool_calls"] == []
     assert state["errors"] == []
+
+
+def test_add_state_messages_appends_by_message_id_without_duplicates():
+    first = Message(
+        role="user",
+        content="第一轮",
+        metadata={"message_id": "req_1:user"},
+    )
+    repeated = Message(
+        role="user",
+        content="第一轮重复",
+        metadata={"message_id": "req_1:user"},
+    )
+    second = Message(
+        role="assistant",
+        content="第一轮回答",
+        metadata={"message_id": "req_1:assistant"},
+    )
+
+    merged = add_state_messages([first], [repeated, second])
+
+    assert [message.content for message in merged] == ["第一轮", "第一轮回答"]
+
+
+def test_initial_state_preserves_attachment_refs_without_analysis_payload():
+    state = create_initial_state(
+        session_id="session-1",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析图片",
+        attachment_ids=["asset-1"],
+    )
+
+    assert state["attachment_refs"] == [{"asset_id": "asset-1"}]
+    assert state["image_analyses"] == []
 
 
 def test_evidence_package_keeps_source_metadata():

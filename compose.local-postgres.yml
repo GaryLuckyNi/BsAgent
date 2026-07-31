@@ -1,0 +1,22 @@
+name: bsagent-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bs_agent
+      POSTGRES_USER: bs_agent
+      POSTGRES_PASSWORD: bs_agent_dev
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-local-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bs_agent -d bs_agent"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  postgres-local-data:

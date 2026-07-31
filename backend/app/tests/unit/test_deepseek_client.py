@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 import httpx
@@ -45,6 +46,7 @@ def test_deepseek_client_sends_openai_compatible_chat_completion_request():
             return await client.complete(
                 system_prompt="只返回 pong。",
                 user_prompt="ping",
+                thinking=False,
             )
 
     result = asyncio.run(run_completion())
@@ -60,6 +62,7 @@ def test_deepseek_client_sends_openai_compatible_chat_completion_request():
     assert captured["path"] == "/chat/completions"
     assert b'"model":"deepseek-v4-flash"' in captured["payload"]
     assert b'"content":"ping"' in captured["payload"]
+    assert b'"thinking":{"type":"disabled"}' in captured["payload"]
 
 
 def test_deepseek_client_requires_api_key():
@@ -67,3 +70,48 @@ def test_deepseek_client_requires_api_key():
         DeepSeekClient(api_key="", model="deepseek-v4-flash")
 
     assert "api key" in str(exc_info.value).lower()
+
+
+def test_deepseek_client_streams_openai_compatible_chat_completion_tokens():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers["authorization"]
+        captured["path"] = request.url.path
+        payload = json.loads(request.read())
+        captured["stream"] = payload["stream"]
+        body = (
+            'data: {"choices":[{"delta":{"content":"我先"}}]}\n\n'
+            'data: {"choices":[{"delta":{"content":"分析"}}]}\n\n'
+            "data: [DONE]\n\n"
+        )
+        return httpx.Response(
+            200,
+            content=body.encode("utf-8"),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    async def run_stream():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.deepseek.com",
+        ) as http_client:
+            client = DeepSeekClient(
+                api_key="test_key",
+                model="deepseek-v4-flash",
+                http_client=http_client,
+            )
+            chunks = []
+            async for chunk in client.stream_complete(
+                system_prompt="流式输出。",
+                user_prompt="开始",
+            ):
+                chunks.append(chunk)
+            return chunks
+
+    chunks = asyncio.run(run_stream())
+
+    assert chunks == ["我先", "分析"]
+    assert captured["authorization"] == "Bearer test_key"
+    assert captured["path"] == "/chat/completions"
+    assert captured["stream"] is True
