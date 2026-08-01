@@ -9,6 +9,7 @@ BASE_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "analyst": frozenset(
         {
             "agent:invoke",
+            "agent:read",
             "rag:retrieve",
             "asset:write",
             "asset:read",
@@ -20,6 +21,7 @@ BASE_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "approver": frozenset(
         {
             "agent:invoke",
+            "agent:read",
             "rag:retrieve",
             "approval:read",
             "approval:decide",

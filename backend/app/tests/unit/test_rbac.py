@@ -10,6 +10,7 @@ def test_mock_rbac_assigns_analyst_permissions_to_regular_user(monkeypatch):
 
     assert principal.roles == ("analyst",)
     assert provider.has_permission(principal, "agent:invoke") is True
+    assert provider.has_permission(principal, "agent:read") is True
     assert provider.has_permission(principal, "asset:write") is True
     assert provider.has_permission(principal, "asset:read") is True
     assert provider.has_permission(principal, "trace:read") is True
