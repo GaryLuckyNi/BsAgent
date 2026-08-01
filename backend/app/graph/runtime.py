@@ -25,7 +25,11 @@ from app.graph.nodes.skill_agent import (
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.nodes.verifier import verifier_node
-from app.graph.state import AgentState, create_initial_state
+from app.graph.state import (
+    AgentState,
+    build_checkpoint_thread_id,
+    create_initial_state,
+)
 from app.schemas.messages import Message
 from app.harness.error_boundary import (
     build_safe_error_record,
@@ -664,8 +668,11 @@ def _checkpoint_config(state: AgentState | dict, *, enabled: bool) -> dict | Non
         return None
     return {
         "configurable": {
-            "thread_id": state["session_key"],
-            "checkpoint_ns": state["tenant_id"],
+            "thread_id": build_checkpoint_thread_id(
+                tenant_id=state["tenant_id"],
+                session_key=state["session_key"],
+            ),
+            "checkpoint_ns": "",
         }
     }
 
@@ -689,6 +696,7 @@ def _state_from_stream_update(
 def resume_question_answer_graph(
     *,
     checkpoint_thread_id: str,
+    checkpoint_namespace: str = "",
     approval_decision: dict,
     mock_evidence: bool = True,
     retriever_node: Callable[[AgentState], AgentState] | None = None,
@@ -702,6 +710,8 @@ def resume_question_answer_graph(
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
     allow_test_tool_agent_override: bool = False,
 ) -> AgentState:
+    if checkpoint_namespace != "":
+        raise ValueError("checkpoint_namespace must be empty for the root graph")
     selected_retriever_node = retriever_node
     if selected_retriever_node is None:
         selected_retriever_node = build_default_rag_retriever_node()
@@ -724,7 +734,12 @@ def resume_question_answer_graph(
         tool_registry_snapshot=tool_registry_snapshot,
         allow_test_tool_agent_override=allow_test_tool_agent_override,
     )
-    config = {"configurable": {"thread_id": checkpoint_thread_id}}
+    config = {
+        "configurable": {
+            "thread_id": checkpoint_thread_id,
+            "checkpoint_ns": checkpoint_namespace,
+        }
+    }
     snapshot = graph.get_state(config)
     checkpoint_digest = snapshot.values.get("tool_catalog_digest")
     if snapshot.values and checkpoint_digest != tool_registry_snapshot.catalog_digest:

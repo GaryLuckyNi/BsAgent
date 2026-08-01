@@ -10,6 +10,7 @@ from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.retriever_agent import build_rag_retriever_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.checkpoints import build_graph_checkpointer
+from app.graph import runtime
 from app.graph.runtime import (
     AgentGraphExecutionError,
     build_question_answer_graph,
@@ -420,25 +421,37 @@ def _acceptance_market_registry(
     return factory
 
 
-def test_question_answer_graph_writes_checkpoint_by_internal_session_key():
+def test_question_answer_graph_writes_checkpoint_by_derived_tenant_thread_id():
     checkpointer = InMemorySaver()
+    session_key = "internal-checkpoint-key"
 
     result = run_question_answer_graph(
         session_id="checkpoint_s1",
+        session_key=session_key,
         tenant_id="t1",
         user_id="u1",
         user_message="你好",
         checkpointer=checkpointer,
     )
 
+    thread_id = runtime.build_checkpoint_thread_id(
+        tenant_id="t1",
+        session_key=session_key,
+    )
     checkpoint = checkpointer.get_tuple(
-        {"configurable": {"thread_id": result["session_key"]}}
+        {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
     )
 
     assert checkpoint is not None
     assert checkpoint.checkpoint["channel_values"]["final_response"]["trace_id"] == result[
         "trace_id"
     ]
+    assert checkpointer.get(
+        {"configurable": {"thread_id": session_key, "checkpoint_ns": ""}}
+    ) is None
+    assert checkpointer.get(
+        {"configurable": {"thread_id": result["session_id"], "checkpoint_ns": ""}}
+    ) is None
 
 
 def test_catalog_guard_records_trace_before_rejecting_changed_catalog():
@@ -663,10 +676,11 @@ def test_question_answer_graph_appends_messages_across_session_checkpoint():
 
 def test_question_answer_graph_isolates_same_external_session_by_tenant_session_key():
     checkpointer = InMemorySaver()
+    shared_session_key = "shared-internal-key"
 
     first = run_question_answer_graph(
         session_id="shared-session",
-        session_key="tenant-a-session-key",
+        session_key=shared_session_key,
         tenant_id="tenant-a",
         user_id="user-1",
         request_id="request-a",
@@ -680,7 +694,7 @@ def test_question_answer_graph_isolates_same_external_session_by_tenant_session_
     )
     second = run_question_answer_graph(
         session_id="shared-session",
-        session_key="tenant-b-session-key",
+        session_key=shared_session_key,
         tenant_id="tenant-b",
         user_id="user-1",
         request_id="request-b",
@@ -696,12 +710,35 @@ def test_question_answer_graph_isolates_same_external_session_by_tenant_session_
     assert [message.content for message in first["messages"]][0] == "租户 A 的问题"
     assert [message.content for message in second["messages"]][0] == "租户 B 的问题"
     assert all("租户 A" not in message.content for message in second["messages"])
+    tenant_a_thread_id = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-a",
+        session_key=shared_session_key,
+    )
+    tenant_b_thread_id = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-b",
+        session_key=shared_session_key,
+    )
+    assert tenant_a_thread_id != tenant_b_thread_id
     assert checkpointer.get(
-        {"configurable": {"thread_id": "tenant-a-session-key"}}
+        {"configurable": {"thread_id": tenant_a_thread_id, "checkpoint_ns": ""}}
     ) is not None
     assert checkpointer.get(
-        {"configurable": {"thread_id": "tenant-b-session-key"}}
+        {"configurable": {"thread_id": tenant_b_thread_id, "checkpoint_ns": ""}}
     ) is not None
+    assert checkpointer.get(
+        {"configurable": {"thread_id": shared_session_key, "checkpoint_ns": ""}}
+    ) is None
+    assert checkpointer.get(
+        {
+            "configurable": {
+                "thread_id": runtime.build_checkpoint_thread_id(
+                    tenant_id="tenant-c",
+                    session_key=shared_session_key,
+                ),
+                "checkpoint_ns": "",
+            }
+        }
+    ) is None
 
 
 def test_question_answer_graph_streams_node_updates_with_final_state():
@@ -1158,13 +1195,20 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
 
     assert interrupt_payload["approval_type"] == "tool_call"
     assert interrupt_payload["tool_name"] == "rag_search"
-    assert interrupt_payload["checkpoint_thread_id"] == result["session_key"]
-    assert interrupt_payload["checkpoint_namespace"] == result["tenant_id"]
+    assert interrupt_payload["checkpoint_thread_id"] == (
+        runtime.build_checkpoint_thread_id(
+            tenant_id=result["tenant_id"],
+            session_key=result["session_key"],
+        )
+    )
+    assert interrupt_payload["checkpoint_namespace"] == ""
+    assert interrupt_payload["session_key"] == result["session_key"]
     assert retrieval_calls == []
     assert "retriever_agent" not in node_names
 
     resumed = resume_question_answer_graph(
         checkpoint_thread_id=interrupt_payload["checkpoint_thread_id"],
+        checkpoint_namespace=interrupt_payload["checkpoint_namespace"],
         approval_decision={
             "approval_id": interrupt_payload["approval_id"],
             "arguments_hash": interrupt_payload["arguments_hash"],
@@ -1181,7 +1225,6 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     assert resumed["approval_requests"][0].status == "approved"
     assert resumed["final_response"]["approval_status"] == "approved"
     assert resumed["final_response"] is not None
-
     rejected_checkpointer = InMemorySaver()
     rejected_initial = run_question_answer_graph(
         session_id="s2",
@@ -1211,6 +1254,16 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     assert retrieval_calls == [result["request_id"]]
     assert rejected["final_response"]["approval_status"] == "rejected"
     assert "未执行任何外部操作" in rejected["final_response"]["content"]
+
+
+def test_question_answer_graph_rejects_non_root_checkpoint_namespace_on_resume():
+    with pytest.raises(ValueError, match="checkpoint_namespace must be empty"):
+        resume_question_answer_graph(
+            checkpoint_thread_id="cp_invalid",
+            checkpoint_namespace="tenant_1",
+            approval_decision={},
+            checkpointer=InMemorySaver(),
+        )
 
 
 def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():
@@ -1439,7 +1492,15 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
     assert event.status == "error"
     assert event.error == "tool_catalog_changed:ToolCatalogChangedError"
     snapshot = checkpointer.get_tuple(
-        {"configurable": {"thread_id": initial["session_key"]}}
+        {
+            "configurable": {
+                "thread_id": runtime.build_checkpoint_thread_id(
+                    tenant_id=initial["tenant_id"],
+                    session_key=initial["session_key"],
+                ),
+                "checkpoint_ns": "",
+            }
+        }
     )
     assert initial["tool_catalog_digest"] in repr(snapshot.checkpoint)
 
@@ -2106,7 +2167,15 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
     serialized += "".join(
         repr(checkpoint.checkpoint)
         for checkpoint in checkpointer.list(
-            {"configurable": {"thread_id": initial["session_key"]}}
+            {
+                "configurable": {
+                    "thread_id": runtime.build_checkpoint_thread_id(
+                        tenant_id=initial["tenant_id"],
+                        session_key=initial["session_key"],
+                    ),
+                    "checkpoint_ns": "",
+                }
+            }
         )
     )
     assert "post-side-effect-checkpoint-secret" not in serialized
@@ -2120,7 +2189,15 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
     )
     replayed = graph.invoke(
         None,
-        config={"configurable": {"thread_id": initial["session_key"]}},
+        config={
+            "configurable": {
+                "thread_id": runtime.build_checkpoint_thread_id(
+                    tenant_id=initial["tenant_id"],
+                    session_key=initial["session_key"],
+                ),
+                "checkpoint_ns": "",
+            }
+        },
     )
     assert replayed["final_response"]["response_type"] == "execution_error_response"
     assert provider_calls == ["write-once"]

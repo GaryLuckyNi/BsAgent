@@ -1,3 +1,4 @@
+from hashlib import sha256
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -165,6 +166,11 @@ class AgentResponse(TypedDict, total=False):
     approval_status: str
     response_type: str
     business_error_code: str
+
+
+def build_checkpoint_thread_id(*, tenant_id: str, session_key: str) -> str:
+    identity = f"{tenant_id}\0{session_key}".encode()
+    return f"cp_{sha256(identity).hexdigest()}"
 
 
 def add_state_messages(

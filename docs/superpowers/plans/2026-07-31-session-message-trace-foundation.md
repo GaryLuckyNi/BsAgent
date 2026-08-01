@@ -4,7 +4,7 @@
 
 **Goal:** 建立租户隔离的会话身份和 Message 事实源，并完成 Trace Task 4-9 的生产生命周期闭环。
 
-**Architecture:** PostgreSQL 保存 Session、Message、Run、Approval 和业务 Trace；LangGraph PostgresSaver 只保存可恢复图状态；每次执行使用独立有界 `TraceBuffer`，业务提交后再由独立事务批量持久化 Trace。外部 `session_id` 只作为租户内业务标识，服务端 `session_key` 作为内部主键和 Checkpoint Thread ID。
+**Architecture:** PostgreSQL 保存 Session、Message、Run、Approval 和业务 Trace；LangGraph PostgresSaver 只保存可恢复图状态；每次执行使用独立有界 `TraceBuffer`，业务提交后再由独立事务批量持久化 Trace。外部 `session_id` 只作为租户内业务标识，服务端 `session_key` 作为内部主键；Checkpoint Thread ID 由 `tenant_id` 与 `session_key` 稳定派生，根 `checkpoint_ns` 保持 LangGraph 原生空值。
 
 **Tech Stack:** Python 3.11、FastAPI、SQLAlchemy 2、Alembic、PostgreSQL、SQLite 测试、LangGraph PostgresSaver、Redis、Celery、OpenTelemetry、pytest、Ruff。
 
@@ -298,13 +298,18 @@ Reducer 只按 `message_id` 去重，不再回退到 `role:content`。
 ```python
 config = {
     "configurable": {
-        "thread_id": state["session_key"],
-        "checkpoint_ns": state["tenant_id"],
+        "thread_id": build_checkpoint_thread_id(
+            tenant_id=state["tenant_id"],
+            session_key=state["session_key"],
+        ),
+        "checkpoint_ns": "",
     }
 }
 ```
 
-Approval interrupt 同时保存 `checkpoint_thread_id=session_key` 和 `checkpoint_namespace=tenant_id`。
+`build_checkpoint_thread_id` 使用 `cp_<sha256(tenant_id + NUL + session_key)>`，使租户维度进入真实 Saver Thread ID，同时不泄露租户或会话标识。LangGraph 将 `checkpoint_ns` 用作图/子图拓扑 namespace，根图必须保持空字符串，不能把租户写入该字段。
+
+Approval interrupt 同时保存真实派生的 `checkpoint_thread_id`、根 `checkpoint_namespace=""` 和原始 `tenant_id/session_id/session_key` 业务归属字段。
 
 - [ ] **Step 4：验证并提交**
 
@@ -404,7 +409,7 @@ SSE 最终只产生一条 Assistant Message；审批中断为 `interrupted`；�
 
 - [ ] **Step 3：审批恢复复用原 Turn**
 
-`ApprovalResumeSnapshot` 增加 `session_key`、`checkpoint_namespace` 和 `assistant_message_id`。恢复前按租户和 Run 加载 Turn，完成后更新原 Assistant Message。
+`ApprovalResumeSnapshot` 增加 `session_key`、`checkpoint_namespace` 和 `assistant_message_id`。恢复前按租户和 Run 加载 Turn，使用审批记录中的派生 `checkpoint_thread_id` 定位 Checkpoint，并校验 `checkpoint_namespace` 只能是根 namespace 空字符串；任何非空值都明确拒绝，不能静默恢复。完成后更新原 Assistant Message。
 
 - [ ] **Step 4：验证并提交**
 

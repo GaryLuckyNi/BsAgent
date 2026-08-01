@@ -46,7 +46,7 @@
 
 ### 4.4 LangGraph Checkpoint
 
-保存图执行状态，用于中断、审批和故障恢复。Checkpoint 不是会话消息数据库，也不是观测数据库。Checkpoint Thread ID 必须使用服务端生成的租户隔离内部标识。
+保存图执行状态，用于中断、审批和故障恢复。Checkpoint 不是会话消息数据库，也不是观测数据库。Checkpoint Thread ID 必须由 `tenant_id` 与服务端生成的 `session_key` 通过稳定、不可逆且无歧义的 SHA256 派生得到，避免跨租户碰撞和业务身份泄露。`checkpoint_ns` 是 LangGraph 的图/子图拓扑 namespace，根图固定使用空字符串，不能作为业务租户分区。
 
 ### 4.5 Trace 与 OpenTelemetry
 
@@ -60,7 +60,7 @@
 (tenant_id, user_id, session_id)
 ```
 
-Checkpoint Thread ID 使用 `session_key`，不再直接使用外部 `session_id`。Session、Message、Run、Approval、Asset 和 Trace 的 Repository 均通过租户上下文查询，禁止先按裸 ID 查询再修改租户字段。
+Checkpoint Thread ID 使用 `cp_<sha256(tenant_id + NUL + session_key)>`，不再直接使用外部 `session_id` 或裸 `session_key`。这样即使不同租户出现相同 `session_key`，根图 Checkpoint 仍完全隔离；`checkpoint_ns` 保留给 LangGraph 子图拓扑，根图读写和审批恢复均显式使用空字符串。Session、Message、Run、Approval、Asset 和 Trace 的 Repository 均通过租户上下文查询，禁止先按裸 ID 查询再修改租户字段。
 
 跨租户无权访问和资源不存在统一返回 404，避免通过响应差异枚举资源。
 
@@ -165,8 +165,8 @@ Message 后续使用独立租户保留策略，不能复用 Trace 的 30 天清�
 ## 12. 迁移策略
 
 1. 新增 `session_key` 和 `agent_messages`，保留外部 `session_id`。
-2. 为现有 Session 回填 `session_key`，新 Checkpoint 只使用 `session_key`。
-3. 开发环境允许清理旧 Checkpoint；生产迁移必须提供旧 Thread ID 到 `session_key` 的兼容窗口或明确停机迁移。
+2. 为现有 Session 回填 `session_key`，新 Checkpoint 使用租户与 `session_key` 派生的 Thread ID，根 `checkpoint_ns` 保持空字符串。
+3. 开发环境允许清理旧 Checkpoint；生产迁移必须提供旧 Thread ID 到派生 Thread ID 的兼容窗口或明确停机迁移。
 4. 现有历史 Checkpoint 中的 Message 不自动反向灌入业务消息表，避免重复和错误归属。
 5. 完成 Repository 双边界测试后，删除按裸 `session_id` 查询并覆盖租户字段的旧逻辑。
 
