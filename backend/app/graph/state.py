@@ -1,5 +1,5 @@
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from app.schemas.approvals import (
     ApprovalRequest,
@@ -171,40 +171,33 @@ def add_state_messages(
     existing: list[Message] | None,
     incoming: list[Message] | None,
 ) -> list[Message]:
-    merged: list[Message] = [
-        message if isinstance(message, Message) else Message.model_validate(message)
-        for message in existing or []
-    ]
-    seen = {_message_identity(message) for message in merged}
-    for raw_message in incoming or []:
+    merged: list[Message] = []
+    positions: dict[str, int] = {}
+    for raw_message in [*(existing or []), *(incoming or [])]:
         message = (
             raw_message
             if isinstance(raw_message, Message)
             else Message.model_validate(raw_message)
         )
-        identity = _message_identity(message)
-        if identity in seen:
-            continue
-        merged.append(message)
-        seen.add(identity)
+        position = positions.get(message.message_id)
+        if position is not None:
+            merged[position] = message
+        else:
+            positions[message.message_id] = len(merged)
+            merged.append(message)
     return merged
-
-
-def _message_identity(message: Message) -> str:
-    message_id = message.metadata.get("message_id")
-    if isinstance(message_id, str) and message_id:
-        return message_id
-    return f"{message.role}:{message.content}"
 
 
 class AgentState(TypedDict):
     session_id: str
+    session_key: str
     tenant_id: str
     user_id: str
     request_id: str
     trace_id: str
     tool_catalog_digest: str
     user_message: str
+    assistant_message_id: str
     messages: Annotated[list[Message], add_state_messages]
     attachment_refs: list[AttachmentRef]
     image_analyses: list[ImageAnalysisSummary]
@@ -232,37 +225,53 @@ class AgentState(TypedDict):
 def create_initial_state(
     *,
     session_id: str,
+    session_key: str | None = None,
     tenant_id: str,
     user_id: str,
     user_message: str,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    user_message_id: str | None = None,
+    assistant_message_id: str | None = None,
+    history: list[Message] | None = None,
     permission_scopes: list[str] | None = None,
     tool_catalog_digest: str = "",
     attachment_ids: list[str] | None = None,
 ) -> AgentState:
-    request_id = f"req_{uuid4().hex}"
-    trace_id = f"trace_{uuid4().hex}"
+    session_key = session_key or _compat_session_key(
+        session_id=session_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
+    )
+    request_id = request_id or f"req_{uuid4().hex}"
+    trace_id = trace_id or f"trace_{uuid4().hex}"
+    user_message_id = user_message_id or f"{request_id}:user"
+    assistant_message_id = assistant_message_id or f"{request_id}:assistant"
     user_message_record = Message(
+        message_id=user_message_id,
         role="user",
         content=user_message,
         metadata={
-            "message_id": f"{request_id}:user",
             "request_id": request_id,
         },
     )
+    messages = add_state_messages(history, [user_message_record])
     return {
         "session_id": session_id,
+        "session_key": session_key,
         "tenant_id": tenant_id,
         "user_id": user_id,
         "request_id": request_id,
         "trace_id": trace_id,
         "tool_catalog_digest": tool_catalog_digest,
         "user_message": user_message,
-        "messages": [user_message_record],
+        "assistant_message_id": assistant_message_id,
+        "messages": messages,
         "attachment_refs": [
             {"asset_id": asset_id} for asset_id in attachment_ids or []
         ],
         "image_analyses": [],
-        "conversation_history": [user_message_record],
+        "conversation_history": list(messages),
         "intent": None,
         "plan": None,
         "selected_skill": None,
@@ -282,3 +291,8 @@ def create_initial_state(
         "final_response": None,
         "errors": [],
     }
+
+
+def _compat_session_key(*, session_id: str, tenant_id: str, user_id: str) -> str:
+    identity = f"{tenant_id}:{user_id}:{session_id}"
+    return f"session_{uuid5(NAMESPACE_URL, identity).hex}"

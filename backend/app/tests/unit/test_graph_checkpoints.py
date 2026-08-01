@@ -12,6 +12,7 @@ from app.graph.checkpoints import (
     build_graph_checkpointer,
     close_graph_checkpointer,
 )
+from app.graph.runtime import _checkpoint_config
 
 
 def test_build_graph_checkpointer_returns_sqlite_saver_by_default(monkeypatch, tmp_path):
@@ -43,6 +44,22 @@ def test_build_graph_checkpointer_can_be_disabled():
     checkpointer = build_graph_checkpointer(backend="none")
 
     assert checkpointer is None
+
+
+def test_checkpoint_config_uses_internal_session_key_and_tenant_namespace():
+    state = {
+        "session_id": "shared-external-session",
+        "session_key": "internal-session-key",
+        "tenant_id": "tenant-1",
+    }
+
+    assert _checkpoint_config(state, enabled=True) == {
+        "configurable": {
+            "thread_id": "internal-session-key",
+            "checkpoint_ns": "tenant-1",
+        }
+    }
+    assert _checkpoint_config(state, enabled=False) is None
 
 
 def test_build_graph_checkpointer_reuses_same_backend_instance():

@@ -103,18 +103,18 @@ def _append_assistant_message(state: AgentState) -> None:
     content = final_response.get("content")
     if not content:
         return
-    message_id = f"{state['request_id']}:assistant"
+    message_id = state["assistant_message_id"]
     if any(
-        message.metadata.get("message_id") == message_id
+        message.message_id == message_id
         for message in state["messages"]
     ):
         return
     state["messages"].append(
         Message(
+            message_id=message_id,
             role="assistant",
             content=content,
             metadata={
-                "message_id": message_id,
                 "request_id": state["request_id"],
                 "trace_id": state["trace_id"],
             },
@@ -481,9 +481,15 @@ def build_question_answer_graph(
 def run_question_answer_graph(
     *,
     session_id: str,
+    session_key: str | None = None,
     tenant_id: str,
     user_id: str,
     user_message: str,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    user_message_id: str | None = None,
+    assistant_message_id: str | None = None,
+    history: list[Message] | None = None,
     mock_evidence: bool = True,
     retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
@@ -500,9 +506,15 @@ def run_question_answer_graph(
 ) -> AgentState:
     state, graph, config = _prepare_question_answer_run(
         session_id=session_id,
+        session_key=session_key,
         tenant_id=tenant_id,
         user_id=user_id,
         user_message=user_message,
+        request_id=request_id,
+        trace_id=trace_id,
+        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
+        history=history,
         mock_evidence=mock_evidence,
         retriever_node=retriever_node,
         skill_agent_node=skill_agent_node,
@@ -523,9 +535,15 @@ def run_question_answer_graph(
 def stream_question_answer_graph(
     *,
     session_id: str,
+    session_key: str | None = None,
     tenant_id: str,
     user_id: str,
     user_message: str,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    user_message_id: str | None = None,
+    assistant_message_id: str | None = None,
+    history: list[Message] | None = None,
     mock_evidence: bool = True,
     retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
@@ -542,9 +560,15 @@ def stream_question_answer_graph(
 ) -> Iterator[AgentState]:
     state, graph, config = _prepare_question_answer_run(
         session_id=session_id,
+        session_key=session_key,
         tenant_id=tenant_id,
         user_id=user_id,
         user_message=user_message,
+        request_id=request_id,
+        trace_id=trace_id,
+        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
+        history=history,
         mock_evidence=mock_evidence,
         retriever_node=retriever_node,
         skill_agent_node=skill_agent_node,
@@ -570,9 +594,15 @@ def stream_question_answer_graph(
 def _prepare_question_answer_run(
     *,
     session_id: str,
+    session_key: str | None,
     tenant_id: str,
     user_id: str,
     user_message: str,
+    request_id: str | None,
+    trace_id: str | None,
+    user_message_id: str | None,
+    assistant_message_id: str | None,
+    history: list[Message] | None,
     mock_evidence: bool,
     retriever_node: Callable[[AgentState], AgentState] | None,
     skill_agent_node: Callable[[AgentState], AgentState] | None,
@@ -599,9 +629,15 @@ def _prepare_question_answer_run(
     )
     state = create_initial_state(
         session_id=session_id,
+        session_key=session_key,
         tenant_id=tenant_id,
         user_id=user_id,
         user_message=user_message,
+        request_id=request_id,
+        trace_id=trace_id,
+        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
+        history=history,
         permission_scopes=permission_scopes,
         tool_catalog_digest=tool_registry_snapshot.catalog_digest,
         attachment_ids=attachment_ids,
@@ -619,12 +655,19 @@ def _prepare_question_answer_run(
         allow_test_tool_agent_override=allow_test_tool_agent_override,
         attachment_resolver=attachment_resolver,
     )
-    config = (
-        {"configurable": {"thread_id": state["session_id"]}}
-        if checkpointer is not None
-        else None
-    )
+    config = _checkpoint_config(state, enabled=checkpointer is not None)
     return state, graph, config
+
+
+def _checkpoint_config(state: AgentState | dict, *, enabled: bool) -> dict | None:
+    if not enabled:
+        return None
+    return {
+        "configurable": {
+            "thread_id": state["session_key"],
+            "checkpoint_ns": state["tenant_id"],
+        }
+    }
 
 
 def _state_from_stream_update(

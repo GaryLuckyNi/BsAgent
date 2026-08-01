@@ -11,51 +11,118 @@ from app.schemas.tools import ToolCallRequest, ToolCallResult
 def test_create_initial_state_contains_trace_and_empty_collections():
     state = create_initial_state(
         session_id="s1",
+        session_key="session-key-1",
         tenant_id="t1",
         user_id="u1",
+        request_id="request-1",
+        trace_id="trace-1",
+        user_message_id="message-user-1",
+        assistant_message_id="message-assistant-1",
         user_message="报销制度是什么？",
     )
 
     assert state["session_id"] == "s1"
+    assert state["session_key"] == "session-key-1"
     assert state["tenant_id"] == "t1"
     assert state["user_id"] == "u1"
     assert state["user_message"] == "报销制度是什么？"
     assert [message.role for message in state["messages"]] == ["user"]
     assert state["messages"][0].content == "报销制度是什么？"
-    assert state["messages"][0].metadata["request_id"] == state["request_id"]
+    assert state["messages"][0].message_id == "message-user-1"
+    assert state["request_id"] == "request-1"
+    assert state["trace_id"] == "trace-1"
     assert state["conversation_history"] == state["messages"]
-    assert state["trace_id"].startswith("trace_")
     assert state["tool_calls"] == []
     assert state["errors"] == []
 
 
-def test_add_state_messages_appends_by_message_id_without_duplicates():
+def test_add_state_messages_replaces_same_id_in_place_and_appends_new_ids():
     first = Message(
+        message_id="req_1:user",
         role="user",
         content="第一轮",
-        metadata={"message_id": "req_1:user"},
     )
     repeated = Message(
-        role="user",
-        content="第一轮重复",
-        metadata={"message_id": "req_1:user"},
+        message_id="req_1:user",
+        role="assistant",
+        content="第一轮已修正",
     )
     second = Message(
+        message_id="req_1:assistant",
         role="assistant",
         content="第一轮回答",
-        metadata={"message_id": "req_1:assistant"},
     )
 
     merged = add_state_messages([first], [repeated, second])
 
-    assert [message.content for message in merged] == ["第一轮", "第一轮回答"]
+    assert [message.message_id for message in merged] == [
+        "req_1:user",
+        "req_1:assistant",
+    ]
+    assert [message.content for message in merged] == ["第一轮已修正", "第一轮回答"]
+    assert merged[0].role == "assistant"
+
+
+def test_add_state_messages_does_not_deduplicate_equal_role_and_content():
+    merged = add_state_messages(
+        [Message(message_id="message-1", role="user", content="相同内容")],
+        [Message(message_id="message-2", role="user", content="相同内容")],
+    )
+
+    assert [message.message_id for message in merged] == ["message-1", "message-2"]
+
+
+def test_add_state_messages_normalizes_duplicate_ids_already_in_state():
+    merged = add_state_messages(
+        [
+            Message(message_id="message-1", role="user", content="旧内容"),
+            Message(message_id="message-1", role="user", content="新内容"),
+        ],
+        [],
+    )
+
+    assert [(message.message_id, message.content) for message in merged] == [
+        ("message-1", "新内容")
+    ]
+
+
+def test_create_initial_state_normalizes_history_before_current_turn():
+    history = [
+        Message(message_id="history-user", role="user", content="上一问"),
+        Message(message_id="history-assistant", role="assistant", content="上一答"),
+    ]
+
+    state = create_initial_state(
+        session_id="s1",
+        session_key="session-key-1",
+        tenant_id="t1",
+        user_id="u1",
+        request_id="request-2",
+        trace_id="trace-2",
+        user_message_id="current-user",
+        assistant_message_id="current-assistant",
+        user_message="当前问题",
+        history=history,
+    )
+
+    assert [message.message_id for message in state["messages"]] == [
+        "history-user",
+        "history-assistant",
+        "current-user",
+    ]
+    assert state["conversation_history"] == state["messages"]
 
 
 def test_initial_state_preserves_attachment_refs_without_analysis_payload():
     state = create_initial_state(
         session_id="session-1",
+        session_key="session-key-1",
         tenant_id="tenant-1",
         user_id="user-1",
+        request_id="request-1",
+        trace_id="trace-1",
+        user_message_id="message-user-1",
+        assistant_message_id="message-assistant-1",
         user_message="分析图片",
         attachment_ids=["asset-1"],
     )
