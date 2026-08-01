@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.approvals.repository import ApprovalRepository
 from app.api.assets import get_asset_service
@@ -34,7 +34,13 @@ from app.graph.runtime import (
     stream_question_answer_graph,
 )
 from app.graph.state import AgentState
-from app.harness.tracing import get_trace_store
+from app.harness.capture_policy import TraceCaptureOutcome
+from app.harness.persistence import (
+    TracePersistenceService,
+    TraceRunIdentity,
+    finalize_trace_best_effort,
+)
+from app.harness.trace_buffer import TraceBuffer
 from app.llm.deepseek import LlmConfigurationError
 from app.llm.factory import maybe_build_llm_client
 from app.memory.factory import build_experience_store
@@ -133,6 +139,11 @@ class _ExecutionSnapshot:
     history: tuple[Message, ...]
     memory_reader: _ExperienceSnapshotReader
     attachment_resolver: _AttachmentContextSnapshotResolver
+
+
+@dataclass
+class _TraceLifecycle:
+    failed: bool = True
 
 
 def get_attachment_context_resolver(
@@ -391,6 +402,9 @@ def _run_and_persist_agent_message(
     request_id: str,
 ) -> SessionMessageResponse:
     conversation_service = ConversationService(db)
+    handle: TurnHandle | None = None
+    state: AgentState | None = None
+    trace_buffer: TraceBuffer | None = None
     try:
         handle = conversation_service.begin_turn(
             BeginTurn(
@@ -420,6 +434,7 @@ def _run_and_persist_agent_message(
             db.rollback()
             raise ConversationPersistenceUnavailable from exc
 
+    trace_buffer = TraceBuffer()
     try:
         snapshot = _load_execution_snapshot(
             db=db,
@@ -431,7 +446,6 @@ def _run_and_persist_agent_message(
         )
         db.commit()
 
-        trace_store = get_trace_store()
         checkpointer = build_graph_checkpointer()
         llm_client = maybe_build_llm_client()
         state = run_question_answer_graph(
@@ -447,7 +461,7 @@ def _run_and_persist_agent_message(
             history=list(snapshot.history),
             mock_evidence=settings.use_mock_rag,
             memory_retriever=ExperienceMemoryRetriever(snapshot.memory_reader),
-            trace_store=trace_store,
+            trace_buffer=trace_buffer,
             checkpointer=checkpointer,
             llm_client=llm_client,
             permission_scopes=list(principal.scopes),
@@ -491,6 +505,14 @@ def _run_and_persist_agent_message(
             )
         except SQLAlchemyError:
             pass
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=True,
+        )
         raise ConversationPersistenceUnavailable from exc
     except Exception:
         db.rollback()
@@ -503,7 +525,24 @@ def _run_and_persist_agent_message(
             )
         except SQLAlchemyError as exc:
             raise ConversationPersistenceUnavailable from exc
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=True,
+        )
         raise
+    _finalize_trace_best_effort(
+        db=db,
+        handle=handle,
+        buffer=trace_buffer,
+        state=state,
+        principal=principal,
+        failed=False,
+        approval_occurred=bool(interrupt_payloads),
+    )
     return _session_message_response(state, handle=handle)
 
 
@@ -539,7 +578,10 @@ def _stream_agent_message(
 ) -> Iterator[str]:
     conversation_service = ConversationService(db)
     handle: TurnHandle | None = None
+    state: AgentState | None = None
+    trace_buffer: TraceBuffer | None = None
     finalized = False
+    trace_lifecycle = _TraceLifecycle()
     try:
         handle = conversation_service.begin_turn(
             BeginTurn(
@@ -579,6 +621,7 @@ def _stream_agent_message(
             yield _sse("done", {"ok": True, "replayed": True, **identity})
             return
 
+        trace_buffer = TraceBuffer()
         snapshot = _load_execution_snapshot(
             db=db,
             principal=principal,
@@ -600,9 +643,7 @@ def _stream_agent_message(
                 },
             )
 
-        trace_store = get_trace_store()
         llm_client = maybe_build_llm_client()
-        state: AgentState | None = None
         emitted_event_count = 0
         emitted_thinking_stages: set[str] = set()
         emitted_progress_stages = {"planning"}
@@ -619,14 +660,14 @@ def _stream_agent_message(
             history=list(snapshot.history),
             mock_evidence=settings.use_mock_rag,
             memory_retriever=ExperienceMemoryRetriever(snapshot.memory_reader),
-            trace_store=trace_store,
+            trace_buffer=trace_buffer,
             checkpointer=build_graph_checkpointer(),
             llm_client=llm_client,
             permission_scopes=list(principal.scopes),
             attachment_ids=request.attachments,
             attachment_resolver=snapshot.attachment_resolver,
         ):
-            events = trace_store.list_events(state["trace_id"])
+            events = trace_buffer.events
             for event in events[emitted_event_count:]:
                 yield _sse("agent_event", _trace_event_payload(event))
             emitted_event_count = len(events)
@@ -671,6 +712,7 @@ def _stream_agent_message(
         db.commit()
         if interrupt_payloads:
             finalized = True
+            trace_lifecycle.failed = False
         finalized = yield from _emit_stream_result(
             db=db,
             conversation_service=conversation_service,
@@ -680,6 +722,8 @@ def _stream_agent_message(
             interrupt_payloads=interrupt_payloads,
             emitted_thinking_stages=emitted_thinking_stages,
             llm_client=llm_client,
+            trace_buffer=trace_buffer,
+            trace_lifecycle=trace_lifecycle,
         )
     except AgentGraphExecutionError as exc:
         finalized = _fail_stream_turn(
@@ -760,6 +804,15 @@ def _stream_agent_message(
                 principal=principal,
                 handle=handle,
             )
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=trace_lifecycle.failed,
+            approval_occurred=bool(state and _interrupt_payloads(state)),
+        )
 
 def _emit_stream_result(
     *,
@@ -771,6 +824,8 @@ def _emit_stream_result(
     interrupt_payloads: list[dict],
     emitted_thinking_stages: set[str],
     llm_client,
+    trace_buffer: TraceBuffer,
+    trace_lifecycle: _TraceLifecycle,
 ) -> Generator[str, None, bool]:
     identity = _stream_identity(handle)
     if state["image_analyses"]:
@@ -817,7 +872,7 @@ def _emit_stream_result(
             "trace_id": final_response["trace_id"],
             "events": [
                 _trace_event_payload(event)
-                for event in get_trace_store().list_events(final_response["trace_id"])
+                for event in trace_buffer.events
             ],
         },
     )
@@ -842,6 +897,7 @@ def _emit_stream_result(
         metadata=_assistant_response_metadata(final_response),
     )
     db.commit()
+    trace_lifecycle.failed = False
     yield _sse("final", {**final_response, **identity})
     yield _sse("done", {"ok": True, **identity})
     return True
@@ -878,6 +934,45 @@ def _fail_stream_turn(
     except SQLAlchemyError:
         logger.exception("agent_stream_failure_finalization_error")
     return True
+
+
+def _finalize_trace_best_effort(
+    *,
+    db: Session,
+    handle: TurnHandle | None,
+    buffer: TraceBuffer | None,
+    state: AgentState | None,
+    principal: Principal,
+    failed: bool,
+    approval_occurred: bool = False,
+) -> None:
+    if handle is None or handle.replayed or buffer is None:
+        return
+    intent = (state or {}).get("intent") or {}
+    verification = (state or {}).get("verification") or {}
+    session_factory = sessionmaker(
+        bind=db.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    finalize_trace_best_effort(
+        run=TraceRunIdentity(
+            run_id=handle.run_id,
+            trace_id=handle.trace_id,
+            session_key=handle.session_key,
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+        ),
+        buffer=buffer,
+        outcome=TraceCaptureOutcome(
+            failed=failed,
+            risk_level=intent.get("risk_level"),
+            approval_occurred=approval_occurred,
+            verifier_status=verification.get("verdict"),
+        ),
+        service=TracePersistenceService(session_factory=session_factory),
+    )
 
 
 def _persist_agent_message_state(

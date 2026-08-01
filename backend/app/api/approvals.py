@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.approvals.repository import (
     ApprovalConflictError,
@@ -25,7 +25,13 @@ from app.conversations.service import ConversationService
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import AgentGraphExecutionError, resume_question_answer_graph
 from app.graph.state import AgentState, build_checkpoint_thread_id
-from app.harness.tracing import get_trace_store
+from app.harness.capture_policy import TraceCaptureOutcome
+from app.harness.persistence import (
+    TracePersistenceService,
+    TraceRunIdentity,
+    finalize_trace_best_effort,
+)
+from app.harness.trace_buffer import TraceBuffer
 from app.llm.factory import maybe_build_llm_client
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
@@ -182,7 +188,8 @@ def decide_approval(
         }
 
     assert resume_snapshot is not None
-    trace_store = get_trace_store()
+    trace_buffer = TraceBuffer()
+    state: AgentState | None = None
     try:
         state = resume_question_answer_graph(
             checkpoint_thread_id=resume_snapshot.checkpoint_thread_id,
@@ -193,7 +200,7 @@ def decide_approval(
                 "decision": request.decision,
             },
             mock_evidence=settings.use_mock_rag,
-            trace_store=trace_store,
+            trace_buffer=trace_buffer,
             checkpointer=build_graph_checkpointer(),
             llm_client=maybe_build_llm_client(),
             permission_scopes=None,
@@ -209,6 +216,13 @@ def decide_approval(
             )
         except ApprovalPersistenceUnavailable as persistence_exc:
             _raise_persistence_unavailable(db, persistence_exc)
+        _finalize_resume_trace_best_effort(
+            db=db,
+            snapshot=resume_snapshot,
+            buffer=trace_buffer,
+            state=state,
+            failed=True,
+        )
         _raise_persistence_unavailable(db, exc)
     except AgentGraphExecutionError as exc:
         try:
@@ -221,6 +235,13 @@ def decide_approval(
             )
         except ApprovalPersistenceUnavailable as persistence_exc:
             _raise_persistence_unavailable(db, persistence_exc)
+        _finalize_resume_trace_best_effort(
+            db=db,
+            snapshot=resume_snapshot,
+            buffer=trace_buffer,
+            state=state,
+            failed=True,
+        )
         raise HTTPException(
             status_code=409,
             detail={"code": exc.code, "node": exc.node_name, "message": exc.message},
@@ -236,6 +257,13 @@ def decide_approval(
             )
         except ApprovalPersistenceUnavailable as persistence_exc:
             _raise_persistence_unavailable(db, persistence_exc)
+        _finalize_resume_trace_best_effort(
+            db=db,
+            snapshot=resume_snapshot,
+            buffer=trace_buffer,
+            state=state,
+            failed=True,
+        )
         raise HTTPException(
             status_code=409,
             detail={
@@ -311,6 +339,13 @@ def decide_approval(
             )
         except ApprovalPersistenceUnavailable as persistence_exc:
             _raise_persistence_unavailable(db, persistence_exc)
+        _finalize_resume_trace_best_effort(
+            db=db,
+            snapshot=resume_snapshot,
+            buffer=trace_buffer,
+            state=state,
+            failed=True,
+        )
         _raise_persistence_unavailable(db, exc)
     except ApprovalResumeIdentityError as exc:
         try:
@@ -323,6 +358,13 @@ def decide_approval(
             )
         except ApprovalPersistenceUnavailable as persistence_exc:
             _raise_persistence_unavailable(db, persistence_exc)
+        _finalize_resume_trace_best_effort(
+            db=db,
+            snapshot=resume_snapshot,
+            buffer=trace_buffer,
+            state=state,
+            failed=True,
+        )
         raise HTTPException(
             status_code=409,
             detail={"code": exc.code},
@@ -338,6 +380,13 @@ def decide_approval(
             )
         except ApprovalPersistenceUnavailable as persistence_exc:
             _raise_persistence_unavailable(db, persistence_exc)
+        _finalize_resume_trace_best_effort(
+            db=db,
+            snapshot=resume_snapshot,
+            buffer=trace_buffer,
+            state=state,
+            failed=True,
+        )
         raise HTTPException(
             status_code=409,
             detail={
@@ -345,6 +394,13 @@ def decide_approval(
                 "message": "审批恢复收尾失败，可使用相同决定重试。",
             },
         ) from exc
+    _finalize_resume_trace_best_effort(
+        db=db,
+        snapshot=resume_snapshot,
+        buffer=trace_buffer,
+        state=state,
+        failed=False,
+    )
     return {
         "approval": approval_payload,
         "run_id": resume_snapshot.run_id,
@@ -375,6 +431,41 @@ def _record_resume_failure(
     except SQLAlchemyError:
         _rollback_safely(db)
         raise ApprovalPersistenceUnavailable from cause
+
+
+def _finalize_resume_trace_best_effort(
+    *,
+    db: Session,
+    snapshot: ApprovalResumeSnapshot,
+    buffer: TraceBuffer,
+    state: AgentState | None,
+    failed: bool,
+) -> None:
+    intent = (state or {}).get("intent") or {}
+    verification = (state or {}).get("verification") or {}
+    session_factory = sessionmaker(
+        bind=db.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    finalize_trace_best_effort(
+        run=TraceRunIdentity(
+            run_id=snapshot.run_id,
+            trace_id=snapshot.trace_id,
+            session_key=snapshot.session_key,
+            tenant_id=snapshot.tenant_id,
+            user_id=snapshot.request_user_id,
+        ),
+        buffer=buffer,
+        outcome=TraceCaptureOutcome(
+            failed=failed,
+            risk_level=intent.get("risk_level"),
+            approval_occurred=True,
+            verifier_status=verification.get("verdict"),
+        ),
+        service=TracePersistenceService(session_factory=session_factory),
+    )
 
 
 def _approval_payload(

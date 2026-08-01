@@ -18,7 +18,8 @@ from app.api import approvals, sessions
 from app.conversations.service import BeginTurn, ConversationService
 from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.graph.runtime import AgentGraphExecutionError
-from app.harness.tracing import InMemoryTraceStore, TraceEvent
+from app.harness.trace_buffer import TraceBuffer
+from app.harness.tracing import TraceEvent
 from app.llm.deepseek import LlmConfigurationError
 from app.llm.schemas import LlmCompletionResult
 from app.main import create_app
@@ -895,7 +896,7 @@ def test_session_api_rejects_unauthenticated_request_before_graph(monkeypatch):
     assert graph_calls == []
 
 
-def test_post_session_message_persists_run_without_embedded_trace_write(monkeypatch):
+def test_post_session_message_flushes_trace_after_persisting_run(monkeypatch):
     monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
     app, testing_session_local = create_test_app_with_database()
     client = TestClient(app)
@@ -917,7 +918,9 @@ def test_post_session_message_persists_run_without_embedded_trace_write(monkeypa
     assert saved_run.session_id == "s1"
     assert saved_run.status == "completed"
     assert saved_run.trace_id == response.json()["trace_id"]
-    assert saved_events == []
+    assert saved_run.trace_capture_status == "captured"
+    assert saved_events
+    assert {event.run_id for event in saved_events} == {saved_run.run_id}
 
 
 def test_post_session_message_records_short_term_session_event(monkeypatch):
@@ -1958,9 +1961,11 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
     assert run.status == "interrupted"
 
 
-def test_approval_retry_does_not_persist_trace_in_business_transaction(monkeypatch):
-    trace_store = InMemoryTraceStore()
+def test_approval_retry_flushes_each_run_buffer_outside_business_transaction(
+    monkeypatch,
+):
     resume_calls = 0
+    observed_buffers = []
 
     def resume_with_trace_only_once(**kwargs):
         nonlocal resume_calls
@@ -1982,8 +1987,9 @@ def test_approval_retry_does_not_persist_trace_in_business_transaction(monkeypat
             "cited_evidence_ids": [],
             "approval_status": "approved",
         }
+        observed_buffers.append(kwargs["trace_buffer"])
         if resume_calls == 1:
-            trace_store.record_event(
+            kwargs["trace_buffer"].record_event(
                 TraceEvent(
                     trace_id="trace_1",
                     node_name="tool_agent",
@@ -2008,7 +2014,6 @@ def test_approval_retry_does_not_persist_trace_in_business_transaction(monkeypat
         "resume_question_answer_graph",
         resume_with_trace_only_once,
     )
-    monkeypatch.setattr(approvals, "get_trace_store", lambda: trace_store)
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     monkeypatch.setattr(
         approvals.ApprovalRepository,
@@ -2043,11 +2048,14 @@ def test_approval_retry_does_not_persist_trace_in_business_transaction(monkeypat
     assert first_response.status_code == 409
     assert second_response.status_code == 200, second_response.text
     assert resume_calls == 2
+    assert observed_buffers[0] is not observed_buffers[1]
     with testing_session_local() as session:
         saved_run = session.get(AgentRun, "run_1")
         saved_events = session.scalars(select(AgentTraceEvent)).all()
     assert saved_run.status == "completed"
-    assert saved_events == []
+    assert [(event.trace_id, event.run_id, event.node_name) for event in saved_events] == [
+        ("trace_1", "run_1", "tool_agent")
+    ]
 
 
 def test_post_session_message_returns_500_for_graph_execution_error(monkeypatch):
@@ -2083,9 +2091,99 @@ def test_post_session_message_returns_500_for_graph_execution_error(monkeypatch)
             select(AgentMessage).where(AgentMessage.role == "assistant")
         )
     assert saved_run.status == "failed"
+    assert saved_run.trace_capture_status == "captured"
     assert saved_session.active_run_id is None
     assert saved_assistant.status == "failed"
     assert saved_assistant.metadata_json == {"error_code": "agent_execution_failed"}
+
+
+def test_session_runs_use_isolated_buffers_and_flush_after_business_commit(
+    monkeypatch,
+):
+    observed: list[TraceBuffer] = []
+
+    def completed_graph(**kwargs):
+        buffer = kwargs["trace_buffer"]
+        state = _completed_graph_state(kwargs, content="已完成")
+        state["intent"] = {"risk_level": "low"}
+        state["verification"] = {"verdict": "pass"}
+        buffer.record_event(
+            TraceEvent(
+                trace_id=state["trace_id"],
+                node_name="final_response",
+                status="success",
+                latency_ms=1,
+            )
+        )
+        observed.append(buffer)
+        return state
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", completed_graph)
+    monkeypatch.setattr(sessions.settings, "trace_success_sample_ratio", 1)
+    monkeypatch.setattr(sessions.settings, "trace_detailed_sample_ratio", 0)
+    app, testing_session_local = create_test_app_with_database()
+    client = TestClient(app)
+
+    first = client.post(
+        "/api/sessions/s1/messages",
+        headers={"Idempotency-Key": "trace-run-1"},
+        json={"message": "第一个问题"},
+    )
+    second = client.post(
+        "/api/sessions/s2/messages",
+        headers={"Idempotency-Key": "trace-run-2"},
+        json={"message": "第二个问题"},
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert len(observed) == 2
+    assert observed[0] is not observed[1]
+    with testing_session_local() as db:
+        runs = list(db.scalars(select(AgentRun)))
+        events = list(db.scalars(select(AgentTraceEvent)))
+    assert {run.trace_capture_status for run in runs} == {"captured"}
+    assert {event.trace_id for event in events} == {
+        first.json()["trace_id"],
+        second.json()["trace_id"],
+    }
+
+
+def test_trace_flush_failure_does_not_change_completed_session_response(monkeypatch):
+    def completed_graph(**kwargs):
+        state = _completed_graph_state(kwargs, content="业务回答保持成功")
+        state["verification"] = {"verdict": "pass"}
+        return state
+
+    class FailingTracePersistenceService:
+        def __init__(self, **_kwargs):
+            pass
+
+        def persist_best_effort(self, **_kwargs):
+            raise RuntimeError("trace backend unavailable")
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", completed_graph)
+    monkeypatch.setattr(
+        sessions,
+        "TracePersistenceService",
+        FailingTracePersistenceService,
+        raising=False,
+    )
+    app, testing_session_local = create_test_app_with_database()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages",
+        json={"message": "问题"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["content"] == "业务回答保持成功"
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalar(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        )
+    assert run.status == "completed"
+    assert assistant.status == "completed"
 
 
 def test_post_session_message_uses_graph_error_http_status(monkeypatch):
@@ -2162,6 +2260,9 @@ def test_execution_error_response_is_completed_without_approval_record(monkeypat
     assert response.json()["approval_status"] == "not_required"
     with testing_session_local() as session:
         assert session.scalars(select(ApprovalRecord)).all() == []
+        run = session.scalars(select(AgentRun)).one()
+    assert run.trace_capture_status == "captured"
+    assert run.trace_capture_level == "detailed"
 
 
 def test_post_session_message_stream_returns_answer_deltas_and_final(monkeypatch):
@@ -2178,7 +2279,7 @@ def test_post_session_message_stream_returns_answer_deltas_and_final(monkeypatch
             "cited_evidence_ids": [],
             "approval_status": "not_required",
         }
-        kwargs["trace_store"].record_event(
+        kwargs["trace_buffer"].record_event(
             TraceEvent(
                 trace_id=state["trace_id"],
                 node_name="intent_router",
@@ -2361,6 +2462,7 @@ def test_stream_graph_error_fails_original_turn_and_clears_active_run(monkeypatc
         ).one()
         session_record = db.scalars(select(AgentSession)).one()
     assert run.status == assistant.status == "failed"
+    assert run.trace_capture_status == "captured"
     assert session_record.active_run_id is None
     assert error["run_id"] == run.run_id
     assert error["request_id"] == "stream-failure-1"
@@ -2399,6 +2501,7 @@ def test_closing_stream_generator_fails_started_turn(monkeypatch):
         session_record = db.scalars(select(AgentSession)).one()
     assert graph_calls == []
     assert run.status == assistant.status == "failed"
+    assert run.trace_capture_status == "captured"
     assert session_record.active_run_id is None
 
 
@@ -2432,7 +2535,47 @@ def test_cancelled_stream_fails_started_turn(monkeypatch):
         ).one()
         session_record = db.scalars(select(AgentSession)).one()
     assert run.status == assistant.status == "failed"
+    assert run.trace_capture_status == "captured"
     assert session_record.active_run_id is None
+
+
+def test_disconnect_after_business_completion_keeps_success_capture_outcome(
+    monkeypatch,
+):
+    def completed_stream(**kwargs):
+        state = _completed_graph_state(kwargs, content="已完成")
+        state["verification"] = {"verdict": "pass"}
+        yield state
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", completed_stream)
+    monkeypatch.setattr(sessions.settings, "trace_success_sample_ratio", 0)
+    monkeypatch.setattr(sessions.settings, "trace_detailed_sample_ratio", 0)
+    _, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        generator = sessions._stream_agent_message(
+            session_id="s1",
+            request=sessions.SessionMessageRequest(message="问题"),
+            principal=Principal(
+                tenant_id="tenant_1",
+                user_id="user_1",
+                scopes=("agent:invoke",),
+            ),
+            db=db,
+            attachment_resolver=None,
+            request_id="stream-completed-disconnect-1",
+        )
+        for event in generator:
+            if event.startswith("event: final"):
+                generator.close()
+                break
+
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+    assert run.status == assistant.status == "completed"
+    assert run.trace_capture_status == "not_sampled"
 
 
 def test_in_progress_stream_replay_returns_stable_sse_conflict(monkeypatch):
@@ -2529,6 +2672,7 @@ def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
         ).one()
         session_record = db.scalars(select(AgentSession)).one()
     assert run.status == assistant.status == "interrupted"
+    assert run.trace_capture_status == "captured"
     assert session_record.active_run_id == run.run_id
     assert approval_event["run_id"] == run.run_id
     assert approval_event["request_id"] == "stream-interrupt-1"
@@ -2752,7 +2896,7 @@ def test_post_session_message_stream_emits_thinking_before_graph_completed(
             "response_policy": {},
             "risk_controls": {},
         }
-        kwargs["trace_store"].record_event(
+        kwargs["trace_buffer"].record_event(
             TraceEvent(
                 trace_id=state["trace_id"],
                 node_name="planner_agent",

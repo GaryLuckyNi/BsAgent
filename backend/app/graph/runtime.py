@@ -42,6 +42,7 @@ from app.harness.error_boundary import (
 )
 from app.harness.node_runner import NodeRunner
 from app.harness.observer import NodeObserver
+from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolCallRequest
@@ -330,6 +331,7 @@ def build_question_answer_graph(
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     memory_retriever: MemoryRetriever | None = None,
+    trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
@@ -338,7 +340,7 @@ def build_question_answer_graph(
     allow_test_tool_agent_override: bool = False,
     attachment_resolver: AttachmentContextResolver | None = None,
 ):
-    runner = NodeRunner(trace_store=trace_store)
+    runner = NodeRunner(trace_buffer=trace_buffer, trace_store=trace_store)
     selected_registry_factory = tool_registry_factory or getattr(
         tool_agent_node, "tool_registry_factory", None
     ) or get_default_tool_registry
@@ -513,6 +515,7 @@ def run_question_answer_graph(
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     memory_retriever: MemoryRetriever | None = None,
+    trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
@@ -538,6 +541,7 @@ def run_question_answer_graph(
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         memory_retriever=memory_retriever,
+        trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
@@ -567,6 +571,7 @@ def stream_question_answer_graph(
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     memory_retriever: MemoryRetriever | None = None,
+    trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
@@ -592,6 +597,7 @@ def stream_question_answer_graph(
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         memory_retriever=memory_retriever,
+        trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
@@ -626,6 +632,7 @@ def _prepare_question_answer_run(
     skill_agent_node: Callable[[AgentState], AgentState] | None,
     tool_agent_node: Callable[[AgentState], AgentState] | None,
     memory_retriever: MemoryRetriever | None,
+    trace_buffer: TraceBuffer | None,
     trace_store: InMemoryTraceStore | None,
     checkpointer: Checkpointer,
     llm_client: LlmClient | None,
@@ -665,6 +672,7 @@ def _prepare_question_answer_run(
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         memory_retriever=memory_retriever,
+        trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
@@ -718,6 +726,7 @@ def resume_question_answer_graph(
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     memory_retriever: MemoryRetriever | None = None,
+    trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer,
     llm_client: LlmClient | None = None,
@@ -744,6 +753,7 @@ def resume_question_answer_graph(
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         memory_retriever=memory_retriever,
+        trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
@@ -761,6 +771,7 @@ def resume_question_answer_graph(
     checkpoint_digest = snapshot.values.get("tool_catalog_digest")
     if snapshot.values and checkpoint_digest != tool_registry_snapshot.catalog_digest:
         _record_resume_catalog_guard_trace(
+            trace_buffer=trace_buffer,
             trace_store=trace_store,
             state=snapshot.values,
             error=ToolCatalogChangedError(),
@@ -787,11 +798,12 @@ def resume_question_answer_graph(
 
 def _record_resume_catalog_guard_trace(
     *,
+    trace_buffer: TraceBuffer | None,
     trace_store: InMemoryTraceStore | None,
     state: AgentState,
     error: BaseException,
 ) -> None:
-    observer = NodeObserver(trace_store=trace_store)
+    observer = NodeObserver(trace_buffer=trace_buffer, trace_store=trace_store)
     observation = observer.observe_start("catalog_guard", state)
     observer.record_error(
         observation=observation,

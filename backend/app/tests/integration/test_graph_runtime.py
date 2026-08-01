@@ -1,4 +1,5 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
@@ -22,6 +23,7 @@ from app.graph.runtime import (
 from app.graph.state import create_initial_state
 from app.schemas.approvals import ReadyToolCall
 from app.harness.tracing import InMemoryTraceStore
+from app.harness.trace_buffer import TraceBuffer
 from app.llm.schemas import LlmCompletionResult
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError
@@ -33,6 +35,47 @@ from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchTool
 from app.tools.registry import ToolRegistry
 from app.tools.registry import ExecutionBinding
+
+
+def test_runtime_records_each_run_only_in_its_explicit_trace_buffer():
+    first_buffer = TraceBuffer(max_events=128, max_artifacts=0)
+    second_buffer = TraceBuffer(max_events=128, max_artifacts=0)
+
+    def run(session_id, trace_id, buffer):
+        return run_question_answer_graph(
+            session_id=session_id,
+            tenant_id="tenant-1",
+            user_id="user-1",
+            user_message="你好",
+            trace_id=trace_id,
+            trace_buffer=buffer,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            run,
+            "session-first",
+            "trace-first",
+            first_buffer,
+        )
+        second_future = executor.submit(
+            run,
+            "session-second",
+            "trace-second",
+            second_buffer,
+        )
+        first = first_future.result()
+        second = second_future.result()
+
+    assert first["trace_id"] == "trace-first"
+    assert second["trace_id"] == "trace-second"
+    assert first_buffer.events
+    assert second_buffer.events
+    assert {event.trace_id for event in first_buffer.events} == {"trace-first"}
+    assert {event.trace_id for event in second_buffer.events} == {"trace-second"}
+    assert {event.event_id for event in first_buffer.events}.isdisjoint(
+        event.event_id for event in second_buffer.events
+    )
 
 
 def test_graph_routes_validated_image_context_without_rag_or_tools():

@@ -511,3 +511,10 @@ def test_trace_buffer_allows_zero_artifact_limit():
     assert artifact_ref is None
     assert buffer.artifacts == ()
     assert buffer.truncated is True
+
+
+def test_trace_buffer_allows_flush_to_be_claimed_only_once():
+    buffer = TraceBuffer(max_events=1)
+
+    assert buffer.claim_flush() is True
+    assert buffer.claim_flush() is False

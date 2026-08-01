@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api import approvals
 from app.graph.state import build_checkpoint_thread_id, create_initial_state
+from app.harness.tracing import TraceEvent
 from app.main import create_app
 from app.security.dependencies import get_current_principal
 from app.security.principal import Principal
@@ -17,6 +18,7 @@ from app.storage.models import (
     AgentMessage,
     AgentRun,
     AgentSession,
+    AgentTraceEvent,
     ApprovalRecord,
     Base,
 )
@@ -218,6 +220,46 @@ def test_approval_resume_completes_original_assistant_message(monkeypatch):
     assert assistant.content == "模拟交易已提交。"
     assert run.status == "completed"
     assert session_record.active_run_id is None
+
+
+def test_approval_resume_uses_run_scoped_buffer_and_flushes_after_commit(monkeypatch):
+    observed_buffers = []
+
+    def resumed_with_trace(**kwargs):
+        buffer = kwargs["trace_buffer"]
+        state = _resumed_state(final_content="模拟交易已提交。")
+        buffer.record_event(
+            TraceEvent(
+                trace_id=state["trace_id"],
+                node_name="tool_agent",
+                status="success",
+                latency_ms=2,
+            )
+        )
+        observed_buffers.append(buffer)
+        return state
+
+    monkeypatch.setattr(approvals, "resume_question_answer_graph", resumed_with_trace)
+    monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    app, session_factory = _test_app()
+    with session_factory() as db:
+        _seed_interrupted_turn(db)
+
+    response = TestClient(app).post(
+        "/api/approvals/approval_1/decision",
+        json={"decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    assert len(observed_buffers) == 1
+    with session_factory() as db:
+        run = db.get(AgentRun, "run_1")
+        events = list(db.scalars(select(AgentTraceEvent)))
+    assert run.status == "completed"
+    assert run.trace_capture_status == "captured"
+    assert [(event.trace_id, event.run_id, event.node_name) for event in events] == [
+        ("trace_1", "run_1", "tool_agent")
+    ]
 
 
 def test_approval_resume_interrupted_again_reuses_original_message(monkeypatch):

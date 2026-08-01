@@ -7,10 +7,11 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
-from app.harness.capture_policy import CaptureDecision
+from app.harness.capture_policy import CaptureDecision, TraceCaptureOutcome
 from app.harness.persistence import (
     TracePersistenceService,
     TraceRunIdentity,
+    finalize_trace_best_effort,
 )
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import TraceEvent
@@ -237,6 +238,30 @@ def test_trace_failure_does_not_rollback_business_records_and_logs_no_secret(
     assert run.status == "completed"
     assert run.trace_capture_status == "persist_failed"
     assert "super-secret-value" not in caplog.text
+
+
+def test_trace_finalizer_flushes_a_run_buffer_at_most_once(session_factory):
+    buffer = _buffer()
+    service = TracePersistenceService(session_factory=session_factory)
+
+    first = finalize_trace_best_effort(
+        run=_identity(),
+        buffer=buffer,
+        outcome=TraceCaptureOutcome(failed=True),
+        service=service,
+    )
+    second = finalize_trace_best_effort(
+        run=_identity(),
+        buffer=buffer,
+        outcome=TraceCaptureOutcome(failed=True),
+        service=service,
+    )
+
+    assert first is not None
+    assert first.status == "captured"
+    assert second is None
+    with session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(AgentTraceEvent)) == 2
 
 
 def _identity() -> TraceRunIdentity:

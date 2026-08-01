@@ -10,7 +10,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.harness.capture_policy import CaptureDecision
+from app.harness.capture_policy import (
+    CaptureDecision,
+    TraceCaptureOutcome,
+    TraceCapturePolicy,
+)
 from app.harness.trace_buffer import TraceArtifactDTO, TraceBuffer
 from app.harness.tracing import TraceEvent
 from app.storage.models import AgentRun, AgentTraceArtifact, AgentTraceEvent
@@ -117,6 +121,36 @@ class TracePersistenceService:
                 _safe_error_code(exc),
                 _fingerprint(run.run_id),
             )
+
+
+def finalize_trace_best_effort(
+    *,
+    run: TraceRunIdentity,
+    buffer: TraceBuffer,
+    outcome: TraceCaptureOutcome,
+    service: TracePersistenceService,
+) -> TracePersistenceResult | None:
+    if not buffer.claim_flush():
+        return None
+    try:
+        decision = TraceCapturePolicy(
+            success_sample_ratio=settings.trace_success_sample_ratio,
+            detailed_sample_ratio=settings.trace_detailed_sample_ratio,
+        ).decide(trace_id=run.trace_id, outcome=outcome)
+        return service.persist_best_effort(
+            run=run,
+            buffer=buffer,
+            decision=decision,
+        )
+    except Exception:
+        logger.error(
+            "trace_finalization_failed run_fingerprint=%s",
+            _fingerprint(run.run_id),
+        )
+        return TracePersistenceResult(
+            status="persist_failed",
+            error_code="trace_finalization_failed",
+        )
 
 
 def _require_matching_run(session: Session, identity: TraceRunIdentity) -> AgentRun:

@@ -2,6 +2,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -204,6 +205,8 @@ class TraceBuffer:
         )
         self._events: list[TraceEvent] = []
         self._artifacts: list[TraceArtifactDTO] = []
+        self._flush_lock = Lock()
+        self._flush_claimed = False
         self.truncated = False
 
     @property
@@ -213,6 +216,13 @@ class TraceBuffer:
     @property
     def artifacts(self) -> tuple[TraceArtifactDTO, ...]:
         return tuple(self._artifacts)
+
+    def claim_flush(self) -> bool:
+        with self._flush_lock:
+            if self._flush_claimed:
+                return False
+            self._flush_claimed = True
+            return True
 
     def record_event(self, event: TraceEvent) -> None:
         if len(self._events) < self.max_events:
