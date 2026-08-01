@@ -1,27 +1,17 @@
-from collections.abc import Sequence
-
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.graph.state import AgentState
-from app.harness.tracing import TraceEvent
 from app.memory.commit import commit_approved_experience_memories
 from app.memory.experience_store import ExperienceStore
 from app.memory.factory import build_experience_store
 from app.memory.store import SqlAlchemyMemoryStore
-from app.storage.models import AgentRun, AgentSession, AgentTraceEvent
-
-
-class TraceEventIntegrityError(RuntimeError):
-    code = "trace_event_integrity_error"
+from app.storage.models import AgentRun, AgentSession
 
 
 def persist_agent_run(
     *,
     session: Session,
     state: AgentState,
-    trace_events: Sequence[TraceEvent],
     status: str,
     experience_store: ExperienceStore | None = None,
     commit: bool = True,
@@ -75,7 +65,6 @@ def persist_agent_run(
             run.status = status
         run.intent = intent.get("intent")
         run.risk_level = intent.get("risk_level")
-    _persist_trace_events(session=session, run=run, trace_events=trace_events)
     candidate_store = SqlAlchemyMemoryStore(session)
     for candidate in state["memory_candidates"]:
         candidate_store.save_candidate(
@@ -93,101 +82,3 @@ def persist_agent_run(
     else:
         session.flush()
     return run
-
-
-def _persist_trace_events(
-    *,
-    session: Session,
-    run: AgentRun,
-    trace_events: Sequence[TraceEvent],
-) -> None:
-    for event in trace_events:
-        if event.trace_id != run.trace_id:
-            raise TraceEventIntegrityError(
-                f"Trace event {event.event_id} belongs to {event.trace_id}, "
-                f"but run {run.run_id} belongs to {run.trace_id}."
-            )
-
-    event_ids = {event.event_id for event in trace_events}
-    existing_events: dict[str, AgentTraceEvent] = {}
-    if event_ids:
-        existing_events.update(
-            (
-                event.event_id,
-                event,
-            )
-            for event in session.scalars(
-                select(AgentTraceEvent).where(
-                    AgentTraceEvent.event_id.in_(event_ids)
-                )
-            )
-        )
-
-    for event in trace_events:
-        existing_event = existing_events.get(event.event_id)
-        if existing_event is not None:
-            _validate_existing_trace_event(
-                existing_event=existing_event,
-                event=event,
-                run=run,
-            )
-            continue
-        try:
-            with session.begin_nested():
-                stored_event = AgentTraceEvent(
-                    event_id=event.event_id,
-                    trace_id=event.trace_id,
-                    run_id=run.run_id,
-                    node_name=event.node_name,
-                    event_type="node",
-                    status=event.status,
-                    latency_ms=event.latency_ms,
-                    error=event.error,
-                )
-                session.add(stored_event)
-                session.flush()
-        except IntegrityError:
-            # 另一个事务可能已写入同一稳定事件；唯一键将并发重试收敛为幂等成功。
-            stored_event = session.scalar(
-                select(AgentTraceEvent).where(
-                    AgentTraceEvent.event_id == event.event_id
-                )
-            )
-            if stored_event is None:
-                raise
-            _validate_existing_trace_event(
-                existing_event=stored_event,
-                event=event,
-                run=run,
-            )
-        existing_events[event.event_id] = stored_event
-
-
-def _validate_existing_trace_event(
-    *,
-    existing_event: AgentTraceEvent,
-    event: TraceEvent,
-    run: AgentRun,
-) -> None:
-    expected = (
-        run.run_id,
-        run.trace_id,
-        event.node_name,
-        "node",
-        event.status,
-        event.latency_ms,
-        event.error,
-    )
-    actual = (
-        existing_event.run_id,
-        existing_event.trace_id,
-        existing_event.node_name,
-        existing_event.event_type,
-        existing_event.status,
-        existing_event.latency_ms,
-        existing_event.error,
-    )
-    if actual != expected:
-        raise TraceEventIntegrityError(
-            f"Trace event {event.event_id} conflicts with its persisted record."
-        )

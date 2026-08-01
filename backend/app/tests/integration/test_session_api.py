@@ -895,7 +895,7 @@ def test_session_api_rejects_unauthenticated_request_before_graph(monkeypatch):
     assert graph_calls == []
 
 
-def test_post_session_message_persists_run_and_trace_events(monkeypatch):
+def test_post_session_message_persists_run_without_embedded_trace_write(monkeypatch):
     monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
     app, testing_session_local = create_test_app_with_database()
     client = TestClient(app)
@@ -917,7 +917,7 @@ def test_post_session_message_persists_run_and_trace_events(monkeypatch):
     assert saved_run.session_id == "s1"
     assert saved_run.status == "completed"
     assert saved_run.trace_id == response.json()["trace_id"]
-    assert {event.node_name for event in saved_events} >= {"intent_router", "final_response"}
+    assert saved_events == []
 
 
 def test_post_session_message_records_short_term_session_event(monkeypatch):
@@ -1958,7 +1958,7 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
     assert run.status == "interrupted"
 
 
-def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
+def test_approval_retry_does_not_persist_trace_in_business_transaction(monkeypatch):
     trace_store = InMemoryTraceStore()
     resume_calls = 0
 
@@ -2047,7 +2047,7 @@ def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
         saved_run = session.get(AgentRun, "run_1")
         saved_events = session.scalars(select(AgentTraceEvent)).all()
     assert saved_run.status == "completed"
-    assert [event.node_name for event in saved_events] == ["tool_agent"]
+    assert saved_events == []
 
 
 def test_post_session_message_returns_500_for_graph_execution_error(monkeypatch):

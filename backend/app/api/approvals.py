@@ -245,7 +245,6 @@ def decide_approval(
         ) from exc
     try:
         _validate_resume_state(resume_snapshot, state)
-        trace_events = trace_store.list_events(state["trace_id"])
         interrupt_payloads = [
             interrupt.value for interrupt in state.get("__interrupt__", [])
         ]
@@ -269,7 +268,6 @@ def decide_approval(
         persist_agent_run(
             session=db,
             state=state,
-            trace_events=trace_events,
             status=run_status,
             commit=False,
             run_id=resume_snapshot.run_id,

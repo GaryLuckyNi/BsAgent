@@ -460,7 +460,6 @@ def _run_and_persist_agent_message(
         _persist_agent_message_state(
             db=db,
             state=state,
-            trace_store=trace_store,
             experience_store=experience_store,
             interrupt_payloads=interrupt_payloads,
             run_id=handle.run_id,
@@ -658,7 +657,6 @@ def _stream_agent_message(
         _persist_agent_message_state(
             db=db,
             state=state,
-            trace_store=trace_store,
             experience_store=experience_store,
             interrupt_payloads=interrupt_payloads,
             run_id=handle.run_id,
@@ -886,7 +884,6 @@ def _persist_agent_message_state(
     *,
     db: Session,
     state: AgentState,
-    trace_store,
     experience_store,
     interrupt_payloads: list[dict],
     run_id: str | None = None,
@@ -904,7 +901,6 @@ def _persist_agent_message_state(
     persist_agent_run(
         session=db,
         state=state,
-        trace_events=trace_store.list_events(state["trace_id"]),
         status="interrupted" if interrupt_payloads else "completed",
         experience_store=experience_store,
         run_id=run_id,
