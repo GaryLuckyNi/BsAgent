@@ -39,6 +39,12 @@ def persist_agent_run(
             status="active",
         )
         session.add(agent_session)
+    elif (
+        agent_session.session_id != state["session_id"]
+        or agent_session.tenant_id != state["tenant_id"]
+        or agent_session.user_id != state["user_id"]
+    ):
+        raise ValueError("agent_session_identity_conflict")
 
     intent = state["intent"] or {}
     persisted_run_id = run_id or state["request_id"]
@@ -76,7 +82,7 @@ def persist_agent_run(
             candidate,
             tenant_id=state["tenant_id"],
             user_id=state["user_id"],
-            run_id=state["request_id"],
+            run_id=persisted_run_id,
         )
     commit_approved_experience_memories(
         state=state,

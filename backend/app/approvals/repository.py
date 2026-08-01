@@ -44,6 +44,7 @@ class ApprovalRecordCreate(BaseModel):
     arguments_hash: str
     payload: dict[str, Any] = Field(default_factory=dict)
     checkpoint_thread_id: str
+    checkpoint_namespace: Literal[""] = ""
 
 
 class ApprovalRepository:
@@ -67,7 +68,16 @@ class ApprovalRepository:
             tool_version=data.tool_version,
             arguments_hash=data.arguments_hash,
             payload_json=json.dumps(
-                data.payload,
+                {
+                    **data.payload,
+                    "run_id": data.run_id,
+                    "session_id": data.session_id,
+                    "session_key": data.session_key,
+                    "tenant_id": data.tenant_id,
+                    "request_user_id": data.request_user_id,
+                    "checkpoint_thread_id": data.checkpoint_thread_id,
+                    "checkpoint_namespace": data.checkpoint_namespace,
+                },
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
@@ -104,6 +114,7 @@ class ApprovalRepository:
                 arguments_hash=payload["arguments_hash"],
                 payload=payload,
                 checkpoint_thread_id=payload["checkpoint_thread_id"],
+                checkpoint_namespace=payload["checkpoint_namespace"],
             )
         )
 
@@ -272,6 +283,8 @@ def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
         and record.tool_version == data.tool_version
         and record.arguments_hash == data.arguments_hash
         and record.checkpoint_thread_id == data.checkpoint_thread_id
+        and json.loads(record.payload_json).get("checkpoint_namespace", "")
+        == data.checkpoint_namespace
     )
 
 

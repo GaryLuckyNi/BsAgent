@@ -15,6 +15,7 @@ from app.approvals.repository import (
 from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import AgentGraphExecutionError, resume_question_answer_graph
+from app.graph.state import AgentState
 from app.harness.tracing import get_trace_store
 from app.llm.factory import maybe_build_llm_client
 from app.security.dependencies import require_permission
@@ -35,11 +36,19 @@ class ApprovalDecisionRequest(BaseModel):
 class ApprovalResumeSnapshot:
     approval_id: str
     run_id: str
+    session_id: str
+    session_key: str
     tenant_id: str
     request_user_id: str
+    trace_id: str
     arguments_hash: str
     checkpoint_thread_id: str
+    checkpoint_namespace: Literal[""]
     claim_token: str
+
+
+class ApprovalResumeIdentityError(RuntimeError):
+    code = "approval_resume_identity_mismatch"
 
 
 @router.get("/pending")
@@ -67,23 +76,33 @@ def decide_approval(
             decided_by=principal.user_id,
         )
         approval_payload = _approval_payload(claim.record)
+        persisted_run = db.get(AgentRun, claim.record.run_id)
         resume_snapshot = (
-            _resume_snapshot(claim.record, claim.claim_token)
+            _resume_snapshot(claim.record, claim.claim_token, persisted_run)
             if claim.acquired
             else None
         )
         db.commit()
     except ApprovalNotFoundError as exc:
+        db.rollback()
         raise HTTPException(status_code=404, detail={"code": "approval_not_found"}) from exc
     except ApprovalResumeInProgressError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=409,
             detail={"code": "approval_resume_in_progress", "message": str(exc)},
         ) from exc
     except ApprovalConflictError as exc:
+        db.rollback()
         raise HTTPException(
             status_code=409,
             detail={"code": "approval_already_decided", "message": str(exc)},
+        ) from exc
+    except ApprovalResumeIdentityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code},
         ) from exc
 
     if not claim.acquired:
@@ -104,6 +123,7 @@ def decide_approval(
     try:
         state = resume_question_answer_graph(
             checkpoint_thread_id=resume_snapshot.checkpoint_thread_id,
+            checkpoint_namespace=resume_snapshot.checkpoint_namespace,
             approval_decision={
                 "approval_id": resume_snapshot.approval_id,
                 "arguments_hash": resume_snapshot.arguments_hash,
@@ -141,12 +161,23 @@ def decide_approval(
             },
         ) from exc
     try:
+        _validate_resume_state(resume_snapshot, state)
         trace_events = trace_store.list_events(state["trace_id"])
         interrupt_payloads = [
             interrupt.value for interrupt in state.get("__interrupt__", [])
         ]
         for payload in interrupt_payloads:
-            repository.create_pending_from_interrupt(payload)
+            repository.create_pending_from_interrupt(
+                {
+                    **payload,
+                    "run_id": resume_snapshot.run_id,
+                    "session_id": resume_snapshot.session_id,
+                    "session_key": state["session_key"],
+                    "tenant_id": resume_snapshot.tenant_id,
+                    "request_user_id": resume_snapshot.request_user_id,
+                    "checkpoint_namespace": resume_snapshot.checkpoint_namespace,
+                }
+            )
         interrupted = bool(interrupt_payloads)
         run_status = "interrupted" if interrupted else (
             "rejected" if request.decision == "rejected" else "completed"
@@ -157,6 +188,7 @@ def decide_approval(
             trace_events=trace_events,
             status=run_status,
             commit=False,
+            run_id=resume_snapshot.run_id,
         )
         record = repository.complete_resume(
             approval_id=resume_snapshot.approval_id,
@@ -165,6 +197,17 @@ def decide_approval(
         )
         approval_payload = _approval_payload(record)
         db.commit()
+    except ApprovalResumeIdentityError as exc:
+        _record_resume_failure(
+            db=db,
+            repository=repository,
+            snapshot=resume_snapshot,
+            error=f"{exc.code}: {exc}",
+        )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": exc.code},
+        ) from exc
     except Exception as exc:
         _record_resume_failure(
             db=db,
@@ -181,7 +224,7 @@ def decide_approval(
         ) from exc
     return {
         "approval": approval_payload,
-        "run_id": state["request_id"],
+        "run_id": resume_snapshot.run_id,
         "run_status": run_status,
         "final_response": state["final_response"],
     }
@@ -209,6 +252,7 @@ def _approval_payload(record: ApprovalRecord) -> dict:
         "approval_id": record.approval_id,
         "run_id": record.run_id,
         "session_id": record.session_id,
+        "session_key": record.session_key,
         "tenant_id": record.tenant_id,
         "request_user_id": record.request_user_id,
         "approval_type": record.approval_type,
@@ -217,6 +261,9 @@ def _approval_payload(record: ApprovalRecord) -> dict:
         "arguments_hash": record.arguments_hash,
         "payload": redact_sensitive_data(json.loads(record.payload_json)),
         "checkpoint_thread_id": record.checkpoint_thread_id,
+        "checkpoint_namespace": json.loads(record.payload_json).get(
+            "checkpoint_namespace", ""
+        ),
         "status": record.status,
         "decision": record.decision,
         "resume_attempts": record.resume_attempts,
@@ -234,15 +281,53 @@ def _approval_payload(record: ApprovalRecord) -> dict:
 def _resume_snapshot(
     record: ApprovalRecord,
     claim_token: str | None,
+    run: AgentRun | None,
 ) -> ApprovalResumeSnapshot:
     if claim_token is None:
         raise ApprovalConflictError("Approval resume claim token is missing.")
+    if run is None or (
+        run.run_id != record.run_id
+        or run.session_id != record.session_id
+        or run.session_key != record.session_key
+        or run.tenant_id != record.tenant_id
+        or run.user_id != record.request_user_id
+    ):
+        raise ApprovalResumeIdentityError(
+            "Approval resume Run identity is inconsistent."
+        )
+    checkpoint_namespace = json.loads(record.payload_json).get(
+        "checkpoint_namespace", ""
+    )
+    if checkpoint_namespace != "":
+        raise ApprovalResumeIdentityError(
+            "Approval checkpoint namespace is invalid."
+        )
     return ApprovalResumeSnapshot(
         approval_id=record.approval_id,
         run_id=record.run_id,
+        session_id=record.session_id,
+        session_key=record.session_key,
         tenant_id=record.tenant_id,
         request_user_id=record.request_user_id,
+        trace_id=run.trace_id,
         arguments_hash=record.arguments_hash,
         checkpoint_thread_id=record.checkpoint_thread_id,
+        checkpoint_namespace="",
         claim_token=claim_token,
     )
+
+
+def _validate_resume_state(
+    snapshot: ApprovalResumeSnapshot,
+    state: AgentState,
+) -> None:
+    if (
+        state["session_id"] != snapshot.session_id
+        or state["session_key"] != snapshot.session_key
+        or state["tenant_id"] != snapshot.tenant_id
+        or state["user_id"] != snapshot.request_user_id
+        or state["trace_id"] != snapshot.trace_id
+    ):
+        raise ApprovalResumeIdentityError(
+            "Approval resume State identity does not match the persisted Run."
+        )

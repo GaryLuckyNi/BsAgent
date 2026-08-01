@@ -2,12 +2,14 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.approvals.repository import ApprovalRepository
@@ -69,6 +71,61 @@ AGENT_INVOCATION_RATE_LIMIT = RateLimitPolicy(
     requests_per_minute=settings.agent_rate_limit_per_minute,
 )
 CONVERSATION_HISTORY_LIMIT = 20
+
+
+class ConversationPersistenceUnavailable(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class _ExperienceEntrySnapshot:
+    source_candidate_id: str
+    user_id: str
+    memory_type: str
+    content: str
+    source: str | None
+
+
+@dataclass(frozen=True)
+class _ExperienceSnapshotReader:
+    tenant_id: str
+    user_id: str
+    entries: tuple[_ExperienceEntrySnapshot, ...]
+
+    def list_for_user(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+    ) -> list[_ExperienceEntrySnapshot]:
+        if tenant_id != self.tenant_id or user_id != self.user_id:
+            return []
+        return list(self.entries)
+
+
+@dataclass(frozen=True)
+class _AttachmentContextSnapshotResolver:
+    tenant_id: str
+    user_id: str
+    session_id: str
+    asset_ids: tuple[str, ...]
+    contexts_json: tuple[str, ...]
+
+    def resolve(
+        self,
+        asset_ids: list[str],
+        *,
+        principal: Principal,
+        session_id: str,
+    ) -> list[dict]:
+        if (
+            principal.tenant_id != self.tenant_id
+            or principal.user_id != self.user_id
+            or session_id != self.session_id
+            or tuple(asset_ids) != self.asset_ids
+        ):
+            raise ValueError("attachment_snapshot_identity_mismatch")
+        return [json.loads(context) for context in self.contexts_json]
 
 
 def get_attachment_context_resolver(
@@ -165,6 +222,11 @@ def post_message(
             status_code=503,
             detail=_llm_configuration_error_payload(exc),
         ) from exc
+    except ConversationPersistenceUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "conversation_persistence_unavailable"},
+        ) from exc
     except (ConversationConflictError, SessionBusyError) as exc:
         raise HTTPException(
             status_code=409,
@@ -246,45 +308,94 @@ def _run_and_persist_agent_message(
     request_id: str,
 ) -> SessionMessageResponse:
     conversation_service = ConversationService(db)
-    handle = conversation_service.begin_turn(
-        BeginTurn(
+    try:
+        handle = conversation_service.begin_turn(
+            BeginTurn(
+                tenant_id=principal.tenant_id,
+                user_id=principal.user_id,
+                session_id=session_id,
+                request_id=request_id,
+                user_content=request.message,
+                metadata=ConversationMetadata(
+                    attachment_ids=tuple(request.attachments)
+                ),
+            )
+        )
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise ConversationPersistenceUnavailable from exc
+
+    if handle.replayed:
+        try:
+            return _replayed_message_response(
+                db=db,
+                tenant_id=principal.tenant_id,
+                handle=handle,
+            )
+        except SQLAlchemyError as exc:
+            db.rollback()
+            raise ConversationPersistenceUnavailable from exc
+
+    try:
+        history_records = ConversationRepository(db).list_context_messages(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            session_key=handle.session_key,
+            exclude_request_id=handle.request_id,
+            limit=CONVERSATION_HISTORY_LIMIT,
+        )
+        history = [
+            Message(
+                message_id=record.message_id,
+                role=record.role,
+                content=record.content,
+                metadata={"request_id": record.request_id},
+            )
+            for record in history_records
+        ]
+        experience_entries = build_experience_store(session=db).list_for_user(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+        )
+        memory_reader = _ExperienceSnapshotReader(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            entries=tuple(
+                _ExperienceEntrySnapshot(
+                    source_candidate_id=entry.source_candidate_id,
+                    user_id=entry.user_id,
+                    memory_type=entry.memory_type,
+                    content=entry.content,
+                    source=entry.source,
+                )
+                for entry in experience_entries
+            ),
+        )
+        attachment_contexts = (
+            attachment_resolver.resolve(
+                request.attachments,
+                principal=principal,
+                session_id=session_id,
+            )
+            if request.attachments
+            else []
+        )
+        snapshot_attachment_resolver = _AttachmentContextSnapshotResolver(
             tenant_id=principal.tenant_id,
             user_id=principal.user_id,
             session_id=session_id,
-            request_id=request_id,
-            user_content=request.message,
-            metadata=ConversationMetadata(attachment_ids=tuple(request.attachments)),
+            asset_ids=tuple(request.attachments),
+            contexts_json=tuple(
+                json.dumps(context, ensure_ascii=False, sort_keys=True)
+                for context in attachment_contexts
+            ),
         )
-    )
-    db.commit()
-    if handle.replayed:
-        return _replayed_message_response(
-            db=db,
-            tenant_id=principal.tenant_id,
-            handle=handle,
-        )
+        db.commit()
 
-    history_records = ConversationRepository(db).list_context_messages(
-        tenant_id=principal.tenant_id,
-        user_id=principal.user_id,
-        session_key=handle.session_key,
-        exclude_request_id=handle.request_id,
-        limit=CONVERSATION_HISTORY_LIMIT,
-    )
-    history = [
-        Message(
-            message_id=record.message_id,
-            role=record.role,
-            content=record.content,
-            metadata={"request_id": record.request_id},
-        )
-        for record in history_records
-    ]
-    db.commit()
-
-    trace_store = get_trace_store()
-    experience_store = build_experience_store(session=db)
-    try:
+        trace_store = get_trace_store()
+        checkpointer = build_graph_checkpointer()
+        llm_client = maybe_build_llm_client()
         state = run_question_answer_graph(
             session_id=session_id,
             session_key=handle.session_key,
@@ -297,16 +408,17 @@ def _run_and_persist_agent_message(
             assistant_message_id=handle.assistant_message_id,
             history=history,
             mock_evidence=settings.use_mock_rag,
-            memory_retriever=ExperienceMemoryRetriever(experience_store),
+            memory_retriever=ExperienceMemoryRetriever(memory_reader),
             trace_store=trace_store,
-            checkpointer=build_graph_checkpointer(),
-            llm_client=maybe_build_llm_client(),
+            checkpointer=checkpointer,
+            llm_client=llm_client,
             permission_scopes=list(principal.scopes),
             attachment_ids=request.attachments,
-            attachment_resolver=attachment_resolver,
+            attachment_resolver=snapshot_attachment_resolver,
         )
 
         interrupt_payloads = _interrupt_payloads(state)
+        experience_store = build_experience_store(session=db)
         _persist_agent_message_state(
             db=db,
             state=state,
@@ -331,19 +443,52 @@ def _run_and_persist_agent_message(
                 metadata=_assistant_response_metadata(final_response),
             )
         db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        try:
+            _fail_turn_after_error(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+            )
+        except SQLAlchemyError:
+            pass
+        raise ConversationPersistenceUnavailable from exc
     except Exception:
         db.rollback()
         try:
-            conversation_service.fail_turn(
-                tenant_id=principal.tenant_id,
-                run_id=handle.run_id,
-                error_code="agent_execution_failed",
+            _fail_turn_after_error(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
             )
-            db.commit()
-        except ConversationConflictError:
-            db.rollback()
+        except SQLAlchemyError as exc:
+            raise ConversationPersistenceUnavailable from exc
         raise
     return _session_message_response(state, handle=handle)
+
+
+def _fail_turn_after_error(
+    *,
+    db: Session,
+    conversation_service: ConversationService,
+    principal: Principal,
+    handle: TurnHandle,
+) -> None:
+    try:
+        conversation_service.fail_turn(
+            tenant_id=principal.tenant_id,
+            run_id=handle.run_id,
+            error_code="agent_execution_failed",
+        )
+        db.commit()
+    except ConversationConflictError:
+        db.rollback()
+    except SQLAlchemyError:
+        db.rollback()
+        raise
 
 
 def _stream_agent_message(

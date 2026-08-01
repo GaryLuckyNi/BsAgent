@@ -79,18 +79,21 @@ def test_persist_agent_run_updates_existing_run_when_resumed():
             state=state,
             trace_events=[first_event],
             status="interrupted",
+            run_id="stable_run_1",
         )
         persist_agent_run(
             session=session,
             state=state,
             trace_events=[resumed_event],
             status="completed",
+            run_id="stable_run_1",
         )
 
         saved_runs = session.scalars(select(AgentRun)).all()
         saved_events = session.scalars(select(AgentTraceEvent)).all()
 
     assert len(saved_runs) == 1
+    assert saved_runs[0].run_id == "stable_run_1"
     assert saved_runs[0].status == "completed"
     assert [event.node_name for event in saved_events] == ["approval_gate", "tool_agent"]
 
@@ -258,6 +261,76 @@ def test_persist_agent_run_stores_and_merges_memory_candidates():
     assert saved_candidates[0].confidence == 0.95
     assert saved_candidates[0].sensitivity == "high"
     assert saved_candidates[0].approval_status == "pending"
+
+
+def test_persist_agent_run_uses_override_run_id_for_memory_candidate():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="记住偏好",
+    )
+    state["memory_candidates"] = [
+        MemoryCandidate(
+            candidate_id="memcand_override",
+            memory_type="user_preference",
+            content="使用中文",
+            confidence=0.9,
+            approval_status="not_required",
+            sensitivity="low",
+            source="user_explicit_preference",
+        )
+    ]
+
+    with Session(engine) as session:
+        persist_agent_run(
+            session=session,
+            state=state,
+            trace_events=[],
+            status="completed",
+            run_id="stable_run_1",
+        )
+        candidate = session.get(MemoryCandidateRecord, "memcand_override")
+        run = session.get(AgentRun, "stable_run_1")
+        request_run = session.get(AgentRun, state["request_id"])
+
+    assert candidate.run_id == run.run_id == "stable_run_1"
+    assert candidate.tenant_id == "tenant_1"
+    assert candidate.user_id == "user_1"
+    assert request_run is None
+
+
+def test_persist_agent_run_rejects_cross_tenant_existing_session_key():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        session_key="shared_session_key",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="问题",
+    )
+
+    with Session(engine) as session:
+        session.add(
+            AgentSession(
+                session_key="shared_session_key",
+                session_id="session_1",
+                tenant_id="tenant_2",
+                user_id="user_1",
+            )
+        )
+        session.commit()
+
+        with pytest.raises(ValueError, match="agent_session_identity_conflict"):
+            persist_agent_run(
+                session=session,
+                state=state,
+                trace_events=[],
+                status="completed",
+            )
 
 
 def test_persist_agent_run_commits_approved_memory_to_injected_experience_store():

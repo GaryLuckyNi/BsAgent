@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+import json
 from threading import Barrier
 
 import pytest
@@ -54,6 +55,9 @@ def test_approval_repository_creates_pending_record_idempotently(session):
     assert second.approval_id == "approval_1"
     assert second.status == "pending"
     assert repository.list_pending(tenant_id="tenant_1") == [second]
+    payload = json.loads(second.payload_json)
+    assert payload["session_key"] == "session_key_1"
+    assert payload["checkpoint_namespace"] == ""
 
 
 def test_approval_repository_rejects_same_id_with_changed_hash(session):

@@ -8,6 +8,7 @@ import pytest
 from langgraph.types import Interrupt
 from sqlalchemy import select
 from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -384,20 +385,230 @@ def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
 def test_post_message_releases_turn_transaction_before_graph(monkeypatch):
     observed = {}
 
+    attachment_context = {
+        "asset_id": "asset-1",
+        "analysis_id": "analysis-1",
+        "media_type": "image/png",
+        "width": 32,
+        "height": 16,
+        "status": "ready",
+        "document_type": "chart",
+        "summary": "附件快照",
+        "extracted_text": "收入增长",
+        "financial_metrics": [],
+        "chart_observations": [],
+        "entities": [],
+        "risk_flags": [],
+        "confidence": 0.9,
+        "truncated": False,
+    }
+
+    class RecordingAttachmentResolver:
+        def __init__(self):
+            self.calls = 0
+
+        def resolve(self, asset_ids, *, principal, session_id):
+            self.calls += 1
+            assert observed["db"].in_transaction()
+            assert asset_ids == ["asset-1"]
+            return [attachment_context]
+
+    source_resolver = RecordingAttachmentResolver()
+
     def record_session(db):
         observed["db"] = db
 
     def fake_graph(**kwargs):
         observed["in_transaction"] = observed["db"].in_transaction()
+        memory = kwargs["memory_retriever"](
+            "问题",
+            tenant_id=kwargs["tenant_id"],
+            user_id=kwargs["user_id"],
+        )
+        attachments = kwargs["attachment_resolver"].resolve(
+            ["asset-1"],
+            principal=Principal(
+                tenant_id=kwargs["tenant_id"],
+                user_id=kwargs["user_id"],
+                scopes=tuple(kwargs["permission_scopes"]),
+            ),
+            session_id=kwargs["session_id"],
+        )
+        observed["memory_content"] = memory.items[0].content
+        observed["attachment_summary"] = attachments[0]["summary"]
         return _completed_graph_state(kwargs)
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
-    app, _ = create_test_app_with_database(on_session=record_session)
+    app, testing_session_local = create_test_app_with_database(on_session=record_session)
+    app.dependency_overrides[sessions.get_attachment_context_resolver] = (
+        lambda: source_resolver
+    )
+    with testing_session_local() as db:
+        db.add(
+            ExperienceEntryRecord(
+                entry_id="experience-1",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                memory_type="user_preference",
+                content="所有回答使用中文",
+                source_candidate_id="candidate-1",
+                sensitivity="low",
+                source="user_explicit_preference",
+            )
+        )
+        db.commit()
 
-    response = TestClient(app).post("/api/sessions/s1/messages", json={"message": "问题"})
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages",
+        json={"message": "问题", "attachments": ["asset-1"]},
+    )
 
     assert response.status_code == 200
     assert observed["in_transaction"] is False
+    assert observed["memory_content"].endswith("所有回答使用中文")
+    assert observed["attachment_summary"] == "附件快照"
+    assert source_resolver.calls == 1
+
+
+@pytest.mark.parametrize("failure_stage", ["history", "attachment", "init"])
+def test_post_message_pre_graph_failure_fails_turn_and_releases_session(
+    monkeypatch,
+    failure_stage,
+):
+    call_count = 0
+
+    if failure_stage == "history":
+        original = sessions.ConversationRepository.list_context_messages
+
+        def fail_once(repository, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("history unavailable")
+            return original(repository, **kwargs)
+
+        monkeypatch.setattr(
+            sessions.ConversationRepository,
+            "list_context_messages",
+            fail_once,
+        )
+    elif failure_stage == "init":
+        original = sessions.build_graph_checkpointer
+
+        def fail_once():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("checkpointer unavailable")
+            return original()
+
+        monkeypatch.setattr(sessions, "build_graph_checkpointer", fail_once)
+
+    class FailOnceAttachmentResolver:
+        def resolve(self, *_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if failure_stage == "attachment" and call_count == 1:
+                raise RuntimeError("attachment unavailable")
+            return []
+
+    monkeypatch.setattr(
+        sessions,
+        "run_question_answer_graph",
+        lambda **kwargs: _completed_graph_state(kwargs),
+    )
+    app, testing_session_local = create_test_app_with_database()
+    app.dependency_overrides[sessions.get_attachment_context_resolver] = (
+        FailOnceAttachmentResolver
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+    payload = {
+        "message": "问题",
+        "attachments": ["asset-1"] if failure_stage == "attachment" else [],
+    }
+
+    first = client.post(
+        "/api/sessions/s1/messages",
+        headers={"Idempotency-Key": f"failed-{failure_stage}"},
+        json=payload,
+    )
+    second = client.post(
+        "/api/sessions/s1/messages",
+        headers={"Idempotency-Key": f"retry-{failure_stage}"},
+        json=payload,
+    )
+
+    assert first.status_code == 500
+    assert second.status_code == 200
+    with testing_session_local() as db:
+        session_record = db.scalars(select(AgentSession)).one()
+        runs = list(db.scalars(select(AgentRun).order_by(AgentRun.created_at)))
+        assistants = list(
+            db.scalars(
+                select(AgentMessage)
+                .where(AgentMessage.role == "assistant")
+                .order_by(AgentMessage.sequence_no)
+            )
+        )
+    assert session_record.active_run_id is None
+    assert [run.status for run in runs] == ["failed", "completed"]
+    assert [message.status for message in assistants] == ["failed", "completed"]
+
+
+def test_post_message_maps_database_error_to_safe_503(monkeypatch):
+    def fail_begin_turn(*_args, **_kwargs):
+        raise SQLAlchemyError("SELECT secret FROM credentials")
+
+    monkeypatch.setattr(sessions.ConversationService, "begin_turn", fail_begin_turn)
+    app, _ = create_test_app_with_database()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/sessions/s1/messages",
+        json={"message": "问题"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "conversation_persistence_unavailable"}
+    }
+    assert "secret" not in response.text
+
+
+def test_post_message_maps_completion_database_error_to_safe_503(monkeypatch):
+    def fail_complete_turn(*_args, **_kwargs):
+        raise SQLAlchemyError("UPDATE secret_credentials")
+
+    monkeypatch.setattr(
+        sessions.ConversationService,
+        "complete_turn",
+        fail_complete_turn,
+    )
+    monkeypatch.setattr(
+        sessions,
+        "run_question_answer_graph",
+        lambda **kwargs: _completed_graph_state(kwargs),
+    )
+    app, testing_session_local = create_test_app_with_database()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/sessions/s1/messages",
+        json={"message": "问题"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "conversation_persistence_unavailable"}
+    }
+    assert "secret" not in response.text
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalar(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        )
+        session_record = db.scalars(select(AgentSession)).one()
+    assert run.status == "failed"
+    assert assistant.status == "failed"
+    assert session_record.active_run_id is None
 
 
 def test_post_message_generates_safe_request_id_when_header_is_missing(monkeypatch):
@@ -517,6 +728,15 @@ def test_session_api_passes_attachment_refs_and_resolver_into_graph(monkeypatch)
     def fake_graph(**kwargs):
         captured["attachment_ids"] = kwargs["attachment_ids"]
         captured["attachment_resolver"] = kwargs["attachment_resolver"]
+        captured["snapshot_contexts"] = kwargs["attachment_resolver"].resolve(
+            kwargs["attachment_ids"],
+            principal=Principal(
+                tenant_id=kwargs["tenant_id"],
+                user_id=kwargs["user_id"],
+                scopes=tuple(kwargs["permission_scopes"]),
+            ),
+            session_id=kwargs["session_id"],
+        )
         state = _initial_state_from_graph_kwargs(kwargs)
         state["final_response"] = {
             "content": "ok",
@@ -539,9 +759,12 @@ def test_session_api_passes_attachment_refs_and_resolver_into_graph(monkeypatch)
     )
 
     assert response.status_code == 200
-    assert "resolved_asset_ids" not in captured
+    assert captured["resolved_asset_ids"] == ["asset-1"]
+    assert captured["resolved_tenant_id"] == "tenant_1"
+    assert captured["resolved_session_id"] == "s1"
     assert captured["attachment_ids"] == ["asset-1"]
-    assert isinstance(captured["attachment_resolver"], AttachmentResolver)
+    assert not isinstance(captured["attachment_resolver"], AttachmentResolver)
+    assert captured["snapshot_contexts"][0]["summary"] == "图表摘要"
 
 
 def test_session_api_rejects_unauthenticated_request_before_graph(monkeypatch):
@@ -978,10 +1201,10 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
                 value={
                     "approval_id": "approval_1",
                     "approval_type": "tool_call",
-                        "run_id": state["request_id"],
-                        "session_id": state["session_id"],
-                        "session_key": state["session_key"],
-                        "tenant_id": state["tenant_id"],
+                    "run_id": state["request_id"],
+                    "session_id": state["session_id"],
+                    "session_key": state["session_key"],
+                    "tenant_id": state["tenant_id"],
                     "request_user_id": state["user_id"],
                     "tool_name": "mcp.mock.trade.submit",
                     "tool_version": "1.0.0",
@@ -989,6 +1212,7 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
                     "arguments": {"symbol": "600519"},
                     "purpose": "提交模拟交易",
                     "checkpoint_thread_id": state["request_id"],
+                    "checkpoint_namespace": "",
                     "status": "pending",
                 }
             )
@@ -1033,7 +1257,7 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
             user_message="提交一笔模拟交易",
             permission_scopes=["mcp:mock", "rag:retrieve"],
         )
-        state["request_id"] = "run_1"
+        state["request_id"] = "checkpoint_request_1"
         state["trace_id"] = "trace_1"
         state["final_response"] = {
             "content": "模拟交易已提交。",
@@ -1064,6 +1288,17 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
                 status="pending",
             )
         )
+        session.add(
+            AgentRun(
+                run_id="run_1",
+                session_id="session_1",
+                session_key="session_key_1",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                trace_id="trace_1",
+                status="interrupted",
+            )
+        )
         session.commit()
     client = TestClient(app)
 
@@ -1084,13 +1319,169 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
         "decision": "approved",
     }
     assert captured["permission_scopes"] is None
+    assert response.json()["run_id"] == "run_1"
     assert response.json()["run_status"] == "completed"
     with testing_session_local() as session:
         approval = session.get(ApprovalRecord, "approval_1")
         run = session.get(AgentRun, "run_1")
+        runs = list(session.scalars(select(AgentRun)))
     assert approval.status == "approved"
     assert approval.decided_by == "approver_1"
     assert run.status == "completed"
+    assert [item.run_id for item in runs] == ["run_1"]
+
+
+def test_approval_resume_rejects_state_identity_mismatch(monkeypatch):
+    def fake_resume(**kwargs):
+        state = create_initial_state(
+            session_id="session_1",
+            session_key="wrong_session_key",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            user_message="提交一笔模拟交易",
+            permission_scopes=kwargs["permission_scopes"],
+        )
+        state["request_id"] = "checkpoint_request_1"
+        state["trace_id"] = "trace_1"
+        return state
+
+    monkeypatch.setattr(approvals, "resume_question_answer_graph", fake_resume)
+    monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                ApprovalRecord(
+                    approval_id="approval_1",
+                    run_id="run_1",
+                    session_id="session_1",
+                    session_key="session_key_1",
+                    tenant_id="tenant_1",
+                    request_user_id="user_1",
+                    approval_type="tool_call",
+                    tool_name="mcp.mock.trade.submit",
+                    tool_version="1.0.0",
+                    arguments_hash="hash_1",
+                    payload_json='{"checkpoint_namespace":""}',
+                    checkpoint_thread_id="run_1",
+                    status="pending",
+                ),
+                AgentRun(
+                    run_id="run_1",
+                    session_id="session_1",
+                    session_key="session_key_1",
+                    tenant_id="tenant_1",
+                    user_id="user_1",
+                    trace_id="trace_1",
+                    status="interrupted",
+                ),
+            ]
+        )
+        session.commit()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/approvals/approval_1/decision",
+        json={"actor_id": "approver_1", "decision": "approved"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "approval_resume_identity_mismatch"
+    with testing_session_local() as session:
+        approval = session.get(ApprovalRecord, "approval_1")
+        run = session.get(AgentRun, "run_1")
+    assert approval.status == "resume_failed"
+    assert run.status == "interrupted"
+
+
+def test_approval_resume_child_approval_keeps_original_run_identity(monkeypatch):
+    def fake_resume(**kwargs):
+        state = create_initial_state(
+            session_id="session_1",
+            session_key="session_key_1",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            user_message="提交另一笔模拟交易",
+            permission_scopes=kwargs["permission_scopes"],
+        )
+        state["request_id"] = "checkpoint_request_2"
+        state["trace_id"] = "trace_1"
+        state["__interrupt__"] = [
+            Interrupt(
+                value={
+                    "approval_id": "approval_child",
+                    "approval_type": "tool_call",
+                    "run_id": "wrong_run",
+                    "session_id": "wrong_session",
+                    "session_key": "wrong_session_key",
+                    "tenant_id": "wrong_tenant",
+                    "request_user_id": "wrong_user",
+                    "tool_name": "mcp.mock.trade.submit",
+                    "tool_version": "1.0.0",
+                    "arguments_hash": "hash_child",
+                    "arguments": {"symbol": "000001"},
+                    "purpose": "提交第二笔模拟交易",
+                    "checkpoint_thread_id": "child_checkpoint",
+                    "checkpoint_namespace": "",
+                    "status": "pending",
+                }
+            )
+        ]
+        return state
+
+    monkeypatch.setattr(approvals, "resume_question_answer_graph", fake_resume)
+    monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as session:
+        session.add_all(
+            [
+                ApprovalRecord(
+                    approval_id="approval_1",
+                    run_id="run_1",
+                    session_id="session_1",
+                    session_key="session_key_1",
+                    tenant_id="tenant_1",
+                    request_user_id="user_1",
+                    approval_type="tool_call",
+                    tool_name="mcp.mock.trade.submit",
+                    tool_version="1.0.0",
+                    arguments_hash="hash_1",
+                    payload_json='{"checkpoint_namespace":""}',
+                    checkpoint_thread_id="run_1",
+                    status="pending",
+                ),
+                AgentRun(
+                    run_id="run_1",
+                    session_id="session_1",
+                    session_key="session_key_1",
+                    tenant_id="tenant_1",
+                    user_id="user_1",
+                    trace_id="trace_1",
+                    status="interrupted",
+                ),
+            ]
+        )
+        session.commit()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/approvals/approval_1/decision",
+        json={"actor_id": "approver_1", "decision": "approved"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["run_id"] == "run_1"
+    with testing_session_local() as session:
+        child = session.get(ApprovalRecord, "approval_child")
+        runs = list(session.scalars(select(AgentRun)))
+    child_payload = json.loads(child.payload_json)
+    assert child.run_id == "run_1"
+    assert child.session_id == "session_1"
+    assert child.session_key == "session_key_1"
+    assert child.tenant_id == "tenant_1"
+    assert child.request_user_id == "user_1"
+    assert child_payload["run_id"] == "run_1"
+    assert child_payload["session_key"] == "session_key_1"
+    assert child_payload["checkpoint_namespace"] == ""
+    assert [(run.run_id, run.status) for run in runs] == [("run_1", "interrupted")]
 
 
 def test_approval_resume_does_not_hold_request_database_transaction(monkeypatch):
