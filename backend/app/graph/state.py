@@ -169,9 +169,11 @@ class AgentResponse(TypedDict, total=False):
     business_error_code: str
 
 
-def build_checkpoint_thread_id(*, tenant_id: str, session_key: str) -> str:
-    identity = f"{tenant_id}\0{session_key}".encode()
-    return f"cp_{sha256(identity).hexdigest()}"
+def build_checkpoint_thread_id(
+    *, tenant_id: str, session_key: str, request_id: str
+) -> str:
+    identity = f"{tenant_id}\0{session_key}\0{request_id}".encode()
+    return f"cpr1_{sha256(identity).hexdigest()}"
 
 
 def add_state_messages(

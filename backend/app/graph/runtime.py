@@ -71,11 +71,11 @@ class LegacyCheckpointIncompatibleError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__(
-            "旧 Checkpoint 不可安全恢复：坐标缺少可靠的租户归属，请重新执行请求。"
+            "旧 Checkpoint 不可安全恢复：坐标缺少可靠的租户或 Run 归属，请重新执行请求。"
         )
 
 
-_CHECKPOINT_THREAD_ID_PATTERN = re.compile(r"cp_[0-9a-f]{64}")
+_CHECKPOINT_THREAD_ID_PATTERN = re.compile(r"cpr1_[0-9a-f]{64}")
 
 
 class _UnavailableAttachmentResolver:
@@ -685,6 +685,7 @@ def _checkpoint_config(state: AgentState | dict, *, enabled: bool) -> dict | Non
             "thread_id": build_checkpoint_thread_id(
                 tenant_id=state["tenant_id"],
                 session_key=state["session_key"],
+                request_id=state["request_id"],
             ),
             "checkpoint_ns": "",
         }

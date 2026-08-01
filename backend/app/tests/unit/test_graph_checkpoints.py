@@ -47,24 +47,35 @@ def test_build_graph_checkpointer_can_be_disabled():
 
 
 def test_checkpoint_thread_id_is_stable_tenant_scoped_and_opaque():
-    expected_digest = sha256(b"tenant-1\0internal-session-key").hexdigest()
-    expected = f"cp_{expected_digest}"
+    expected_digest = sha256(
+        b"tenant-1\0internal-session-key\0request-1"
+    ).hexdigest()
+    expected = f"cpr1_{expected_digest}"
 
     first = runtime.build_checkpoint_thread_id(
         tenant_id="tenant-1",
         session_key="internal-session-key",
+        request_id="request-1",
     )
     repeated = runtime.build_checkpoint_thread_id(
         tenant_id="tenant-1",
         session_key="internal-session-key",
+        request_id="request-1",
     )
     other_tenant = runtime.build_checkpoint_thread_id(
         tenant_id="tenant-2",
         session_key="internal-session-key",
+        request_id="request-1",
+    )
+    other_request = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-1",
+        session_key="internal-session-key",
+        request_id="request-2",
     )
 
     assert first == repeated == expected
     assert other_tenant != first
+    assert other_request != first
     assert "tenant-1" not in first
     assert "internal-session-key" not in first
 
@@ -74,6 +85,7 @@ def test_checkpoint_config_uses_derived_thread_id_and_root_namespace():
         "session_id": "shared-external-session",
         "session_key": "internal-session-key",
         "tenant_id": "tenant-1",
+        "request_id": "request-1",
     }
 
     assert runtime._checkpoint_config(state, enabled=True) == {
@@ -81,6 +93,7 @@ def test_checkpoint_config_uses_derived_thread_id_and_root_namespace():
             "thread_id": runtime.build_checkpoint_thread_id(
                 tenant_id="tenant-1",
                 session_key="internal-session-key",
+                request_id="request-1",
             ),
             "checkpoint_ns": "",
         }

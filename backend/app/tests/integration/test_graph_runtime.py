@@ -431,6 +431,7 @@ def test_question_answer_graph_writes_checkpoint_by_derived_tenant_thread_id():
         session_key=session_key,
         tenant_id="t1",
         user_id="u1",
+        request_id="checkpoint-request-1",
         user_message="你好",
         checkpointer=checkpointer,
     )
@@ -438,6 +439,7 @@ def test_question_answer_graph_writes_checkpoint_by_derived_tenant_thread_id():
     thread_id = runtime.build_checkpoint_thread_id(
         tenant_id="t1",
         session_key=session_key,
+        request_id=result["request_id"],
     )
     checkpoint = checkpointer.get_tuple(
         {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
@@ -623,7 +625,7 @@ def test_question_answer_graph_skips_skill_and_retrieval_for_conversation_intent
     assert "analysis_agent" not in node_names
 
 
-def test_question_answer_graph_appends_messages_across_session_checkpoint():
+def test_question_answer_graph_scopes_checkpoint_to_run_and_uses_explicit_history():
     checkpointer = InMemorySaver()
 
     first = run_question_answer_graph(
@@ -636,11 +638,11 @@ def test_question_answer_graph_appends_messages_across_session_checkpoint():
         user_message_id="message-user-1",
         assistant_message_id="message-assistant-1",
         history=[],
-        user_message="你好",
+        user_message="不应从旧 Checkpoint 回流",
         checkpointer=checkpointer,
         llm_client=ConversationRoutingLlmClient(),
     )
-    second = run_question_answer_graph(
+    without_history = run_question_answer_graph(
         session_id="session_multi_turn",
         session_key="session-key-multi-turn",
         tenant_id="tenant_1",
@@ -655,24 +657,43 @@ def test_question_answer_graph_appends_messages_across_session_checkpoint():
         llm_client=ConversationRoutingLlmClient(),
     )
 
-    assert first["request_id"] != second["request_id"]
-    assert second["user_message"] == "继续使用中文"
-    assert [message.role for message in second["messages"]] == [
+    with_history = run_question_answer_graph(
+        session_id="session_multi_turn",
+        session_key="session-key-multi-turn",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        request_id="request-3",
+        trace_id="trace-3",
+        user_message_id="message-user-3",
+        assistant_message_id="message-assistant-3",
+        history=first["messages"],
+        user_message="显式加载历史后继续",
+        checkpointer=checkpointer,
+        llm_client=ConversationRoutingLlmClient(),
+    )
+
+    assert first["request_id"] != without_history["request_id"]
+    assert [message.role for message in without_history["messages"]] == [
+        "user",
+        "assistant",
+    ]
+    assert [message.content for message in without_history["messages"]][0] == (
+        "继续使用中文"
+    )
+    assert all(
+        "不应从旧 Checkpoint 回流" not in message.content
+        for message in without_history["messages"]
+    )
+    assert [message.role for message in with_history["messages"]] == [
         "user",
         "assistant",
         "user",
         "assistant",
     ]
-    assert [message.content for message in second["messages"]][::2] == [
-        "你好",
-        "继续使用中文",
+    assert [message.content for message in with_history["messages"]][::2] == [
+        "不应从旧 Checkpoint 回流",
+        "显式加载历史后继续",
     ]
-    assert len(
-        {
-            message.message_id
-            for message in second["messages"]
-        }
-    ) == 4
 
 
 def test_question_answer_graph_isolates_same_external_session_by_tenant_session_key():
@@ -714,10 +735,12 @@ def test_question_answer_graph_isolates_same_external_session_by_tenant_session_
     tenant_a_thread_id = runtime.build_checkpoint_thread_id(
         tenant_id="tenant-a",
         session_key=shared_session_key,
+        request_id=first["request_id"],
     )
     tenant_b_thread_id = runtime.build_checkpoint_thread_id(
         tenant_id="tenant-b",
         session_key=shared_session_key,
+        request_id=second["request_id"],
     )
     assert tenant_a_thread_id != tenant_b_thread_id
     assert checkpointer.get(
@@ -735,6 +758,7 @@ def test_question_answer_graph_isolates_same_external_session_by_tenant_session_
                 "thread_id": runtime.build_checkpoint_thread_id(
                     tenant_id="tenant-c",
                     session_key=shared_session_key,
+                    request_id=first["request_id"],
                 ),
                 "checkpoint_ns": "",
             }
@@ -1200,6 +1224,7 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
         runtime.build_checkpoint_thread_id(
             tenant_id=result["tenant_id"],
             session_key=result["session_key"],
+            request_id=result["request_id"],
         )
     )
     assert interrupt_payload["checkpoint_namespace"] == ""
@@ -1271,6 +1296,7 @@ def test_question_answer_graph_rejects_non_root_checkpoint_namespace_on_resume()
     "checkpoint_thread_id",
     [
         "legacy-session-id",
+        f"cp_{'a' * 64}",
         "cp_invalid",
         f"cp_{'a' * 63}",
         f"cp_{'A' * 64}",
@@ -1543,6 +1569,7 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
                 "thread_id": runtime.build_checkpoint_thread_id(
                     tenant_id=initial["tenant_id"],
                     session_key=initial["session_key"],
+                    request_id=initial["request_id"],
                 ),
                 "checkpoint_ns": "",
             }
@@ -2218,6 +2245,7 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
                     "thread_id": runtime.build_checkpoint_thread_id(
                         tenant_id=initial["tenant_id"],
                         session_key=initial["session_key"],
+                        request_id=initial["request_id"],
                     ),
                     "checkpoint_ns": "",
                 }
@@ -2240,6 +2268,7 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
                 "thread_id": runtime.build_checkpoint_thread_id(
                     tenant_id=initial["tenant_id"],
                     session_key=initial["session_key"],
+                    request_id=initial["request_id"],
                 ),
                 "checkpoint_ns": "",
             }

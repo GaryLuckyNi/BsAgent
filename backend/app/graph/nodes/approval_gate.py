@@ -71,6 +71,7 @@ def approval_gate_node(state: AgentState) -> AgentState:
             "checkpoint_thread_id": build_checkpoint_thread_id(
                 tenant_id=state["tenant_id"],
                 session_key=state["session_key"],
+                request_id=state["request_id"],
             ),
             "checkpoint_namespace": "",
             "status": "pending",
