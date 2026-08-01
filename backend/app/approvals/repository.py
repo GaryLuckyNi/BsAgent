@@ -35,6 +35,7 @@ class ApprovalRecordCreate(BaseModel):
     approval_id: str
     run_id: str
     session_id: str
+    session_key: str
     tenant_id: str
     request_user_id: str
     approval_type: Literal["tool_call"] = "tool_call"
@@ -58,6 +59,7 @@ class ApprovalRepository:
             approval_id=data.approval_id,
             run_id=data.run_id,
             session_id=data.session_id,
+            session_key=data.session_key,
             tenant_id=data.tenant_id,
             request_user_id=data.request_user_id,
             approval_type=data.approval_type,
@@ -93,6 +95,7 @@ class ApprovalRepository:
                 approval_id=payload["approval_id"],
                 run_id=payload["run_id"],
                 session_id=payload["session_id"],
+                session_key=payload["session_key"],
                 tenant_id=payload["tenant_id"],
                 request_user_id=payload["request_user_id"],
                 approval_type=payload["approval_type"],
@@ -261,6 +264,7 @@ def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
     return (
         record.run_id == data.run_id
         and record.session_id == data.session_id
+        and record.session_key == data.session_key
         and record.tenant_id == data.tenant_id
         and record.request_user_id == data.request_user_id
         and record.approval_type == data.approval_type

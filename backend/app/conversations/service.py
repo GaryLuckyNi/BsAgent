@@ -182,6 +182,7 @@ class ConversationService:
         tenant_id: str,
         run_id: str,
         content: str,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         self._transition(
             tenant_id=tenant_id,
@@ -191,6 +192,7 @@ class ConversationService:
             run_states={"running", "interrupted"},
             run_target="completed",
             content=content,
+            metadata=metadata,
             clear_active_run=True,
         )
 

@@ -40,7 +40,7 @@ def test_persist_agent_run_stores_session_run_and_trace_events():
             status="completed",
         )
 
-        saved_session = session.get(AgentSession, "session_1")
+        saved_session = session.get(AgentSession, state["session_key"])
         saved_run = session.get(AgentRun, run.run_id)
         saved_events = session.scalars(select(AgentTraceEvent)).all()
 

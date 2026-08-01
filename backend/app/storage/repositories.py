@@ -25,26 +25,29 @@ def persist_agent_run(
     status: str,
     experience_store: ExperienceStore | None = None,
     commit: bool = True,
+    run_id: str | None = None,
+    update_run_status: bool = True,
 ) -> AgentRun:
-    agent_session = session.get(AgentSession, state["session_id"])
+    session_key = state["session_key"]
+    agent_session = session.get(AgentSession, session_key)
     if agent_session is None:
         agent_session = AgentSession(
+            session_key=session_key,
             session_id=state["session_id"],
             tenant_id=state["tenant_id"],
             user_id=state["user_id"],
             status="active",
         )
         session.add(agent_session)
-    else:
-        agent_session.tenant_id = state["tenant_id"]
-        agent_session.user_id = state["user_id"]
 
     intent = state["intent"] or {}
-    run = session.get(AgentRun, state["request_id"])
+    persisted_run_id = run_id or state["request_id"]
+    run = session.get(AgentRun, persisted_run_id)
     if run is None:
         run = AgentRun(
-            run_id=state["request_id"],
+            run_id=persisted_run_id,
             session_id=state["session_id"],
+            session_key=session_key,
             tenant_id=state["tenant_id"],
             user_id=state["user_id"],
             trace_id=state["trace_id"],
@@ -54,7 +57,16 @@ def persist_agent_run(
         )
         session.add(run)
     else:
-        run.status = status
+        if (
+            run.session_key != session_key
+            or run.session_id != state["session_id"]
+            or run.tenant_id != state["tenant_id"]
+            or run.user_id != state["user_id"]
+            or run.trace_id != state["trace_id"]
+        ):
+            raise ValueError("agent_run_identity_conflict")
+        if update_run_status:
+            run.status = status
         run.intent = intent.get("intent")
         run.risk_level = intent.get("risk_level")
     _persist_trace_events(session=session, run=run, trace_events=trace_events)

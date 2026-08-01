@@ -2,8 +2,10 @@ import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Iterator
+from datetime import datetime
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -11,6 +13,17 @@ from sqlalchemy.orm import Session
 from app.approvals.repository import ApprovalRepository
 from app.api.assets import get_asset_service
 from app.assets.service import AssetService
+from app.conversations.repository import (
+    ConversationConflictError,
+    ConversationRepository,
+    SessionBusyError,
+)
+from app.conversations.service import (
+    BeginTurn,
+    ConversationMetadata,
+    ConversationService,
+    TurnHandle,
+)
 from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import (
@@ -29,6 +42,7 @@ from app.memory.short_term_store import ShortTermMemoryStore
 from app.operations.rate_limit import RateLimitPolicy, require_rate_limit
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
+from app.schemas.messages import Message
 from app.storage.database import get_db
 from app.storage.repositories import persist_agent_run
 from app.vision.context import VisionAttachmentContextResolver
@@ -54,6 +68,7 @@ AGENT_INVOCATION_RATE_LIMIT = RateLimitPolicy(
     name="agent_invocation",
     requests_per_minute=settings.agent_rate_limit_per_minute,
 )
+CONVERSATION_HISTORY_LIMIT = 20
 
 
 def get_attachment_context_resolver(
@@ -83,6 +98,27 @@ class SessionMessageResponse(BaseModel):
     approval_ids: list[str] = []
     response_type: str | None = None
     business_error_code: str | None = None
+    message_id: str
+    request_id: str
+
+
+class SessionMessageItem(BaseModel):
+    message_id: str
+    request_id: str
+    run_id: str
+    role: str
+    status: str
+    content: str
+    content_type: str
+    sequence_no: int
+    metadata: dict
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class SessionMessagePage(BaseModel):
+    items: list[SessionMessageItem]
+    next_before_sequence: int | None = None
 
 
 @router.post(
@@ -98,14 +134,22 @@ def post_message(
     attachment_resolver: VisionAttachmentContextResolver = Depends(
         get_attachment_context_resolver
     ),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
 ) -> SessionMessageResponse:
     try:
-        state = _run_and_persist_agent_message(
+        return _run_and_persist_agent_message(
             session_id=session_id,
             request=request,
             principal=principal,
             db=db,
             attachment_resolver=attachment_resolver,
+            request_id=idempotency_key or f"req_{uuid4().hex}",
         )
     except AgentGraphExecutionError as exc:
         raise HTTPException(
@@ -121,8 +165,46 @@ def post_message(
             status_code=503,
             detail=_llm_configuration_error_payload(exc),
         ) from exc
+    except (ConversationConflictError, SessionBusyError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc)},
+        ) from exc
 
-    return _session_message_response(state)
+
+@router.get("/{session_id}/messages", response_model=SessionMessagePage)
+def list_messages(
+    session_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    before_sequence: int | None = Query(default=None, ge=1),
+    principal: Principal = Depends(require_permission("agent:read")),
+    db: Session = Depends(get_db),
+) -> SessionMessagePage:
+    repository = ConversationRepository(db)
+    session_record = repository.get_owned_session(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_id=session_id,
+    )
+    if session_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "session_not_found"},
+        )
+    records = repository.list_message_page(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_key=session_record.session_key,
+        limit=limit + 1,
+        before_sequence=before_sequence,
+    )
+    has_more = len(records) > limit
+    if has_more:
+        records = records[1:]
+    return SessionMessagePage(
+        items=[_message_item(record) for record in records],
+        next_before_sequence=records[0].sequence_no if has_more else None,
+    )
 
 
 @router.post(
@@ -161,33 +243,106 @@ def _run_and_persist_agent_message(
     principal: Principal,
     db: Session,
     attachment_resolver: VisionAttachmentContextResolver,
-) -> AgentState:
-    trace_store = get_trace_store()
-    experience_store = build_experience_store(session=db)
-    state = run_question_answer_graph(
-        session_id=session_id,
+    request_id: str,
+) -> SessionMessageResponse:
+    conversation_service = ConversationService(db)
+    handle = conversation_service.begin_turn(
+        BeginTurn(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            session_id=session_id,
+            request_id=request_id,
+            user_content=request.message,
+            metadata=ConversationMetadata(attachment_ids=tuple(request.attachments)),
+        )
+    )
+    db.commit()
+    if handle.replayed:
+        return _replayed_message_response(
+            db=db,
+            tenant_id=principal.tenant_id,
+            handle=handle,
+        )
+
+    history_records = ConversationRepository(db).list_context_messages(
         tenant_id=principal.tenant_id,
         user_id=principal.user_id,
-        user_message=request.message,
-        mock_evidence=settings.use_mock_rag,
-        memory_retriever=ExperienceMemoryRetriever(experience_store),
-        trace_store=trace_store,
-        checkpointer=build_graph_checkpointer(),
-        llm_client=maybe_build_llm_client(),
-        permission_scopes=list(principal.scopes),
-        attachment_ids=request.attachments,
-        attachment_resolver=attachment_resolver,
+        session_key=handle.session_key,
+        limit=CONVERSATION_HISTORY_LIMIT,
     )
+    history = [
+        Message(
+            message_id=record.message_id,
+            role=record.role,
+            content=record.content,
+            metadata={"request_id": record.request_id},
+        )
+        for record in history_records
+    ]
+    db.commit()
 
-    interrupt_payloads = _interrupt_payloads(state)
-    _persist_agent_message_state(
-        db=db,
-        state=state,
-        trace_store=trace_store,
-        experience_store=experience_store,
-        interrupt_payloads=interrupt_payloads,
-    )
-    return state
+    trace_store = get_trace_store()
+    experience_store = build_experience_store(session=db)
+    try:
+        state = run_question_answer_graph(
+            session_id=session_id,
+            session_key=handle.session_key,
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            user_message=request.message,
+            request_id=handle.request_id,
+            trace_id=handle.trace_id,
+            user_message_id=handle.user_message_id,
+            assistant_message_id=handle.assistant_message_id,
+            history=history,
+            mock_evidence=settings.use_mock_rag,
+            memory_retriever=ExperienceMemoryRetriever(experience_store),
+            trace_store=trace_store,
+            checkpointer=build_graph_checkpointer(),
+            llm_client=maybe_build_llm_client(),
+            permission_scopes=list(principal.scopes),
+            attachment_ids=request.attachments,
+            attachment_resolver=attachment_resolver,
+        )
+
+        interrupt_payloads = _interrupt_payloads(state)
+        _persist_agent_message_state(
+            db=db,
+            state=state,
+            trace_store=trace_store,
+            experience_store=experience_store,
+            interrupt_payloads=interrupt_payloads,
+            run_id=handle.run_id,
+            update_run_status=False,
+            commit=False,
+        )
+        if interrupt_payloads:
+            conversation_service.interrupt_turn(
+                tenant_id=principal.tenant_id,
+                run_id=handle.run_id,
+            )
+        else:
+            final_response = state["final_response"] or {}
+            conversation_service.complete_turn(
+                tenant_id=principal.tenant_id,
+                run_id=handle.run_id,
+                content=final_response.get("content", ""),
+                metadata=_assistant_response_metadata(final_response),
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        try:
+            conversation_service.fail_turn(
+                tenant_id=principal.tenant_id,
+                run_id=handle.run_id,
+                error_code="agent_execution_failed",
+            )
+            db.commit()
+        except ConversationConflictError:
+            db.rollback()
+        raise
+    return _session_message_response(state, handle=handle)
 
 
 def _stream_agent_message(
@@ -359,15 +514,27 @@ def _persist_agent_message_state(
     trace_store,
     experience_store,
     interrupt_payloads: list[dict],
+    run_id: str | None = None,
+    update_run_status: bool = True,
+    commit: bool = True,
 ) -> None:
     for payload in interrupt_payloads:
-        ApprovalRepository(db).create_pending_from_interrupt(payload)
+        ApprovalRepository(db).create_pending_from_interrupt(
+            {
+                **payload,
+                "run_id": run_id or payload["run_id"],
+                "session_key": state["session_key"],
+            }
+        )
     persist_agent_run(
         session=db,
         state=state,
         trace_events=trace_store.list_events(state["trace_id"]),
         status="interrupted" if interrupt_payloads else "completed",
         experience_store=experience_store,
+        run_id=run_id,
+        update_run_status=update_run_status,
+        commit=commit,
     )
     if not interrupt_payloads:
         _record_short_term_session_event(
@@ -710,7 +877,14 @@ def _interrupt_payloads(state: AgentState) -> list[dict]:
     return [interrupt.value for interrupt in state.get("__interrupt__", [])]
 
 
-def _session_message_response(state: AgentState) -> SessionMessageResponse:
+def _session_message_response(
+    state: AgentState,
+    *,
+    handle: TurnHandle | None = None,
+) -> SessionMessageResponse:
+    message_id = handle.assistant_message_id if handle else state["assistant_message_id"]
+    request_id = handle.request_id if handle else state["request_id"]
+    run_id = handle.run_id if handle else state["request_id"]
     interrupt_payloads = _interrupt_payloads(state)
     if interrupt_payloads:
         return SessionMessageResponse(
@@ -718,8 +892,10 @@ def _session_message_response(state: AgentState) -> SessionMessageResponse:
             trace_id=state["trace_id"],
             cited_evidence_ids=[],
             approval_status="pending",
-            run_id=state["request_id"],
+            run_id=run_id,
             approval_ids=[payload["approval_id"] for payload in interrupt_payloads],
+            message_id=message_id,
+            request_id=request_id,
         )
     final_response = state["final_response"] or {}
     return SessionMessageResponse(
@@ -727,8 +903,65 @@ def _session_message_response(state: AgentState) -> SessionMessageResponse:
         trace_id=final_response.get("trace_id", state["trace_id"]),
         cited_evidence_ids=final_response.get("cited_evidence_ids", []),
         approval_status=final_response.get("approval_status", "not_required"),
-        run_id=state["request_id"],
+        run_id=run_id,
         approval_ids=[],
         response_type=final_response.get("response_type"),
         business_error_code=final_response.get("business_error_code"),
+        message_id=message_id,
+        request_id=request_id,
+    )
+
+
+def _assistant_response_metadata(final_response: dict) -> dict:
+    return {
+        "cited_evidence_ids": list(final_response.get("cited_evidence_ids", [])),
+        "approval_status": final_response.get("approval_status", "not_required"),
+        "response_type": final_response.get("response_type"),
+        "business_error_code": final_response.get("business_error_code"),
+    }
+
+
+def _replayed_message_response(
+    *,
+    db: Session,
+    tenant_id: str,
+    handle: TurnHandle,
+) -> SessionMessageResponse:
+    turn = ConversationRepository(db).get_turn_by_request(
+        tenant_id=tenant_id,
+        request_id=handle.request_id,
+    )
+    if turn is None:
+        raise ConversationConflictError("turn_replay_missing")
+    assistant = turn[1]
+    if assistant.status != "completed":
+        raise ConversationConflictError("request_in_progress")
+    metadata = assistant.metadata_json or {}
+    return SessionMessageResponse(
+        content=assistant.content,
+        trace_id=handle.trace_id,
+        cited_evidence_ids=list(metadata.get("cited_evidence_ids", [])),
+        approval_status=metadata.get("approval_status", "not_required"),
+        run_id=handle.run_id,
+        approval_ids=[],
+        response_type=metadata.get("response_type"),
+        business_error_code=metadata.get("business_error_code"),
+        message_id=handle.assistant_message_id,
+        request_id=handle.request_id,
+    )
+
+
+def _message_item(record) -> SessionMessageItem:
+    return SessionMessageItem(
+        message_id=record.message_id,
+        request_id=record.request_id,
+        run_id=record.run_id,
+        role=record.role,
+        status=record.status,
+        content=record.content,
+        content_type=record.content_type,
+        sequence_no=record.sequence_no,
+        metadata=record.metadata_json or {},
+        created_at=record.created_at,
+        completed_at=record.completed_at,
     )

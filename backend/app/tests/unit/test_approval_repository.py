@@ -32,6 +32,7 @@ def _pending(*, approval_id: str = "approval_1", tenant_id: str = "tenant_1"):
         approval_id=approval_id,
         run_id="run_1",
         session_id="session_1",
+        session_key="session_key_1",
         tenant_id=tenant_id,
         request_user_id="user_1",
         approval_type="tool_call",

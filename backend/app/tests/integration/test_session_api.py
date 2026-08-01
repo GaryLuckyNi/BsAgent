@@ -1,4 +1,6 @@
 import json
+import re
+from datetime import UTC, datetime
 
 from fastapi import Request
 from fastapi.testclient import TestClient
@@ -10,6 +12,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api import approvals, sessions
+from app.conversations.service import BeginTurn, ConversationService
 from app.graph.state import create_initial_state
 from app.graph.runtime import AgentGraphExecutionError
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
@@ -25,6 +28,8 @@ from app.security.principal import Principal
 from app.storage.database import get_db
 from app.storage.models import (
     AgentRun,
+    AgentMessage,
+    AgentSession,
     AgentTraceEvent,
     ApprovalRecord,
     Base,
@@ -127,13 +132,19 @@ def create_test_app_with_database(*, on_session=None, override_principal=True):
             elif user_id == "approver_1":
                 scopes = (
                     "agent:invoke",
+                    "agent:read",
                     "approval:decide",
                     "approval:read",
                     "mcp:mock",
                     "rag:retrieve",
                 )
             else:
-                scopes = ("agent:invoke", "mcp:mock", "rag:retrieve")
+                scopes = (
+                    "agent:invoke",
+                    "agent:read",
+                    "mcp:mock",
+                    "rag:retrieve",
+                )
             return Principal(
                 tenant_id=payload.get(
                     "tenant_id",
@@ -149,17 +160,286 @@ def create_test_app_with_database(*, on_session=None, override_principal=True):
     return app, testing_session_local
 
 
+def _initial_state_from_graph_kwargs(kwargs):
+    return create_initial_state(
+        session_id=kwargs["session_id"],
+        session_key=kwargs["session_key"],
+        tenant_id=kwargs["tenant_id"],
+        user_id=kwargs["user_id"],
+        user_message=kwargs["user_message"],
+        request_id=kwargs["request_id"],
+        trace_id=kwargs["trace_id"],
+        user_message_id=kwargs["user_message_id"],
+        assistant_message_id=kwargs["assistant_message_id"],
+        history=kwargs["history"],
+        permission_scopes=kwargs.get("permission_scopes"),
+        attachment_ids=kwargs.get("attachment_ids"),
+    )
+
+
+def _completed_graph_state(kwargs, *, content="ok"):
+    state = _initial_state_from_graph_kwargs(kwargs)
+    state["final_response"] = {
+        "content": content,
+        "trace_id": state["trace_id"],
+        "cited_evidence_ids": [],
+        "approval_status": "not_required",
+    }
+    return state
+
+
+def test_post_message_persists_user_and_assistant_and_returns_stable_ids(monkeypatch):
+    monkeypatch.setattr(
+        sessions,
+        "run_question_answer_graph",
+        lambda **kwargs: _completed_graph_state(kwargs, content="持久化回答"),
+    )
+    app, testing_session_local = create_test_app_with_database()
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/sessions/s1/messages",
+        headers={"Idempotency-Key": "request-message-1"},
+        json={"message": "分析银之杰"},
+    )
+    history = client.get("/api/sessions/s1/messages?limit=20")
+
+    assert response.status_code == history.status_code == 200
+    assert response.json()["request_id"] == "request-message-1"
+    assert response.json()["message_id"].startswith("msg_")
+    assert [item["role"] for item in history.json()["items"]] == [
+        "user",
+        "assistant",
+    ]
+    assert [item["content"] for item in history.json()["items"]] == [
+        "分析银之杰",
+        "持久化回答",
+    ]
+    with testing_session_local() as db:
+        records = list(db.scalars(select(AgentMessage).order_by(AgentMessage.sequence_no)))
+        session_record = db.scalars(select(AgentSession)).one()
+    assert [record.status for record in records] == ["completed", "completed"]
+    assert session_record.active_run_id is None
+
+
+def test_post_message_replays_idempotency_key_without_running_graph_twice(monkeypatch):
+    graph_calls = []
+
+    def fake_graph(**kwargs):
+        graph_calls.append(kwargs)
+        return _completed_graph_state(kwargs, content="同一个回答")
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
+    app, _ = create_test_app_with_database()
+    client = TestClient(app)
+    headers = {"Idempotency-Key": "request-replay-1"}
+
+    first = client.post("/api/sessions/s1/messages", headers=headers, json={"message": "问题"})
+    second = client.post("/api/sessions/s1/messages", headers=headers, json={"message": "问题"})
+
+    assert first.status_code == second.status_code == 200
+    assert second.json() == first.json()
+    assert len(graph_calls) == 1
+
+
+def test_get_messages_returns_404_for_cross_tenant_session(monkeypatch):
+    monkeypatch.setattr(
+        sessions,
+        "run_question_answer_graph",
+        lambda **kwargs: _completed_graph_state(kwargs),
+    )
+    app, _ = create_test_app_with_database()
+    client = TestClient(app)
+    created = client.post("/api/sessions/s1/messages", json={"message": "问题"})
+
+    response = client.get(
+        "/api/sessions/s1/messages",
+        params={"tenant_id": "tenant_2", "actor_id": "user_1"},
+    )
+
+    assert created.status_code == 200
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "session_not_found"
+
+
+def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(sessions, "CONVERSATION_HISTORY_LIMIT", 4)
+
+    def fake_graph(**kwargs):
+        captured.update(kwargs)
+        return _completed_graph_state(kwargs)
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        service = ConversationService(db)
+        for index in range(1, 4):
+            handle = service.begin_turn(
+                BeginTurn(
+                    tenant_id="tenant_1",
+                    user_id="user_1",
+                    session_id="s1",
+                    request_id=f"seed-{index}",
+                    user_content=f"旧问题{index}",
+                )
+            )
+            service.complete_turn(
+                tenant_id="tenant_1",
+                run_id=handle.run_id,
+                content=f"旧回答{index}",
+            )
+            db.commit()
+        session_record = db.scalars(select(AgentSession)).one()
+        session_record.next_sequence_no += 4
+        db.add_all(
+            [
+                AgentMessage(
+                    message_id="msg-failed",
+                    tenant_id="tenant_1",
+                    user_id="user_1",
+                    session_key=session_record.session_key,
+                    run_id="failed-run",
+                    request_id="failed-request",
+                    role="assistant",
+                    status="failed",
+                    content="失败回答",
+                    sequence_no=7,
+                ),
+                AgentMessage(
+                    message_id="msg-pending",
+                    tenant_id="tenant_1",
+                    user_id="user_1",
+                    session_key=session_record.session_key,
+                    run_id="pending-run",
+                    request_id="pending-request",
+                    role="assistant",
+                    status="pending",
+                    content="等待回答",
+                    sequence_no=8,
+                ),
+                AgentMessage(
+                    message_id="msg-interrupted",
+                    tenant_id="tenant_1",
+                    user_id="user_1",
+                    session_key=session_record.session_key,
+                    run_id="interrupted-run",
+                    request_id="interrupted-request",
+                    role="assistant",
+                    status="interrupted",
+                    content="中断回答",
+                    sequence_no=9,
+                ),
+                AgentMessage(
+                    message_id="msg-deleted",
+                    tenant_id="tenant_1",
+                    user_id="user_1",
+                    session_key=session_record.session_key,
+                    run_id="deleted-run",
+                    request_id="deleted-request",
+                    role="assistant",
+                    status="completed",
+                    content="已删除回答",
+                    sequence_no=10,
+                    completed_at=datetime.now(UTC),
+                    deleted_at=datetime.now(UTC),
+                ),
+            ]
+        )
+        db.commit()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages",
+        headers={"Idempotency-Key": "current-request"},
+        json={"message": "当前问题"},
+    )
+
+    assert response.status_code == 200
+    assert [message.content for message in captured["history"]] == [
+        "旧回答2",
+        "旧问题3",
+        "旧回答3",
+        "当前问题",
+    ]
+    assert captured["history"][-1].message_id == captured["user_message_id"]
+    assert all("checkpoint" not in message.content for message in captured["history"])
+
+
+def test_post_message_releases_turn_transaction_before_graph(monkeypatch):
+    observed = {}
+
+    def record_session(db):
+        observed["db"] = db
+
+    def fake_graph(**kwargs):
+        observed["in_transaction"] = observed["db"].in_transaction()
+        return _completed_graph_state(kwargs)
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
+    app, _ = create_test_app_with_database(on_session=record_session)
+
+    response = TestClient(app).post("/api/sessions/s1/messages", json={"message": "问题"})
+
+    assert response.status_code == 200
+    assert observed["in_transaction"] is False
+
+
+def test_post_message_generates_safe_request_id_when_header_is_missing(monkeypatch):
+    captured = {}
+
+    def fake_graph(**kwargs):
+        captured.update(kwargs)
+        return _completed_graph_state(kwargs)
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
+    app, _ = create_test_app_with_database()
+
+    response = TestClient(app).post("/api/sessions/s1/messages", json={"message": "问题"})
+
+    assert response.status_code == 200
+    request_id = response.json()["request_id"]
+    assert request_id == captured["request_id"]
+    assert re.fullmatch(r"req_[0-9a-f]{32}", request_id)
+
+
+def test_get_messages_uses_sequence_cursor_and_validates_boundaries(monkeypatch):
+    monkeypatch.setattr(
+        sessions,
+        "run_question_answer_graph",
+        lambda **kwargs: _completed_graph_state(kwargs),
+    )
+    app, _ = create_test_app_with_database()
+    client = TestClient(app)
+    client.post(
+        "/api/sessions/s1/messages",
+        headers={"Idempotency-Key": "page-request-1"},
+        json={"message": "第一页问题"},
+    )
+    client.post(
+        "/api/sessions/s1/messages",
+        headers={"Idempotency-Key": "page-request-2"},
+        json={"message": "第二页问题"},
+    )
+
+    newest = client.get("/api/sessions/s1/messages?limit=2")
+    older = client.get(
+        "/api/sessions/s1/messages",
+        params={"limit": 2, "before_sequence": newest.json()["items"][0]["sequence_no"]},
+    )
+
+    assert [item["sequence_no"] for item in newest.json()["items"]] == [3, 4]
+    assert [item["sequence_no"] for item in older.json()["items"]] == [1, 2]
+    assert client.get("/api/sessions/s1/messages?limit=0").status_code == 422
+    assert client.get("/api/sessions/s1/messages?limit=201").status_code == 422
+    assert client.get("/api/sessions/s1/messages?before_sequence=0").status_code == 422
+
+
 def test_session_api_uses_dependency_principal_instead_of_body_identity(monkeypatch):
     captured = {}
 
     def fake_graph(**kwargs):
         captured.update(kwargs)
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["final_response"] = {
             "content": "ok",
             "trace_id": state["trace_id"],
@@ -221,13 +501,7 @@ def test_session_api_passes_attachment_refs_and_resolver_into_graph(monkeypatch)
     def fake_graph(**kwargs):
         captured["attachment_ids"] = kwargs["attachment_ids"]
         captured["attachment_resolver"] = kwargs["attachment_resolver"]
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-            attachment_ids=kwargs["attachment_ids"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["final_response"] = {
             "content": "ok",
             "trace_id": state["trace_id"],
@@ -313,12 +587,7 @@ def test_post_session_message_records_short_term_session_event(monkeypatch):
             captured["ttl_seconds"] = ttl_seconds
 
     def fake_graph(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "knowledge_qa",
             "risk_level": "medium",
@@ -364,12 +633,7 @@ def test_post_session_message_ignores_short_term_memory_failure(monkeypatch):
             raise RuntimeError("redis unavailable")
 
     def fake_graph(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["final_response"] = {
             "content": "ok",
             "trace_id": state["trace_id"],
@@ -405,12 +669,7 @@ def test_post_session_message_uses_configured_rag_mode(monkeypatch):
 
     def fake_graph(**kwargs):
         captured["mock_evidence"] = kwargs["mock_evidence"]
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "knowledge_qa",
             "risk_level": "medium",
@@ -451,12 +710,7 @@ def test_post_session_message_uses_graph_checkpointer(monkeypatch):
 
     def fake_graph(**kwargs):
         captured["checkpointer"] = kwargs.get("checkpointer")
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["final_response"] = {
             "content": "ok",
             "trace_id": state["trace_id"],
@@ -485,12 +739,7 @@ def test_post_session_message_uses_graph_checkpointer(monkeypatch):
 
 def test_post_session_message_persists_approved_experience_memory(monkeypatch):
     def fake_graph(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["memory_candidates"] = [
             MemoryCandidate(
                 candidate_id="memcand_1",
@@ -588,6 +837,7 @@ def test_approval_api_uses_dependency_principal_for_tenant_scope():
                     approval_id=approval_id,
                     run_id=f"run_{tenant_id}",
                     session_id="session_1",
+                    session_key=f"session_key_{tenant_id}",
                     tenant_id=tenant_id,
                     request_user_id="request-user",
                     approval_type="tool_call",
@@ -626,6 +876,7 @@ def test_approval_endpoint_rejects_analyst_and_allows_mock_approver():
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -662,6 +913,7 @@ def test_approval_api_redacts_sensitive_payload_defensively():
                 approval_id="approval_secret",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -699,13 +951,7 @@ def test_approval_api_redacts_sensitive_payload_defensively():
 
 def test_post_session_message_persists_pending_tool_approval(monkeypatch):
     def interrupted_graph(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-            permission_scopes=kwargs["permission_scopes"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "tool_action",
             "risk_level": "high",
@@ -716,9 +962,10 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
                 value={
                     "approval_id": "approval_1",
                     "approval_type": "tool_call",
-                    "run_id": state["request_id"],
-                    "session_id": state["session_id"],
-                    "tenant_id": state["tenant_id"],
+                        "run_id": state["request_id"],
+                        "session_id": state["session_id"],
+                        "session_key": state["session_key"],
+                        "tenant_id": state["tenant_id"],
                     "request_user_id": state["user_id"],
                     "tool_name": "mcp.mock.trade.submit",
                     "tool_version": "1.0.0",
@@ -752,6 +999,8 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
         approval = session.get(ApprovalRecord, "approval_1")
         run = session.scalars(select(AgentRun)).one()
     assert approval.arguments_hash == "hash_1"
+    assert approval.run_id == run.run_id
+    assert approval.session_key == run.session_key
     assert run.status == "interrupted"
 
 
@@ -762,6 +1011,7 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
         captured.update(kwargs)
         state = create_initial_state(
             session_id="session_1",
+            session_key="session_key_1",
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
@@ -786,6 +1036,7 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -838,6 +1089,7 @@ def test_approval_resume_does_not_hold_request_database_transaction(monkeypatch)
         assert request_session.in_transaction() is False
         state = create_initial_state(
             session_id="session_1",
+            session_key="session_key_1",
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
@@ -864,6 +1116,7 @@ def test_approval_resume_does_not_hold_request_database_transaction(monkeypatch)
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -879,6 +1132,7 @@ def test_approval_resume_does_not_hold_request_database_transaction(monkeypatch)
             AgentRun(
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 user_id="user_1",
                 trace_id="trace_1",
@@ -914,6 +1168,7 @@ def test_repeated_same_approval_decision_does_not_resume_checkpoint_again(monkey
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -930,6 +1185,7 @@ def test_repeated_same_approval_decision_does_not_resume_checkpoint_again(monkey
             AgentRun(
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 user_id="user_1",
                 trace_id="trace_1",
@@ -987,6 +1243,7 @@ def test_approval_resume_failure_is_409_and_remains_retryable(
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -1002,6 +1259,7 @@ def test_approval_resume_failure_is_409_and_remains_retryable(
             AgentRun(
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 user_id="user_1",
                 trace_id="trace_1",
@@ -1039,6 +1297,7 @@ def test_approval_resume_failed_can_retry_same_decision(monkeypatch):
         resume_calls.append(kwargs)
         state = create_initial_state(
             session_id="session_1",
+            session_key="session_key_1",
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
@@ -1063,6 +1322,7 @@ def test_approval_resume_failed_can_retry_same_decision(monkeypatch):
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -1082,6 +1342,7 @@ def test_approval_resume_failed_can_retry_same_decision(monkeypatch):
             AgentRun(
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 user_id="user_1",
                 trace_id="trace_1",
@@ -1124,6 +1385,7 @@ def test_approval_resume_in_progress_request_does_not_call_resume(monkeypatch):
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -1160,6 +1422,7 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
     def successful_resume(**kwargs):
         state = create_initial_state(
             session_id="session_1",
+            session_key="session_key_1",
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
@@ -1189,6 +1452,7 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -1204,6 +1468,7 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
             AgentRun(
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 user_id="user_1",
                 trace_id="trace_1",
@@ -1241,6 +1506,7 @@ def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
         resume_calls += 1
         state = create_initial_state(
             session_id="session_1",
+            session_key="session_key_1",
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
@@ -1294,6 +1560,7 @@ def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
                 approval_id="approval_1",
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 request_user_id="user_1",
                 approval_type="tool_call",
@@ -1309,6 +1576,7 @@ def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
             AgentRun(
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 user_id="user_1",
                 trace_id="trace_1",
@@ -1347,7 +1615,8 @@ def test_post_session_message_returns_500_for_graph_execution_error(monkeypatch)
         raise AgentGraphExecutionError(node_name="retriever_agent", message="rag unavailable")
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", failing_graph)
-    client = TestClient(create_app())
+    app, testing_session_local = create_test_app_with_database()
+    client = TestClient(app)
 
     response = client.post(
         "/api/sessions/s1/messages",
@@ -1367,6 +1636,16 @@ def test_post_session_message_returns_500_for_graph_execution_error(monkeypatch)
             "message": "rag unavailable",
         }
     }
+    with testing_session_local() as db:
+        saved_run = db.scalars(select(AgentRun)).one()
+        saved_session = db.scalars(select(AgentSession)).one()
+        saved_assistant = db.scalar(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        )
+    assert saved_run.status == "failed"
+    assert saved_session.active_run_id is None
+    assert saved_assistant.status == "failed"
+    assert saved_assistant.metadata_json == {"error_code": "agent_execution_failed"}
 
 
 def test_post_session_message_uses_graph_error_http_status(monkeypatch):
@@ -1379,7 +1658,8 @@ def test_post_session_message_uses_graph_error_http_status(monkeypatch):
         )
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", failing_graph)
-    client = TestClient(create_app())
+    app, _ = create_test_app_with_database()
+    client = TestClient(app)
 
     response = client.post(
         "/api/sessions/s1/messages",
@@ -1397,12 +1677,7 @@ def test_post_session_message_uses_graph_error_http_status(monkeypatch):
 
 def test_execution_error_response_is_completed_without_approval_record(monkeypatch):
     def execution_error_graph(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["draft_answer"] = {
             "content": "检索服务暂不可用。",
             "claims": [],
