@@ -177,6 +177,18 @@ services:
     restart: "no"
     networks: [backend]
 
+  release-gate:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["python", "-m", "app.operations.production_gate"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [backend]
+
   api:
     build: *backend-build
     environment: *backend-environment
@@ -194,6 +206,8 @@ services:
         condition: service_started
       migrate:
         condition: service_completed_successfully
+      release-gate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/ready"]
       interval: 10s
@@ -206,7 +220,7 @@ services:
   worker:
     build: *backend-build
     environment: *backend-environment
-    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues", "image-analysis,maintenance"]
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues", "image-analysis"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -217,6 +231,26 @@ services:
       ocr:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      release-gate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  maintenance-worker:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues", "maintenance"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      release-gate:
         condition: service_completed_successfully
     restart: unless-stopped
     networks: [backend]
@@ -233,6 +267,8 @@ services:
       minio:
         condition: service_healthy
       migrate:
+        condition: service_completed_successfully
+      release-gate:
         condition: service_completed_successfully
     restart: unless-stopped
     networks: [backend]

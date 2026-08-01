@@ -2,18 +2,22 @@
 
 ## 职责边界
 
-`ApprovalRecord` 是可审计的业务审批记录。它保存审批发起人、租户、工具名称与版本、规范化参数哈希、业务决定人、业务决定时间和审批状态，回答“谁基于哪一组工具参数做了什么决定”。它不能替代 Graph 的执行状态，也不保存恢复所需的节点 channel。
+`agent_messages` 是用户可见会话历史的唯一事实源。它保存租户隔离的 User/Assistant Message、稳定顺序、正文和完成状态；新 Run 的多轮上下文只从已完成 Message 构造。它不保存模型私有思维链，也不从 Checkpoint 反向恢复历史。
 
-LangGraph checkpointer 是节点状态和中断恢复机制，保存 channel values、checkpoint 版本、父 checkpoint、pending writes 与 `interrupt()` 数据，回答“这次 Graph 执行停在哪里，如何使用 `Command(resume=...)` 从该位置继续”。审批恢复使用 Run 级 `thread_id`，即 `checkpoint_thread_id == request_id/run_id`，同一会话中的并发 Run 不共享恢复地址。
+`AgentRun` 是一次 Agent 执行的业务状态和关联索引。它记录 Session 归属、`run_id`、`request_id` 对应的 Message、`trace_id` 以及 `running/interrupted/completed/rejected/failed` 等状态，回答“这次执行处于什么业务状态”。它不保存完整消息正文或 Graph channel。
 
-`AgentRun` 是一次 Agent 执行的业务状态与结果索引，记录 `run_id`、会话归属、租户、用户、trace、意图、风险和 `interrupted/completed/rejected` 等状态，回答“这次 Run 的业务结果处于什么状态”。`persist_agent_run` 同时保存 Run、trace、memory candidate 和已批准经验记忆等审计数据。
+LangGraph checkpointer 是 Run 级 Checkpoint 和中断恢复机制，保存 channel values、checkpoint 版本、父 checkpoint、pending writes 与 `interrupt()` 数据，回答“这次 Graph 执行停在哪里，如何使用 `Command(resume=...)` 继续”。根图 `checkpoint_ns` 固定为空字符串；Thread ID 使用 `cpr1_<sha256(tenant_id + NUL + session_key + NUL + request_id)>`。同一外部 `session_id` 的不同租户、同一 Session 的不同 Run 都不会共享恢复地址。
 
-三者通过 `run_id`、`session_id` 和 `checkpoint_thread_id` 关联，但职责和存储模型独立：
+`ApprovalRecord` 是可审计的业务审批记录。它保存审批发起人、租户、工具名称与版本、规范化参数哈希、业务决定人、业务决定时间、状态和 `checkpoint_thread_id`，回答“谁基于哪一组工具参数做了什么决定”。它不能替代 Graph 执行状态，也不保存恢复所需的节点 channel。
+
+业务 Trace 保存节点白名单摘要，OpenTelemetry 保存跨服务 Span；两者都不能通过 Saver 读取 Checkpoint。五类数据通过 `session_key`、`run_id`、`request_id`、`trace_id` 和派生 Thread ID 关联，但职责与查询路径独立：
 
 ```text
+agent_messages：跨 Run 的用户可见历史事实
+AgentRun：单次执行的业务状态与关联索引
 ApprovalRecord：业务审批事实与参数指纹
-LangGraph checkpoint：节点执行现场与断点恢复
-AgentRun：单次运行的业务状态与查询索引
+Run 级 Checkpoint：单次执行现场与断点恢复
+Trace / OpenTelemetry：安全诊断与跨服务观测
 ```
 
 删除 `ApprovalRecord` 不等于删除 checkpoint；只有审批记录而没有对应 checkpoint 也无法恢复执行。Graph State 和 `ToolExecutionContext` 使用不可拆分的 `ApprovedToolCall(call_id, arguments_hash)` 授权对，Approval Gate 原子追加该 pair，Gateway 只接受同一个 pair 的精确匹配。旧版拆分的 ID/hash 字段不会被转换为 hash-only 权限；无可信 `call_id`、`call_A + hash_B`、计划重排或参数变化都不能执行高风险调用。同一工具和参数的两个有意步骤也不会因为指纹相同而被合并。
@@ -53,9 +57,7 @@ claim 提交前，API 会把恢复所需字段复制到不可变标量快照。�
 
 审批决定与恢复尝试使用不同审计字段：`decision/decided_by/decided_at` 在第一次从 `pending` 取得恢复权时写入，此后相同决定重试不得改写；`resume_claimed_by/resume_claimed_at` 表示最近一次恢复 claimant 及其 claim 时间，`resume_attempts` 只增不减。新的 claim 和最终成功都不会清空 `last_resume_error`，因此终态记录仍能说明此前发生过的最近一次恢复失败。当前保存的是最近失败摘要，不是每次尝试的不可变事件流水。
 
-Graph 节点事件使用稳定 `event_id` 写入 `agent_trace_events`。`persist_agent_run` 每次接收当前 TraceStore 中该 trace 的全部可用事件，并依据数据库已有 `event_id` 补写缺失项；数据库唯一键处理并发或重复重试，业务事务回滚后，同一进程内再次收尾不会因内存列表游标前移而丢 Trace，也不会重复插入。
-
-当前 `InMemoryTraceStore` 仍是进程内存储。如果进程在 Graph 已完成、业务事务回滚后退出，尚未入库的 TraceEvent 会随进程丢失；新进程仅靠 checkpoint 完成态不能还原这批事件。本阶段不声称 Trace 可跨进程补偿，生产环境需要持久 Trace sink、Outbox 或外部观测后端承接该窗口。
+Graph 节点事件先写入每 Run 有界 `TraceBuffer`。业务 Message 与 Run 提交后，Trace 使用独立短事务批量写入 `agent_trace_events` 和 `agent_trace_artifacts`；失败只把 Run 标记为 `persist_failed` 并告警，不回滚业务回答。Trace API 只查询这些业务表，禁止调用 `PostgresSaver.get_tuple/list`。
 
 ## 敏感数据边界
 
@@ -68,6 +70,18 @@ Graph 节点事件使用稳定 `event_id` 写入 `agent_trace_events`。`persist
 `20260713_0004` 使用集合式 SQL 为历史 `agent_trace_events` 回填稳定事件 ID，不把全表 ID 载入应用进程，也不逐行更新。该迁移仍会更新大表并创建唯一索引，SQLite 和 PostgreSQL 上都可能持有较长时间的写锁或 DDL 锁；大表生产上线必须安排维护窗口，或按目标 PostgreSQL 版本拆分为分批回填与 `CREATE UNIQUE INDEX CONCURRENTLY` 等在线方案，不能把当前迁移描述为无锁。
 
 当前 CAS 并发测试使用 SQLite 验证“仅一个 claimant”语义；尚未在真实 PostgreSQL 上执行竞争事务集成测试。该验证应随生产 Compose 和 PostgreSQL 测试环境补齐。
+
+## Checkpoint 身份破坏性升级
+
+从裸外部 `session_id`、裸 `session_key` 或旧 `cp_` 坐标切换到 `cpr1_` 是破坏性部署边界，不做双读。发布必须按以下顺序执行：
+
+1. 在入口停止新流量，并停止会产生新 Run 的后台入口；保持旧版本实例可完成已接受请求。
+2. 排空所有 `running`、`interrupted` Run，以及 `pending`、`resuming`、`resume_failed` 审批。不能用强制改终态的方式伪造排空。
+3. 查询业务库，确认上述在途状态为 0，并确认引用非 `cpr1_[0-9a-f]{64}` 坐标的在途 Approval 为 0。
+4. 通过 `python -m app.operations.production_gate` 检查官方 `PostgresSaver` 所属 `checkpoints.thread_id` 元数据，确认旧裸坐标数量为 0。该查询只读取 Thread ID，不读取 checkpoint JSONB、blob 或 writes。
+5. 门禁通过后再启动新 API、Worker 与 Scheduler，恢复流量。
+
+旧坐标缺少可靠租户与 Run 归属，应用明确拒绝它们：不读取、不反序列化、不自动迁移，也不把旧 Checkpoint 内容灌入 `agent_messages`。旧 Checkpoint 只能在完成备份和保留策略审批后按 Saver/数据库运维流程清理。`agent_messages` 始终是历史事实源，因此排空后清理旧 Checkpoint 不会删除用户可见会话历史。
 
 ## 当前后端
 

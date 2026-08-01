@@ -15,10 +15,12 @@ flowchart LR
     API --> RAG["外部 RAG 检索服务"]
     API --> SKILL["Skill Registry"]
     API --> MCP["MCP 工具服务"]
-    REDIS --> WORKER["Celery Worker"]
+    REDIS --> WORKER["Image Worker"]
+    REDIS --> MAINT["Maintenance Worker"]
     WORKER --> OCR["PaddleOCR Service"]
     WORKER --> VISION["外部 Vision Provider"]
     SCHEDULER["Celery Beat\n单实例"] --> REDIS
+    MAINT --> PG
     API --> OTEL["OTel Collector"]
     WORKER --> OTEL
     OTEL --> OBS["外部 OTLP 后端"]
@@ -86,10 +88,11 @@ docker compose --env-file deploy/production.env -f compose.production.yml build
 docker compose --env-file deploy/production.env -f compose.production.yml up -d
 ```
 
-`migrate` 服务先执行 Alembic，再调用 LangGraph `PostgresSaver.setup()` 创建或升级 Checkpoint 自有表。`api`、`worker` 和 `scheduler` 只有在迁移成功后启动。迁移失败时不要跳过，应查看日志并修复配置或 schema 冲突。
+`migrate` 服务先执行 Alembic，再调用 LangGraph `PostgresSaver.setup()` 创建或升级 Checkpoint 自有表。随后一次性 `release-gate` 真正查询业务 PostgreSQL 与官方 Saver 管理的 `checkpoints.thread_id` 元数据。`api`、`worker`、`maintenance-worker` 和 `scheduler` 只有在迁移与门禁都成功后启动。迁移或门禁失败时不要跳过，应保持流量关闭并处理在途状态或旧坐标。
 
 ```bash
 docker compose --env-file deploy/production.env -f compose.production.yml logs migrate
+docker compose --env-file deploy/production.env -f compose.production.yml logs release-gate
 docker compose --env-file deploy/production.env -f compose.production.yml ps
 ```
 
@@ -130,12 +133,13 @@ docker compose --env-file deploy/production.env -f compose.production.yml run --
   --deny-external-vision
 ```
 
-未授权租户仍可使用内部 PaddleOCR。图片与分析 artifact 到期后由 Celery maintenance 队列清理；共享原图只有在最后一个有效引用失效后才删除。`scheduler` 必须保持单实例，Worker 可以横向扩容。
+未授权租户仍可使用内部 PaddleOCR。图片、分析 artifact 和 Trace 到期后由 Celery `maintenance` 队列有界清理；共享原图只有在最后一个有效引用失效后才删除。`scheduler` 必须保持单实例，`worker` 与 `maintenance-worker` 可以分别横向扩容。
 
 ## 8. 扩缩容
 
 - API：无状态扩容；会话恢复依赖 PostgreSQL PostgresSaver，短期热数据依赖 Redis。
-- Worker：按 `image-analysis,maintenance` 队列扩容；吞吐主要受 OCR、Vision 配额和模型显存/内存限制。
+- Worker：`worker` 只消费 `image-analysis`；吞吐主要受 OCR、Vision 配额和模型显存/内存限制。
+- Maintenance Worker：`maintenance-worker` 只消费 `maintenance`，执行资产和 Trace 的有界保留任务；不得改成无界删除，也不得与长耗时图片任务共用队列。
 - OCR：每个实例只启动一个 Uvicorn worker，模型在进程内单例加载；通过增加容器副本扩容，不在单容器内盲目增加进程。
 - Scheduler：只能运行一个活跃实例，避免重复派发周期任务。集群环境可改用具备 leader election 的调度器。
 - PostgreSQL/Redis/S3：生产建议使用托管高可用服务，不依赖 Compose 本地卷实现容灾。
@@ -144,13 +148,17 @@ docker compose --env-file deploy/production.env -f compose.production.yml run --
 
 API 与 Worker 输出脱敏 JSON 日志。日志只记录 route template、状态码、耗时、请求 ID 和哈希化身份，不记录 query、原始租户/用户 ID、JWT、图片内容或模型密钥。入口应透传 `X-Request-ID`，响应会返回同一标识。
 
-OpenTelemetry Trace 经内部 Collector 发送到 `OBSERVABILITY_OTLP_ENDPOINT`。该地址必须指向持久化的 Tempo、Jaeger 或兼容 OTLP/HTTP 的观测后端，不能只依赖容器 stdout。通过 `OTEL_TRACE_SAMPLE_RATIO` 调整常规采样，故障期临时提高后应及时恢复。
+OpenTelemetry Trace 经内部 Collector 发送到 `OBSERVABILITY_OTLP_ENDPOINT`。该地址必须指向持久化的 Tempo、Jaeger 或兼容 OTLP/HTTP 的观测后端，不能只依赖容器 stdout。通过 `OTEL_TRACE_SAMPLE_RATIO` 调整常规采样，故障期临时提高后应及时恢复。Agent Node Span 只导出节点名、状态、稳定错误码、耗时和计数等白名单属性。
+
+业务 Trace 与 OpenTelemetry 独立：业务 Trace 按 Run 写入 PostgreSQL，正常成功链路默认采样 10%，详细采样 1%；失败、高风险、审批和 Verifier 非通过强制详细捕获。Event 与 Artifact 默认保留 30 天，由 `maintenance-worker` 每小时按批量上限清理。Trace 写入失败不得改变业务回答，但 `persist_failed`、`trace_persistence_failed`、清理积压和 OTLP 导出失败都必须告警。
+
+Message、Trace 和 OTel 均不保存模型私有思维链。`agent_messages` 只保存用户可见正文；Trace 和 Span 不保存完整 Prompt、工具参数/结果、回答正文、凭证或原始异常。
 
 ## 10. 备份与恢复
 
 至少备份以下数据：
 
-- PostgreSQL：业务表、审批、Trace summary、图片元数据和 LangGraph Checkpoint 表。
+- PostgreSQL：`agent_messages` 会话历史、AgentRun、审批、Trace summary、图片元数据和 LangGraph Checkpoint 表。
 - S3/MinIO：原图与分析 artifact；建议启用版本控制和服务端加密。
 - Redis：仅保存热数据、限流与任务队列，不能作为唯一事实来源；AOF 用于降低短时任务丢失风险。
 
@@ -163,11 +171,42 @@ docker compose --env-file deploy/production.env -f compose.production.yml exec -
 
 恢复演练必须在隔离环境执行：先恢复 PostgreSQL 和对象存储，再启动 `migrate`，随后启动 Redis、OCR、Worker、API 和前端。每次大版本发布前验证最近备份可恢复，并检查 Checkpoint 与 `agent_runs` 能否关联。
 
-## 11. 发布与回滚
+## 11. Checkpoint 破坏性升级门禁
+
+Checkpoint Thread ID 切换到 `cpr1_<sha256(tenant_id + NUL + session_key + NUL + request_id)>` 时禁止滚动双读。旧裸坐标没有可靠租户归属，不能读取、反序列化或自动迁移。必须执行以下步骤：
+
+1. 从负载均衡器移除所有 API 实例，停止新流量；暂停会创建新 Run 的任务入口。
+2. 让旧版本完成已接受请求，排空 `running`、`interrupted` Run 和 `pending/resuming/resume_failed` 审批。人工修改状态不算排空。
+3. 备份 PostgreSQL，并按批准的保留策略清理旧 Checkpoint 坐标；不要从旧 Checkpoint 向 Message 反灌数据。`agent_messages` 是用户可见历史事实源。
+4. 运行迁移和一次性门禁：
+
+```bash
+docker compose --env-file deploy/production.env -f compose.production.yml run --rm migrate
+docker compose --env-file deploy/production.env -f compose.production.yml run --rm release-gate \
+  python -m app.operations.production_gate
+```
+
+门禁直接查询业务 DB，并通过 `PostgresSaver` 连接只读取 Saver 的 Thread ID 元数据，不加载 checkpoint JSONB/blob。输出以下五项，必须全部为 0：
+
+```json
+{
+  "interrupted_runs": 0,
+  "legacy_checkpoint_coordinates": 0,
+  "legacy_inflight_approvals": 0,
+  "pending_approvals": 0,
+  "running_runs": 0
+}
+```
+
+5. 使用 `docker compose up -d` 启动新版本；Compose 会再次运行 `release-gate`，只有成功后才启动 API、两个 Worker 和 Scheduler。完成 smoke 后恢复流量。
+
+任何非零计数、查询失败或 Checkpoint 表缺失都必须 fail closed。不得通过删除有效能力、跳过门禁或把在途记录直接改为终态来推进发布。
+
+## 12. 发布与回滚
 
 1. GitHub Actions CI 必须通过：Python 3.11 锁定依赖、Ruff、全量测试、真实 PostgreSQL PostgresSaver、前端 Vitest、前端生产构建、生产依赖审计和 Compose 静态校验。
 2. 构建不可变镜像并使用 commit SHA 或版本号标记，禁止只使用 `latest`。
-3. 先运行迁移，再滚动发布 API/Worker/OCR，最后切换前端。
+3. 普通兼容发布先运行迁移与 `release-gate`，再滚动发布 API/Worker/OCR，最后切换前端；Checkpoint 身份升级必须遵循上一节的停流量流程。
 4. 用真实 JWT 验证文本问答、MCP 工具、RAG、图片 OCR/Vision、SSE、审批恢复和 Trace。
 5. 回滚应用前确认数据库迁移向后兼容；不可逆迁移必须使用前向修复，不直接降级 schema。
 
@@ -182,7 +221,7 @@ TEST_IMAGE="/absolute/path/financial-report.png" \
 
 脚本默认要求分析 provider 为 `ocr_vision_hybrid`。运行前必须为 access token 所属租户启用外部 Vision；只验收内网 OCR 降级能力时显式设置 `REQUIRE_EXTERNAL_VISION=false`。脚本需要 `curl` 与 `jq`，结束时会删除本次上传的图片资产。
 
-## 12. 常见故障
+## 13. 常见故障
 
 | 现象 | 优先检查 |
 | --- | --- |
@@ -190,7 +229,10 @@ TEST_IMAGE="/absolute/path/financial-report.png" \
 | 前端显示未登录 | OIDC callback、Allowed Origins、CSP `OIDC_CONNECT_SRC`、浏览器时间 |
 | 登录后 403 | access token 的 `tenant_id`、`sub` 与 `scope/scopes` |
 | Checkpoint 初始化失败 | 必须使用 `postgresql://`/`postgres://` psycopg URL，检查迁移日志和数据库权限 |
+| `release-gate` 失败 | 保持流量关闭；按输出处理在途 Run、审批或旧 Thread ID，不跳过门禁 |
 | 图片长期 processing | Worker 队列、Redis broker、OCR readiness、Vision 配额与熔断状态 |
 | 只有 OCR 没有 Vision | 检查租户 `allow_external_vision` 策略 |
 | SSE 最后一次性返回 | 确认代理关闭 buffering/cache，并保留较长 read timeout |
 | Trace 没有落入平台 | Collector 配置、外部 OTLP 地址、网络与采样比例 |
+| `persist_failed` 增长 | 业务回答不回滚；告警并检查 Trace 表、连接池、schema 与租户/Run 身份冲突 |
+| Trace 超过 30 天未清理 | 检查 Scheduler 单实例、`maintenance-worker`、队列积压与批量配置 |

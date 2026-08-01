@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.postgres import PostgresSaver
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -160,6 +161,24 @@ def test_trace_api_reads_database_after_memory_store_is_cleared():
     assert response.json()["capture_status"] == "captured"
     assert response.json()["events"][0]["event_id"] == "event_run_db_1_0000"
     assert "artifact_run_db_1_0000" in response.json()["artifacts"]
+
+
+def test_trace_api_never_reads_postgres_checkpointer(monkeypatch):
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(app)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Trace API 禁止读取 PostgresSaver。")
+
+    monkeypatch.setattr(PostgresSaver, "get_tuple", forbidden)
+    monkeypatch.setattr(PostgresSaver, "list", forbidden)
+
+    response = TestClient(app).get(
+        f"/api/traces/{trace_id}?include_artifacts=true"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["trace_id"] == trace_id
 
 
 @pytest.mark.parametrize("capture_status", ["not_sampled", "persist_failed"])
