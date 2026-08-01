@@ -4,6 +4,16 @@ from pydantic import ValidationError
 from app.core.config import Settings
 
 
+def test_approval_resume_claim_timeout_defaults_to_five_minutes():
+    assert Settings(_env_file=None).approval_resume_claim_timeout_seconds == 300
+
+
+@pytest.mark.parametrize("value", [29, 3601])
+def test_approval_resume_claim_timeout_enforces_bounds(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, approval_resume_claim_timeout_seconds=value)
+
+
 def _production_settings(**overrides):
     values = {
         "app_env": "production",

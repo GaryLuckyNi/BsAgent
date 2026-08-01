@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -147,9 +147,12 @@ class ApprovalRepository:
         tenant_id: str,
         decision: Literal["approved", "rejected"],
         decided_by: str,
+        now: datetime | None = None,
+        claim_timeout: timedelta = timedelta(seconds=300),
     ) -> ApprovalResumeClaim:
         claim_token = uuid4().hex
-        claimed_at = datetime.now(UTC)
+        claimed_at = now or datetime.now(UTC)
+        stale_before = claimed_at - claim_timeout
         result = self._session.execute(
             update(ApprovalRecord)
             .where(
@@ -163,6 +166,12 @@ class ApprovalRepository:
                     and_(
                         ApprovalRecord.status == "resume_failed",
                         ApprovalRecord.decision == decision,
+                    ),
+                    and_(
+                        ApprovalRecord.status == "resuming",
+                        ApprovalRecord.decision == decision,
+                        ApprovalRecord.resume_claimed_at.is_not(None),
+                        ApprovalRecord.resume_claimed_at <= stale_before,
                     ),
                 ),
             )
@@ -272,6 +281,7 @@ class ApprovalRepository:
         return record
 
 def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
+    payload = json.loads(record.payload_json)
     return (
         record.run_id == data.run_id
         and record.session_id == data.session_id
@@ -283,8 +293,13 @@ def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
         and record.tool_version == data.tool_version
         and record.arguments_hash == data.arguments_hash
         and record.checkpoint_thread_id == data.checkpoint_thread_id
-        and json.loads(record.payload_json).get("checkpoint_namespace", "")
-        == data.checkpoint_namespace
+        and payload.get("run_id") == data.run_id
+        and payload.get("session_id") == data.session_id
+        and payload.get("session_key") == data.session_key
+        and payload.get("tenant_id") == data.tenant_id
+        and payload.get("request_user_id") == data.request_user_id
+        and payload.get("checkpoint_thread_id") == data.checkpoint_thread_id
+        and payload.get("checkpoint_namespace") == data.checkpoint_namespace
     )
 
 

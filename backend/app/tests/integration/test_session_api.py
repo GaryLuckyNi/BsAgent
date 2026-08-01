@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from fastapi import Request
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
 import pytest
 from langgraph.types import Interrupt
 from sqlalchemy import select
@@ -14,7 +15,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api import approvals, sessions
 from app.conversations.service import BeginTurn, ConversationService
-from app.graph.state import create_initial_state
+from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.graph.runtime import AgentGraphExecutionError
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.llm.deepseek import LlmConfigurationError
@@ -159,6 +160,88 @@ def create_test_app_with_database(*, on_session=None, override_principal=True):
             override_get_current_principal
         )
     return app, testing_session_local
+
+
+def add_approval_resume_fixture(
+    db,
+    *,
+    approval_id="approval_1",
+    run_id="run_1",
+    request_id="checkpoint_request_1",
+    checkpoint_thread_id=None,
+    payload_overrides=None,
+    status="pending",
+    decision=None,
+    resume_claim_token=None,
+    resume_claimed_at=None,
+    resume_attempts=0,
+    last_resume_error=None,
+    decided_by=None,
+):
+    expected_thread_id = build_checkpoint_thread_id(
+        tenant_id="tenant_1",
+        session_key="session_key_1",
+        request_id=request_id,
+    )
+    selected_thread_id = checkpoint_thread_id or expected_thread_id
+    payload = {
+        "run_id": run_id,
+        "session_id": "session_1",
+        "session_key": "session_key_1",
+        "tenant_id": "tenant_1",
+        "request_user_id": "user_1",
+        "checkpoint_thread_id": selected_thread_id,
+        "checkpoint_namespace": "",
+    }
+    payload.update(payload_overrides or {})
+    db.add_all(
+        [
+            ApprovalRecord(
+                approval_id=approval_id,
+                run_id=run_id,
+                session_id="session_1",
+                session_key="session_key_1",
+                tenant_id="tenant_1",
+                request_user_id="user_1",
+                approval_type="tool_call",
+                tool_name="mcp.mock.trade.submit",
+                tool_version="1.0.0",
+                arguments_hash="hash_1",
+                payload_json=json.dumps(payload),
+                checkpoint_thread_id=selected_thread_id,
+                status=status,
+                decision=decision,
+                resume_claim_token=resume_claim_token,
+                resume_claimed_at=resume_claimed_at,
+                resume_attempts=resume_attempts,
+                last_resume_error=last_resume_error,
+                decided_by=decided_by,
+            ),
+            AgentRun(
+                run_id=run_id,
+                session_id="session_1",
+                session_key="session_key_1",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                trace_id="trace_1",
+                status="interrupted",
+            ),
+            AgentMessage(
+                message_id=f"message_{run_id}",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                session_key="session_key_1",
+                run_id=run_id,
+                request_id=request_id,
+                role="user",
+                status="completed",
+                content="提交一笔模拟交易",
+                sequence_no=1,
+                completed_at=datetime.now(UTC),
+            ),
+        ]
+    )
+    return expected_thread_id
 
 
 def _initial_state_from_graph_kwargs(kwargs):
@@ -1271,34 +1354,7 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
-        session.add(
-            ApprovalRecord(
-                approval_id="approval_1",
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                request_user_id="user_1",
-                approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
-                checkpoint_thread_id="run_1",
-                status="pending",
-            )
-        )
-        session.add(
-            AgentRun(
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                trace_id="trace_1",
-                status="interrupted",
-            )
-        )
+        expected_checkpoint = add_approval_resume_fixture(session)
         session.commit()
     client = TestClient(app)
 
@@ -1312,7 +1368,7 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
     )
 
     assert response.status_code == 200
-    assert captured["checkpoint_thread_id"] == "run_1"
+    assert captured["checkpoint_thread_id"] == expected_checkpoint
     assert captured["approval_decision"] == {
         "approval_id": "approval_1",
         "arguments_hash": "hash_1",
@@ -1331,17 +1387,161 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
     assert [item.run_id for item in runs] == ["run_1"]
 
 
-def test_approval_resume_rejects_state_identity_mismatch(monkeypatch):
+def test_approval_resume_rejects_different_existing_checkpoint_before_graph(
+    monkeypatch,
+):
+    resume_calls = []
+    other_checkpoint = build_checkpoint_thread_id(
+        tenant_id="tenant_1",
+        session_key="session_key_1",
+        request_id="other_real_request",
+    )
+    checkpointer = InMemorySaver()
+    sessions.run_question_answer_graph(
+        session_id="session_1",
+        session_key="session_key_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        request_id="other_real_request",
+        user_message="你好",
+        checkpointer=checkpointer,
+    )
+    assert checkpointer.get_tuple(
+        {
+            "configurable": {
+                "thread_id": other_checkpoint,
+                "checkpoint_ns": "",
+            }
+        }
+    ) is not None
+
+    def forbidden_resume(**kwargs):
+        assert kwargs["checkpoint_thread_id"] == other_checkpoint
+        resume_calls.append(kwargs)
+        raise AssertionError("身份校验失败时不得恢复另一个真实 checkpoint")
+
+    monkeypatch.setattr(approvals, "resume_question_answer_graph", forbidden_resume)
+    monkeypatch.setattr(approvals, "build_graph_checkpointer", lambda: checkpointer)
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        add_approval_resume_fixture(
+            db,
+            checkpoint_thread_id=other_checkpoint,
+        )
+        db.commit()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/approvals/approval_1/decision",
+        json={"actor_id": "approver_1", "decision": "approved"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "approval_resume_identity_mismatch"
+    assert resume_calls == []
+
+
+def test_approval_resume_rejects_payload_identity_mismatch_before_graph(monkeypatch):
+    resume_calls = []
+    monkeypatch.setattr(
+        approvals,
+        "resume_question_answer_graph",
+        lambda **kwargs: resume_calls.append(kwargs),
+    )
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        add_approval_resume_fixture(
+            db,
+            payload_overrides={"run_id": "other_run"},
+        )
+        db.commit()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/approvals/approval_1/decision",
+        json={"actor_id": "approver_1", "decision": "approved"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "approval_resume_identity_mismatch"
+    assert resume_calls == []
+
+
+def test_approval_claim_commit_failure_returns_safe_503(monkeypatch):
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        add_approval_resume_fixture(db)
+        db.commit()
+
+    def fail_commit(_db):
+        raise SQLAlchemyError("COMMIT leaked_secret")
+
+    monkeypatch.setattr(approvals.Session, "commit", fail_commit)
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/approvals/approval_1/decision",
+        json={"actor_id": "approver_1", "decision": "approved"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "approval_persistence_unavailable"}
+    }
+    assert "leaked_secret" not in response.text
+
+
+def test_approval_failure_record_failure_returns_safe_503(monkeypatch):
+    original_error = AgentGraphExecutionError(
+        node_name="approval_gate",
+        message="工具参数已变化",
+        code="approval_payload_mismatch",
+        http_status=409,
+    )
+
+    def fail_resume(**_kwargs):
+        raise original_error
+
+    def fail_record(*_args, **_kwargs):
+        raise SQLAlchemyError("UPDATE leaked_secret")
+
+    monkeypatch.setattr(approvals, "resume_question_answer_graph", fail_resume)
+    monkeypatch.setattr(approvals.ApprovalRepository, "fail_resume", fail_record)
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        add_approval_resume_fixture(db)
+        db.commit()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/approvals/approval_1/decision",
+        json={"actor_id": "approver_1", "decision": "approved"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "approval_persistence_unavailable"}
+    }
+    assert "leaked_secret" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("state_session_key", "state_request_id"),
+    [
+        ("wrong_session_key", "checkpoint_request_1"),
+        ("session_key_1", "wrong_request_id"),
+    ],
+)
+def test_approval_resume_rejects_state_identity_mismatch(
+    monkeypatch,
+    state_session_key,
+    state_request_id,
+):
     def fake_resume(**kwargs):
         state = create_initial_state(
             session_id="session_1",
-            session_key="wrong_session_key",
+            session_key=state_session_key,
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
             permission_scopes=kwargs["permission_scopes"],
         )
-        state["request_id"] = "checkpoint_request_1"
+        state["request_id"] = state_request_id
         state["trace_id"] = "trace_1"
         return state
 
@@ -1349,34 +1549,7 @@ def test_approval_resume_rejects_state_identity_mismatch(monkeypatch):
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
-        session.add_all(
-            [
-                ApprovalRecord(
-                    approval_id="approval_1",
-                    run_id="run_1",
-                    session_id="session_1",
-                    session_key="session_key_1",
-                    tenant_id="tenant_1",
-                    request_user_id="user_1",
-                    approval_type="tool_call",
-                    tool_name="mcp.mock.trade.submit",
-                    tool_version="1.0.0",
-                    arguments_hash="hash_1",
-                    payload_json='{"checkpoint_namespace":""}',
-                    checkpoint_thread_id="run_1",
-                    status="pending",
-                ),
-                AgentRun(
-                    run_id="run_1",
-                    session_id="session_1",
-                    session_key="session_key_1",
-                    tenant_id="tenant_1",
-                    user_id="user_1",
-                    trace_id="trace_1",
-                    status="interrupted",
-                ),
-            ]
-        )
+        add_approval_resume_fixture(session)
         session.commit()
 
     response = TestClient(app, raise_server_exceptions=False).post(
@@ -1403,7 +1576,7 @@ def test_approval_resume_child_approval_keeps_original_run_identity(monkeypatch)
             user_message="提交另一笔模拟交易",
             permission_scopes=kwargs["permission_scopes"],
         )
-        state["request_id"] = "checkpoint_request_2"
+        state["request_id"] = "checkpoint_request_1"
         state["trace_id"] = "trace_1"
         state["__interrupt__"] = [
             Interrupt(
@@ -1432,34 +1605,7 @@ def test_approval_resume_child_approval_keeps_original_run_identity(monkeypatch)
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
-        session.add_all(
-            [
-                ApprovalRecord(
-                    approval_id="approval_1",
-                    run_id="run_1",
-                    session_id="session_1",
-                    session_key="session_key_1",
-                    tenant_id="tenant_1",
-                    request_user_id="user_1",
-                    approval_type="tool_call",
-                    tool_name="mcp.mock.trade.submit",
-                    tool_version="1.0.0",
-                    arguments_hash="hash_1",
-                    payload_json='{"checkpoint_namespace":""}',
-                    checkpoint_thread_id="run_1",
-                    status="pending",
-                ),
-                AgentRun(
-                    run_id="run_1",
-                    session_id="session_1",
-                    session_key="session_key_1",
-                    tenant_id="tenant_1",
-                    user_id="user_1",
-                    trace_id="trace_1",
-                    status="interrupted",
-                ),
-            ]
-        )
+        expected_checkpoint = add_approval_resume_fixture(session)
         session.commit()
 
     response = TestClient(app, raise_server_exceptions=False).post(
@@ -1478,8 +1624,10 @@ def test_approval_resume_child_approval_keeps_original_run_identity(monkeypatch)
     assert child.session_key == "session_key_1"
     assert child.tenant_id == "tenant_1"
     assert child.request_user_id == "user_1"
+    assert child.checkpoint_thread_id == expected_checkpoint
     assert child_payload["run_id"] == "run_1"
     assert child_payload["session_key"] == "session_key_1"
+    assert child_payload["checkpoint_thread_id"] == expected_checkpoint
     assert child_payload["checkpoint_namespace"] == ""
     assert [(run.run_id, run.status) for run in runs] == [("run_1", "interrupted")]
 
@@ -1502,7 +1650,7 @@ def test_approval_resume_does_not_hold_request_database_transaction(monkeypatch)
             user_message="提交一笔模拟交易",
             permission_scopes=kwargs["permission_scopes"],
         )
-        state["request_id"] = "run_1"
+        state["request_id"] = "checkpoint_request_1"
         state["trace_id"] = "trace_1"
         state["final_response"] = {
             "content": "模拟交易已提交。",
@@ -1518,34 +1666,7 @@ def test_approval_resume_does_not_hold_request_database_transaction(monkeypatch)
         on_session=capture_session,
     )
     with testing_session_local() as session:
-        session.add(
-            ApprovalRecord(
-                approval_id="approval_1",
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                request_user_id="user_1",
-                approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
-                checkpoint_thread_id="run_1",
-                status="pending",
-            )
-        )
-        session.add(
-            AgentRun(
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                trace_id="trace_1",
-                status="interrupted",
-            )
-        )
+        add_approval_resume_fixture(session)
         session.commit()
     response = TestClient(app, raise_server_exceptions=False).post(
         "/api/approvals/approval_1/decision",
@@ -1645,34 +1766,7 @@ def test_approval_resume_failure_is_409_and_remains_retryable(
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
-        session.add(
-            ApprovalRecord(
-                approval_id="approval_1",
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                request_user_id="user_1",
-                approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
-                checkpoint_thread_id="run_1",
-                status="pending",
-            )
-        )
-        session.add(
-            AgentRun(
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                trace_id="trace_1",
-                status="interrupted",
-            )
-        )
+        add_approval_resume_fixture(session)
         session.commit()
     client = TestClient(app, raise_server_exceptions=False)
 
@@ -1710,7 +1804,7 @@ def test_approval_resume_failed_can_retry_same_decision(monkeypatch):
             user_message="提交一笔模拟交易",
             permission_scopes=kwargs["permission_scopes"],
         )
-        state["request_id"] = "run_1"
+        state["request_id"] = "checkpoint_request_1"
         state["trace_id"] = "trace_1"
         state["final_response"] = {
             "content": "模拟交易已提交。",
@@ -1724,37 +1818,13 @@ def test_approval_resume_failed_can_retry_same_decision(monkeypatch):
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
-        session.add(
-            ApprovalRecord(
-                approval_id="approval_1",
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                request_user_id="user_1",
-                approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
-                checkpoint_thread_id="run_1",
-                status="resume_failed",
-                decision="approved",
-                resume_attempts=1,
-                last_resume_error="checkpoint missing",
-                decided_by="approver_1",
-            )
-        )
-        session.add(
-            AgentRun(
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                trace_id="trace_1",
-                status="interrupted",
-            )
+        add_approval_resume_fixture(
+            session,
+            status="resume_failed",
+            decision="approved",
+            resume_attempts=1,
+            last_resume_error="checkpoint missing",
+            decided_by="approver_1",
         )
         session.commit()
     client = TestClient(app)
@@ -1835,7 +1905,7 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
             user_message="提交一笔模拟交易",
             permission_scopes=kwargs["permission_scopes"],
         )
-        state["request_id"] = "run_1"
+        state["request_id"] = "checkpoint_request_1"
         state["trace_id"] = "trace_1"
         state["final_response"] = {
             "content": "模拟交易已提交。",
@@ -1854,34 +1924,7 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
     )
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
-        session.add(
-            ApprovalRecord(
-                approval_id="approval_1",
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                request_user_id="user_1",
-                approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
-                checkpoint_thread_id="run_1",
-                status="pending",
-            )
-        )
-        session.add(
-            AgentRun(
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                trace_id="trace_1",
-                status="interrupted",
-            )
-        )
+        add_approval_resume_fixture(session)
         session.commit()
     client = TestClient(app, raise_server_exceptions=False)
 
@@ -1919,7 +1962,7 @@ def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
             user_message="提交一笔模拟交易",
             permission_scopes=kwargs["permission_scopes"],
         )
-        state["request_id"] = "run_1"
+        state["request_id"] = "checkpoint_request_1"
         state["trace_id"] = "trace_1"
         state["final_response"] = {
             "content": "模拟交易已提交。",
@@ -1962,34 +2005,7 @@ def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
     )
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
-        session.add(
-            ApprovalRecord(
-                approval_id="approval_1",
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                request_user_id="user_1",
-                approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
-                checkpoint_thread_id="run_1",
-                status="pending",
-            )
-        )
-        session.add(
-            AgentRun(
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                trace_id="trace_1",
-                status="interrupted",
-            )
-        )
+        add_approval_resume_fixture(session)
         session.commit()
     client = TestClient(app, raise_server_exceptions=False)
     request = {
