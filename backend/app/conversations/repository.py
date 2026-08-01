@@ -173,6 +173,7 @@ class ConversationRepository:
         tenant_id: str,
         user_id: str,
         session_key: str,
+        exclude_request_id: str,
         limit: int,
     ) -> list[AgentMessage]:
         records = list(
@@ -182,6 +183,7 @@ class ConversationRepository:
                     AgentMessage.tenant_id == tenant_id,
                     AgentMessage.user_id == user_id,
                     AgentMessage.session_key == session_key,
+                    AgentMessage.request_id != exclude_request_id,
                     AgentMessage.status == "completed",
                     AgentMessage.deleted_at.is_(None),
                     AgentMessage.role.in_(("user", "assistant")),

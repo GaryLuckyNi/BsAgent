@@ -268,7 +268,9 @@ def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
 
     def fake_graph(**kwargs):
         captured.update(kwargs)
-        return _completed_graph_state(kwargs)
+        state = _completed_graph_state(kwargs)
+        captured["state"] = state
+        return state
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
     app, testing_session_local = create_test_app_with_database()
@@ -356,12 +358,26 @@ def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
 
     assert response.status_code == 200
     assert [message.content for message in captured["history"]] == [
+        "旧问题2",
+        "旧回答2",
+        "旧问题3",
+        "旧回答3",
+    ]
+    assert len(captured["history"]) == sessions.CONVERSATION_HISTORY_LIMIT
+    assert captured["user_message_id"] not in {
+        message.message_id for message in captured["history"]
+    }
+    assert [message.content for message in captured["state"]["messages"]] == [
+        "旧问题2",
         "旧回答2",
         "旧问题3",
         "旧回答3",
         "当前问题",
     ]
-    assert captured["history"][-1].message_id == captured["user_message_id"]
+    assert sum(
+        message.message_id == captured["user_message_id"]
+        for message in captured["state"]["messages"]
+    ) == 1
     assert all("checkpoint" not in message.content for message in captured["history"])
 
 

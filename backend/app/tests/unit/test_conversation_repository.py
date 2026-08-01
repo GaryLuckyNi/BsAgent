@@ -254,6 +254,35 @@ def test_list_context_messages_filters_and_returns_stable_recent_window(session)
             status="completed",
             sequence_no=7,
         ),
+        _message(
+            message_id="other_tenant",
+            session_key="session_key_1",
+            run_id="run_8",
+            request_id="request_8",
+            role="assistant",
+            status="completed",
+            sequence_no=8,
+            tenant_id="tenant_2",
+        ),
+        _message(
+            message_id="other_user",
+            session_key="session_key_1",
+            run_id="run_9",
+            request_id="request_9",
+            role="assistant",
+            status="completed",
+            sequence_no=9,
+            user_id="user_2",
+        ),
+        _message(
+            message_id="current_user",
+            session_key="session_key_1",
+            run_id="current_run",
+            request_id="current_request",
+            role="user",
+            status="completed",
+            sequence_no=10,
+        ),
     ]
     session.add_all(records)
     session.flush()
@@ -262,6 +291,7 @@ def test_list_context_messages_filters_and_returns_stable_recent_window(session)
         tenant_id="tenant_1",
         user_id="user_1",
         session_key="session_key_1",
+        exclude_request_id="current_request",
         limit=2,
     )
 
@@ -297,6 +327,7 @@ def test_list_context_messages_requires_message_ownership(
         tenant_id=tenant_id,
         user_id=user_id,
         session_key="shared_internal_key",
+        exclude_request_id="current_request",
         limit=10,
     )
 

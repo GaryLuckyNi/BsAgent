@@ -104,6 +104,8 @@ def test_begin_turn_creates_one_run_and_two_consecutive_messages(session):
         "attachment_ids": ["asset-1"],
         "content_type": "text",
     }
+    assert messages[0].request_id == handle.request_id
+    assert messages[0].message_id == handle.user_message_id
     assert messages[1].content == ""
     assert runs[0].status == "running"
     assert runs[0].session_key == handle.session_key

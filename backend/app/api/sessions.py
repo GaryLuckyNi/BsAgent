@@ -268,6 +268,7 @@ def _run_and_persist_agent_message(
         tenant_id=principal.tenant_id,
         user_id=principal.user_id,
         session_key=handle.session_key,
+        exclude_request_id=handle.request_id,
         limit=CONVERSATION_HISTORY_LIMIT,
     )
     history = [
