@@ -995,7 +995,7 @@ def test_post_session_message_ignores_short_term_memory_failure(monkeypatch):
         "build_short_term_memory_store",
         lambda: FailingShortTermStore(),
     )
-    app, _ = create_test_app_with_database()
+    app, testing_session_local = create_test_app_with_database()
     client = TestClient(app)
 
     response = client.post(
@@ -1009,6 +1009,54 @@ def test_post_session_message_ignores_short_term_memory_failure(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["content"] == "ok"
+    with testing_session_local() as session:
+        run = session.scalars(select(AgentRun)).one()
+        assistant = session.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+    assert run.status == "completed"
+    assert assistant.status == "completed"
+
+
+def test_post_session_message_commit_failure_does_not_write_short_term_event(
+    monkeypatch,
+):
+    redis_events = []
+
+    class RecordingShortTermStore:
+        def append_session_event(self, **kwargs):
+            redis_events.append(kwargs)
+
+    monkeypatch.setattr(
+        sessions,
+        "run_question_answer_graph",
+        lambda **kwargs: _completed_graph_state(kwargs),
+    )
+    monkeypatch.setattr(
+        sessions,
+        "build_short_term_memory_store",
+        lambda: RecordingShortTermStore(),
+    )
+    original_commit = sessions.Session.commit
+    commit_count = 0
+
+    def fail_business_commit(db):
+        nonlocal commit_count
+        commit_count += 1
+        if commit_count == 3:
+            raise SQLAlchemyError("business commit failed")
+        return original_commit(db)
+
+    monkeypatch.setattr(sessions.Session, "commit", fail_business_commit)
+    app, _ = create_test_app_with_database()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/sessions/s1/messages",
+        json={"message": "分析银之杰"},
+    )
+
+    assert response.status_code == 503
+    assert redis_events == []
 
 
 def test_post_session_message_uses_configured_rag_mode(monkeypatch):
@@ -1400,7 +1448,16 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
         "arguments_hash": "hash_1",
         "decision": "approved",
     }
-    assert captured["permission_scopes"] is None
+    assert captured["permission_scopes"]
+    assert "rag:retrieve" in captured["permission_scopes"]
+    assert captured["permission_scopes"] != [
+        "agent:invoke",
+        "agent:read",
+        "approval:decide",
+        "approval:read",
+        "mcp:mock",
+        "rag:retrieve",
+    ]
     assert response.json()["run_id"] == "run_1"
     assert response.json()["run_status"] == "completed"
     with testing_session_local() as session:
@@ -1511,6 +1568,86 @@ def test_approval_claim_commit_failure_returns_safe_503(monkeypatch):
         "detail": {"code": "approval_persistence_unavailable"}
     }
     assert "leaked_secret" not in response.text
+
+
+def test_approval_resume_fails_closed_when_request_user_tool_permission_revoked(
+    monkeypatch,
+):
+    resume_scopes = []
+
+    class RevokedRbacProvider:
+        def resolve_principal(self, *, tenant_id, user_id):
+            return Principal(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                scopes=("agent:invoke", "agent:read", "rag:retrieve"),
+            )
+
+        def tool_scopes(self, principal):
+            return principal.scopes
+
+    def deny_revoked_scope(**kwargs):
+        resume_scopes.append(kwargs["permission_scopes"])
+        raise AgentGraphExecutionError(
+            node_name="tool_agent",
+            message="工具权限不足。",
+            code="tool_permission_denied",
+            http_status=403,
+        )
+
+    monkeypatch.setattr(approvals, "resume_question_answer_graph", deny_revoked_scope)
+    monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(
+        approvals,
+        "get_rbac_provider",
+        lambda: RevokedRbacProvider(),
+        raising=False,
+    )
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        add_approval_resume_fixture(db)
+        db.commit()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/approvals/approval_1/decision",
+        json={"actor_id": "approver_1", "decision": "approved"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "tool_permission_denied"
+    assert resume_scopes == [["agent:invoke", "agent:read", "rag:retrieve"]]
+    with testing_session_local() as db:
+        record = db.get(ApprovalRecord, "approval_1")
+    assert record.status == "resume_failed"
+    assert record.decision == "approved"
+
+
+def test_approval_resume_fails_closed_when_request_user_rbac_is_unavailable(
+    monkeypatch,
+):
+    class UnavailableRbacProvider:
+        def resolve_principal(self, **_kwargs):
+            raise RuntimeError("rbac unavailable")
+
+    monkeypatch.setattr(
+        approvals,
+        "get_rbac_provider",
+        lambda: UnavailableRbacProvider(),
+    )
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        add_approval_resume_fixture(db)
+        db.commit()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/approvals/approval_1/decision",
+        json={"actor_id": "approver_1", "decision": "approved"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == (
+        "approval_requester_authorization_unavailable"
+    )
 
 
 def test_approval_failure_record_failure_returns_safe_503(monkeypatch):

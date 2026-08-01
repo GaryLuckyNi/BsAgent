@@ -344,6 +344,7 @@ class ApprovalRecord(Base):
     status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
     decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
     resume_claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resume_claim_generation: Mapped[int] = mapped_column(Integer, default=0)
     resume_attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_resume_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     resume_claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)

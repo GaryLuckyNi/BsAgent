@@ -1,4 +1,5 @@
 import json
+import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
@@ -35,6 +36,7 @@ from app.harness.trace_buffer import TraceBuffer
 from app.llm.factory import maybe_build_llm_client
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
+from app.security.rbac import get_rbac_provider
 from app.storage.database import get_db
 from app.storage.models import AgentMessage, AgentRun, ApprovalRecord
 from app.storage.repositories import persist_agent_run
@@ -62,6 +64,7 @@ class ApprovalResumeSnapshot:
     checkpoint_thread_id: str
     checkpoint_namespace: Literal[""]
     claim_token: str
+    claim_generation: int
 
 
 class ApprovalResumeIdentityError(RuntimeError):
@@ -90,6 +93,15 @@ def decide_approval(
 ) -> dict:
     repository = ApprovalRepository(db)
     try:
+        pending_record = repository.get(
+            approval_id=approval_id,
+            tenant_id=principal.tenant_id,
+        )
+        if pending_record is None:
+            raise ApprovalNotFoundError(f"Approval not found: {approval_id}")
+        permission_scopes = _resolve_resume_permission_scopes(
+            pending_record,
+        )
         claim = repository.claim_resume(
             approval_id=approval_id,
             tenant_id=principal.tenant_id,
@@ -121,6 +133,7 @@ def decide_approval(
             resume_snapshot = _resume_snapshot(
                 claim.record,
                 claim.claim_token,
+                claim.claim_generation,
                 persisted_run,
                 user_message,
                 assistant_message,
@@ -191,20 +204,38 @@ def decide_approval(
     trace_buffer = TraceBuffer()
     state: AgentState | None = None
     try:
-        state = resume_question_answer_graph(
-            checkpoint_thread_id=resume_snapshot.checkpoint_thread_id,
-            checkpoint_namespace=resume_snapshot.checkpoint_namespace,
-            approval_decision={
-                "approval_id": resume_snapshot.approval_id,
-                "arguments_hash": resume_snapshot.arguments_hash,
-                "decision": request.decision,
-            },
-            mock_evidence=settings.use_mock_rag,
-            trace_buffer=trace_buffer,
-            checkpointer=build_graph_checkpointer(),
-            llm_client=maybe_build_llm_client(),
-            permission_scopes=None,
+        with _ApprovalResumeLease(
+            db=db,
+            snapshot=resume_snapshot,
+            timeout_seconds=settings.approval_resume_claim_timeout_seconds,
+        ) as lease:
+            state = resume_question_answer_graph(
+                checkpoint_thread_id=resume_snapshot.checkpoint_thread_id,
+                checkpoint_namespace=resume_snapshot.checkpoint_namespace,
+                approval_decision={
+                    "approval_id": resume_snapshot.approval_id,
+                    "arguments_hash": resume_snapshot.arguments_hash,
+                    "decision": request.decision,
+                },
+                mock_evidence=settings.use_mock_rag,
+                trace_buffer=trace_buffer,
+                checkpointer=build_graph_checkpointer(),
+                llm_client=maybe_build_llm_client(),
+                permission_scopes=permission_scopes,
+            )
+            lease.ensure_owned()
+    except ApprovalResumeInProgressError as exc:
+        _finalize_resume_trace_best_effort(
+            db=db,
+            snapshot=resume_snapshot,
+            buffer=trace_buffer,
+            state=state,
+            failed=True,
         )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "approval_resume_claim_lost", "message": str(exc)},
+        ) from exc
     except SQLAlchemyError as exc:
         try:
             _record_resume_failure(
@@ -305,6 +336,7 @@ def decide_approval(
             approval_id=resume_snapshot.approval_id,
             tenant_id=resume_snapshot.tenant_id,
             claim_token=resume_snapshot.claim_token,
+            claim_generation=resume_snapshot.claim_generation,
         )
         final_response = state["final_response"] or {}
         conversation_service = ConversationService(db)
@@ -425,6 +457,7 @@ def _record_resume_failure(
             approval_id=snapshot.approval_id,
             tenant_id=snapshot.tenant_id,
             claim_token=snapshot.claim_token,
+            claim_generation=snapshot.claim_generation,
             error=error,
         )
         db.commit()
@@ -505,13 +538,14 @@ def _approval_payload(
 def _resume_snapshot(
     record: ApprovalRecord,
     claim_token: str | None,
+    claim_generation: int | None,
     run: AgentRun | None,
     user_message: AgentMessage,
     assistant_message: AgentMessage,
     payload: dict,
 ) -> ApprovalResumeSnapshot:
-    if claim_token is None:
-        raise ApprovalConflictError("Approval resume claim token is missing.")
+    if claim_token is None or claim_generation is None:
+        raise ApprovalConflictError("Approval resume claim identity is missing.")
     if run is None or (
         run.run_id != record.run_id
         or run.session_id != record.session_id
@@ -587,7 +621,85 @@ def _resume_snapshot(
         checkpoint_thread_id=record.checkpoint_thread_id,
         checkpoint_namespace="",
         claim_token=claim_token,
+        claim_generation=claim_generation,
     )
+
+
+def _resolve_resume_permission_scopes(
+    record: ApprovalRecord,
+) -> list[str]:
+    try:
+        provider = get_rbac_provider()
+        request_principal = provider.resolve_principal(
+            tenant_id=record.tenant_id,
+            user_id=record.request_user_id,
+        )
+        if (
+            request_principal.tenant_id != record.tenant_id
+            or request_principal.user_id != record.request_user_id
+        ):
+            raise ValueError("RBAC principal identity mismatch")
+        scopes = tuple(provider.tool_scopes(request_principal))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "approval_requester_authorization_unavailable"},
+        ) from exc
+    return list(scopes)
+
+
+class _ApprovalResumeLease:
+    def __init__(
+        self,
+        *,
+        db: Session,
+        snapshot: ApprovalResumeSnapshot,
+        timeout_seconds: int,
+    ) -> None:
+        self._session_factory = sessionmaker(
+            bind=db.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+        )
+        self._snapshot = snapshot
+        self._interval_seconds = max(1.0, timeout_seconds / 3)
+        self._stop = threading.Event()
+        self._lost = threading.Event()
+        self._thread = threading.Thread(
+            target=self._renew_loop,
+            name=f"approval-lease-{snapshot.approval_id}",
+            daemon=True,
+        )
+
+    def __enter__(self) -> "_ApprovalResumeLease":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_args) -> None:
+        self._stop.set()
+        self._thread.join(timeout=min(self._interval_seconds, 1.0))
+
+    def ensure_owned(self) -> None:
+        if self._lost.is_set():
+            raise ApprovalResumeInProgressError(
+                f"Approval {self._snapshot.approval_id} resume claim was lost."
+            )
+
+    def _renew_loop(self) -> None:
+        while not self._stop.wait(self._interval_seconds):
+            try:
+                with self._session_factory() as lease_db:
+                    ApprovalRepository(lease_db).renew_resume_claim(
+                        approval_id=self._snapshot.approval_id,
+                        tenant_id=self._snapshot.tenant_id,
+                        claim_token=self._snapshot.claim_token,
+                        claim_generation=self._snapshot.claim_generation,
+                    )
+                    lease_db.commit()
+            except Exception:
+                self._lost.set()
+                return
 
 
 def _validate_resume_state(

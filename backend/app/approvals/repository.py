@@ -29,6 +29,7 @@ class ApprovalResumeClaim:
     record: ApprovalRecord
     acquired: bool
     claim_token: str | None
+    claim_generation: int | None
 
 
 class ApprovalRecordCreate(BaseModel):
@@ -179,6 +180,7 @@ class ApprovalRepository:
                 status="resuming",
                 decision=decision,
                 resume_claim_token=claim_token,
+                resume_claim_generation=ApprovalRecord.resume_claim_generation + 1,
                 resume_attempts=ApprovalRecord.resume_attempts + 1,
                 resume_claimed_by=decided_by,
                 resume_claimed_at=claimed_at,
@@ -201,6 +203,7 @@ class ApprovalRepository:
                 record=record,
                 acquired=True,
                 claim_token=claim_token,
+                claim_generation=record.resume_claim_generation,
             )
         if record is None:
             raise ApprovalNotFoundError(f"Approval not found: {approval_id}")
@@ -213,7 +216,12 @@ class ApprovalRepository:
                 f"Approval {approval_id} resume is already in progress."
             )
         if record.status in {"approved", "rejected"}:
-            return ApprovalResumeClaim(record=record, acquired=False, claim_token=None)
+            return ApprovalResumeClaim(
+                record=record,
+                acquired=False,
+                claim_token=None,
+                claim_generation=None,
+            )
         raise ApprovalConflictError(
             f"Approval {approval_id} cannot be claimed from status {record.status}."
         )
@@ -224,6 +232,7 @@ class ApprovalRepository:
         approval_id: str,
         tenant_id: str,
         claim_token: str,
+        claim_generation: int,
     ) -> ApprovalRecord:
         result = self._session.execute(
             update(ApprovalRecord)
@@ -232,6 +241,7 @@ class ApprovalRepository:
                 ApprovalRecord.tenant_id == tenant_id,
                 ApprovalRecord.status == "resuming",
                 ApprovalRecord.resume_claim_token == claim_token,
+                ApprovalRecord.resume_claim_generation == claim_generation,
             )
             .values(
                 status=ApprovalRecord.decision,
@@ -254,6 +264,7 @@ class ApprovalRepository:
         approval_id: str,
         tenant_id: str,
         claim_token: str,
+        claim_generation: int,
         error: str,
     ) -> ApprovalRecord:
         result = self._session.execute(
@@ -263,6 +274,7 @@ class ApprovalRepository:
                 ApprovalRecord.tenant_id == tenant_id,
                 ApprovalRecord.status == "resuming",
                 ApprovalRecord.resume_claim_token == claim_token,
+                ApprovalRecord.resume_claim_generation == claim_generation,
             )
             .values(
                 status="resume_failed",
@@ -279,6 +291,33 @@ class ApprovalRepository:
                 f"Approval {approval_id} resume claim is no longer owned."
             )
         return record
+
+    def renew_resume_claim(
+        self,
+        *,
+        approval_id: str,
+        tenant_id: str,
+        claim_token: str,
+        claim_generation: int,
+        now: datetime | None = None,
+    ) -> None:
+        result = self._session.execute(
+            update(ApprovalRecord)
+            .where(
+                ApprovalRecord.approval_id == approval_id,
+                ApprovalRecord.tenant_id == tenant_id,
+                ApprovalRecord.status == "resuming",
+                ApprovalRecord.resume_claim_token == claim_token,
+                ApprovalRecord.resume_claim_generation == claim_generation,
+            )
+            .values(resume_claimed_at=now or datetime.now(UTC))
+            .execution_options(synchronize_session=False)
+        )
+        self._session.flush()
+        if result.rowcount != 1:
+            raise ApprovalConflictError(
+                f"Approval {approval_id} resume claim is no longer owned."
+            )
 
 def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
     payload = json.loads(record.payload_json)

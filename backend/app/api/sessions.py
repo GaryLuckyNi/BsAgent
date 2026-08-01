@@ -494,6 +494,11 @@ def _run_and_persist_agent_message(
                 metadata=_assistant_response_metadata(final_response),
             )
         db.commit()
+        if not interrupt_payloads:
+            _record_short_term_session_event(
+                store=build_short_term_memory_store(),
+                state=state,
+            )
     except SQLAlchemyError as exc:
         db.rollback()
         try:
@@ -897,6 +902,10 @@ def _emit_stream_result(
         metadata=_assistant_response_metadata(final_response),
     )
     db.commit()
+    _record_short_term_session_event(
+        store=build_short_term_memory_store(),
+        state=state,
+    )
     trace_lifecycle.failed = False
     yield _sse("final", {**final_response, **identity})
     yield _sse("done", {"ok": True, **identity})
@@ -1002,11 +1011,6 @@ def _persist_agent_message_state(
         update_run_status=update_run_status,
         commit=commit,
     )
-    if not interrupt_payloads:
-        _record_short_term_session_event(
-            store=build_short_term_memory_store(),
-            state=state,
-        )
 
 
 def _sse(event: str, data: dict) -> str:
