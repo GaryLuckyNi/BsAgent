@@ -16,6 +16,12 @@ from app.approvals.repository import (
     ApprovalResumeInProgressError,
 )
 from app.core.config import settings
+from app.conversations.repository import (
+    ConversationConflictError,
+    ConversationIntegrityError,
+    ConversationNotFoundError,
+)
+from app.conversations.service import ConversationService
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import AgentGraphExecutionError, resume_question_answer_graph
 from app.graph.state import AgentState, build_checkpoint_thread_id
@@ -45,6 +51,7 @@ class ApprovalResumeSnapshot:
     request_user_id: str
     trace_id: str
     request_id: str
+    assistant_message_id: str
     arguments_hash: str
     checkpoint_thread_id: str
     checkpoint_namespace: Literal[""]
@@ -92,13 +99,25 @@ def decide_approval(
             payload=approval_record_payload,
         )
         if claim.acquired:
-            persisted_run = db.get(AgentRun, claim.record.run_id)
-            user_message = _load_resume_user_message(db, claim.record)
+            persisted_run = db.scalar(
+                select(AgentRun).where(
+                    AgentRun.tenant_id == claim.record.tenant_id,
+                    AgentRun.run_id == claim.record.run_id,
+                )
+            )
+            user_message, assistant_message = _load_resume_turn(db, claim.record)
+            _validate_resume_turn_lifecycle(
+                db=db,
+                record=claim.record,
+                user_message=user_message,
+                assistant_message=assistant_message,
+            )
             resume_snapshot = _resume_snapshot(
                 claim.record,
                 claim.claim_token,
                 persisted_run,
                 user_message,
+                assistant_message,
                 approval_record_payload,
             )
         else:
@@ -130,10 +149,22 @@ def decide_approval(
 
     if not claim.acquired:
         try:
-            persisted_run = db.get(AgentRun, approval_payload["run_id"])
+            persisted_run = db.scalar(
+                select(AgentRun).where(
+                    AgentRun.tenant_id == principal.tenant_id,
+                    AgentRun.run_id == approval_payload["run_id"],
+                )
+            )
+            _, assistant_message = _load_resume_turn(db, claim.record)
             db.commit()
         except SQLAlchemyError as exc:
             _raise_persistence_unavailable(db, exc)
+        except ApprovalResumeIdentityError as exc:
+            _rollback_safely(db)
+            raise HTTPException(
+                status_code=409,
+                detail={"code": exc.code},
+            ) from exc
         return {
             "approval": approval_payload,
             "run_id": approval_payload["run_id"],
@@ -142,7 +173,12 @@ def decide_approval(
                 if persisted_run is not None
                 else approval_payload["status"]
             ),
-            "final_response": None,
+            "request_id": assistant_message.request_id,
+            "message_id": assistant_message.message_id,
+            "final_response": _persisted_assistant_response(
+                assistant_message,
+                run=persisted_run,
+            ),
         }
 
     assert resume_snapshot is not None
@@ -237,12 +273,30 @@ def decide_approval(
             status=run_status,
             commit=False,
             run_id=resume_snapshot.run_id,
+            update_run_status=False,
         )
         record = repository.complete_resume(
             approval_id=resume_snapshot.approval_id,
             tenant_id=resume_snapshot.tenant_id,
             claim_token=resume_snapshot.claim_token,
         )
+        final_response = state["final_response"] or {}
+        conversation_service = ConversationService(db)
+        if not interrupted:
+            if request.decision == "rejected":
+                conversation_service.reject_turn(
+                    tenant_id=resume_snapshot.tenant_id,
+                    run_id=resume_snapshot.run_id,
+                    content=final_response.get("content", ""),
+                    metadata=_assistant_response_metadata(final_response),
+                )
+            else:
+                conversation_service.complete_turn(
+                    tenant_id=resume_snapshot.tenant_id,
+                    run_id=resume_snapshot.run_id,
+                    content=final_response.get("content", ""),
+                    metadata=_assistant_response_metadata(final_response),
+                )
         approval_payload = _approval_payload(
             record,
             payload=approval_record_payload,
@@ -297,6 +351,8 @@ def decide_approval(
         "approval": approval_payload,
         "run_id": resume_snapshot.run_id,
         "run_status": run_status,
+        "request_id": resume_snapshot.request_id,
+        "message_id": resume_snapshot.assistant_message_id,
         "final_response": state["final_response"],
     }
 
@@ -362,6 +418,7 @@ def _resume_snapshot(
     claim_token: str | None,
     run: AgentRun | None,
     user_message: AgentMessage,
+    assistant_message: AgentMessage,
     payload: dict,
 ) -> ApprovalResumeSnapshot:
     if claim_token is None:
@@ -401,6 +458,19 @@ def _resume_snapshot(
         raise ApprovalResumeIdentityError(
             "Approval resume User Message identity is inconsistent."
         )
+    if (
+        assistant_message.tenant_id != record.tenant_id
+        or assistant_message.user_id != record.request_user_id
+        or assistant_message.session_key != record.session_key
+        or assistant_message.run_id != record.run_id
+        or assistant_message.request_id != user_message.request_id
+        or assistant_message.sequence_no != user_message.sequence_no + 1
+        or assistant_message.status != "interrupted"
+        or run.status != "interrupted"
+    ):
+        raise ApprovalResumeIdentityError(
+            "Approval resume Assistant Message identity is inconsistent."
+        )
     expected_checkpoint_thread_id = build_checkpoint_thread_id(
         tenant_id=record.tenant_id,
         session_key=record.session_key,
@@ -423,6 +493,7 @@ def _resume_snapshot(
         request_user_id=record.request_user_id,
         trace_id=run.trace_id,
         request_id=user_message.request_id,
+        assistant_message_id=assistant_message.message_id,
         arguments_hash=record.arguments_hash,
         checkpoint_thread_id=record.checkpoint_thread_id,
         checkpoint_namespace="",
@@ -441,31 +512,90 @@ def _validate_resume_state(
         or state["user_id"] != snapshot.request_user_id
         or state["trace_id"] != snapshot.trace_id
         or state["request_id"] != snapshot.request_id
+        or state["assistant_message_id"] != snapshot.assistant_message_id
     ):
         raise ApprovalResumeIdentityError(
             "Approval resume State identity does not match the persisted Run."
         )
 
 
-def _load_resume_user_message(
+def _load_resume_turn(
     db: Session,
     record: ApprovalRecord,
-) -> AgentMessage:
+) -> tuple[AgentMessage, AgentMessage]:
     messages = list(
         db.scalars(
             select(AgentMessage).where(
                 AgentMessage.tenant_id == record.tenant_id,
                 AgentMessage.run_id == record.run_id,
                 AgentMessage.session_key == record.session_key,
-                AgentMessage.role == "user",
+                AgentMessage.role.in_(("user", "assistant")),
             )
         )
     )
-    if len(messages) != 1:
+    by_role = {message.role: message for message in messages}
+    if len(messages) != 2 or set(by_role) != {"user", "assistant"}:
         raise ApprovalResumeIdentityError(
-            "Approval resume requires exactly one User Message."
+            "Approval resume requires exactly one User and Assistant Message."
         )
-    return messages[0]
+    return by_role["user"], by_role["assistant"]
+
+
+def _validate_resume_turn_lifecycle(
+    *,
+    db: Session,
+    record: ApprovalRecord,
+    user_message: AgentMessage,
+    assistant_message: AgentMessage,
+) -> None:
+    try:
+        handle = ConversationService(db).resume_turn(
+            tenant_id=record.tenant_id,
+            run_id=record.run_id,
+        )
+    except (
+        ConversationConflictError,
+        ConversationIntegrityError,
+        ConversationNotFoundError,
+    ) as exc:
+        raise ApprovalResumeIdentityError(
+            "Approval resume Turn lifecycle is inconsistent."
+        ) from exc
+    if (
+        handle.request_id != user_message.request_id
+        or handle.user_message_id != user_message.message_id
+        or handle.assistant_message_id != assistant_message.message_id
+    ):
+        raise ApprovalResumeIdentityError(
+            "Approval resume Turn handle is inconsistent."
+        )
+
+
+def _assistant_response_metadata(final_response: dict) -> dict:
+    return {
+        "cited_evidence_ids": list(final_response.get("cited_evidence_ids", [])),
+        "approval_status": final_response.get("approval_status", "not_required"),
+        "response_type": final_response.get("response_type"),
+        "business_error_code": final_response.get("business_error_code"),
+    }
+
+
+def _persisted_assistant_response(
+    message: AgentMessage,
+    *,
+    run: AgentRun | None,
+) -> dict | None:
+    if message.status != "completed":
+        return None
+    metadata = message.metadata_json or {}
+    return {
+        "content": message.content,
+        "trace_id": run.trace_id if run is not None else None,
+        "cited_evidence_ids": list(metadata.get("cited_evidence_ids", [])),
+        "approval_status": metadata.get("approval_status", "not_required"),
+        "response_type": metadata.get("response_type"),
+        "business_error_code": metadata.get("business_error_code"),
+    }
 
 
 def _parse_approval_payload(record: ApprovalRecord) -> dict:

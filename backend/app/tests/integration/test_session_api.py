@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 from datetime import UTC, datetime
@@ -226,6 +227,15 @@ def add_approval_resume_fixture(
                 trace_id="trace_1",
                 status="interrupted",
             ),
+            AgentSession(
+                session_key="session_key_1",
+                session_id="session_1",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                status="active",
+                active_run_id=run_id,
+                next_sequence_no=3,
+            ),
             AgentMessage(
                 message_id=f"message_{run_id}",
                 tenant_id="tenant_1",
@@ -238,6 +248,18 @@ def add_approval_resume_fixture(
                 content="提交一笔模拟交易",
                 sequence_no=1,
                 completed_at=datetime.now(UTC),
+            ),
+            AgentMessage(
+                message_id=f"assistant_{run_id}",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                session_key="session_key_1",
+                run_id=run_id,
+                request_id=request_id,
+                role="assistant",
+                status="interrupted",
+                content="",
+                sequence_no=2,
             ),
         ]
     )
@@ -1338,6 +1360,7 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
+            assistant_message_id="assistant_run_1",
             permission_scopes=["mcp:mock", "rag:retrieve"],
         )
         state["request_id"] = "checkpoint_request_1"
@@ -1539,6 +1562,7 @@ def test_approval_resume_rejects_state_identity_mismatch(
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
+            assistant_message_id="assistant_run_1",
             permission_scopes=kwargs["permission_scopes"],
         )
         state["request_id"] = state_request_id
@@ -1574,6 +1598,7 @@ def test_approval_resume_child_approval_keeps_original_run_identity(monkeypatch)
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交另一笔模拟交易",
+            assistant_message_id="assistant_run_1",
             permission_scopes=kwargs["permission_scopes"],
         )
         state["request_id"] = "checkpoint_request_1"
@@ -1648,6 +1673,7 @@ def test_approval_resume_does_not_hold_request_database_transaction(monkeypatch)
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
+            assistant_message_id="assistant_run_1",
             permission_scopes=kwargs["permission_scopes"],
         )
         state["request_id"] = "checkpoint_request_1"
@@ -1691,35 +1717,16 @@ def test_repeated_same_approval_decision_does_not_resume_checkpoint_again(monkey
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
-        session.add(
-            ApprovalRecord(
-                approval_id="approval_1",
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                request_user_id="user_1",
-                approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
-                checkpoint_thread_id="run_1",
-                status="approved",
-                decided_by="approver_1",
-            )
+        add_approval_resume_fixture(
+            session,
+            status="approved",
+            decision="approved",
+            decided_by="approver_1",
         )
-        session.add(
-            AgentRun(
-                run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                trace_id="trace_1",
-                status="completed",
-            )
-        )
+        session.flush()
+        session.get(AgentRun, "run_1").status = "completed"
+        session.get(AgentMessage, "assistant_run_1").status = "completed"
+        session.get(AgentSession, "session_key_1").active_run_id = None
         session.commit()
     client = TestClient(app)
 
@@ -1735,7 +1742,9 @@ def test_repeated_same_approval_decision_does_not_resume_checkpoint_again(monkey
     assert response.status_code == 200
     assert response.json()["approval"]["status"] == "approved"
     assert response.json()["run_status"] == "completed"
-    assert response.json()["final_response"] is None
+    assert response.json()["request_id"] == "checkpoint_request_1"
+    assert response.json()["message_id"] == "assistant_run_1"
+    assert response.json()["final_response"]["content"] == ""
     assert resume_calls == []
 
 
@@ -1802,6 +1811,7 @@ def test_approval_resume_failed_can_retry_same_decision(monkeypatch):
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
+            assistant_message_id="assistant_run_1",
             permission_scopes=kwargs["permission_scopes"],
         )
         state["request_id"] = "checkpoint_request_1"
@@ -1903,6 +1913,7 @@ def test_approval_resume_finalization_failure_is_409_and_retryable(monkeypatch):
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
+            assistant_message_id="assistant_run_1",
             permission_scopes=kwargs["permission_scopes"],
         )
         state["request_id"] = "checkpoint_request_1"
@@ -1960,6 +1971,7 @@ def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
             tenant_id="tenant_1",
             user_id="user_1",
             user_message="提交一笔模拟交易",
+            assistant_message_id="assistant_run_1",
             permission_scopes=kwargs["permission_scopes"],
         )
         state["request_id"] = "checkpoint_request_1"
@@ -2018,13 +2030,18 @@ def test_approval_retry_persists_rolled_back_trace_once(monkeypatch):
         "/api/approvals/approval_1/decision",
         json=request,
     )
+    with testing_session_local() as session:
+        retry_run = session.get(AgentRun, "run_1")
+        retry_assistant = session.get(AgentMessage, "assistant_run_1")
+        assert retry_run.status == "interrupted"
+        assert retry_assistant.status == "interrupted"
     second_response = client.post(
         "/api/approvals/approval_1/decision",
         json=request,
     )
 
     assert first_response.status_code == 409
-    assert second_response.status_code == 200
+    assert second_response.status_code == 200, second_response.text
     assert resume_calls == 2
     with testing_session_local() as session:
         saved_run = session.get(AgentRun, "run_1")
@@ -2149,12 +2166,7 @@ def test_execution_error_response_is_completed_without_approval_record(monkeypat
 
 def test_post_session_message_stream_returns_answer_deltas_and_final(monkeypatch):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "tool_action",
             "risk_level": "low",
@@ -2200,6 +2212,357 @@ def test_post_session_message_stream_returns_answer_deltas_and_final(monkeypatch
     assert "计算完成：总和是 6。" in body
     assert "event: final" in body
     assert "event: done" in body
+
+
+def test_stream_persists_original_turn_and_passes_run_identity(monkeypatch):
+    captured = {}
+
+    def fake_stream(**kwargs):
+        captured.update(kwargs)
+        yield _completed_graph_state(kwargs, content="流式持久化回答")
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+    app, testing_session_local = create_test_app_with_database()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/stream",
+        headers={"Idempotency-Key": "stream-turn-1"},
+        json={"message": "分析银之杰"},
+    )
+
+    assert response.status_code == 200
+    with testing_session_local() as db:
+        messages = list(db.scalars(select(AgentMessage).order_by(AgentMessage.sequence_no)))
+        runs = list(db.scalars(select(AgentRun)))
+        session_record = db.scalars(select(AgentSession)).one()
+    assert len(messages) == 2
+    assert len(runs) == 1
+    assert captured["session_key"] == session_record.session_key
+    assert captured["request_id"] == "stream-turn-1"
+    assert captured["trace_id"] == runs[0].trace_id
+    assert captured["user_message_id"] == messages[0].message_id
+    assert captured["assistant_message_id"] == messages[1].message_id
+    assert captured["history"] == []
+    assert [message.status for message in messages] == ["completed", "completed"]
+    assert messages[1].content == "流式持久化回答"
+    assert runs[0].status == "completed"
+    assert session_record.active_run_id is None
+
+    final = next(
+        json.loads(block.split("data: ", 1)[1])
+        for block in response.text.split("\n\n")
+        if block.startswith("event: final")
+    )
+    done = next(
+        json.loads(block.split("data: ", 1)[1])
+        for block in response.text.split("\n\n")
+        if block.startswith("event: done")
+    )
+    expected_identity = {
+        "run_id": runs[0].run_id,
+        "request_id": "stream-turn-1",
+        "message_id": messages[1].message_id,
+    }
+    assert {key: final[key] for key in expected_identity} == expected_identity
+    assert {key: done[key] for key in expected_identity} == expected_identity
+
+
+def test_stream_marks_assistant_streaming_before_answer_delta(monkeypatch):
+    app, testing_session_local = create_test_app_with_database()
+
+    def fake_stream(**kwargs):
+        yield _completed_graph_state(kwargs, content="abcdef")
+
+    observed_statuses = []
+
+    def inspect_chunks(content, *, chunk_size=12):
+        if content == "abcdef":
+            with testing_session_local() as db:
+                assistant = db.scalars(
+                    select(AgentMessage).where(AgentMessage.role == "assistant")
+                ).one()
+                observed_statuses.append(assistant.status)
+        for index in range(0, len(content), chunk_size):
+            yield content[index : index + chunk_size]
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+    monkeypatch.setattr(sessions, "_chunk_text", inspect_chunks)
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/stream",
+        headers={"Idempotency-Key": "stream-status-1"},
+        json={"message": "问题"},
+    )
+
+    assert response.status_code == 200
+    assert observed_statuses == ["streaming"]
+
+
+def test_completed_stream_idempotency_replays_without_graph(monkeypatch):
+    graph_calls = []
+
+    def fake_stream(**kwargs):
+        graph_calls.append(kwargs)
+        yield _completed_graph_state(kwargs, content="稳定回答")
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+    app, testing_session_local = create_test_app_with_database()
+    client = TestClient(app)
+    headers = {"Idempotency-Key": "stream-replay-1"}
+
+    first = client.post(
+        "/api/sessions/s1/messages/stream",
+        headers=headers,
+        json={"message": "问题"},
+    )
+    second = client.post(
+        "/api/sessions/s1/messages/stream",
+        headers=headers,
+        json={"message": "问题"},
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert len(graph_calls) == 1
+    assert "event: final" in second.text
+    assert "稳定回答" in second.text
+    with testing_session_local() as db:
+        assert len(list(db.scalars(select(AgentRun)))) == 1
+        assert len(list(db.scalars(select(AgentMessage)))) == 2
+
+
+def test_stream_graph_error_fails_original_turn_and_clears_active_run(monkeypatch):
+    def failing_stream(**_kwargs):
+        raise AgentGraphExecutionError(
+            node_name="retriever_agent",
+            message="rag unavailable",
+            code="agent_graph_execution_failed",
+        )
+        yield
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", failing_stream)
+    app, testing_session_local = create_test_app_with_database()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/sessions/s1/messages/stream",
+        headers={"Idempotency-Key": "stream-failure-1"},
+        json={"message": "问题"},
+    )
+
+    assert response.status_code == 200
+    error = next(
+        json.loads(block.split("data: ", 1)[1])
+        for block in response.text.split("\n\n")
+        if block.startswith("event: error")
+    )
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+        session_record = db.scalars(select(AgentSession)).one()
+    assert run.status == assistant.status == "failed"
+    assert session_record.active_run_id is None
+    assert error["run_id"] == run.run_id
+    assert error["request_id"] == "stream-failure-1"
+    assert error["message_id"] == assistant.message_id
+
+
+def test_closing_stream_generator_fails_started_turn(monkeypatch):
+    graph_calls = []
+    monkeypatch.setattr(
+        sessions,
+        "stream_question_answer_graph",
+        lambda **kwargs: graph_calls.append(kwargs),
+    )
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        generator = sessions._stream_agent_message(
+            session_id="s1",
+            request=sessions.SessionMessageRequest(message="问题"),
+            principal=Principal(
+                tenant_id="tenant_1",
+                user_id="user_1",
+                scopes=("agent:invoke",),
+            ),
+            db=db,
+            attachment_resolver=None,
+            request_id="stream-disconnect-1",
+        )
+        next(generator)
+        generator.close()
+
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+        session_record = db.scalars(select(AgentSession)).one()
+    assert graph_calls == []
+    assert run.status == assistant.status == "failed"
+    assert session_record.active_run_id is None
+
+
+def test_cancelled_stream_fails_started_turn(monkeypatch):
+    def cancelled_stream(**_kwargs):
+        raise asyncio.CancelledError
+        yield
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", cancelled_stream)
+    _, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        generator = sessions._stream_agent_message(
+            session_id="s1",
+            request=sessions.SessionMessageRequest(message="问题"),
+            principal=Principal(
+                tenant_id="tenant_1",
+                user_id="user_1",
+                scopes=("agent:invoke",),
+            ),
+            db=db,
+            attachment_resolver=None,
+            request_id="stream-cancelled-1",
+        )
+        with pytest.raises(asyncio.CancelledError):
+            list(generator)
+
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+        session_record = db.scalars(select(AgentSession)).one()
+    assert run.status == assistant.status == "failed"
+    assert session_record.active_run_id is None
+
+
+def test_in_progress_stream_replay_returns_stable_sse_conflict(monkeypatch):
+    graph_calls = []
+    monkeypatch.setattr(
+        sessions,
+        "stream_question_answer_graph",
+        lambda **kwargs: graph_calls.append(kwargs),
+    )
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        handle = ConversationService(db).begin_turn(
+            BeginTurn(
+                tenant_id="tenant_1",
+                user_id="user_1",
+                session_id="s1",
+                request_id="stream-running-1",
+                user_content="问题",
+            )
+        )
+        db.commit()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/stream",
+        headers={"Idempotency-Key": "stream-running-1"},
+        json={"message": "问题"},
+    )
+
+    assert response.status_code == 200
+    error = next(
+        json.loads(block.split("data: ", 1)[1])
+        for block in response.text.split("\n\n")
+        if block.startswith("event: error")
+    )
+    assert error["code"] == "request_in_progress"
+    assert error["http_status"] == 409
+    assert error["run_id"] == handle.run_id
+    assert error["request_id"] == handle.request_id
+    assert error["message_id"] == handle.assistant_message_id
+    assert graph_calls == []
+    with testing_session_local() as db:
+        assert db.get(AgentRun, handle.run_id).status == "running"
+        assert db.get(AgentMessage, handle.assistant_message_id).status == "pending"
+
+
+def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
+    def interrupted_stream(**kwargs):
+        state = _initial_state_from_graph_kwargs(kwargs)
+        state["__interrupt__"] = [
+            Interrupt(
+                value={
+                    "approval_id": "stream_approval_1",
+                    "approval_type": "tool_call",
+                    "run_id": state["request_id"],
+                    "session_id": state["session_id"],
+                    "session_key": state["session_key"],
+                    "tenant_id": state["tenant_id"],
+                    "request_user_id": state["user_id"],
+                    "tool_name": "mcp.mock.trade.submit",
+                    "tool_version": "1.0.0",
+                    "arguments_hash": "hash_1",
+                    "arguments": {"symbol": "600519"},
+                    "purpose": "提交模拟交易",
+                    "checkpoint_thread_id": build_checkpoint_thread_id(
+                        tenant_id=state["tenant_id"],
+                        session_key=state["session_key"],
+                        request_id=state["request_id"],
+                    ),
+                    "checkpoint_namespace": "",
+                    "status": "pending",
+                }
+            )
+        ]
+        yield state
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", interrupted_stream)
+    app, testing_session_local = create_test_app_with_database()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/stream",
+        headers={"Idempotency-Key": "stream-interrupt-1"},
+        json={"message": "提交交易"},
+    )
+
+    approval_event = next(
+        json.loads(block.split("data: ", 1)[1])
+        for block in response.text.split("\n\n")
+        if block.startswith("event: approval_required")
+    )
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+        session_record = db.scalars(select(AgentSession)).one()
+    assert run.status == assistant.status == "interrupted"
+    assert session_record.active_run_id == run.run_id
+    assert approval_event["run_id"] == run.run_id
+    assert approval_event["request_id"] == "stream-interrupt-1"
+    assert approval_event["message_id"] == assistant.message_id
+
+
+def test_stream_passes_completed_history_to_next_turn(monkeypatch):
+    captured_histories = []
+
+    def fake_stream(**kwargs):
+        captured_histories.append(kwargs["history"])
+        yield _completed_graph_state(kwargs, content=f"回答{len(captured_histories)}")
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+    app, _ = create_test_app_with_database()
+    client = TestClient(app)
+
+    first = client.post(
+        "/api/sessions/s1/messages/stream",
+        headers={"Idempotency-Key": "stream-history-1"},
+        json={"message": "第一问"},
+    )
+    second = client.post(
+        "/api/sessions/s1/messages/stream",
+        headers={"Idempotency-Key": "stream-history-2"},
+        json={"message": "第二问"},
+    )
+
+    assert first.status_code == second.status_code == 200
+    assert captured_histories[0] == []
+    assert [(message.role, message.content) for message in captured_histories[1]] == [
+        ("user", "第一问"),
+        ("assistant", "回答1"),
+    ]
 
 
 def test_product_progress_stage_tracks_equity_research_pipeline():
@@ -2266,12 +2629,7 @@ def test_post_session_message_stream_emits_product_progress_without_trace_detail
     monkeypatch,
 ):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["plan"] = {
             "execution_mode": "tool_execution",
             "requested_tools": [
@@ -2313,12 +2671,7 @@ def test_post_session_message_stream_emits_product_progress_without_trace_detail
 
 def test_post_session_message_stream_emits_llm_thinking_before_final(monkeypatch):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "task_workflow",
             "domain": "a_share_equity_research",
@@ -2380,12 +2733,7 @@ def test_post_session_message_stream_emits_thinking_before_graph_completed(
     monkeypatch,
 ):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "task_workflow",
             "domain": "a_share_equity_research",
@@ -2443,12 +2791,7 @@ def test_post_session_message_stream_emits_multiple_public_thinking_stages(
     monkeypatch,
 ):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "task_workflow",
             "domain": "a_share_equity_research",
@@ -2534,12 +2877,7 @@ def test_post_session_message_stream_drops_incomplete_thinking_sentence(
     monkeypatch,
 ):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "task_workflow",
             "domain": "a_share_equity_research",
@@ -2593,12 +2931,7 @@ def test_post_session_message_stream_emits_fallback_thinking_without_streaming_l
     monkeypatch,
 ):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "task_workflow",
             "domain": "a_share_equity_research",
@@ -2635,12 +2968,7 @@ def test_post_session_message_stream_falls_back_when_thinking_stream_fails(
     monkeypatch,
 ):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
             "intent": "task_workflow",
             "domain": "a_share_equity_research",
@@ -2724,19 +3052,14 @@ def test_post_session_message_stream_returns_error_for_missing_llm_configuration
     assert "event: error" in body
     assert "llm_configuration_error" in body
     assert "BS_AGENT_DEEPSEEK_API_KEY" in body
-    assert 'event: done\ndata: {"ok": false}' in body
+    assert 'event: done\ndata: {"ok": false,' in body
 
 
 def test_post_session_message_stream_returns_error_when_persistence_fails(
     monkeypatch,
 ):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["final_response"] = {
             "content": "这条回答不会在持久化失败时发送。",
             "trace_id": state["trace_id"],
@@ -2763,18 +3086,13 @@ def test_post_session_message_stream_returns_error_when_persistence_fails(
     assert response.status_code == 200
     assert "event: error" in body
     assert "agent_stream_internal_error" in body
-    assert 'event: done\ndata: {"ok": false}' in body
+    assert 'event: done\ndata: {"ok": false,' in body
     assert "event: final" not in body
 
 
 def test_post_session_message_stream_returns_a_share_research_answer(monkeypatch):
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["final_response"] = {
             "content": (
                 "公司概览\n"
@@ -2810,14 +3128,12 @@ def test_post_session_message_stream_returns_a_share_research_answer(monkeypatch
 
 
 def test_stream_emits_attachment_loading_and_analysis_loaded_stages(monkeypatch):
+    class AttachmentResolver:
+        def resolve(self, *_args, **_kwargs):
+            return []
+
     def fake_stream(**kwargs):
-        state = create_initial_state(
-            session_id=kwargs["session_id"],
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-            user_message=kwargs["user_message"],
-            attachment_ids=kwargs["attachment_ids"],
-        )
+        state = _initial_state_from_graph_kwargs(kwargs)
         state["attachment_refs"] = [
             {
                 "asset_id": "asset-1",
@@ -2854,6 +3170,9 @@ def test_stream_emits_attachment_loading_and_analysis_loaded_stages(monkeypatch)
 
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
     app, _ = create_test_app_with_database()
+    app.dependency_overrides[sessions.get_attachment_context_resolver] = (
+        lambda: AttachmentResolver()
+    )
     client = TestClient(app)
 
     with client.stream(

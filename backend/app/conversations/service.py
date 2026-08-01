@@ -206,6 +206,26 @@ class ConversationService:
             run_target="interrupted",
         )
 
+    def reject_turn(
+        self,
+        *,
+        tenant_id: str,
+        run_id: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self._transition(
+            tenant_id=tenant_id,
+            run_id=run_id,
+            message_states={"interrupted"},
+            message_target="completed",
+            run_states={"interrupted"},
+            run_target="rejected",
+            content=content,
+            metadata=metadata,
+            clear_active_run=True,
+        )
+
     def fail_turn(
         self,
         *,

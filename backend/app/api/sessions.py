@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Generator, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
@@ -126,6 +126,13 @@ class _AttachmentContextSnapshotResolver:
         ):
             raise ValueError("attachment_snapshot_identity_mismatch")
         return [json.loads(context) for context in self.contexts_json]
+
+
+@dataclass(frozen=True)
+class _ExecutionSnapshot:
+    history: tuple[Message, ...]
+    memory_reader: _ExperienceSnapshotReader
+    attachment_resolver: _AttachmentContextSnapshotResolver
 
 
 def get_attachment_context_resolver(
@@ -281,6 +288,13 @@ def post_message_stream(
     attachment_resolver: VisionAttachmentContextResolver = Depends(
         get_attachment_context_resolver
     ),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
 ) -> StreamingResponse:
     return StreamingResponse(
         _stream_agent_message(
@@ -289,12 +303,81 @@ def post_message_stream(
             principal=principal,
             db=db,
             attachment_resolver=attachment_resolver,
+            request_id=idempotency_key or f"req_{uuid4().hex}",
         ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+def _load_execution_snapshot(
+    *,
+    db: Session,
+    principal: Principal,
+    session_id: str,
+    request: SessionMessageRequest,
+    handle: TurnHandle,
+    attachment_resolver: VisionAttachmentContextResolver,
+) -> _ExecutionSnapshot:
+    history_records = ConversationRepository(db).list_context_messages(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_key=handle.session_key,
+        exclude_request_id=handle.request_id,
+        limit=CONVERSATION_HISTORY_LIMIT,
+    )
+    history = tuple(
+        Message(
+            message_id=record.message_id,
+            role=record.role,
+            content=record.content,
+            metadata={"request_id": record.request_id},
+        )
+        for record in history_records
+    )
+    experience_entries = build_experience_store(session=db).list_for_user(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+    )
+    memory_reader = _ExperienceSnapshotReader(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        entries=tuple(
+            _ExperienceEntrySnapshot(
+                source_candidate_id=entry.source_candidate_id,
+                user_id=entry.user_id,
+                memory_type=entry.memory_type,
+                content=entry.content,
+                source=entry.source,
+            )
+            for entry in experience_entries
+        ),
+    )
+    attachment_contexts = (
+        attachment_resolver.resolve(
+            request.attachments,
+            principal=principal,
+            session_id=session_id,
+        )
+        if request.attachments
+        else []
+    )
+    return _ExecutionSnapshot(
+        history=history,
+        memory_reader=memory_reader,
+        attachment_resolver=_AttachmentContextSnapshotResolver(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            session_id=session_id,
+            asset_ids=tuple(request.attachments),
+            contexts_json=tuple(
+                json.dumps(context, ensure_ascii=False, sort_keys=True)
+                for context in attachment_contexts
+            ),
+        ),
     )
 
 
@@ -338,58 +421,13 @@ def _run_and_persist_agent_message(
             raise ConversationPersistenceUnavailable from exc
 
     try:
-        history_records = ConversationRepository(db).list_context_messages(
-            tenant_id=principal.tenant_id,
-            user_id=principal.user_id,
-            session_key=handle.session_key,
-            exclude_request_id=handle.request_id,
-            limit=CONVERSATION_HISTORY_LIMIT,
-        )
-        history = [
-            Message(
-                message_id=record.message_id,
-                role=record.role,
-                content=record.content,
-                metadata={"request_id": record.request_id},
-            )
-            for record in history_records
-        ]
-        experience_entries = build_experience_store(session=db).list_for_user(
-            tenant_id=principal.tenant_id,
-            user_id=principal.user_id,
-        )
-        memory_reader = _ExperienceSnapshotReader(
-            tenant_id=principal.tenant_id,
-            user_id=principal.user_id,
-            entries=tuple(
-                _ExperienceEntrySnapshot(
-                    source_candidate_id=entry.source_candidate_id,
-                    user_id=entry.user_id,
-                    memory_type=entry.memory_type,
-                    content=entry.content,
-                    source=entry.source,
-                )
-                for entry in experience_entries
-            ),
-        )
-        attachment_contexts = (
-            attachment_resolver.resolve(
-                request.attachments,
-                principal=principal,
-                session_id=session_id,
-            )
-            if request.attachments
-            else []
-        )
-        snapshot_attachment_resolver = _AttachmentContextSnapshotResolver(
-            tenant_id=principal.tenant_id,
-            user_id=principal.user_id,
+        snapshot = _load_execution_snapshot(
+            db=db,
+            principal=principal,
             session_id=session_id,
-            asset_ids=tuple(request.attachments),
-            contexts_json=tuple(
-                json.dumps(context, ensure_ascii=False, sort_keys=True)
-                for context in attachment_contexts
-            ),
+            request=request,
+            handle=handle,
+            attachment_resolver=attachment_resolver,
         )
         db.commit()
 
@@ -406,15 +444,15 @@ def _run_and_persist_agent_message(
             trace_id=handle.trace_id,
             user_message_id=handle.user_message_id,
             assistant_message_id=handle.assistant_message_id,
-            history=history,
+            history=list(snapshot.history),
             mock_evidence=settings.use_mock_rag,
-            memory_retriever=ExperienceMemoryRetriever(memory_reader),
+            memory_retriever=ExperienceMemoryRetriever(snapshot.memory_reader),
             trace_store=trace_store,
             checkpointer=checkpointer,
             llm_client=llm_client,
             permission_scopes=list(principal.scopes),
             attachment_ids=request.attachments,
-            attachment_resolver=snapshot_attachment_resolver,
+            attachment_resolver=snapshot.attachment_resolver,
         )
 
         interrupt_payloads = _interrupt_payloads(state)
@@ -498,20 +536,72 @@ def _stream_agent_message(
     principal: Principal,
     db: Session,
     attachment_resolver: VisionAttachmentContextResolver,
+    request_id: str,
 ) -> Iterator[str]:
-    yield _sse("status", {"stage": "accepted"})
-    yield _sse("progress", _product_progress_payload("planning"))
-    if request.attachments:
-        yield _sse(
-            "status",
-            {
-                "stage": "attachment_loading",
-                "attachment_count": len(request.attachments),
-            },
-        )
+    conversation_service = ConversationService(db)
+    handle: TurnHandle | None = None
+    finalized = False
     try:
+        handle = conversation_service.begin_turn(
+            BeginTurn(
+                tenant_id=principal.tenant_id,
+                user_id=principal.user_id,
+                session_id=session_id,
+                request_id=request_id,
+                user_content=request.message,
+                metadata=ConversationMetadata(
+                    attachment_ids=tuple(request.attachments)
+                ),
+            )
+        )
+        db.commit()
+        if handle.replayed:
+            replayed = _replayed_message_response(
+                db=db,
+                tenant_id=principal.tenant_id,
+                handle=handle,
+            )
+            db.commit()
+            identity = _stream_identity(handle)
+            yield _sse("status", {"stage": "accepted", **identity})
+            yield _sse(
+                "final",
+                {
+                    "content": replayed.content,
+                    "trace_id": replayed.trace_id,
+                    "cited_evidence_ids": replayed.cited_evidence_ids,
+                    "approval_status": replayed.approval_status,
+                    "approval_ids": replayed.approval_ids,
+                    "response_type": replayed.response_type,
+                    "business_error_code": replayed.business_error_code,
+                    **identity,
+                },
+            )
+            yield _sse("done", {"ok": True, "replayed": True, **identity})
+            return
+
+        snapshot = _load_execution_snapshot(
+            db=db,
+            principal=principal,
+            session_id=session_id,
+            request=request,
+            handle=handle,
+            attachment_resolver=attachment_resolver,
+        )
+        db.commit()
+        identity = _stream_identity(handle)
+        yield _sse("status", {"stage": "accepted", **identity})
+        yield _sse("progress", _product_progress_payload("planning"))
+        if request.attachments:
+            yield _sse(
+                "status",
+                {
+                    "stage": "attachment_loading",
+                    "attachment_count": len(request.attachments),
+                },
+            )
+
         trace_store = get_trace_store()
-        experience_store = build_experience_store(session=db)
         llm_client = maybe_build_llm_client()
         state: AgentState | None = None
         emitted_event_count = 0
@@ -519,17 +609,23 @@ def _stream_agent_message(
         emitted_progress_stages = {"planning"}
         for state in stream_question_answer_graph(
             session_id=session_id,
+            session_key=handle.session_key,
             tenant_id=principal.tenant_id,
             user_id=principal.user_id,
             user_message=request.message,
+            request_id=handle.request_id,
+            trace_id=handle.trace_id,
+            user_message_id=handle.user_message_id,
+            assistant_message_id=handle.assistant_message_id,
+            history=list(snapshot.history),
             mock_evidence=settings.use_mock_rag,
-            memory_retriever=ExperienceMemoryRetriever(experience_store),
+            memory_retriever=ExperienceMemoryRetriever(snapshot.memory_reader),
             trace_store=trace_store,
             checkpointer=build_graph_checkpointer(),
             llm_client=llm_client,
             permission_scopes=list(principal.scopes),
             attachment_ids=request.attachments,
-            attachment_resolver=attachment_resolver,
+            attachment_resolver=snapshot.attachment_resolver,
         ):
             events = trace_store.list_events(state["trace_id"])
             for event in events[emitted_event_count:]:
@@ -558,14 +654,42 @@ def _stream_agent_message(
                 http_status=500,
             )
         interrupt_payloads = _interrupt_payloads(state)
+        experience_store = build_experience_store(session=db)
         _persist_agent_message_state(
             db=db,
             state=state,
             trace_store=trace_store,
             experience_store=experience_store,
             interrupt_payloads=interrupt_payloads,
+            run_id=handle.run_id,
+            update_run_status=False,
+            commit=False,
+        )
+        if interrupt_payloads:
+            conversation_service.interrupt_turn(
+                tenant_id=principal.tenant_id,
+                run_id=handle.run_id,
+            )
+        db.commit()
+        if interrupt_payloads:
+            finalized = True
+        finalized = yield from _emit_stream_result(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+            state=state,
+            interrupt_payloads=interrupt_payloads,
+            emitted_thinking_stages=emitted_thinking_stages,
+            llm_client=llm_client,
         )
     except AgentGraphExecutionError as exc:
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
         yield _sse(
             "error",
             {
@@ -573,16 +697,51 @@ def _stream_agent_message(
                 "node": exc.node_name,
                 "message": exc.message,
                 "http_status": exc.http_status,
+                **_stream_identity(handle),
             },
         )
-        yield _sse("done", {"ok": False})
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
         return
     except LlmConfigurationError as exc:
-        yield _sse("error", _llm_configuration_error_payload(exc))
-        yield _sse("done", {"ok": False})
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
+        yield _sse(
+            "error",
+            {**_llm_configuration_error_payload(exc), **_stream_identity(handle)},
+        )
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
+        return
+    except (ConversationConflictError, SessionBusyError) as exc:
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
+        yield _sse(
+            "error",
+            {
+                "code": str(exc),
+                "node": "conversation",
+                "message": "请求正在执行或会话忙。",
+                "http_status": 409,
+                **_stream_identity(handle),
+            },
+        )
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
         return
     except Exception:
         logger.exception("agent_stream_unhandled_error")
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
         yield _sse(
             "error",
             {
@@ -590,11 +749,32 @@ def _stream_agent_message(
                 "node": "agent_stream",
                 "message": "Agent 流式执行失败，请查看后端日志定位具体原因。",
                 "http_status": 500,
+                **_stream_identity(handle),
             },
         )
-        yield _sse("done", {"ok": False})
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
         return
+    finally:
+        if handle is not None and not handle.replayed and not finalized:
+            _fail_stream_turn(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+            )
 
+def _emit_stream_result(
+    *,
+    db: Session,
+    conversation_service: ConversationService,
+    principal: Principal,
+    handle: TurnHandle,
+    state: AgentState,
+    interrupt_payloads: list[dict],
+    emitted_thinking_stages: set[str],
+    llm_client,
+) -> Generator[str, None, bool]:
+    identity = _stream_identity(handle)
     if state["image_analyses"]:
         yield _sse(
             "status",
@@ -612,15 +792,18 @@ def _stream_agent_message(
         yield _sse(
             "approval_required",
             {
-                "run_id": state["request_id"],
                 "trace_id": state["trace_id"],
                 "approval_ids": [
                     payload["approval_id"] for payload in interrupt_payloads
                 ],
+                **identity,
             },
         )
-        yield _sse("done", {"ok": True, "pending_approval": True})
-        return
+        yield _sse(
+            "done",
+            {"ok": True, "pending_approval": True, **identity},
+        )
+        return True
 
     final_response = state["final_response"]
     yield _sse(
@@ -646,11 +829,57 @@ def _stream_agent_message(
             state=state,
             stage="planning",
         )
+    conversation_service.mark_streaming(
+        tenant_id=principal.tenant_id,
+        run_id=handle.run_id,
+    )
+    db.commit()
     yield _sse("status", {"stage": "answering", "trace_id": final_response["trace_id"]})
     for chunk in _chunk_text(final_response["content"]):
         yield _sse("answer_delta", {"content": chunk})
-    yield _sse("final", final_response)
-    yield _sse("done", {"ok": True})
+    conversation_service.complete_turn(
+        tenant_id=principal.tenant_id,
+        run_id=handle.run_id,
+        content=final_response["content"],
+        metadata=_assistant_response_metadata(final_response),
+    )
+    db.commit()
+    yield _sse("final", {**final_response, **identity})
+    yield _sse("done", {"ok": True, **identity})
+    return True
+
+
+def _stream_identity(handle: TurnHandle | None) -> dict[str, str]:
+    if handle is None:
+        return {}
+    return {
+        "run_id": handle.run_id,
+        "request_id": handle.request_id,
+        "message_id": handle.assistant_message_id,
+    }
+
+
+def _fail_stream_turn(
+    *,
+    db: Session,
+    conversation_service: ConversationService,
+    principal: Principal,
+    handle: TurnHandle | None,
+) -> bool:
+    if handle is None or handle.replayed:
+        db.rollback()
+        return True
+    db.rollback()
+    try:
+        _fail_turn_after_error(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
+    except SQLAlchemyError:
+        logger.exception("agent_stream_failure_finalization_error")
+    return True
 
 
 def _persist_agent_message_state(
