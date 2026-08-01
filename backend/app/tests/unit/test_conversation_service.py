@@ -41,6 +41,51 @@ def _begin(
     )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("tenant_id", ""),
+        ("user_id", ""),
+        ("session_id", ""),
+        ("request_id", ""),
+        ("tenant_id", "t" * 65),
+        ("user_id", "u" * 65),
+        ("session_id", "s" * 65),
+        ("request_id", "r" * 65),
+        ("request_id", "unsafe/request"),
+        ("request_id", "unsafe request"),
+    ],
+)
+def test_begin_turn_rejects_invalid_identity_fields(field_name, value):
+    with pytest.raises(ValidationError):
+        _begin(**{field_name: value})
+
+
+def test_begin_turn_allows_email_user_id():
+    turn = _begin(user_id="researcher@example.com")
+
+    assert turn.user_id == "researcher@example.com"
+
+
+def test_begin_turn_copies_attachment_ids_into_immutable_tuple():
+    attachment_ids = ["asset-1"]
+    turn = _begin(metadata={"attachment_ids": attachment_ids})
+
+    attachment_ids.append("asset-2")
+
+    assert turn.metadata.attachment_ids == ("asset-1",)
+    assert turn.metadata.model_dump(mode="json") == {
+        "attachment_ids": ["asset-1"],
+        "content_type": None,
+    }
+
+
+def test_begin_turn_defaults_attachment_ids_to_immutable_tuple():
+    turn = _begin(metadata={"content_type": "text"})
+
+    assert turn.metadata.attachment_ids == ()
+
+
 def test_begin_turn_creates_one_run_and_two_consecutive_messages(session):
     handle = ConversationService(session).begin_turn(_begin())
 

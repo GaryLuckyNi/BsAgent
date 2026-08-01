@@ -40,6 +40,11 @@ class AgentSession(Base):
             "session_id",
             name="uq_agent_sessions_tenant_user_external",
         ),
+        Index(
+            "ix_agent_sessions_tenant_active_run",
+            "tenant_id",
+            "active_run_id",
+        ),
     )
 
     session_key: Mapped[str] = mapped_column(String(64), primary_key=True)

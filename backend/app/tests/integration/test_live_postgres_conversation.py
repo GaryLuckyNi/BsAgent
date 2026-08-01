@@ -5,7 +5,7 @@ from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, event, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -14,7 +14,7 @@ from app.conversations.repository import (
     SessionBusyError,
 )
 from app.conversations.service import BeginTurn, ConversationService
-from app.storage.models import AgentMessage, AgentRun, Base
+from app.storage.models import AgentMessage, AgentRun, AgentSession, Base
 
 
 @contextmanager
@@ -69,7 +69,7 @@ def test_waiting_session_lock_refreshes_stale_identity_before_busy_check():
 
         second_preloaded = Event()
         first_locked = Event()
-        second_attempting = Event()
+        second_for_update = Event()
         release_first = Event()
 
         def first_request():
@@ -86,6 +86,20 @@ def test_waiting_session_lock_refreshes_stale_identity_before_busy_check():
 
         def second_request():
             with session_factory() as db:
+                connection = db.connection()
+
+                @event.listens_for(connection, "before_cursor_execute")
+                def observe_for_update(
+                    _connection,
+                    _cursor,
+                    statement,
+                    _parameters,
+                    _context,
+                    _executemany,
+                ):
+                    if "FOR UPDATE" in statement.upper():
+                        second_for_update.set()
+
                 repository = ConversationRepository(db)
                 stale = repository.get_owned_session(
                     tenant_id="tenant_1",
@@ -98,7 +112,6 @@ def test_waiting_session_lock_refreshes_stale_identity_before_busy_check():
                 second_preloaded.set()
                 if not first_locked.wait(timeout=5):
                     raise TimeoutError("first_lock_timeout")
-                second_attempting.set()
                 try:
                     ConversationService(db).begin_turn(
                         _begin(request_id="request_2")
@@ -111,7 +124,7 @@ def test_waiting_session_lock_refreshes_stale_identity_before_busy_check():
         with ThreadPoolExecutor(max_workers=2) as executor:
             first_future = executor.submit(first_request)
             second_future = executor.submit(second_request)
-            assert second_attempting.wait(timeout=5)
+            assert second_for_update.wait(timeout=5)
             try:
                 with pytest.raises(FutureTimeoutError):
                     second_future.result(timeout=0.2)
@@ -157,6 +170,49 @@ def test_concurrent_identical_request_converges_to_one_turn():
         assert {handle.run_id for handle in handles} == {handles[0].run_id}
         assert sorted(handle.replayed for handle in handles) == [False, True]
         with session_factory() as verify_session:
+            assert verify_session.scalar(
+                select(func.count()).select_from(AgentRun)
+            ) == 1
+            assert verify_session.scalar(
+                select(func.count()).select_from(AgentMessage)
+            ) == 2
+
+
+def test_concurrent_first_request_creates_one_session_and_one_turn():
+    with _live_postgres_sessions() as session_factory:
+        engine = session_factory.kw["bind"]
+        competing_inserts = Barrier(2)
+
+        @event.listens_for(engine, "before_cursor_execute")
+        def synchronize_session_inserts(
+            _connection,
+            _cursor,
+            statement,
+            _parameters,
+            _context,
+            _executemany,
+        ):
+            if statement.lstrip().upper().startswith("INSERT INTO AGENT_SESSIONS"):
+                competing_inserts.wait(timeout=5)
+
+        def begin_first_request():
+            with session_factory() as db:
+                handle = ConversationService(db).begin_turn(
+                    _begin(request_id="same_first_request")
+                )
+                db.commit()
+                return handle
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(begin_first_request) for _ in range(2)]
+            handles = [future.result(timeout=10) for future in futures]
+
+        assert {handle.run_id for handle in handles} == {handles[0].run_id}
+        assert any(not handle.replayed for handle in handles)
+        with session_factory() as verify_session:
+            assert verify_session.scalar(
+                select(func.count()).select_from(AgentSession)
+            ) == 1
             assert verify_session.scalar(
                 select(func.count()).select_from(AgentRun)
             ) == 1

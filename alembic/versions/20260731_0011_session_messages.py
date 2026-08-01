@@ -182,6 +182,11 @@ def _rebuild_sqlite_sessions() -> None:
         "agent_sessions",
         ["user_id"],
     )
+    op.create_index(
+        "ix_agent_sessions_tenant_active_run",
+        "agent_sessions",
+        ["tenant_id", "active_run_id"],
+    )
 
 
 def _backfill_sqlite_child(
@@ -296,6 +301,11 @@ def _upgrade_postgresql() -> None:
 
     _switch_postgresql_session_primary_key()
     _create_postgresql_session_unique_constraint()
+    _ensure_postgresql_concurrent_index(
+        "agent_sessions",
+        "ix_agent_sessions_tenant_active_run",
+        ["tenant_id", "active_run_id"],
+    )
     _ensure_postgresql_concurrent_index(
         "agent_runs",
         "ix_agent_runs_session_key",
@@ -982,6 +992,10 @@ def _restore_sqlite_sessions() -> None:
             """
         )
     )
+    op.drop_index(
+        "ix_agent_sessions_tenant_active_run",
+        table_name="agent_sessions",
+    )
     op.drop_index("ix_agent_sessions_user_id", table_name="agent_sessions")
     op.drop_index("ix_agent_sessions_tenant_id", table_name="agent_sessions")
     op.drop_table("agent_sessions")
@@ -1005,6 +1019,7 @@ def _downgrade_postgresql() -> None:
         ("ix_asset_records_session_key", "asset_records"),
         ("ix_approval_records_session_key", "approval_records"),
         ("ix_agent_runs_session_key", "agent_runs"),
+        ("ix_agent_sessions_tenant_active_run", "agent_sessions"),
     ):
         _drop_postgresql_index_if_exists(table_name, index_name)
 

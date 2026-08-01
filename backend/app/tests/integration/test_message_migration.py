@@ -177,6 +177,14 @@ def test_message_migration_creates_contract_and_backfills_session_key(
     }
     assert session_columns["active_run_id"]["nullable"] is True
     assert session_columns["next_sequence_no"]["nullable"] is False
+    session_indexes = {
+        index["name"]: index["column_names"]
+        for index in inspector.get_indexes("agent_sessions")
+    }
+    assert session_indexes["ix_agent_sessions_tenant_active_run"] == [
+        "tenant_id",
+        "active_run_id",
+    ]
 
     message_columns = {
         column["name"] for column in inspector.get_columns("agent_messages")
@@ -472,6 +480,35 @@ def test_message_migration_downgrade_rejects_duplicate_external_session_id(
         command.downgrade(config, "20260727_0010")
 
 
+def test_message_migration_active_run_index_downgrades_safely(
+    tmp_path,
+    monkeypatch,
+):
+    config, database_url = _migration_config(
+        tmp_path,
+        monkeypatch,
+        "message-index-downgrade.sqlite",
+    )
+    command.upgrade(config, "head")
+    engine = create_engine(database_url)
+    upgraded_indexes = {
+        index["name"]: index["column_names"]
+        for index in inspect_database(engine).get_indexes("agent_sessions")
+    }
+    assert upgraded_indexes["ix_agent_sessions_tenant_active_run"] == [
+        "tenant_id",
+        "active_run_id",
+    ]
+
+    command.downgrade(config, "20260727_0010")
+
+    downgraded_indexes = {
+        index["name"]
+        for index in inspect_database(engine).get_indexes("agent_sessions")
+    }
+    assert "ix_agent_sessions_tenant_active_run" not in downgraded_indexes
+
+
 def test_postgres_constraint_switches_do_not_run_in_autocommit_blocks():
     project_root = Path(__file__).resolve().parents[4]
     migration = _load_message_migration(project_root)
@@ -598,6 +635,14 @@ def test_live_postgres_message_migration_contract(monkeypatch):
             "tenant_id",
             "user_id",
             "session_id",
+        ]
+        session_indexes = {
+            index["name"]: index["column_names"]
+            for index in inspector.get_indexes("agent_sessions")
+        }
+        assert session_indexes["ix_agent_sessions_tenant_active_run"] == [
+            "tenant_id",
+            "active_run_id",
         ]
         run_columns = {
             column["name"]: column
@@ -783,6 +828,14 @@ def test_live_postgres_message_migration_recovers_partial_upgrade(monkeypatch):
         assert inspector.get_pk_constraint("agent_sessions")[
             "constrained_columns"
         ] == ["session_key"]
+        session_indexes = {
+            index["name"]: index["column_names"]
+            for index in inspector.get_indexes("agent_sessions")
+        }
+        assert session_indexes["ix_agent_sessions_tenant_active_run"] == [
+            "tenant_id",
+            "active_run_id",
+        ]
         assert "ck_agent_runs_session_key_nn_0011" not in {
             constraint["name"]
             for constraint in inspector.get_check_constraints("agent_runs")
