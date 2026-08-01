@@ -160,3 +160,17 @@ def test_trace_detailed_ratio_cannot_exceed_success_ratio():
         )
 
     assert "trace_detailed_sample_ratio" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("trace_retention_days", 0),
+        ("trace_retention_days", 366),
+        ("trace_cleanup_batch_size", 0),
+        ("trace_cleanup_batch_size", 10_001),
+    ],
+)
+def test_trace_retention_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
