@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.operations.observability import (
     RequestContextMiddleware,
     SafeJsonFormatter,
+    TelemetryRuntime,
     bind_principal_log_context,
     configure_logging,
     configure_telemetry,
@@ -196,6 +197,106 @@ def test_configure_telemetry_delegates_enabled_runtime_to_installer():
         "endpoint": "http://collector:4318/v1/traces",
         "sample_ratio": 0.25,
     }
+
+
+def test_configure_telemetry_allows_exporter_injection_for_tests():
+    marker = object()
+    captured = {}
+
+    def installer(**kwargs):
+        captured.update(kwargs)
+        return marker
+
+    from app.core.config import Settings
+
+    exporter = object()
+    handle = configure_telemetry(
+        app=FastAPI(),
+        engine=object(),
+        config=Settings(
+            _env_file=None,
+            otel_enabled=True,
+            otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        ),
+        installer=installer,
+        exporter=exporter,
+    )
+
+    assert handle is marker
+    assert captured["exporter"] is exporter
+
+
+def test_configure_telemetry_installs_only_once_per_application():
+    from app.core.config import Settings
+
+    calls = []
+    marker = object()
+    app = FastAPI()
+    config = Settings(
+        _env_file=None,
+        otel_enabled=True,
+        otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+    )
+
+    first = configure_telemetry(
+        app=app,
+        engine=object(),
+        config=config,
+        installer=lambda **kwargs: calls.append(kwargs) or marker,
+    )
+    second = configure_telemetry(
+        app=app,
+        engine=object(),
+        config=config,
+        installer=lambda **kwargs: calls.append(kwargs) or object(),
+    )
+
+    assert first is marker
+    assert second is marker
+    assert len(calls) == 1
+
+
+def test_telemetry_runtime_shutdown_is_idempotent_and_failure_isolated():
+    calls = []
+
+    class Provider:
+        def force_flush(self, *, timeout_millis):
+            calls.append(("flush", timeout_millis))
+            raise RuntimeError("exporter failed")
+
+        def shutdown(self):
+            calls.append(("provider_shutdown", None))
+
+    class FastAPIInstrumentor:
+        def uninstrument_app(self, app):
+            calls.append(("fastapi", app))
+
+    class Instrumentor:
+        def __init__(self, name):
+            self.name = name
+
+        def uninstrument(self):
+            calls.append((self.name, None))
+
+    app = object()
+    runtime = TelemetryRuntime(
+        app=app,
+        provider=Provider(),
+        fastapi_instrumentor=FastAPIInstrumentor(),
+        httpx_instrumentor=Instrumentor("httpx"),
+        sqlalchemy_instrumentor=Instrumentor("sqlalchemy"),
+    )
+
+    runtime.shutdown()
+    runtime.shutdown()
+
+    assert calls == [
+        ("fastapi", app),
+        ("httpx", None),
+        ("sqlalchemy", None),
+        ("flush", 5_000),
+        ("provider_shutdown", None),
+    ]
 
 
 def test_configure_worker_telemetry_is_noop_when_disabled():

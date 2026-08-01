@@ -1,11 +1,35 @@
 import pytest
 from langgraph.errors import GraphInterrupt
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
+from opentelemetry.trace import StatusCode
 
 from app.graph.state import create_initial_state
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.node_runner import NodeRunner
 from app.harness.tracing import InMemoryTraceStore
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
+
+
+NODE_SPAN_ATTRIBUTES = {
+    "bs.agent.node.name",
+    "bs.agent.node.status",
+    "bs.agent.error.code",
+    "bs.agent.node.duration_ms",
+    "bs.agent.tool.call_count",
+    "bs.agent.evidence.item_count",
+    "bs.agent.approval.required",
+}
+
+
+def _recording_tracer():
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    return provider.get_tracer("test.bs_agent.node"), exporter
 
 
 def test_node_runner_records_success_event():
@@ -356,3 +380,104 @@ def test_node_runner_supports_trace_buffer_artifacts():
     assert trace_buffer.events[0].input_ref is not None
     assert trace_buffer.events[0].output_ref is not None
     assert len(trace_buffer.artifacts) == 2
+
+
+def test_node_runner_emits_only_safe_whitelisted_span_attributes():
+    state = create_initial_state(
+        session_id="session-sensitive",
+        tenant_id="tenant-sensitive",
+        user_id="user-sensitive",
+        user_message="prompt and user message must never leave",
+    )
+    state["tool_calls"].append(
+        ToolCallRecord(
+            request=ToolCallRequest(
+                tool_name="mcp.mock.secret",
+                arguments={"text": "tool-argument-sensitive"},
+                purpose="prompt-sensitive",
+            ),
+            result=ToolCallResult(
+                tool_call_id="tool-sensitive",
+                tool_name="mcp.mock.secret",
+                status="success",
+                result={"body": "tool-result-sensitive"},
+                latency_ms=1,
+                trace_id=state["trace_id"],
+            ),
+        )
+    )
+    tracer, exporter = _recording_tracer()
+
+    NodeRunner(tracer=tracer).run("tool_agent", lambda current: current, state)
+
+    span = exporter.get_finished_spans()[0]
+    assert span.name == "bs_agent.node"
+    assert set(span.attributes) <= NODE_SPAN_ATTRIBUTES
+    assert span.attributes["bs.agent.node.name"] == "tool_agent"
+    assert span.attributes["bs.agent.node.status"] == "success"
+    assert span.attributes["bs.agent.tool.call_count"] == 0
+    assert span.attributes["bs.agent.evidence.item_count"] == 0
+    assert span.attributes["bs.agent.approval.required"] is False
+    assert span.status.status_code is StatusCode.UNSET
+    serialized = repr(span.attributes)
+    for secret in (
+        "session-sensitive",
+        "tenant-sensitive",
+        "user-sensitive",
+        "prompt-sensitive",
+        "tool-argument-sensitive",
+        "tool-result-sensitive",
+    ):
+        assert secret not in serialized
+
+
+def test_node_runner_marks_error_span_without_recording_raw_exception():
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="secret-message",
+    )
+    tracer, exporter = _recording_tracer()
+
+    with pytest.raises(RuntimeError, match="raw-exception-sensitive"):
+        NodeRunner(tracer=tracer).run(
+            "broken",
+            lambda _: (_ for _ in ()).throw(RuntimeError("raw-exception-sensitive")),
+            state,
+        )
+
+    span = exporter.get_finished_spans()[0]
+    assert span.status.status_code is StatusCode.ERROR
+    assert span.status.description is None
+    assert span.events == ()
+    assert span.attributes["bs.agent.error.code"] == "agent_node_error"
+    assert "raw-exception-sensitive" not in repr(span)
+    assert "secret-message" not in repr(span)
+
+
+def test_exporter_failure_does_not_change_agent_result_or_trace_buffer():
+    class FailingExporter(SpanExporter):
+        def export(self, spans):
+            raise RuntimeError("collector unavailable")
+
+        def shutdown(self):
+            return None
+
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(FailingExporter()))
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="制度是什么？",
+    )
+    trace_buffer = TraceBuffer(max_events=2, max_artifacts=0)
+
+    result = NodeRunner(
+        trace_buffer=trace_buffer,
+        tracer=provider.get_tracer("test.bs_agent.node"),
+    ).run("intent_router", lambda current: current, state)
+
+    assert result is state
+    assert trace_buffer.events[0].status == "success"
