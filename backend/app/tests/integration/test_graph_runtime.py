@@ -2,6 +2,7 @@ import json
 
 import httpx
 import pytest
+from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -1264,6 +1265,51 @@ def test_question_answer_graph_rejects_non_root_checkpoint_namespace_on_resume()
             approval_decision={},
             checkpointer=InMemorySaver(),
         )
+
+
+@pytest.mark.parametrize(
+    "checkpoint_thread_id",
+    [
+        "legacy-session-id",
+        "cp_invalid",
+        f"cp_{'a' * 63}",
+        f"cp_{'A' * 64}",
+    ],
+)
+def test_question_answer_graph_rejects_legacy_checkpoint_before_reading_saver(
+    monkeypatch,
+    checkpoint_thread_id,
+):
+    checkpointer = InMemorySaver()
+    legacy_config = checkpointer.put(
+        {
+            "configurable": {
+                "thread_id": checkpoint_thread_id,
+                "checkpoint_ns": "",
+            }
+        },
+        empty_checkpoint(),
+        {"source": "input", "step": -1, "parents": {}},
+        {},
+    )
+    assert checkpointer.get(legacy_config) is not None
+
+    def fail_if_saver_is_read(*_args, **_kwargs):
+        raise AssertionError("legacy checkpoint must not be read")
+
+    monkeypatch.setattr(checkpointer, "get_tuple", fail_if_saver_is_read)
+
+    with pytest.raises(runtime.LegacyCheckpointIncompatibleError) as exc_info:
+        resume_question_answer_graph(
+            checkpoint_thread_id=checkpoint_thread_id,
+            checkpoint_namespace="",
+            approval_decision={},
+            checkpointer=checkpointer,
+        )
+
+    assert exc_info.value.code == "legacy_checkpoint_incompatible"
+    assert exc_info.value.http_status == 409
+    assert "旧 Checkpoint 不可安全恢复" in str(exc_info.value)
 
 
 def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():

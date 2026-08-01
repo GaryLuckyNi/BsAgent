@@ -36,6 +36,30 @@ def test_create_initial_state_contains_trace_and_empty_collections():
     assert state["errors"] == []
 
 
+def test_compat_session_key_uses_unambiguous_stable_identity_encoding():
+    first = create_initial_state(
+        session_id="c",
+        tenant_id="t",
+        user_id="a:b",
+        user_message="第一组",
+    )["session_key"]
+    second = create_initial_state(
+        session_id="b:c",
+        tenant_id="t",
+        user_id="a",
+        user_message="第二组",
+    )["session_key"]
+    repeated = create_initial_state(
+        session_id="c",
+        tenant_id="t",
+        user_id="a:b",
+        user_message="重复第一组",
+    )["session_key"]
+
+    assert first != second
+    assert first == repeated
+
+
 def test_add_state_messages_replaces_same_id_in_place_and_appends_new_ids():
     first = Message(
         message_id="req_1:user",

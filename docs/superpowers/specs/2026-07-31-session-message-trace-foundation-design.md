@@ -166,13 +166,16 @@ Message 后续使用独立租户保留策略，不能复用 Trace 的 30 天清�
 
 1. 新增 `session_key` 和 `agent_messages`，保留外部 `session_id`。
 2. 为现有 Session 回填 `session_key`，新 Checkpoint 使用租户与 `session_key` 派生的 Thread ID，根 `checkpoint_ns` 保持空字符串。
-3. 开发环境允许清理旧 Checkpoint；生产迁移必须提供旧 Thread ID 到派生 Thread ID 的兼容窗口或明确停机迁移。
-4. 现有历史 Checkpoint 中的 Message 不自动反向灌入业务消息表，避免重复和错误归属。
-5. 完成 Repository 双边界测试后，删除按裸 `session_id` 查询并覆盖租户字段的旧逻辑。
+3. Checkpoint 身份升级是破坏性部署边界。上线前停止新流量，排空所有 `running`、`interrupted`、待审批 Run，并确认不存在仍引用裸 `session_id` Thread ID 的在途 Approval。
+4. 旧裸 Thread ID 缺少可靠租户归属，禁止自动读取、反序列化或迁移到派生 Thread ID；应用必须明确拒绝旧坐标，旧 Checkpoint 按保留策略清理。
+5. 会话历史以 PostgreSQL `agent_messages` 为事实源，Checkpoint 只承担在途图执行恢复。完成排空后可以清理旧 Checkpoint，不能从旧 Checkpoint 反向灌入 Message。
+6. 完成 Repository 双边界测试后，删除按裸 `session_id` 查询并覆盖租户字段的旧逻辑。
 
 ## 13. 验收标准
 
 - 两个租户使用相同外部 `session_id` 时，Session、Message、Checkpoint、Approval 和 Trace 完全隔离。
+- 生产发布门禁证明所有运行中、审批中执行已排空，旧 Checkpoint 坐标和引用旧坐标的 Approval 数量均为零。
+- 裸 `session_id` 或不符合 `cp_[0-9a-f]{64}` 的 Checkpoint 坐标在读取 Saver 前被明确拒绝，不执行危险的旧数据反序列化迁移。
 - 普通请求、SSE、异常和审批恢复均只产生一组幂等 Message 和 Run。
 - SSE 期间不逐 Token 写 PostgreSQL，也不持有长业务事务。
 - 进程重启后可从 PostgreSQL 查询历史消息和数据库 Trace。

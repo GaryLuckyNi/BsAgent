@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterator
+import re
 from typing import Any
 
 from langgraph.graph import END, StateGraph
@@ -62,6 +63,19 @@ class AgentGraphExecutionError(RuntimeError):
         self.code = code
         self.http_status = http_status
         super().__init__(f"{node_name}: {message}")
+
+
+class LegacyCheckpointIncompatibleError(RuntimeError):
+    code = "legacy_checkpoint_incompatible"
+    http_status = 409
+
+    def __init__(self) -> None:
+        super().__init__(
+            "旧 Checkpoint 不可安全恢复：坐标缺少可靠的租户归属，请重新执行请求。"
+        )
+
+
+_CHECKPOINT_THREAD_ID_PATTERN = re.compile(r"cp_[0-9a-f]{64}")
 
 
 class _UnavailableAttachmentResolver:
@@ -712,6 +726,8 @@ def resume_question_answer_graph(
 ) -> AgentState:
     if checkpoint_namespace != "":
         raise ValueError("checkpoint_namespace must be empty for the root graph")
+    if _CHECKPOINT_THREAD_ID_PATTERN.fullmatch(checkpoint_thread_id) is None:
+        raise LegacyCheckpointIncompatibleError()
     selected_retriever_node = retriever_node
     if selected_retriever_node is None:
         selected_retriever_node = build_default_rag_retriever_node()

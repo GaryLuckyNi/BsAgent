@@ -1,4 +1,5 @@
 from hashlib import sha256
+import json
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -300,5 +301,9 @@ def create_initial_state(
 
 
 def _compat_session_key(*, session_id: str, tenant_id: str, user_id: str) -> str:
-    identity = f"{tenant_id}:{user_id}:{session_id}"
+    identity = json.dumps(
+        [tenant_id, user_id, session_id],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
     return f"session_{uuid5(NAMESPACE_URL, identity).hex}"
