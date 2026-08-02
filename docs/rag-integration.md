@@ -26,7 +26,7 @@ POST /api/rag/retrieve
 
 ```json
 {
-  "query": "差旅报销需要什么？"
+  "query": "银之杰近期有哪些公开风险信息？"
 }
 ```
 
@@ -34,7 +34,7 @@ BsAgent 当前发送的主要字段：
 
 ```json
 {
-  "query": "差旅报销需要什么？",
+  "query": "银之杰近期有哪些公开风险信息？",
   "filters": {},
   "retrieval": {
     "topK": 8,

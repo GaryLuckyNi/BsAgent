@@ -1,6 +1,7 @@
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import fields, is_dataclass
+from dataclasses import dataclass, fields, is_dataclass
+from math import isfinite
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit
 
@@ -59,6 +60,22 @@ TRACE_ASSIGNMENT_PATTERN = re.compile(
     r"\b(?P<key>[a-z][a-z0-9_.-]{1,64})\s*=\s*[^\s,;]+",
     re.IGNORECASE,
 )
+DETAIL_SENSITIVE_ASSIGNMENT_PATTERN = re.compile(
+    r"\b(?P<key>"
+    r"access[\s_.-]*token|api[\s_.-]*key|authorization|bearer[\s_.-]*token|"
+    r"client[\s_.-]*secret|connection[\s_.-]*string|credential(?:s)?|"
+    r"database[\s_.-]*(?:password|url)|dsn|password|private[\s_.-]*key|"
+    r"refresh[\s_.-]*token|secret|token"
+    r")(?P<separator>\s*[:=]\s*)"
+    r"(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+    re.IGNORECASE,
+)
+
+DETAIL_DEPTH_LIMIT = "[depth_limit]"
+DETAIL_NODE_LIMIT = "[node_limit]"
+DETAIL_COLLECTION_LIMIT = "[collection_limit]"
+DETAIL_STRING_LIMIT = "[string_limit]"
+DETAIL_TRUNCATED_KEY = "__truncated__"
 
 
 class InlineCredentialsForbiddenError(ValueError):
@@ -115,13 +132,145 @@ def reject_server_injected_arguments(
 def sanitize_trace_error(value: str | None, *, max_length: int = 512) -> str | None:
     if value is None:
         return None
+    sanitized = _sanitize_trace_text(value)
+    return sanitized[:max_length]
+
+
+def sanitize_untrusted_details(
+    details: Mapping[str, Any] | None,
+    *,
+    replacement: str = "***",
+    max_depth: int = 8,
+    max_nodes: int = 256,
+    max_collection_items: int = 100,
+    max_string_length: int = 2048,
+) -> dict[str, Any]:
+    """将外部错误详情收敛为递归脱敏的 JSON-safe dict。"""
+
+    budget = _DetailSanitizationBudget(remaining_nodes=max(0, max_nodes))
+    sanitized = _sanitize_detail_value(
+        details or {},
+        replacement=replacement,
+        depth=0,
+        max_depth=max(0, max_depth),
+        max_collection_items=max(0, max_collection_items),
+        max_string_length=max(0, max_string_length),
+        budget=budget,
+        active_object_ids=frozenset(),
+    )
+    return sanitized if isinstance(sanitized, dict) else {}
+
+
+def _sanitize_trace_text(value: str) -> str:
     sanitized = TRACE_URI_USERINFO_PATTERN.sub(r"\g<scheme>***@", value)
     sanitized = AUTHORIZATION_HEADER_PATTERN.sub("Authorization: ***", sanitized)
     sanitized = COLON_CREDENTIAL_PATTERN.sub("credential: ***", sanitized)
     sanitized = BEARER_PATTERN.sub("Bearer ***", sanitized)
     sanitized = JWT_PATTERN.sub("***", sanitized)
     sanitized = TRACE_ASSIGNMENT_PATTERN.sub(r"\g<key>=***", sanitized)
-    return sanitized[:max_length]
+    return sanitized
+
+
+def _sanitize_untrusted_detail_text(value: str, *, max_length: int) -> str:
+    if len(value) > max_length:
+        value = value[:max_length] + DETAIL_STRING_LIMIT
+    sanitized = TRACE_URI_USERINFO_PATTERN.sub(r"\g<scheme>***@", value)
+    sanitized = AUTHORIZATION_HEADER_PATTERN.sub("Authorization: ***", sanitized)
+    sanitized = BEARER_PATTERN.sub("Bearer ***", sanitized)
+    sanitized = JWT_PATTERN.sub("***", sanitized)
+    return DETAIL_SENSITIVE_ASSIGNMENT_PATTERN.sub(
+        lambda match: f"{match.group('key')}{match.group('separator')}***",
+        sanitized,
+    )
+
+
+@dataclass
+class _DetailSanitizationBudget:
+    remaining_nodes: int
+
+    def consume(self) -> bool:
+        if self.remaining_nodes <= 0:
+            return False
+        self.remaining_nodes -= 1
+        return True
+
+
+def _sanitize_detail_value(
+    value: Any,
+    *,
+    replacement: str,
+    depth: int,
+    max_depth: int,
+    max_collection_items: int,
+    max_string_length: int,
+    budget: _DetailSanitizationBudget,
+    active_object_ids: frozenset[int],
+) -> Any:
+    if not budget.consume():
+        return DETAIL_NODE_LIMIT
+    if depth > max_depth:
+        return DETAIL_DEPTH_LIMIT
+    value = _to_plain_value(value)
+    if isinstance(value, str):
+        return _sanitize_untrusted_detail_text(
+            value,
+            max_length=max_string_length,
+        )
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if isfinite(value) else replacement
+    if not _is_container(value):
+        return replacement
+
+    object_id = id(value)
+    if object_id in active_object_ids:
+        return replacement
+    nested_ids = active_object_ids | {object_id}
+    if isinstance(value, Mapping):
+        sanitized_mapping: dict[str, Any] = {}
+        for index, (key, nested) in enumerate(value.items()):
+            if index >= max_collection_items:
+                sanitized_mapping[DETAIL_TRUNCATED_KEY] = DETAIL_COLLECTION_LIMIT
+                break
+            safe_key = _sanitize_untrusted_detail_text(
+                str(key),
+                max_length=max_string_length,
+            )
+            sanitized_mapping[safe_key] = (
+                replacement
+                if _is_sensitive_key(str(key))
+                else _sanitize_detail_value(
+                    nested,
+                    replacement=replacement,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                    max_collection_items=max_collection_items,
+                    max_string_length=max_string_length,
+                    budget=budget,
+                    active_object_ids=nested_ids,
+                )
+            )
+        return sanitized_mapping
+
+    sanitized_items: list[Any] = []
+    for index, item in enumerate(value):
+        if index >= max_collection_items:
+            sanitized_items.append(DETAIL_COLLECTION_LIMIT)
+            break
+        sanitized_items.append(
+            _sanitize_detail_value(
+                item,
+                replacement=replacement,
+                depth=depth + 1,
+                max_depth=max_depth,
+                max_collection_items=max_collection_items,
+                max_string_length=max_string_length,
+                budget=budget,
+                active_object_ids=nested_ids,
+            )
+        )
+    return sanitized_items
 
 
 def _contains_inline_credentials(

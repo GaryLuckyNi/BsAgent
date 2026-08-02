@@ -1,31 +1,37 @@
-from dataclasses import dataclass
 from functools import lru_cache
 from typing import Protocol
 
 from app.core.config import settings
+from app.security.principal import Principal
 
 
-ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
-    "analyst": frozenset({"agent:invoke", "rag:retrieve", "mcp:mock"}),
+BASE_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
+    "analyst": frozenset(
+        {
+            "agent:invoke",
+            "rag:retrieve",
+            "asset:write",
+            "asset:read",
+            "asset:delete",
+            "trace:read",
+            "web:search",
+        }
+    ),
     "approver": frozenset(
         {
             "agent:invoke",
             "rag:retrieve",
-            "mcp:mock",
             "approval:read",
             "approval:decide",
+            "asset:write",
+            "asset:read",
+            "asset:delete",
+            "trace:read",
+            "web:search",
         }
     ),
     "admin": frozenset({"*"}),
 }
-
-
-@dataclass(frozen=True)
-class Principal:
-    tenant_id: str
-    user_id: str
-    roles: tuple[str, ...]
-    permissions: tuple[str, ...]
 
 
 class RbacProvider(Protocol):
@@ -58,15 +64,15 @@ class MockRbacProvider:
                 {
                     permission
                     for role in roles
-                    for permission in ROLE_PERMISSIONS[role]
+                    for permission in _role_permissions(role)
                 }
             )
         )
         return Principal(
             tenant_id=tenant_id,
             user_id=user_id,
+            scopes=permissions,
             roles=roles,
-            permissions=permissions,
         )
 
     def has_permission(self, principal: Principal, permission: str) -> bool:
@@ -82,3 +88,19 @@ def get_rbac_provider() -> RbacProvider:
         approver_user_ids=settings.mock_rbac_approver_user_ids,
         admin_user_ids=settings.mock_rbac_admin_user_ids,
     )
+
+
+def _role_permissions(role: str) -> frozenset[str]:
+    permissions = set(BASE_ROLE_PERMISSIONS[role])
+    if role in {"analyst", "approver"}:
+        mcp_scope = _configured_mcp_scope()
+        if mcp_scope:
+            permissions.add(mcp_scope)
+    return frozenset(permissions)
+
+
+def _configured_mcp_scope() -> str | None:
+    server_name = settings.mcp_server_name.strip()
+    if not server_name:
+        return None
+    return f"mcp:{server_name}"

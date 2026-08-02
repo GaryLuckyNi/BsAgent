@@ -4,7 +4,13 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models import SkillProfileRecord
-from app.schemas import SkillCreate, SkillRead, SkillUpdate
+from app.schemas import (
+    SkillCreate,
+    SkillEvidenceContract,
+    SkillRead,
+    SkillUpdate,
+    validate_skill_evidence_contract_alignment,
+)
 
 router = APIRouter(prefix="/api/skills", tags=["skills"])
 
@@ -63,7 +69,22 @@ def update_skill(
     db: Session = Depends(get_db),
 ) -> SkillProfileRecord:
     record = _get_skill_or_404(db, skill_name)
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    try:
+        evidence_contract = SkillEvidenceContract.model_validate(
+            changes.get("evidence_contract", record.evidence_contract)
+        )
+        validate_skill_evidence_contract_alignment(
+            allowed_tools=changes.get("allowed_tools", record.allowed_tools),
+            evidence_contract=evidence_contract,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Skill 市场数据工具与证据契约配置不一致：{exc}",
+        ) from None
+
+    for field, value in changes.items():
         setattr(record, field, value)
     db.commit()
     db.refresh(record)

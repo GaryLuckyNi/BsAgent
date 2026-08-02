@@ -35,7 +35,14 @@ class HybridIntentRouter:
         self._rule_pre_router = rule_pre_router or RulePreRouter()
         self._rule_classifier = RuleOnlyIntentClassifier(catalog=self._catalog)
 
-    def route(self, *, message: str, tenant_id: str, user_id: str) -> IntentDecisionModel:
+    def route(
+        self,
+        *,
+        message: str,
+        tenant_id: str,
+        user_id: str,
+        context: dict | None = None,
+    ) -> IntentDecisionModel:
         signal = self._rule_pre_router.analyze(message)
         if signal.hard_intent is not None:
             return self._evaluate(self._rule_classifier.classify(message=message, signal=signal), signal)
@@ -50,7 +57,7 @@ class HybridIntentRouter:
                     llm_client=self._llm_client,
                     catalog=self._catalog,
                     available_tools=self._available_tools,
-                ).classify(message=message, signal=signal)
+                ).classify(message=message, signal=signal, context=context)
                 return self._evaluate(decision, signal)
             except Exception as exc:
                 raise IntentClassificationError(

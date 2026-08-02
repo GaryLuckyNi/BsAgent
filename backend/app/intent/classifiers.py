@@ -59,18 +59,30 @@ class LlmIntentClassifier:
         self._catalog = catalog
         self._available_tools = available_tools or []
 
-    def classify(self, *, message: str, signal: IntentSignal) -> IntentDecisionModel:
+    def classify(
+        self,
+        *,
+        message: str,
+        signal: IntentSignal,
+        context: dict | None = None,
+    ) -> IntentDecisionModel:
         result = asyncio.run(
             self._llm_client.complete(
                 system_prompt=(
-                    "你是 BsAgent 的意图分类器。只能输出 JSON object，不要输出解释。"
+                    "你是 BsAgent 的投研优先意图分类器。只能输出 JSON object，不要输出解释。"
                     "顶层 intent 必须是允许值之一。domain/sub_intent 是业务语义标签。"
+                    "A股公司研究、财务、行情、估值、公告、风险与对比问题应归入"
+                    "domain=a_share_equity_research，并由投研工作流处理。"
+                    "寒暄、产品帮助和简单金融通识可以归入 conversation。"
+                    "明显与投研无关的专业任务应输出 intent=unsupported、domain=out_of_scope，"
+                    "由回答层说明能力边界，不要伪装成对应领域专家。"
                     "如果 available_tools 中存在能完成用户目标的工具，优先输出 intent=tool_action "
                     "并填写 candidate_tool。输出必须是单行紧凑 JSON，不要使用 Markdown。"
                 ),
                 user_prompt=json.dumps(
                     {
                         "message": message,
+                        "context": context or {},
                         "rule_signal": signal.model_dump(),
                         "allowed_intents": [
                             "knowledge_qa",
@@ -112,6 +124,7 @@ class LlmIntentClassifier:
                 ),
                 temperature=0.0,
                 max_tokens=768,
+                thinking=False,
             )
         )
         return IntentDecisionModel.model_validate(_extract_json_object(result.content))

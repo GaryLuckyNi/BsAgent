@@ -67,7 +67,7 @@ def approval_gate_node(state: AgentState) -> AgentState:
             "arguments_hash": arguments_hash,
             "arguments": safe_arguments,
             "purpose": descriptor.purpose,
-            "checkpoint_thread_id": state["request_id"],
+            "checkpoint_thread_id": state["session_id"],
             "status": "pending",
         }
     )

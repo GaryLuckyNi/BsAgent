@@ -54,14 +54,14 @@ backend/app/intent/business_intents.json
 
 ```json
 {
-  "id": "finance_policy.policy_lookup",
-  "intent": "knowledge_qa",
-  "domain": "finance_policy",
-  "sub_intent": "policy_lookup",
-  "candidate_skill": "policy_qa",
+  "id": "a_share_equity_research.company_snapshot",
+  "intent": "task_workflow",
+  "domain": "a_share_equity_research",
+  "sub_intent": "company_snapshot",
+  "candidate_skill": "company_snapshot",
   "risk_level": "medium",
-  "trigger_keywords": ["报销", "差旅", "制度", "政策", "发票", "审批单"],
-  "required_capabilities": ["rag_retrieval", "citation_required"]
+  "trigger_keywords": ["公司分析", "个股研究", "基本面"],
+  "required_capabilities": ["market_data", "financial_metrics"]
 }
 ```
 
@@ -72,7 +72,7 @@ backend/app/intent/business_intents.json
 `sub_intent` 表示业务细分意图，例如：
 
 ```text
-policy_lookup
+company_snapshot
 policy_comparison
 eligibility_judgement
 submit_reimbursement_application
@@ -150,7 +150,7 @@ planner_agent
 ## 当前限制
 
 - 业务意图配置仍是本地 JSON，尚未接 registry/config center。
-- 当前默认可执行 skill 仍主要是 `policy_qa`，因此非知识类 intent 的完整下游执行还需要后续 Planner/Skill/Workflow 路由完善。
+- 可执行 Skill 由 Admin Registry 提供，Agent 本地不再内置业务 Skill 兜底。
 - `sub_intent` 暂不做强路由条件，避免在早期变成新的无限枚举。
 
 ## A 股公司研究意图

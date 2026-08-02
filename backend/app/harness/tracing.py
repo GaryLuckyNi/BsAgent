@@ -6,12 +6,14 @@ from uuid import uuid4
 from app.graph.state import AgentState
 from app.tools.redaction import redact_sensitive_data, sanitize_trace_error
 
+TraceEventStatus = Literal["success", "error", "handled_error"]
+
 
 @dataclass
 class TraceEvent:
     trace_id: str
     node_name: str
-    status: Literal["success", "error"]
+    status: TraceEventStatus
     latency_ms: int
     event_id: str = field(default_factory=lambda: f"traceevt_{uuid4().hex}")
     input_ref: str | None = None
@@ -94,6 +96,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
             "user_message": {
                 "length": len(state["user_message"]),
             },
+            "attachments": _attachment_summaries(state),
             "intent": _intent_decision_summary(state) if state["intent"] else None,
             "plan": _planner_decision_summary(state) if state["plan"] else None,
             "selected_skill": _selected_skill_summary(state),
@@ -123,6 +126,12 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
                 "response_type": draft_answer.get("response_policy", {}).get(
                     "response_type"
                 ),
+                "llm_rendering": draft_answer.get("response_policy", {}).get(
+                    "llm_rendering"
+                ),
+                "llm_validation_error": draft_answer.get(
+                    "response_policy", {}
+                ).get("llm_validation_error"),
             }
             if draft_answer
             else None,
@@ -171,6 +180,8 @@ def summarize_node_transition(
     }
     if node_name == "intent_router":
         metadata["intent_decision"] = _intent_decision_summary(output_state)
+    elif node_name == "attachment_analyzer":
+        metadata["attachments"] = _attachment_summaries(output_state)
     elif node_name == "planner_agent":
         metadata["planner_decision"] = _planner_decision_summary(output_state)
     elif node_name == "skill_agent":
@@ -180,6 +191,9 @@ def summarize_node_transition(
             input_state=input_state,
             output_state=output_state,
         )
+        tool_repair = (output_state["plan"] or {}).get("tool_repair")
+        if isinstance(tool_repair, dict):
+            metadata["tool_repair"] = tool_repair
     elif node_name == "retriever_agent":
         metadata["retrieval"] = _retrieval_summary(output_state)
     elif node_name == "analysis_agent":
@@ -207,6 +221,8 @@ def _node_summary(
             f"/{intent.get('sub_intent') or 'none'}，"
             f"置信度 {intent.get('confidence', 'unknown')}"
         )
+    if node_name == "attachment_analyzer":
+        return f"加载 {len(state['image_analyses'])} 个图片分析摘要"
     if node_name == "planner_agent":
         plan = state["plan"] or {}
         return f"选择 {plan.get('execution_mode', 'unknown')}"
@@ -253,6 +269,26 @@ def _intent_decision_summary(state: AgentState) -> dict[str, Any]:
         "reason_codes": intent.get("reason_codes", []),
         "next_node": intent.get("next_node"),
     }
+
+
+def _attachment_summaries(state: AgentState) -> list[dict[str, Any]]:
+    analyses = {
+        analysis["asset_id"]: analysis for analysis in state["image_analyses"]
+    }
+    summaries = []
+    for ref in state["attachment_refs"]:
+        analysis = analyses.get(ref["asset_id"])
+        summaries.append(
+            {
+                "asset_id": ref["asset_id"],
+                "analysis_id": ref.get("analysis_id"),
+                "status": ref.get("status"),
+                "document_type": analysis["document_type"] if analysis else None,
+                "confidence": analysis["confidence"] if analysis else None,
+                "warning_count": len(analysis["risk_flags"]) if analysis else 0,
+            }
+        )
+    return summaries
 
 
 def _planner_decision_summary(state: AgentState) -> dict[str, Any]:
@@ -334,6 +370,7 @@ def _retrieval_summary(state: AgentState) -> dict[str, Any]:
 def _analysis_summary(state: AgentState) -> dict[str, Any]:
     analysis = state["analysis"] or {}
     structured_tool_results = analysis.get("structured_tool_results", [])
+    data_coverage = analysis.get("data_coverage", [])
     return {
         "finding_count": len(analysis.get("findings", [])),
         "structured_tool_result_count": len(structured_tool_results),
@@ -343,14 +380,36 @@ def _analysis_summary(state: AgentState) -> dict[str, Any]:
             if isinstance(result, dict)
         ],
         "missing_information_count": len(analysis.get("missing_information", [])),
+        "tool_fact_count": len(analysis.get("tool_facts", [])),
+        "data_coverage": [
+            {
+                key: item[key]
+                for key in (
+                    "tool_call_id",
+                    "capability",
+                    "status",
+                    "requested_fields",
+                    "provided_fields",
+                    "missing_optional_fields",
+                    "source_apis",
+                    "error_code",
+                )
+                if key in item
+            }
+            for item in data_coverage
+            if isinstance(item, dict)
+        ],
         "confidence": analysis.get("confidence"),
     }
 
 
 def _synthesis_summary(state: AgentState) -> dict[str, Any]:
     draft_answer = state["draft_answer"] or {}
+    response_policy = draft_answer.get("response_policy", {})
     return {
-        "response_type": draft_answer.get("response_policy", {}).get("response_type"),
+        "response_type": response_policy.get("response_type"),
+        "llm_rendering": response_policy.get("llm_rendering"),
+        "llm_validation_error": response_policy.get("llm_validation_error"),
         "claim_count": len(draft_answer.get("claims", [])),
         "cited_evidence_ids": draft_answer.get("cited_evidence_ids", []),
         "confidence": draft_answer.get("confidence"),

@@ -57,13 +57,37 @@ class RagSearchTool(Tool[RagSearchInput]):
     description = "检索企业知识库证据片段"
     permission_scope = ["rag:retrieve"]
     risk_level = "low"
+    requires_explicit_execution_binding = True
 
-    def __init__(self, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient | None = None,
+        *,
+        base_url: str | None = None,
+        timeout_seconds: float = 30.0,
+    ) -> None:
+        if client is None and base_url is None:
+            raise ValueError("RagSearchTool requires client or base_url.")
         self._client = client
+        self._base_url = base_url
+        self._timeout_seconds = timeout_seconds
 
     async def run(self, input_data: RagSearchInput) -> ToolCallResult:
+        if self._client is not None:
+            return await self._run_with_client(self._client, input_data)
+        async with httpx.AsyncClient(
+            base_url=self._base_url,
+            timeout=self._timeout_seconds,
+        ) as client:
+            return await self._run_with_client(client, input_data)
+
+    async def _run_with_client(
+        self,
+        client: httpx.AsyncClient,
+        input_data: RagSearchInput,
+    ) -> ToolCallResult:
         try:
-            response = await self._client.post(
+            response = await client.post(
                 "/api/rag/retrieve",
                 json=_rag_retrieve_payload(input_data),
             )

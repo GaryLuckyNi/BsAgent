@@ -27,6 +27,8 @@ class ToolSpec(BaseModel):
 class ToolError(BaseModel):
     code: str
     message: str
+    details: dict[str, Any] = Field(default_factory=dict)
+    retryable: bool = False
 
 
 class ToolCallRequest(BaseModel):

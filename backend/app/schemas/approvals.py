@@ -38,3 +38,4 @@ class ReadyToolCall(BaseModel):
     step_index: int = Field(ge=0)
     request_fingerprint: str = Field(min_length=1)
     tool_name: str
+    execution_binding_digest: str | None = None

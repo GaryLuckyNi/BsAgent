@@ -1,0 +1,94 @@
+name: 持续集成
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Python 与生产配置
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: bs_agent_test
+          POSTGRES_USER: bs_agent_test
+          POSTGRES_PASSWORD: bs_agent_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bs_agent_test -d bs_agent_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      BS_AGENT_TEST_POSTGRES_CHECKPOINT_URL: postgresql://bs_agent_test:bs_agent_test@127.0.0.1:5432/bs_agent_test
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.lock
+            pyproject.toml
+
+      - name: 安装锁定依赖
+        run: |
+          python -m pip install --upgrade pip==26.1.2 setuptools==83.0.0 wheel==0.47.0
+          python -m pip install --requirement backend/requirements.lock
+          python -m pip install --no-deps --no-build-isolation --editable .
+          python -m pip install pytest==8.4.2 pytest-asyncio==1.2.0 ruff==0.12.0 numpy==2.3.5
+          python -m pip check
+
+      - name: Python 静态检查
+        run: python -m ruff check .
+
+      - name: Python 全量测试
+        run: python -m pytest -q
+
+      - name: 校验生产 Compose
+        run: docker compose --env-file deploy/production.env.example -f compose.production.yml config --quiet
+
+  frontend:
+    name: 前端测试与构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 前端单元测试
+        run: npm test -- --run
+
+      - name: 前端生产构建
+        run: npm run build
+
+      - name: 审计生产依赖
+        run: npm audit --omit=dev

@@ -7,6 +7,23 @@ from app.schemas.approvals import ReadyToolCall
 from app.schemas.tools import ToolCallRequest
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchError, RagSearchTool
+from app.tools.registry import ExecutionBinding
+
+
+TEST_RAG_BINDING = ExecutionBinding(
+    provider="rag",
+    implementation_id="rag.test.retrieve",
+    server_id="rag-test",
+    deployment_revision="test-1",
+    config_revision="test",
+)
+
+
+def _build_rag_node(tool):
+    return build_rag_retriever_node(
+        tool=tool,
+        execution_binding=TEST_RAG_BINDING,
+    )
 
 
 def _prepare_rag_call(state, *, step_index: int = 0):
@@ -37,6 +54,7 @@ def _prepare_rag_call(state, *, step_index: int = 0):
         step_index=step_index,
         request_fingerprint=tool_call_fingerprint(request),
         tool_name=request.tool_name,
+        execution_binding_digest=TEST_RAG_BINDING.digest,
     )
     return request
 
@@ -64,7 +82,7 @@ def test_rag_retriever_node_maps_search_results_to_evidence_package():
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
     tool = RagSearchTool(client=client)
-    node = build_rag_retriever_node(tool=tool)
+    node = _build_rag_node(tool)
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
@@ -80,7 +98,8 @@ def test_rag_retriever_node_maps_search_results_to_evidence_package():
     assert result["evidence"].items[0].content == "差旅报销需要提交发票和审批单。"
     assert result["tool_calls"][0].request.tool_name == "rag_search"
     assert result["tool_calls"][0].request.arguments["retrieval_mode"] == "hybrid"
-    assert result["tool_calls"][0].result.latency_ms == 11
+    assert result["tool_calls"][0].result.latency_ms >= 0
+    assert result["tool_calls"][0].result.result["latency_ms"] == 11
 
 
 def test_rag_retriever_node_executes_skill_requested_tool_call():
@@ -109,7 +128,7 @@ def test_rag_retriever_node_executes_skill_requested_tool_call():
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
     tool = RagSearchTool(client=client)
-    node = build_rag_retriever_node(tool=tool)
+    node = _build_rag_node(tool)
     state = create_initial_state(
         session_id="s1",
         tenant_id="tenant_1",
@@ -129,7 +148,7 @@ def test_rag_retriever_node_executes_skill_requested_tool_call():
                     "top_k": 3,
                     "retrieval_mode": "hybrid",
                 },
-                purpose="由 policy_qa skill 请求检索",
+                purpose="由投研 skill 请求检索",
             )
         ]
     }
@@ -137,7 +156,7 @@ def test_rag_retriever_node_executes_skill_requested_tool_call():
 
     result = node(state)
 
-    assert result["tool_calls"][0].request.purpose == "由 policy_qa skill 请求检索"
+    assert result["tool_calls"][0].request.purpose == "由投研 skill 请求检索"
     assert result["tool_calls"][0].request.arguments["top_k"] == 3
     assert result["evidence"].query_set == ["差旅报销材料"]
 
@@ -150,7 +169,7 @@ def test_rag_retriever_node_enforces_plan_tool_policy():
         return httpx.Response(200, json={"contexts": []})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
-    node = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    node = _build_rag_node(RagSearchTool(client=client))
     state = create_initial_state(
         session_id="s1",
         tenant_id="tenant_1",
@@ -180,7 +199,7 @@ def test_rag_retriever_node_enforces_selected_skill_tool_policy():
         return httpx.Response(200, json={"contexts": []})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
-    node = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    node = _build_rag_node(RagSearchTool(client=client))
     state = create_initial_state(
         session_id="s1",
         tenant_id="tenant_1",
@@ -221,7 +240,7 @@ def test_rag_retriever_node_marks_empty_results_as_no_coverage():
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
     tool = RagSearchTool(client=client)
-    node = build_rag_retriever_node(tool=tool)
+    node = _build_rag_node(tool)
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
@@ -244,7 +263,7 @@ def test_rag_retriever_node_maps_rag_404_to_no_coverage():
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
     tool = RagSearchTool(client=client)
-    node = build_rag_retriever_node(tool=tool)
+    node = _build_rag_node(tool)
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
@@ -267,7 +286,7 @@ def test_rag_retriever_node_preserves_rag_503_error_metadata():
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
     tool = RagSearchTool(client=client)
-    node = build_rag_retriever_node(tool=tool)
+    node = _build_rag_node(tool)
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
@@ -285,6 +304,38 @@ def test_rag_retriever_node_preserves_rag_503_error_metadata():
     assert result["ready_tool_call"] is None
 
 
+def test_rag_retriever_node_downgrades_optional_equity_research_rag_failure():
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"detail": "No Chroma index found."})
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
+    tool = RagSearchTool(client=client)
+    node = _build_rag_node(tool)
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="分析一下银之杰",
+        permission_scopes=["rag:retrieve"],
+    )
+    state["plan"] = {
+        "retrieval": {
+            "required": True,
+            "optional": True,
+            "failure_policy": "continue_with_structured_evidence",
+        },
+        "response_policy": {"response_type": "equity_research_report"},
+    }
+    _prepare_rag_call(state)
+
+    result = node(state)
+
+    assert result["tool_calls"][-1].result.error.code == "rag_index_unavailable"
+    assert result["errors"] == []
+    assert result["evidence"] is None
+    assert result["ready_tool_call"] is None
+
+
 def test_retriever_requires_explicit_ready_rag_call():
     calls = []
 
@@ -293,7 +344,7 @@ def test_retriever_requires_explicit_ready_rag_call():
         return httpx.Response(200, json={"contexts": []})
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
-    node = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    node = _build_rag_node(RagSearchTool(client=client))
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
@@ -324,7 +375,7 @@ def test_retriever_executes_only_ready_call_id_and_clears_ready_state():
         )
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url="http://rag")
-    node = build_rag_retriever_node(tool=RagSearchTool(client=client))
+    node = _build_rag_node(RagSearchTool(client=client))
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
@@ -366,6 +417,7 @@ def test_retriever_executes_only_ready_call_id_and_clears_ready_state():
             state["plan"]["requested_tools"][1]
         ),
         tool_name="rag_search",
+        execution_binding_digest=TEST_RAG_BINDING.digest,
     )
 
     result = node(state)

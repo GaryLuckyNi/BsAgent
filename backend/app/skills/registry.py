@@ -5,10 +5,18 @@ import httpx
 from app.skills.configured import ConfiguredSkill
 from app.skills.base import Skill
 from app.skills.definitions import SkillCard, SkillDefinition, SkillExecutionGuide
-from app.skills.registry_client import SkillDefinitionProvider
+from app.skills.registry_client import (
+    SkillDefinitionProvider,
+    SkillDefinitionProviderError,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+class SkillRegistryUnavailableError(RuntimeError):
+    code = "skill_registry_unavailable"
+    http_status = 503
 
 
 class SkillRegistry:
@@ -34,7 +42,12 @@ class SkillRegistry:
                 for skill in self._skills.values()
             ]
         else:
-            cards = self._definition_provider.list_cards(tenant_id=tenant_id)
+            try:
+                cards = self._definition_provider.list_cards(tenant_id=tenant_id)
+            except _PROVIDER_ERRORS as exc:
+                raise SkillRegistryUnavailableError(
+                    "Skill registry is unavailable."
+                ) from exc
         if intent is None:
             return cards
         return [card for card in cards if intent in card.supported_intents]
@@ -47,10 +60,15 @@ class SkillRegistry:
     ) -> tuple[SkillDefinition, SkillExecutionGuide]:
         if self._definition_provider is None:
             raise RuntimeError("No skill definition provider configured.")
-        return (
-            self._definition_provider.get_definition(name=name, version=version),
-            self._definition_provider.get_execution_guide(name=name, version=version),
-        )
+        try:
+            return (
+                self._definition_provider.get_definition(name=name, version=version),
+                self._definition_provider.get_execution_guide(name=name, version=version),
+            )
+        except _PROVIDER_ERRORS as exc:
+            raise SkillRegistryUnavailableError(
+                "Skill registry is unavailable."
+            ) from exc
 
     def select(self, *, intent: str, candidate_skill: str | None) -> Skill:
         if candidate_skill and candidate_skill in self._skills:
@@ -63,7 +81,7 @@ class SkillRegistry:
         if candidate_skill and self._definition_provider is not None:
             try:
                 cards = self._definition_provider.list_cards(tenant_id="default")
-            except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+            except _PROVIDER_ERRORS as exc:
                 logger.warning(
                     "Skill definition provider is unavailable for candidate %s: %s",
                     candidate_skill,
@@ -72,7 +90,7 @@ class SkillRegistry:
                 fallback_skill = self._fallback_skill_for_intent(intent)
                 if fallback_skill is not None:
                     return fallback_skill
-                raise RuntimeError(
+                raise SkillRegistryUnavailableError(
                     f"Skill registry is unavailable for candidate: {candidate_skill}"
                 ) from exc
             card = next((card for card in cards if card.name == candidate_skill), None)
@@ -81,14 +99,22 @@ class SkillRegistry:
                     raise KeyError(
                         f"Skill {candidate_skill} does not support intent: {intent}"
                     )
-                definition = self._definition_provider.get_definition(
-                    name=card.name,
-                    version=card.version,
-                )
-                guide = self._definition_provider.get_execution_guide(
-                    name=card.name,
-                    version=card.version,
-                )
+                try:
+                    definition = self._definition_provider.get_definition(
+                        name=card.name,
+                        version=card.version,
+                    )
+                    guide = self._definition_provider.get_execution_guide(
+                        name=card.name,
+                        version=card.version,
+                    )
+                except _PROVIDER_ERRORS as exc:
+                    fallback_skill = self._fallback_skill_for_intent(intent)
+                    if fallback_skill is not None:
+                        return fallback_skill
+                    raise SkillRegistryUnavailableError(
+                        f"Skill registry is unavailable for candidate: {candidate_skill}"
+                    ) from exc
                 return ConfiguredSkill(
                     definition=definition,
                     guide=guide,
@@ -104,3 +130,10 @@ class SkillRegistry:
             if intent in skill.spec.supported_intents:
                 return skill
         return None
+
+
+_PROVIDER_ERRORS = (
+    httpx.RequestError,
+    httpx.HTTPStatusError,
+    SkillDefinitionProviderError,
+)

@@ -1,21 +1,6 @@
 {
   "profiles": [
     {
-      "id": "finance_policy.policy_lookup",
-      "intent": "knowledge_qa",
-      "domain": "finance_policy",
-      "sub_intent": "policy_lookup",
-      "candidate_skill": "policy_qa",
-      "risk_level": "medium",
-      "trigger_keywords": ["报销", "差旅", "制度", "政策", "发票", "审批单"],
-      "trigger_examples": [
-        "差旅报销需要什么？",
-        "公司报销制度是什么？",
-        "发票报销有什么要求？"
-      ],
-      "required_capabilities": ["rag_retrieval", "citation_required"]
-    },
-    {
       "id": "company_research.financial_report_analysis",
       "intent": "task_workflow",
       "domain": "a_share_equity_research",
@@ -50,22 +35,6 @@
       "trigger_keywords": ["分析一下", "基本面", "公司速览", "公司概览", "主营业务"],
       "trigger_examples": ["分析一下贵州茅台", "帮我看一下 600519", "宁德时代现在基本面怎么样"],
       "required_capabilities": ["mcp_tool", "rag_retrieval", "financial_verifier"]
-    },
-    {
-      "id": "mcp_math.calculate_sum",
-      "intent": "tool_action",
-      "domain": "mcp_math",
-      "sub_intent": "calculate_sum",
-      "candidate_skill": null,
-      "candidate_tool": "mcp.mock.calculate_sum",
-      "risk_level": "low",
-      "trigger_keywords": ["计算", "加到", "求和", "相加", "总和"],
-      "trigger_examples": [
-        "计算1加到50",
-        "帮我求 1 到 50 的和",
-        "调用 calculate_sum 计算这些数字"
-      ],
-      "required_capabilities": ["mcp_tool", "calculate_sum"]
     }
   ]
 }

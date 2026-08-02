@@ -17,7 +17,8 @@ from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import AgentGraphExecutionError, resume_question_answer_graph
 from app.harness.tracing import get_trace_store
 from app.llm.factory import maybe_build_llm_client
-from app.security.rbac import RbacProvider, get_rbac_provider
+from app.security.dependencies import require_permission
+from app.security.principal import Principal
 from app.storage.database import get_db
 from app.storage.models import AgentRun, ApprovalRecord
 from app.storage.repositories import persist_agent_run
@@ -27,8 +28,6 @@ router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
 
 class ApprovalDecisionRequest(BaseModel):
-    tenant_id: str
-    actor_id: str
     decision: Literal["approved", "rejected"]
 
 
@@ -45,18 +44,10 @@ class ApprovalResumeSnapshot:
 
 @router.get("/pending")
 def list_pending_approvals(
-    tenant_id: str,
-    actor_id: str,
+    principal: Principal = Depends(require_permission("approval:read")),
     db: Session = Depends(get_db),
 ) -> dict[str, list[dict]]:
-    rbac = get_rbac_provider()
-    _require_permission(
-        rbac=rbac,
-        tenant_id=tenant_id,
-        actor_id=actor_id,
-        permission="approval:read",
-    )
-    records = ApprovalRepository(db).list_pending(tenant_id=tenant_id)
+    records = ApprovalRepository(db).list_pending(tenant_id=principal.tenant_id)
     return {"items": [_approval_payload(record) for record in records]}
 
 
@@ -64,22 +55,16 @@ def list_pending_approvals(
 def decide_approval(
     approval_id: str,
     request: ApprovalDecisionRequest,
+    principal: Principal = Depends(require_permission("approval:decide")),
     db: Session = Depends(get_db),
 ) -> dict:
-    rbac = get_rbac_provider()
-    _require_permission(
-        rbac=rbac,
-        tenant_id=request.tenant_id,
-        actor_id=request.actor_id,
-        permission="approval:decide",
-    )
     repository = ApprovalRepository(db)
     try:
         claim = repository.claim_resume(
             approval_id=approval_id,
-            tenant_id=request.tenant_id,
+            tenant_id=principal.tenant_id,
             decision=request.decision,
-            decided_by=request.actor_id,
+            decided_by=principal.user_id,
         )
         approval_payload = _approval_payload(claim.record)
         resume_snapshot = (
@@ -115,10 +100,6 @@ def decide_approval(
         }
 
     assert resume_snapshot is not None
-    request_principal = rbac.resolve_principal(
-        tenant_id=resume_snapshot.tenant_id,
-        user_id=resume_snapshot.request_user_id,
-    )
     trace_store = get_trace_store()
     try:
         state = resume_question_answer_graph(
@@ -132,7 +113,7 @@ def decide_approval(
             trace_store=trace_store,
             checkpointer=build_graph_checkpointer(),
             llm_client=maybe_build_llm_client(),
-            permission_scopes=list(rbac.tool_scopes(request_principal)),
+            permission_scopes=None,
         )
     except AgentGraphExecutionError as exc:
         _record_resume_failure(
@@ -221,21 +202,6 @@ def _record_resume_failure(
         error=error,
     )
     db.commit()
-
-
-def _require_permission(
-    *,
-    rbac: RbacProvider,
-    tenant_id: str,
-    actor_id: str,
-    permission: str,
-) -> None:
-    principal = rbac.resolve_principal(tenant_id=tenant_id, user_id=actor_id)
-    if not rbac.has_permission(principal, permission):
-        raise HTTPException(
-            status_code=403,
-            detail={"code": "permission_denied", "permission": permission},
-        )
 
 
 def _approval_payload(record: ApprovalRecord) -> dict:

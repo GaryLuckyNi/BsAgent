@@ -133,7 +133,7 @@ Admin 仅保存密钥环境变量名，真实 Token 继续由容器密钥、K8s 
 | `stock.financial_metrics` | `revenue`, `net_profit_parent` | `income` |
 | `stock.financial_metrics` | `operating_cash_flow` | `cashflow` |
 | `stock.financial_metrics` | `gross_margin`, `roe`, `debt_to_asset` | `fina_indicator` |
-| `stock.announcement_search` | `announcements` | `anns` |
+| `stock.announcement_search` | `announcements` | `anns_d` |
 
 MCP 先计算本次必需和可选字段所需的 API，再与 `enabled_api_names` 比对。缺少必需 API 时不发起 Tushare 请求；仅缺少可选 API 时，调用已授权接口并明确返回缺失覆盖。
 

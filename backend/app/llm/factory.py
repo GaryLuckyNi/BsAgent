@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from typing import Protocol
 
 from app.core.config import settings
@@ -13,7 +14,19 @@ class LlmClient(Protocol):
         user_prompt: str,
         temperature: float = 0.0,
         max_tokens: int = 256,
+        thinking: bool | None = None,
     ) -> LlmCompletionResult:
+        ...
+
+    async def stream_complete(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.0,
+        max_tokens: int = 256,
+        thinking: bool | None = None,
+    ) -> AsyncIterator[str]:
         ...
 
 

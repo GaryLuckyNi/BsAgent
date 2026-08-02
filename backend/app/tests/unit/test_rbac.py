@@ -1,15 +1,30 @@
+from app.security import rbac
 from app.security.rbac import MockRbacProvider
 
 
-def test_mock_rbac_assigns_analyst_permissions_to_regular_user():
+def test_mock_rbac_assigns_analyst_permissions_to_regular_user(monkeypatch):
+    monkeypatch.setattr(rbac.settings, "mcp_server_name", "local")
     provider = MockRbacProvider()
 
     principal = provider.resolve_principal(tenant_id="tenant_1", user_id="user_1")
 
     assert principal.roles == ("analyst",)
     assert provider.has_permission(principal, "agent:invoke") is True
-    assert provider.has_permission(principal, "mcp:mock") is True
+    assert provider.has_permission(principal, "asset:write") is True
+    assert provider.has_permission(principal, "asset:read") is True
+    assert provider.has_permission(principal, "trace:read") is True
+    assert provider.has_permission(principal, "mcp:local") is True
     assert provider.has_permission(principal, "approval:decide") is False
+
+
+def test_mock_rbac_uses_configured_mcp_server_scope(monkeypatch):
+    monkeypatch.setattr(rbac.settings, "mcp_server_name", "tushare")
+    provider = MockRbacProvider()
+
+    principal = provider.resolve_principal(tenant_id="tenant_1", user_id="user_1")
+
+    assert provider.has_permission(principal, "mcp:tushare") is True
+    assert provider.has_permission(principal, "mcp:local") is False
 
 
 def test_mock_rbac_assigns_approval_permission_to_configured_approver():

@@ -22,9 +22,11 @@ Graph State 中的 `pending_tool_approval` 是 Tool Agent 为“当前唯一待�
 
 `ready_tool_call` 是 Retriever 的可信执行游标，不是“计划中存在 `rag_search`”的别名。Tool Agent 只有在当前 RAG 步骤已生成可信 `call_id`、完成参数解析、读取真实 `ToolSpec`、完成风险提升并满足审批条件后才写入；Runtime 只路由该实例，Retriever 会复核步骤位置、调用 ID 和指纹，执行后清理 ready 状态。前置工具失败会终止依赖链，不生成后续 pending/ready，也不进入 Retriever。
 
-Graph 构建时会把启动期 `ToolRegistry` 转换为只读快照：`RegistryEntry` 保存注册时序列化冻结的 `ToolSpec` 与 executor 引用，后续修改 executor 的风险、权限或 schema 不会改变治理视图，但 executor 仍可调用。Planner、Skill 出站 guard、Tool Agent 和 Gateway 只能使用这一份快照；任意自带 Registry 的 ToolAgent callable 在生产构图中会被拒绝，仅可通过显式测试钩子注入。默认 Skill 与自定义 Skill callable 都必须经过 guard：节点产出 `requested_tools` 后、返回 LangGraph 前重新执行 `ToolCallRequest`、通用凭证和真实 ToolSpec 的 `server_injected_fields/writeOnly/x-sensitive` 校验。校验失败会恢复 Skill 调用前的完整 State，再由 Harness 记录稳定 `inline_credentials_forbidden`；因此不安全的 `plan` 或 `skill_output` 副本不会进入 InMemory/SQLite checkpoint。
+Graph 构建时会把启动期 `ToolRegistry` 转换为只读快照：`RegistryEntry` 保存注册时序列化冻结的完整 `ToolSpec`、非秘密 `ExecutionBinding` 与 executor 引用，后续修改 executor 的风险、权限、schema 或实现身份不会改变治理视图，但冻结 entry 中的 executor 仍可调用。Planner、Skill 出站 guard、Tool Agent 和 Gateway 只能使用这一份快照；任意自带 Registry 的 ToolAgent callable 在生产构图中会被拒绝，仅可通过显式测试钩子注入。默认 Skill 与自定义 Skill callable 都必须经过 guard：节点产出 `requested_tools` 后、返回 LangGraph 前重新执行 `ToolCallRequest`、通用凭证和真实 ToolSpec 的 `server_injected_fields/writeOnly/x-sensitive` 校验。校验失败会恢复 Skill 调用前的完整 State，再由 Harness 记录稳定 `inline_credentials_forbidden`；因此不安全的 `plan` 或 `skill_output` 副本不会进入 InMemory/SQLite checkpoint。
 
-启动时会对规范化工具名、版本、风险、权限、输入/输出 schema 和服务端注入字段计算稳定 `tool_catalog_digest`，写入初始 `AgentState` 和 checkpoint。Tool Agent、Approval Gate 与审批恢复入口都会把 State 摘要和当前冻结目录精确比较；同版本工具的风险或 schema 发生变化也会返回 `tool_catalog_changed` 并拒绝恢复，旧审批不能在另一份风险目录下执行。
+启动时会对完整 `ToolSpec.model_dump()` 计算稳定摘要，覆盖 `timeout_ms`、`retry_policy`、输入/输出 schema、风险、权限与服务端注入字段，并加入 `execution_binding_digest`。外部 MCP、RAG 和 Adapter 必须显式提供不含 secret 的 provider/server/deployment/config revision；纯本地工具才允许用 module、qualified class 与 package/build revision 派生默认 binding。摘要写入初始 `AgentState` 和 checkpoint，Tool Agent、Approval Gate 与审批恢复入口都会精确比较；同版本工具的契约或 executor/provider binding 变化也会返回 `tool_catalog_changed`，旧审批不能在另一执行端恢复。
+
+可信 RAG Retriever 会把实际执行的 `RagSearchTool` 和 provider binding 贡献到同一 Runtime Registry，而不是登记一个不会执行的占位工具。Tool Agent 将该 binding digest 写入 `ready_tool_call`，Retriever 在 Provider 调用前复核；RAG deployment/config revision 变化既改变运行目录摘要，也使旧 ready descriptor 失效。
 
 Retriever 对已 ready 的调用采用“消费后提交”语义：Provider 成功、失败或策略拒绝都会写入 `ToolCallRecord` 并清理 `ready_tool_call`。不可恢复失败额外写入结构化 `state.errors`，随后正常进入 Synthesizer 生成 `execution_error_response`，使失败状态能够被 checkpoint；该响应没有 claims/evidence，带稳定 `business_error_code`，Verifier 使用专用 verdict，ApprovalCoordinator 固定为 `not_required`，不会产生 `ApprovalRecord`。Session API 保留 HTTP 200，调用方必须检查 `response_type/business_error_code`。完成后的再次 invoke 不会重放该调用。`rag_no_evidence` 仍是正常无覆盖结果；`ready` 缺失、call ID/指纹不匹配等执行前契约错误仍会终止 Graph。
 
@@ -72,6 +74,8 @@ Graph 节点事件使用稳定 `event_id` 写入 `agent_trace_events`。`persist
 `BS_AGENT_GRAPH_CHECKPOINTER_BACKEND` 支持：
 
 - `sqlite`：默认值，使用官方 `langgraph-checkpoint-sqlite` 包，适合本地持久化和单机部署验证。
+- `postgres`：使用官方 `langgraph-checkpoint-postgres` 的 `PostgresSaver` 和
+  `psycopg_pool.ConnectionPool`，是多实例生产部署的唯一允许值。
 - `memory`：使用 LangGraph `InMemorySaver`，只适合单测、临时开发和不需要跨进程恢复的场景。
 - `none`：关闭 checkpoint，适合临时排查或不需要恢复能力的任务。
 
@@ -79,7 +83,28 @@ SQLite 路径由 `BS_AGENT_GRAPH_CHECKPOINT_SQLITE_PATH` 控制，默认是 `./b
 
 ## 生产建议
 
-生产环境不要依赖 `memory`。人工审批、节点级恢复和跨进程续跑需要持久化 saver。当前默认 SQLite 已经能提供本地持久化；多实例生产部署时优先接 LangGraph 官方 Postgres saver。
+生产环境不是“建议”使用 PostgreSQL，而是由配置模型强制要求
+`BS_AGENT_GRAPH_CHECKPOINTER_BACKEND=postgres`。配置为 `sqlite`、`memory` 或
+`none` 时，服务会在加载生产配置阶段直接失败。应用 lifespan 会在开始接收流量前构造
+`PostgresSaver`、打开连接池并执行 `setup()`；初始化失败会阻止实例启动。停机时会关闭
+checkpointer 连接池并清理进程缓存，避免滚动发布后遗留连接。
+
+生产配置至少包含：
+
+```dotenv
+BS_AGENT_APP_ENV=production
+BS_AGENT_GRAPH_CHECKPOINTER_BACKEND=postgres
+BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL=postgresql://bs_agent:${POSTGRES_PASSWORD}@postgres:5432/bs_agent
+```
+
+`BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL` 直接交给 psycopg，scheme 必须是
+`postgresql://` 或 `postgres://`，不能写成 SQLAlchemy 使用的
+`postgresql+psycopg://`。业务表连接仍由 `BS_AGENT_DATABASE_URL` 独立配置。
+可复用样例位于 `deploy/checkpointer.production.env.example`。
+
+本地默认继续使用 SQLite，这是为了保持离线开发和单测可运行，并不影响线上选择。
+人工审批、节点级恢复、跨进程续跑和多副本部署都由同一个 PostgreSQL checkpoint
+存储承接；不得为不同 API 副本配置不同的 checkpoint 数据库。
 
 当前 `MockRbacProvider` 只用于本地开发和自动化测试，通过配置中的固定用户映射模拟 analyst、approver 和 admin。它不验证 JWT、签名、issuer、audience 或真实租户归属，生产环境不得启用，也不能把请求体中的 `tenant_id`、`user_id`、角色或 Prompt 内容当作可信授权信息。生产鉴权应由经过验签的身份主体和企业 IAM、OPA 或 Casbin 等权限源提供。
 

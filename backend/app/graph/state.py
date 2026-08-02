@@ -1,4 +1,4 @@
-from typing import Literal, NotRequired, TypedDict
+from typing import Annotated, Any, Literal, NotRequired, TypedDict
 from uuid import uuid4
 
 from app.schemas.approvals import (
@@ -44,7 +44,12 @@ class SkillSelection(TypedDict, total=False):
 
 class PlanDecision(TypedDict, total=False):
     objective: str
-    execution_mode: Literal["skill_execution", "tool_execution", "direct_response"]
+    execution_mode: Literal[
+        "skill_execution",
+        "tool_execution",
+        "direct_response",
+        "image_analysis",
+    ]
     selected_skill: dict | None
     execution_steps: list[str]
     retrieval: dict
@@ -55,10 +60,61 @@ class PlanDecision(TypedDict, total=False):
     requested_tools: list
 
 
+class ToolEvidenceRef(TypedDict):
+    tool_call_id: str
+    field_path: str
+    value: Any
+
+
+class ToolFact(TypedDict):
+    capability: str
+    field_name: str
+    value: Any
+    ref: ToolEvidenceRef
+
+
+class ToolDataCoverage(TypedDict, total=False):
+    tool_call_id: str
+    capability: str
+    status: Literal["complete", "partial", "failed", "timeout", "denied", "ignored"]
+    requested_fields: list[str]
+    provided_fields: list[str]
+    missing_optional_fields: list[str]
+    source_apis: list[str]
+    error_code: str
+
+
 class AnalysisResult(TypedDict, total=False):
     findings: list[str]
     missing_information: list[str]
     confidence: float
+    structured_tool_results: list[dict]
+    tool_facts: list[ToolFact]
+    data_coverage: list[ToolDataCoverage]
+
+
+class AttachmentRef(TypedDict, total=False):
+    asset_id: str
+    analysis_id: str
+    status: Literal["ready", "partial"]
+
+
+class ImageAnalysisSummary(TypedDict):
+    asset_id: str
+    analysis_id: str
+    media_type: str
+    width: int
+    height: int
+    status: Literal["ready", "partial"]
+    document_type: str
+    summary: str
+    extracted_text: str
+    financial_metrics: list[dict]
+    chart_observations: list[str]
+    entities: list[str]
+    risk_flags: list[str]
+    confidence: float
+    truncated: bool
 
 
 class AnswerClaim(TypedDict):
@@ -67,6 +123,7 @@ class AnswerClaim(TypedDict):
     evidence_ids: list[str]
     confidence: float
     claim_type: Literal["fact", "inference", "limitation", "recommendation"]
+    tool_evidence_refs: NotRequired[list[ToolEvidenceRef]]
 
 
 class DraftAnswer(TypedDict, total=False):
@@ -97,6 +154,8 @@ class AgentError(TypedDict):
     code: NotRequired[str]
     http_status: NotRequired[int]
     handled: NotRequired[bool]
+    details: NotRequired[dict[str, Any]]
+    retryable: NotRequired[bool]
 
 
 class AgentResponse(TypedDict, total=False):
@@ -108,6 +167,36 @@ class AgentResponse(TypedDict, total=False):
     business_error_code: str
 
 
+def add_state_messages(
+    existing: list[Message] | None,
+    incoming: list[Message] | None,
+) -> list[Message]:
+    merged: list[Message] = [
+        message if isinstance(message, Message) else Message.model_validate(message)
+        for message in existing or []
+    ]
+    seen = {_message_identity(message) for message in merged}
+    for raw_message in incoming or []:
+        message = (
+            raw_message
+            if isinstance(raw_message, Message)
+            else Message.model_validate(raw_message)
+        )
+        identity = _message_identity(message)
+        if identity in seen:
+            continue
+        merged.append(message)
+        seen.add(identity)
+    return merged
+
+
+def _message_identity(message: Message) -> str:
+    message_id = message.metadata.get("message_id")
+    if isinstance(message_id, str) and message_id:
+        return message_id
+    return f"{message.role}:{message.content}"
+
+
 class AgentState(TypedDict):
     session_id: str
     tenant_id: str
@@ -116,6 +205,9 @@ class AgentState(TypedDict):
     trace_id: str
     tool_catalog_digest: str
     user_message: str
+    messages: Annotated[list[Message], add_state_messages]
+    attachment_refs: list[AttachmentRef]
+    image_analyses: list[ImageAnalysisSummary]
     conversation_history: list[Message]
     intent: IntentDecision | None
     plan: PlanDecision | None
@@ -145,18 +237,32 @@ def create_initial_state(
     user_message: str,
     permission_scopes: list[str] | None = None,
     tool_catalog_digest: str = "",
+    attachment_ids: list[str] | None = None,
 ) -> AgentState:
+    request_id = f"req_{uuid4().hex}"
+    trace_id = f"trace_{uuid4().hex}"
+    user_message_record = Message(
+        role="user",
+        content=user_message,
+        metadata={
+            "message_id": f"{request_id}:user",
+            "request_id": request_id,
+        },
+    )
     return {
         "session_id": session_id,
         "tenant_id": tenant_id,
         "user_id": user_id,
-        "request_id": f"req_{uuid4().hex}",
-        "trace_id": f"trace_{uuid4().hex}",
+        "request_id": request_id,
+        "trace_id": trace_id,
         "tool_catalog_digest": tool_catalog_digest,
         "user_message": user_message,
-        "conversation_history": [
-            Message(role="user", content=user_message),
+        "messages": [user_message_record],
+        "attachment_refs": [
+            {"asset_id": asset_id} for asset_id in attachment_ids or []
         ],
+        "image_analyses": [],
+        "conversation_history": [user_message_record],
         "intent": None,
         "plan": None,
         "selected_skill": None,

@@ -6,14 +6,29 @@ from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
 from app.tools.base import Tool
+from app.tools.redaction import sanitize_untrusted_details
 
 
-class McpCalculateSumInput(BaseModel):
-    numbers: list[float] = Field(min_length=1)
+MCP_TOOL_ERROR_MESSAGES = {
+    "invalid_field_request": "MCP tool arguments are invalid.",
+    "mcp_tool_execution_failed": "MCP tool execution failed.",
+    "mcp_tool_response_invalid": "MCP tool returned an invalid response.",
+}
+
+
+class McpToolResponseError(RuntimeError):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(
+            MCP_TOOL_ERROR_MESSAGES.get(
+                code,
+                MCP_TOOL_ERROR_MESSAGES["mcp_tool_execution_failed"],
+            )
+        )
 
 
 class DynamicMcpToolInput(BaseModel):
@@ -37,11 +52,13 @@ class McpStdioClient:
         command: str,
         args: list[str],
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
         timeout_seconds: float = 30.0,
     ) -> None:
         self._command = command
         self._args = args
         self._cwd = cwd
+        self._env = dict(env or {})
         self._timeout_seconds = timeout_seconds
 
     async def list_tools(
@@ -56,6 +73,7 @@ class McpStdioClient:
         params = StdioServerParameters(
             command=self._command,
             args=self._args,
+            env=self._env,
             cwd=self._cwd,
         )
         async with stdio_client(params) as (read, write):
@@ -82,6 +100,7 @@ class McpStdioClient:
                     command=self._command,
                     args=self._args,
                     cwd=self._cwd,
+                    env=self._env,
                     timeout_seconds=self._timeout_seconds,
                     risk_level=risk_level,
                 )
@@ -101,6 +120,7 @@ class McpStdioClient:
         params = StdioServerParameters(
             command=self._command,
             args=self._args,
+            env=self._env,
             cwd=self._cwd,
         )
         async with stdio_client(params) as (read, write):
@@ -115,6 +135,7 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
     version = "mcp-stdio-v1"
     input_model = DynamicMcpToolInput
     timeout_ms = 30_000
+    requires_explicit_execution_binding = True
 
     def __init__(
         self,
@@ -128,6 +149,7 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
         command: str,
         args: list[str],
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
         timeout_seconds: float = 30.0,
         risk_level: Literal["low", "medium", "high"] = "medium",
     ) -> None:
@@ -143,6 +165,7 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
             command=command,
             args=args,
             cwd=cwd,
+            env=env,
             timeout_seconds=timeout_seconds,
         )
 
@@ -172,6 +195,13 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
                 self._mcp_tool_name,
                 input_data.model_dump(),
             )
+        except McpToolResponseError as exc:
+            return _failure_result(
+                tool_name=self.name,
+                code=exc.code,
+                message=str(exc),
+                start=start,
+            )
         except TimeoutError as exc:
             return _failure_result(
                 tool_name=self.name,
@@ -180,11 +210,25 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
                 start=start,
                 status="timeout",
             )
-        except Exception as exc:
+        except Exception:
             return _failure_result(
                 tool_name=self.name,
                 code="mcp_tool_execution_failed",
-                message=str(exc),
+                message=MCP_TOOL_ERROR_MESSAGES["mcp_tool_execution_failed"],
+                start=start,
+            )
+
+        market_error = _market_envelope_error(
+            payload,
+            require_market_envelope=self._mcp_tool_name.startswith("stock."),
+        )
+        if market_error is not None:
+            return _failure_result(
+                tool_name=self.name,
+                code=market_error.code,
+                message=market_error.message,
+                details=market_error.details,
+                retryable=market_error.retryable,
                 start=start,
             )
 
@@ -203,6 +247,7 @@ def discover_mcp_stdio_tools(
     command: str,
     args: list[str],
     cwd: str | None,
+    env: dict[str, str] | None = None,
     server_name: str,
     timeout_seconds: float,
     risk_level: Literal["low", "medium", "high"] = "medium",
@@ -211,108 +256,33 @@ def discover_mcp_stdio_tools(
         command=command,
         args=args,
         cwd=cwd,
+        env=env,
         timeout_seconds=timeout_seconds,
     )
     return asyncio.run(client.list_tools(server_name=server_name, risk_level=risk_level))
 
 
-class McpCalculateSumTool(Tool[McpCalculateSumInput]):
-    name = "mcp.mock.calculate_sum"
-    version = "mcp-stdio-v1"
-    description = "通过真实 MCP stdio server 计算一组数字总和"
-    input_model = McpCalculateSumInput
-    output_schema = {
-        "type": "object",
-        "properties": {
-            "total": {"type": "number"},
-            "count": {"type": "integer"},
-        },
-        "required": ["total", "count"],
-    }
-    permission_scope = ["mcp:mock"]
-    risk_level = "low"
-
-    def __init__(
-        self,
-        *,
-        command: str,
-        args: list[str],
-        cwd: str | None = None,
-        mcp_tool_name: str = "calculate_sum",
-        timeout_seconds: float = 30.0,
-    ) -> None:
-        self._command = command
-        self._args = args
-        self._cwd = cwd
-        self._mcp_tool_name = mcp_tool_name
-        self._timeout_seconds = timeout_seconds
-
-    async def run(self, input_data: McpCalculateSumInput) -> ToolCallResult:
-        start = perf_counter()
-        try:
-            payload = await self._client().call_tool(
-                self._mcp_tool_name,
-                input_data.model_dump(),
-            )
-        except TimeoutError as exc:
-            return self._failure(
-                code="mcp_tool_timeout",
-                message=str(exc) or "MCP tool call timed out.",
-                start=start,
-                status="timeout",
-            )
-        except Exception as exc:
-            return self._failure(
-                code="mcp_tool_execution_failed",
-                message=str(exc),
-                start=start,
-            )
-
-        return ToolCallResult(
-            tool_call_id=f"tool_{uuid4().hex}",
-            tool_name=self.name,
-            status="success",
-            result=payload,
-            latency_ms=int((perf_counter() - start) * 1000),
-            trace_id="",
-        )
-
-    def _client(self) -> McpStdioClient:
-        return McpStdioClient(
-            command=self._command,
-            args=self._args,
-            cwd=self._cwd,
-            timeout_seconds=self._timeout_seconds,
-        )
-
-    def _failure(
-        self,
-        *,
-        code: str,
-        message: str,
-        start: float,
-        status: str = "failed",
-    ) -> ToolCallResult:
-        return _failure_result(
-            tool_name=self.name,
-            code=code,
-            message=message,
-            start=start,
-            status=status,
-        )
-
-
 def _parse_mcp_tool_result(result) -> dict:
     if getattr(result, "isError", False):
-        message = _first_content_text(result.content) or "MCP tool returned an error."
-        raise RuntimeError(message)
-    text = _first_content_text(result.content)
-    if text is None:
-        return {}
-    parsed = json.loads(text)
-    if not isinstance(parsed, dict):
-        raise ValueError("MCP tool result must be a JSON object.")
-    return parsed
+        raise McpToolResponseError(_protocol_error_code(result))
+
+    structured = _structured_content(result)
+    if structured is not None:
+        if isinstance(structured, dict):
+            return structured
+        raise McpToolResponseError("mcp_tool_response_invalid")
+
+    for block in getattr(result, "content", None) or []:
+        text = getattr(block, "text", None)
+        if not isinstance(text, str):
+            continue
+        try:
+            parsed = json.loads(text)
+        except (TypeError, ValueError):
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    raise McpToolResponseError("mcp_tool_response_invalid")
 
 
 def _failure_result(
@@ -320,6 +290,8 @@ def _failure_result(
     tool_name: str,
     code: str,
     message: str,
+    details: dict[str, Any] | None = None,
+    retryable: bool = False,
     start: float,
     status: str = "failed",
 ) -> ToolCallResult:
@@ -327,21 +299,89 @@ def _failure_result(
         tool_call_id=f"tool_{uuid4().hex}",
         tool_name=tool_name,
         status=status,
-        error=ToolError(code=code, message=message),
+        error=ToolError(
+            code=code,
+            message=message,
+            details=sanitize_untrusted_details(details),
+            retryable=retryable,
+        ),
         latency_ms=int((perf_counter() - start) * 1000),
         trace_id="",
     )
 
 
-def _first_content_text(content: list | None) -> str | None:
-    if not content:
-        return None
-    first = content[0]
-    text = getattr(first, "text", None)
-    if isinstance(text, str):
-        return text
-    return None
-
-
 def _python_type_name(value: str) -> str:
     return "".join(part.capitalize() for part in value.replace(".", "_").split("_") if part)
+
+
+def _market_envelope_error(
+    payload: dict[str, Any],
+    *,
+    require_market_envelope: bool,
+) -> ToolError | None:
+    if not require_market_envelope:
+        return None
+    if "status" not in payload:
+        return _invalid_response_error()
+    status = payload.get("status")
+    if status in {"complete", "partial"}:
+        data = payload.get("data")
+        coverage = payload.get("coverage")
+        if (
+            isinstance(data, dict)
+            and isinstance(coverage, dict)
+            and coverage.get("status") == status
+        ):
+            return None
+        return _invalid_response_error()
+    if status != "failed":
+        return _invalid_response_error()
+
+    error = payload.get("error")
+    if not _valid_failure_error(error):
+        return _invalid_response_error()
+    try:
+        return ToolError.model_validate(
+            {
+                **error,
+                "details": sanitize_untrusted_details(error.get("details")),
+            }
+        )
+    except Exception:
+        return _invalid_response_error()
+
+
+def _structured_content(result) -> Any:
+    structured = getattr(result, "structuredContent", None)
+    if structured is not None:
+        return structured
+    return getattr(result, "structured_content", None)
+
+
+def _protocol_error_code(result) -> str:
+    structured = _structured_content(result)
+    if not isinstance(structured, dict):
+        return "mcp_tool_execution_failed"
+    error = structured.get("error")
+    code = error.get("code") if isinstance(error, dict) else structured.get("code")
+    if code in {"invalid_field_request", "invalid_params", -32602, "-32602"}:
+        return "invalid_field_request"
+    return "mcp_tool_execution_failed"
+
+
+def _valid_failure_error(error: object) -> bool:
+    return (
+        isinstance(error, dict)
+        and isinstance(error.get("code"), str)
+        and bool(error["code"].strip())
+        and isinstance(error.get("message"), str)
+        and isinstance(error.get("details"), dict)
+        and isinstance(error.get("retryable"), bool)
+    )
+
+
+def _invalid_response_error() -> ToolError:
+    return ToolError(
+        code="mcp_tool_response_invalid",
+        message=MCP_TOOL_ERROR_MESSAGES["mcp_tool_response_invalid"],
+    )

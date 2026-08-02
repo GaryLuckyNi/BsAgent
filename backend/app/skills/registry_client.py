@@ -6,6 +6,14 @@ import httpx
 from app.skills.definitions import SkillCard, SkillDefinition, SkillExecutionGuide
 
 
+class SkillDefinitionProviderError(RuntimeError):
+    code = "skill_registry_payload_invalid"
+    http_status = 503
+
+    def __init__(self) -> None:
+        super().__init__("Skill 注册中心返回无效响应。")
+
+
 class SkillDefinitionProvider(Protocol):
     def list_cards(self, *, tenant_id: str) -> list[SkillCard]:
         raise NotImplementedError

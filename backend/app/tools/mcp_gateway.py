@@ -1,4 +1,6 @@
+import json
 from collections.abc import Callable
+from hashlib import sha256
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -6,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.schemas.tools import ToolSpec
 from app.tools.base import Tool
 from app.tools.mcp_stdio import discover_mcp_stdio_tools
+from app.tools.registry import ExecutionBinding
 
 
 McpToolDiscoverer = Callable[..., list[Tool]]
@@ -16,8 +19,11 @@ class McpServerConfig(BaseModel):
     command: str
     args: list[str] = Field(default_factory=list)
     cwd: str | None = None
+    env: dict[str, str] = Field(default_factory=dict)
     timeout_seconds: float = Field(default=30.0, gt=0)
     default_risk_level: Literal["low", "medium", "high"] = "medium"
+    deployment_revision: str = "development"
+    config_revision: str = "default"
 
 
 class McpToolManifest(BaseModel):
@@ -39,6 +45,7 @@ class McpGateway:
             command=config.command,
             args=config.args,
             cwd=config.cwd,
+            env=config.env,
             server_name=config.name,
             timeout_seconds=config.timeout_seconds,
             risk_level=config.default_risk_level,
@@ -66,3 +73,35 @@ class McpGateway:
 
     def list_tool_specs(self) -> list[ToolSpec]:
         return list(self._tool_specs.values())
+
+    @staticmethod
+    def execution_binding(
+        config: McpServerConfig,
+        *,
+        tool: Tool,
+    ) -> ExecutionBinding:
+        return ExecutionBinding(
+            provider="mcp",
+            implementation_id=f"mcp.stdio.{tool.name}",
+            server_id=config.name,
+            deployment_revision=config.deployment_revision,
+            config_revision=_execution_config_revision(config),
+        )
+
+
+def _execution_config_revision(config: McpServerConfig) -> str:
+    canonical = json.dumps(
+        {
+            "args": config.args,
+            "command": config.command,
+            "config_revision": config.config_revision,
+            "cwd": config.cwd,
+            "default_risk_level": config.default_risk_level,
+            "env_keys": sorted(config.env),
+            "timeout_seconds": config.timeout_seconds,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"sha256:{sha256(canonical.encode()).hexdigest()}"

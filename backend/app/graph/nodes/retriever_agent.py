@@ -2,8 +2,6 @@ import asyncio
 from collections.abc import Callable
 from uuid import uuid4
 
-import httpx
-
 from app.core.config import settings
 from app.graph.state import AgentState
 from app.graph.tool_context import (
@@ -16,7 +14,7 @@ from app.schemas.tools import ToolCallRecord, ToolCallRequest
 from app.tools.agent import ToolAgentExecutor
 from app.tools.execution_gateway import ToolExecutionContext
 from app.tools.rag_search import RagSearchError, RagSearchTool
-from app.tools.registry import ToolRegistry
+from app.tools.registry import ExecutionBinding, ToolRegistry
 from app.tools.fingerprints import tool_call_fingerprint
 
 
@@ -27,14 +25,23 @@ def retriever_agent_node(state: AgentState) -> AgentState:
 def build_rag_retriever_node(
     *,
     tool: RagSearchTool,
+    execution_binding: ExecutionBinding,
     top_k: int = 8,
 ) -> Callable[[AgentState], AgentState]:
+    registry = ToolRegistry()
+    registry.register(tool, execution_binding=execution_binding)
+    registry_snapshot = registry.snapshot()
+    binding_digest = registry_snapshot.get(tool.name).execution_binding_digest
+
     def node(state: AgentState) -> AgentState:
-        request = _ready_rag_search_call(state)
+        request = _ready_rag_search_call(
+            state,
+            execution_binding_digest=binding_digest,
+        )
         result = asyncio.run(
             _execute_tool_request(
                 request=request,
-                tool=tool,
+                registry=registry_snapshot,
                 trace_id=state["trace_id"],
                 context=build_tool_execution_context(
                     state,
@@ -51,6 +58,8 @@ def build_rag_retriever_node(
         _record_unrecoverable_rag_error(state=state, result=result)
         return state
 
+    node.tool_registry_contributions = ((tool, execution_binding),)
+    node.is_trusted_rag_retriever = True
     return node
 
 
@@ -62,36 +71,20 @@ def build_default_rag_retriever_node(
 ) -> Callable[[AgentState], AgentState]:
     resolved_base_url = base_url or settings.rag_base_url
     resolved_timeout_seconds = timeout_seconds or settings.rag_timeout_seconds
-
-    def node(state: AgentState) -> AgentState:
-        request = _ready_rag_search_call(state)
-
-        async def run_tool() -> ToolCallResult:
-            async with httpx.AsyncClient(
-                base_url=resolved_base_url,
-                timeout=resolved_timeout_seconds,
-            ) as client:
-                return await _execute_tool_request(
-                    request=request,
-                    tool=RagSearchTool(client=client),
-                    trace_id=state["trace_id"],
-                    context=build_tool_execution_context(
-                        state,
-                        default_allowed_tools=DEFAULT_RETRIEVAL_ALLOWED_TOOLS,
-                    ),
-                )
-
-        result = asyncio.run(run_tool())
-        result = _with_safe_rag_error(result)
-        _apply_rag_result(
-            state=state,
-            request=request,
-            result=result,
-        )
-        _record_unrecoverable_rag_error(state=state, result=result)
-        return state
-
-    return node
+    return build_rag_retriever_node(
+        tool=RagSearchTool(
+            base_url=resolved_base_url,
+            timeout_seconds=resolved_timeout_seconds,
+        ),
+        execution_binding=ExecutionBinding(
+            provider="rag",
+            implementation_id="rag.http.retrieve",
+            server_id=resolved_base_url,
+            deployment_revision=settings.rag_provider_revision,
+            config_revision=settings.rag_config_revision,
+        ),
+        top_k=top_k,
+    )
 
 
 def _apply_rag_result(
@@ -140,12 +133,10 @@ def _apply_rag_result(
 async def _execute_tool_request(
     *,
     request: ToolCallRequest,
-    tool: RagSearchTool,
+    registry: ToolRegistry,
     trace_id: str,
     context: ToolExecutionContext,
 ) -> ToolCallResult:
-    registry = ToolRegistry()
-    registry.register(tool)
     return await ToolAgentExecutor(registry=registry).execute(
         request,
         trace_id=trace_id,
@@ -153,7 +144,11 @@ async def _execute_tool_request(
     )
 
 
-def _ready_rag_search_call(state: AgentState) -> ToolCallRequest:
+def _ready_rag_search_call(
+    state: AgentState,
+    *,
+    execution_binding_digest: str,
+) -> ToolCallRequest:
     ready = state.get("ready_tool_call")
     if ready is None:
         raise RagSearchError(
@@ -179,6 +174,7 @@ def _ready_rag_search_call(state: AgentState) -> ToolCallRequest:
         request.tool_name != RagSearchTool.name
         or request.call_id != ready.call_id
         or tool_call_fingerprint(request) != ready.request_fingerprint
+        or ready.execution_binding_digest != execution_binding_digest
     ):
         raise RagSearchError(
             code="rag_call_not_ready",
@@ -197,6 +193,8 @@ def _record_unrecoverable_rag_error(
         return
     if result.error.code == "rag_no_evidence":
         return
+    if _is_optional_equity_research_rag_failure(state):
+        return
     state["errors"].append(
         {
             "node": "retriever_agent",
@@ -205,6 +203,19 @@ def _record_unrecoverable_rag_error(
             "http_status": _http_status_for_rag_error(result.error.code),
             "handled": True,
         }
+    )
+
+
+def _is_optional_equity_research_rag_failure(state: AgentState) -> bool:
+    plan = state["plan"] or {}
+    retrieval = plan.get("retrieval", {})
+    response_policy = plan.get("response_policy", {})
+    return (
+        retrieval.get("optional") is True
+        and retrieval.get("failure_policy") == "continue_with_structured_evidence"
+        and str(response_policy.get("response_type", "")).startswith(
+            "equity_research_"
+        )
     )
 
 

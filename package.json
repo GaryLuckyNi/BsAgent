@@ -1,0 +1,18 @@
+{
+  "name": "bs-agent-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:help": "node scripts/dev.mjs --help",
+    "dev:check": "node scripts/dev.mjs --check",
+    "dev:stop": "node scripts/dev.mjs --stop",
+    "dev:stop:dry-run": "node scripts/dev.mjs --stop --dry-run",
+    "dev:backend": "node scripts/dev.mjs backend",
+    "dev:frontend": "node scripts/dev.mjs frontend",
+    "dev:admin": "node scripts/dev.mjs admin-backend admin-frontend",
+    "dev:admin:backend": "node scripts/dev.mjs admin-backend",
+    "dev:admin:frontend": "node scripts/dev.mjs admin-frontend"
+  }
+}
