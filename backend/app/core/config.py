@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     rbac_backend: Literal["mock", "principal"] = "mock"
     mock_rbac_approver_user_ids: list[str] = ["approver_1"]
     mock_rbac_admin_user_ids: list[str] = ["admin_1"]
+    approval_resume_claim_timeout_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+    )
 
     jwt_issuer: str | None = None
     jwt_audience: str | None = None

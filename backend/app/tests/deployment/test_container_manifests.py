@@ -21,8 +21,10 @@ def test_production_compose_contains_required_runtime_services():
         "minio-init",
         "ocr",
         "migrate",
+        "release-gate",
         "api",
         "worker",
+        "maintenance-worker",
         "scheduler",
         "frontend",
     }.issubset(compose["services"])
@@ -76,8 +78,24 @@ def test_worker_uses_same_backend_image_and_dedicated_queue():
     worker = services["worker"]
 
     assert worker["build"] == api["build"]
-    assert worker["command"][-1] == "image-analysis,maintenance"
+    assert worker["command"][-1] == "image-analysis"
     assert worker["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+    assert worker["depends_on"]["release-gate"]["condition"] == (
+        "service_completed_successfully"
+    )
+
+    maintenance = services["maintenance-worker"]
+    assert maintenance["build"] == api["build"]
+    assert maintenance["command"][-1] == "maintenance"
+    assert maintenance["environment"]["BS_AGENT_TRACE_RETENTION_DAYS"] == (
+        "${TRACE_RETENTION_DAYS:-30}"
+    )
+    assert maintenance["environment"]["BS_AGENT_TRACE_CLEANUP_BATCH_SIZE"] == (
+        "${TRACE_CLEANUP_BATCH_SIZE:-1000}"
+    )
+    assert maintenance["depends_on"]["release-gate"]["condition"] == (
+        "service_completed_successfully"
+    )
 
     scheduler = services["scheduler"]
     assert scheduler["build"] == api["build"]
@@ -85,6 +103,24 @@ def test_worker_uses_same_backend_image_and_dedicated_queue():
     assert scheduler["depends_on"]["migrate"]["condition"] == (
         "service_completed_successfully"
     )
+    assert scheduler["depends_on"]["release-gate"]["condition"] == (
+        "service_completed_successfully"
+    )
+
+
+def test_release_gate_blocks_runtime_services_until_database_is_drained():
+    services = _compose()["services"]
+    gate = services["release-gate"]
+
+    assert gate["command"] == ["python", "-m", "app.operations.production_gate"]
+    assert gate["depends_on"]["migrate"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert gate["restart"] == "no"
+    for service_name in ("api", "worker", "maintenance-worker", "scheduler"):
+        assert services[service_name]["depends_on"]["release-gate"]["condition"] == (
+            "service_completed_successfully"
+        )
 
 
 def test_container_builds_run_as_non_root_and_frontend_uses_nginx():

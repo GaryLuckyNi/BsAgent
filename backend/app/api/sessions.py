@@ -1,16 +1,31 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Generator, Iterator
+from dataclasses import dataclass
+from datetime import datetime
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.approvals.repository import ApprovalRepository
 from app.api.assets import get_asset_service
 from app.assets.service import AssetService
+from app.conversations.repository import (
+    ConversationConflictError,
+    ConversationRepository,
+    SessionBusyError,
+)
+from app.conversations.service import (
+    BeginTurn,
+    ConversationMetadata,
+    ConversationService,
+    TurnHandle,
+)
 from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import (
@@ -19,7 +34,13 @@ from app.graph.runtime import (
     stream_question_answer_graph,
 )
 from app.graph.state import AgentState
-from app.harness.tracing import get_trace_store
+from app.harness.capture_policy import TraceCaptureOutcome
+from app.harness.persistence import (
+    TracePersistenceService,
+    TraceRunIdentity,
+    finalize_trace_best_effort,
+)
+from app.harness.trace_buffer import TraceBuffer
 from app.llm.deepseek import LlmConfigurationError
 from app.llm.factory import maybe_build_llm_client
 from app.memory.factory import build_experience_store
@@ -29,6 +50,7 @@ from app.memory.short_term_store import ShortTermMemoryStore
 from app.operations.rate_limit import RateLimitPolicy, require_rate_limit
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
+from app.schemas.messages import Message
 from app.storage.database import get_db
 from app.storage.repositories import persist_agent_run
 from app.vision.context import VisionAttachmentContextResolver
@@ -54,6 +76,74 @@ AGENT_INVOCATION_RATE_LIMIT = RateLimitPolicy(
     name="agent_invocation",
     requests_per_minute=settings.agent_rate_limit_per_minute,
 )
+CONVERSATION_HISTORY_LIMIT = 20
+
+
+class ConversationPersistenceUnavailable(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class _ExperienceEntrySnapshot:
+    source_candidate_id: str
+    user_id: str
+    memory_type: str
+    content: str
+    source: str | None
+
+
+@dataclass(frozen=True)
+class _ExperienceSnapshotReader:
+    tenant_id: str
+    user_id: str
+    entries: tuple[_ExperienceEntrySnapshot, ...]
+
+    def list_for_user(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+    ) -> list[_ExperienceEntrySnapshot]:
+        if tenant_id != self.tenant_id or user_id != self.user_id:
+            return []
+        return list(self.entries)
+
+
+@dataclass(frozen=True)
+class _AttachmentContextSnapshotResolver:
+    tenant_id: str
+    user_id: str
+    session_id: str
+    asset_ids: tuple[str, ...]
+    contexts_json: tuple[str, ...]
+
+    def resolve(
+        self,
+        asset_ids: list[str],
+        *,
+        principal: Principal,
+        session_id: str,
+    ) -> list[dict]:
+        if (
+            principal.tenant_id != self.tenant_id
+            or principal.user_id != self.user_id
+            or session_id != self.session_id
+            or tuple(asset_ids) != self.asset_ids
+        ):
+            raise ValueError("attachment_snapshot_identity_mismatch")
+        return [json.loads(context) for context in self.contexts_json]
+
+
+@dataclass(frozen=True)
+class _ExecutionSnapshot:
+    history: tuple[Message, ...]
+    memory_reader: _ExperienceSnapshotReader
+    attachment_resolver: _AttachmentContextSnapshotResolver
+
+
+@dataclass
+class _TraceLifecycle:
+    failed: bool = True
 
 
 def get_attachment_context_resolver(
@@ -83,6 +173,27 @@ class SessionMessageResponse(BaseModel):
     approval_ids: list[str] = []
     response_type: str | None = None
     business_error_code: str | None = None
+    message_id: str
+    request_id: str
+
+
+class SessionMessageItem(BaseModel):
+    message_id: str
+    request_id: str
+    run_id: str
+    role: str
+    status: str
+    content: str
+    content_type: str
+    sequence_no: int
+    metadata: dict
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class SessionMessagePage(BaseModel):
+    items: list[SessionMessageItem]
+    next_before_sequence: int | None = None
 
 
 @router.post(
@@ -98,14 +209,22 @@ def post_message(
     attachment_resolver: VisionAttachmentContextResolver = Depends(
         get_attachment_context_resolver
     ),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
 ) -> SessionMessageResponse:
     try:
-        state = _run_and_persist_agent_message(
+        return _run_and_persist_agent_message(
             session_id=session_id,
             request=request,
             principal=principal,
             db=db,
             attachment_resolver=attachment_resolver,
+            request_id=idempotency_key or f"req_{uuid4().hex}",
         )
     except AgentGraphExecutionError as exc:
         raise HTTPException(
@@ -121,8 +240,51 @@ def post_message(
             status_code=503,
             detail=_llm_configuration_error_payload(exc),
         ) from exc
+    except ConversationPersistenceUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "conversation_persistence_unavailable"},
+        ) from exc
+    except (ConversationConflictError, SessionBusyError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": str(exc)},
+        ) from exc
 
-    return _session_message_response(state)
+
+@router.get("/{session_id}/messages", response_model=SessionMessagePage)
+def list_messages(
+    session_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    before_sequence: int | None = Query(default=None, ge=1),
+    principal: Principal = Depends(require_permission("agent:read")),
+    db: Session = Depends(get_db),
+) -> SessionMessagePage:
+    repository = ConversationRepository(db)
+    session_record = repository.get_owned_session(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_id=session_id,
+    )
+    if session_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "session_not_found"},
+        )
+    records = repository.list_message_page(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_key=session_record.session_key,
+        limit=limit + 1,
+        before_sequence=before_sequence,
+    )
+    has_more = len(records) > limit
+    if has_more:
+        records = records[1:]
+    return SessionMessagePage(
+        items=[_message_item(record) for record in records],
+        next_before_sequence=records[0].sequence_no if has_more else None,
+    )
 
 
 @router.post(
@@ -137,6 +299,13 @@ def post_message_stream(
     attachment_resolver: VisionAttachmentContextResolver = Depends(
         get_attachment_context_resolver
     ),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
 ) -> StreamingResponse:
     return StreamingResponse(
         _stream_agent_message(
@@ -145,12 +314,81 @@ def post_message_stream(
             principal=principal,
             db=db,
             attachment_resolver=attachment_resolver,
+            request_id=idempotency_key or f"req_{uuid4().hex}",
         ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+def _load_execution_snapshot(
+    *,
+    db: Session,
+    principal: Principal,
+    session_id: str,
+    request: SessionMessageRequest,
+    handle: TurnHandle,
+    attachment_resolver: VisionAttachmentContextResolver,
+) -> _ExecutionSnapshot:
+    history_records = ConversationRepository(db).list_context_messages(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_key=handle.session_key,
+        exclude_request_id=handle.request_id,
+        limit=CONVERSATION_HISTORY_LIMIT,
+    )
+    history = tuple(
+        Message(
+            message_id=record.message_id,
+            role=record.role,
+            content=record.content,
+            metadata={"request_id": record.request_id},
+        )
+        for record in history_records
+    )
+    experience_entries = build_experience_store(session=db).list_for_user(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+    )
+    memory_reader = _ExperienceSnapshotReader(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        entries=tuple(
+            _ExperienceEntrySnapshot(
+                source_candidate_id=entry.source_candidate_id,
+                user_id=entry.user_id,
+                memory_type=entry.memory_type,
+                content=entry.content,
+                source=entry.source,
+            )
+            for entry in experience_entries
+        ),
+    )
+    attachment_contexts = (
+        attachment_resolver.resolve(
+            request.attachments,
+            principal=principal,
+            session_id=session_id,
+        )
+        if request.attachments
+        else []
+    )
+    return _ExecutionSnapshot(
+        history=history,
+        memory_reader=memory_reader,
+        attachment_resolver=_AttachmentContextSnapshotResolver(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            session_id=session_id,
+            asset_ids=tuple(request.attachments),
+            contexts_json=tuple(
+                json.dumps(context, ensure_ascii=False, sort_keys=True)
+                for context in attachment_contexts
+            ),
+        ),
     )
 
 
@@ -161,33 +399,177 @@ def _run_and_persist_agent_message(
     principal: Principal,
     db: Session,
     attachment_resolver: VisionAttachmentContextResolver,
-) -> AgentState:
-    trace_store = get_trace_store()
-    experience_store = build_experience_store(session=db)
-    state = run_question_answer_graph(
-        session_id=session_id,
-        tenant_id=principal.tenant_id,
-        user_id=principal.user_id,
-        user_message=request.message,
-        mock_evidence=settings.use_mock_rag,
-        memory_retriever=ExperienceMemoryRetriever(experience_store),
-        trace_store=trace_store,
-        checkpointer=build_graph_checkpointer(),
-        llm_client=maybe_build_llm_client(),
-        permission_scopes=list(principal.scopes),
-        attachment_ids=request.attachments,
-        attachment_resolver=attachment_resolver,
-    )
+    request_id: str,
+) -> SessionMessageResponse:
+    conversation_service = ConversationService(db)
+    handle: TurnHandle | None = None
+    state: AgentState | None = None
+    trace_buffer: TraceBuffer | None = None
+    try:
+        handle = conversation_service.begin_turn(
+            BeginTurn(
+                tenant_id=principal.tenant_id,
+                user_id=principal.user_id,
+                session_id=session_id,
+                request_id=request_id,
+                user_content=request.message,
+                metadata=ConversationMetadata(
+                    attachment_ids=tuple(request.attachments)
+                ),
+            )
+        )
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise ConversationPersistenceUnavailable from exc
 
-    interrupt_payloads = _interrupt_payloads(state)
-    _persist_agent_message_state(
+    if handle.replayed:
+        try:
+            return _replayed_message_response(
+                db=db,
+                tenant_id=principal.tenant_id,
+                handle=handle,
+            )
+        except SQLAlchemyError as exc:
+            db.rollback()
+            raise ConversationPersistenceUnavailable from exc
+
+    trace_buffer = TraceBuffer()
+    try:
+        snapshot = _load_execution_snapshot(
+            db=db,
+            principal=principal,
+            session_id=session_id,
+            request=request,
+            handle=handle,
+            attachment_resolver=attachment_resolver,
+        )
+        db.commit()
+
+        checkpointer = build_graph_checkpointer()
+        llm_client = maybe_build_llm_client()
+        state = run_question_answer_graph(
+            session_id=session_id,
+            session_key=handle.session_key,
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            user_message=request.message,
+            request_id=handle.request_id,
+            trace_id=handle.trace_id,
+            user_message_id=handle.user_message_id,
+            assistant_message_id=handle.assistant_message_id,
+            history=list(snapshot.history),
+            mock_evidence=settings.use_mock_rag,
+            memory_retriever=ExperienceMemoryRetriever(snapshot.memory_reader),
+            trace_buffer=trace_buffer,
+            checkpointer=checkpointer,
+            llm_client=llm_client,
+            permission_scopes=list(principal.scopes),
+            attachment_ids=request.attachments,
+            attachment_resolver=snapshot.attachment_resolver,
+        )
+
+        interrupt_payloads = _interrupt_payloads(state)
+        experience_store = build_experience_store(session=db)
+        _persist_agent_message_state(
+            db=db,
+            state=state,
+            experience_store=experience_store,
+            interrupt_payloads=interrupt_payloads,
+            run_id=handle.run_id,
+            update_run_status=False,
+            commit=False,
+        )
+        if interrupt_payloads:
+            conversation_service.interrupt_turn(
+                tenant_id=principal.tenant_id,
+                run_id=handle.run_id,
+            )
+        else:
+            final_response = state["final_response"] or {}
+            conversation_service.complete_turn(
+                tenant_id=principal.tenant_id,
+                run_id=handle.run_id,
+                content=final_response.get("content", ""),
+                metadata=_assistant_response_metadata(final_response),
+            )
+        db.commit()
+        if not interrupt_payloads:
+            _record_short_term_session_event(
+                store=build_short_term_memory_store(),
+                state=state,
+            )
+    except SQLAlchemyError as exc:
+        db.rollback()
+        try:
+            _fail_turn_after_error(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+            )
+        except SQLAlchemyError:
+            pass
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=True,
+        )
+        raise ConversationPersistenceUnavailable from exc
+    except Exception:
+        db.rollback()
+        try:
+            _fail_turn_after_error(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+            )
+        except SQLAlchemyError as exc:
+            raise ConversationPersistenceUnavailable from exc
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=True,
+        )
+        raise
+    _finalize_trace_best_effort(
         db=db,
+        handle=handle,
+        buffer=trace_buffer,
         state=state,
-        trace_store=trace_store,
-        experience_store=experience_store,
-        interrupt_payloads=interrupt_payloads,
+        principal=principal,
+        failed=False,
+        approval_occurred=bool(interrupt_payloads),
     )
-    return state
+    return _session_message_response(state, handle=handle)
+
+
+def _fail_turn_after_error(
+    *,
+    db: Session,
+    conversation_service: ConversationService,
+    principal: Principal,
+    handle: TurnHandle,
+) -> None:
+    try:
+        conversation_service.fail_turn(
+            tenant_id=principal.tenant_id,
+            run_id=handle.run_id,
+            error_code="agent_execution_failed",
+        )
+        db.commit()
+    except ConversationConflictError:
+        db.rollback()
+    except SQLAlchemyError:
+        db.rollback()
+        raise
 
 
 def _stream_agent_message(
@@ -197,40 +579,100 @@ def _stream_agent_message(
     principal: Principal,
     db: Session,
     attachment_resolver: VisionAttachmentContextResolver,
+    request_id: str,
 ) -> Iterator[str]:
-    yield _sse("status", {"stage": "accepted"})
-    yield _sse("progress", _product_progress_payload("planning"))
-    if request.attachments:
-        yield _sse(
-            "status",
-            {
-                "stage": "attachment_loading",
-                "attachment_count": len(request.attachments),
-            },
-        )
+    conversation_service = ConversationService(db)
+    handle: TurnHandle | None = None
+    state: AgentState | None = None
+    trace_buffer: TraceBuffer | None = None
+    finalized = False
+    trace_lifecycle = _TraceLifecycle()
     try:
-        trace_store = get_trace_store()
-        experience_store = build_experience_store(session=db)
+        handle = conversation_service.begin_turn(
+            BeginTurn(
+                tenant_id=principal.tenant_id,
+                user_id=principal.user_id,
+                session_id=session_id,
+                request_id=request_id,
+                user_content=request.message,
+                metadata=ConversationMetadata(
+                    attachment_ids=tuple(request.attachments)
+                ),
+            )
+        )
+        db.commit()
+        if handle.replayed:
+            replayed = _replayed_message_response(
+                db=db,
+                tenant_id=principal.tenant_id,
+                handle=handle,
+            )
+            db.commit()
+            identity = _stream_identity(handle)
+            yield _sse("status", {"stage": "accepted", **identity})
+            yield _sse(
+                "final",
+                {
+                    "content": replayed.content,
+                    "trace_id": replayed.trace_id,
+                    "cited_evidence_ids": replayed.cited_evidence_ids,
+                    "approval_status": replayed.approval_status,
+                    "approval_ids": replayed.approval_ids,
+                    "response_type": replayed.response_type,
+                    "business_error_code": replayed.business_error_code,
+                    **identity,
+                },
+            )
+            yield _sse("done", {"ok": True, "replayed": True, **identity})
+            return
+
+        trace_buffer = TraceBuffer()
+        snapshot = _load_execution_snapshot(
+            db=db,
+            principal=principal,
+            session_id=session_id,
+            request=request,
+            handle=handle,
+            attachment_resolver=attachment_resolver,
+        )
+        db.commit()
+        identity = _stream_identity(handle)
+        yield _sse("status", {"stage": "accepted", **identity})
+        yield _sse("progress", _product_progress_payload("planning"))
+        if request.attachments:
+            yield _sse(
+                "status",
+                {
+                    "stage": "attachment_loading",
+                    "attachment_count": len(request.attachments),
+                },
+            )
+
         llm_client = maybe_build_llm_client()
-        state: AgentState | None = None
         emitted_event_count = 0
         emitted_thinking_stages: set[str] = set()
         emitted_progress_stages = {"planning"}
         for state in stream_question_answer_graph(
             session_id=session_id,
+            session_key=handle.session_key,
             tenant_id=principal.tenant_id,
             user_id=principal.user_id,
             user_message=request.message,
+            request_id=handle.request_id,
+            trace_id=handle.trace_id,
+            user_message_id=handle.user_message_id,
+            assistant_message_id=handle.assistant_message_id,
+            history=list(snapshot.history),
             mock_evidence=settings.use_mock_rag,
-            memory_retriever=ExperienceMemoryRetriever(experience_store),
-            trace_store=trace_store,
+            memory_retriever=ExperienceMemoryRetriever(snapshot.memory_reader),
+            trace_buffer=trace_buffer,
             checkpointer=build_graph_checkpointer(),
             llm_client=llm_client,
             permission_scopes=list(principal.scopes),
             attachment_ids=request.attachments,
-            attachment_resolver=attachment_resolver,
+            attachment_resolver=snapshot.attachment_resolver,
         ):
-            events = trace_store.list_events(state["trace_id"])
+            events = trace_buffer.events
             for event in events[emitted_event_count:]:
                 yield _sse("agent_event", _trace_event_payload(event))
             emitted_event_count = len(events)
@@ -257,14 +699,44 @@ def _stream_agent_message(
                 http_status=500,
             )
         interrupt_payloads = _interrupt_payloads(state)
+        experience_store = build_experience_store(session=db)
         _persist_agent_message_state(
             db=db,
             state=state,
-            trace_store=trace_store,
             experience_store=experience_store,
             interrupt_payloads=interrupt_payloads,
+            run_id=handle.run_id,
+            update_run_status=False,
+            commit=False,
+        )
+        if interrupt_payloads:
+            conversation_service.interrupt_turn(
+                tenant_id=principal.tenant_id,
+                run_id=handle.run_id,
+            )
+        db.commit()
+        if interrupt_payloads:
+            finalized = True
+            trace_lifecycle.failed = False
+        finalized = yield from _emit_stream_result(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+            state=state,
+            interrupt_payloads=interrupt_payloads,
+            emitted_thinking_stages=emitted_thinking_stages,
+            llm_client=llm_client,
+            trace_buffer=trace_buffer,
+            trace_lifecycle=trace_lifecycle,
         )
     except AgentGraphExecutionError as exc:
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
         yield _sse(
             "error",
             {
@@ -272,16 +744,51 @@ def _stream_agent_message(
                 "node": exc.node_name,
                 "message": exc.message,
                 "http_status": exc.http_status,
+                **_stream_identity(handle),
             },
         )
-        yield _sse("done", {"ok": False})
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
         return
     except LlmConfigurationError as exc:
-        yield _sse("error", _llm_configuration_error_payload(exc))
-        yield _sse("done", {"ok": False})
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
+        yield _sse(
+            "error",
+            {**_llm_configuration_error_payload(exc), **_stream_identity(handle)},
+        )
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
+        return
+    except (ConversationConflictError, SessionBusyError) as exc:
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
+        yield _sse(
+            "error",
+            {
+                "code": str(exc),
+                "node": "conversation",
+                "message": "请求正在执行或会话忙。",
+                "http_status": 409,
+                **_stream_identity(handle),
+            },
+        )
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
         return
     except Exception:
         logger.exception("agent_stream_unhandled_error")
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
         yield _sse(
             "error",
             {
@@ -289,11 +796,43 @@ def _stream_agent_message(
                 "node": "agent_stream",
                 "message": "Agent 流式执行失败，请查看后端日志定位具体原因。",
                 "http_status": 500,
+                **_stream_identity(handle),
             },
         )
-        yield _sse("done", {"ok": False})
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
         return
+    finally:
+        if handle is not None and not handle.replayed and not finalized:
+            _fail_stream_turn(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+            )
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=trace_lifecycle.failed,
+            approval_occurred=bool(state and _interrupt_payloads(state)),
+        )
 
+def _emit_stream_result(
+    *,
+    db: Session,
+    conversation_service: ConversationService,
+    principal: Principal,
+    handle: TurnHandle,
+    state: AgentState,
+    interrupt_payloads: list[dict],
+    emitted_thinking_stages: set[str],
+    llm_client,
+    trace_buffer: TraceBuffer,
+    trace_lifecycle: _TraceLifecycle,
+) -> Generator[str, None, bool]:
+    identity = _stream_identity(handle)
     if state["image_analyses"]:
         yield _sse(
             "status",
@@ -311,15 +850,18 @@ def _stream_agent_message(
         yield _sse(
             "approval_required",
             {
-                "run_id": state["request_id"],
                 "trace_id": state["trace_id"],
                 "approval_ids": [
                     payload["approval_id"] for payload in interrupt_payloads
                 ],
+                **identity,
             },
         )
-        yield _sse("done", {"ok": True, "pending_approval": True})
-        return
+        yield _sse(
+            "done",
+            {"ok": True, "pending_approval": True, **identity},
+        )
+        return True
 
     final_response = state["final_response"]
     yield _sse(
@@ -335,7 +877,7 @@ def _stream_agent_message(
             "trace_id": final_response["trace_id"],
             "events": [
                 _trace_event_payload(event)
-                for event in get_trace_store().list_events(final_response["trace_id"])
+                for event in trace_buffer.events
             ],
         },
     )
@@ -345,35 +887,130 @@ def _stream_agent_message(
             state=state,
             stage="planning",
         )
+    conversation_service.mark_streaming(
+        tenant_id=principal.tenant_id,
+        run_id=handle.run_id,
+    )
+    db.commit()
     yield _sse("status", {"stage": "answering", "trace_id": final_response["trace_id"]})
     for chunk in _chunk_text(final_response["content"]):
         yield _sse("answer_delta", {"content": chunk})
-    yield _sse("final", final_response)
-    yield _sse("done", {"ok": True})
+    conversation_service.complete_turn(
+        tenant_id=principal.tenant_id,
+        run_id=handle.run_id,
+        content=final_response["content"],
+        metadata=_assistant_response_metadata(final_response),
+    )
+    db.commit()
+    _record_short_term_session_event(
+        store=build_short_term_memory_store(),
+        state=state,
+    )
+    trace_lifecycle.failed = False
+    yield _sse("final", {**final_response, **identity})
+    yield _sse("done", {"ok": True, **identity})
+    return True
+
+
+def _stream_identity(handle: TurnHandle | None) -> dict[str, str]:
+    if handle is None:
+        return {}
+    return {
+        "run_id": handle.run_id,
+        "request_id": handle.request_id,
+        "message_id": handle.assistant_message_id,
+    }
+
+
+def _fail_stream_turn(
+    *,
+    db: Session,
+    conversation_service: ConversationService,
+    principal: Principal,
+    handle: TurnHandle | None,
+) -> bool:
+    if handle is None or handle.replayed:
+        db.rollback()
+        return True
+    db.rollback()
+    try:
+        _fail_turn_after_error(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
+    except SQLAlchemyError:
+        logger.exception("agent_stream_failure_finalization_error")
+    return True
+
+
+def _finalize_trace_best_effort(
+    *,
+    db: Session,
+    handle: TurnHandle | None,
+    buffer: TraceBuffer | None,
+    state: AgentState | None,
+    principal: Principal,
+    failed: bool,
+    approval_occurred: bool = False,
+) -> None:
+    if handle is None or handle.replayed or buffer is None:
+        return
+    intent = (state or {}).get("intent") or {}
+    verification = (state or {}).get("verification") or {}
+    session_factory = sessionmaker(
+        bind=db.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    finalize_trace_best_effort(
+        run=TraceRunIdentity(
+            run_id=handle.run_id,
+            trace_id=handle.trace_id,
+            session_key=handle.session_key,
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+        ),
+        buffer=buffer,
+        outcome=TraceCaptureOutcome(
+            failed=failed,
+            risk_level=intent.get("risk_level"),
+            approval_occurred=approval_occurred,
+            verifier_status=verification.get("verdict"),
+        ),
+        service=TracePersistenceService(session_factory=session_factory),
+    )
 
 
 def _persist_agent_message_state(
     *,
     db: Session,
     state: AgentState,
-    trace_store,
     experience_store,
     interrupt_payloads: list[dict],
+    run_id: str | None = None,
+    update_run_status: bool = True,
+    commit: bool = True,
 ) -> None:
     for payload in interrupt_payloads:
-        ApprovalRepository(db).create_pending_from_interrupt(payload)
+        ApprovalRepository(db).create_pending_from_interrupt(
+            {
+                **payload,
+                "run_id": run_id or payload["run_id"],
+                "session_key": state["session_key"],
+            }
+        )
     persist_agent_run(
         session=db,
         state=state,
-        trace_events=trace_store.list_events(state["trace_id"]),
         status="interrupted" if interrupt_payloads else "completed",
         experience_store=experience_store,
+        run_id=run_id,
+        update_run_status=update_run_status,
+        commit=commit,
     )
-    if not interrupt_payloads:
-        _record_short_term_session_event(
-            store=build_short_term_memory_store(),
-            state=state,
-        )
 
 
 def _sse(event: str, data: dict) -> str:
@@ -710,7 +1347,14 @@ def _interrupt_payloads(state: AgentState) -> list[dict]:
     return [interrupt.value for interrupt in state.get("__interrupt__", [])]
 
 
-def _session_message_response(state: AgentState) -> SessionMessageResponse:
+def _session_message_response(
+    state: AgentState,
+    *,
+    handle: TurnHandle | None = None,
+) -> SessionMessageResponse:
+    message_id = handle.assistant_message_id if handle else state["assistant_message_id"]
+    request_id = handle.request_id if handle else state["request_id"]
+    run_id = handle.run_id if handle else state["request_id"]
     interrupt_payloads = _interrupt_payloads(state)
     if interrupt_payloads:
         return SessionMessageResponse(
@@ -718,8 +1362,10 @@ def _session_message_response(state: AgentState) -> SessionMessageResponse:
             trace_id=state["trace_id"],
             cited_evidence_ids=[],
             approval_status="pending",
-            run_id=state["request_id"],
+            run_id=run_id,
             approval_ids=[payload["approval_id"] for payload in interrupt_payloads],
+            message_id=message_id,
+            request_id=request_id,
         )
     final_response = state["final_response"] or {}
     return SessionMessageResponse(
@@ -727,8 +1373,65 @@ def _session_message_response(state: AgentState) -> SessionMessageResponse:
         trace_id=final_response.get("trace_id", state["trace_id"]),
         cited_evidence_ids=final_response.get("cited_evidence_ids", []),
         approval_status=final_response.get("approval_status", "not_required"),
-        run_id=state["request_id"],
+        run_id=run_id,
         approval_ids=[],
         response_type=final_response.get("response_type"),
         business_error_code=final_response.get("business_error_code"),
+        message_id=message_id,
+        request_id=request_id,
+    )
+
+
+def _assistant_response_metadata(final_response: dict) -> dict:
+    return {
+        "cited_evidence_ids": list(final_response.get("cited_evidence_ids", [])),
+        "approval_status": final_response.get("approval_status", "not_required"),
+        "response_type": final_response.get("response_type"),
+        "business_error_code": final_response.get("business_error_code"),
+    }
+
+
+def _replayed_message_response(
+    *,
+    db: Session,
+    tenant_id: str,
+    handle: TurnHandle,
+) -> SessionMessageResponse:
+    turn = ConversationRepository(db).get_turn_by_request(
+        tenant_id=tenant_id,
+        request_id=handle.request_id,
+    )
+    if turn is None:
+        raise ConversationConflictError("turn_replay_missing")
+    assistant = turn[1]
+    if assistant.status != "completed":
+        raise ConversationConflictError("request_in_progress")
+    metadata = assistant.metadata_json or {}
+    return SessionMessageResponse(
+        content=assistant.content,
+        trace_id=handle.trace_id,
+        cited_evidence_ids=list(metadata.get("cited_evidence_ids", [])),
+        approval_status=metadata.get("approval_status", "not_required"),
+        run_id=handle.run_id,
+        approval_ids=[],
+        response_type=metadata.get("response_type"),
+        business_error_code=metadata.get("business_error_code"),
+        message_id=handle.assistant_message_id,
+        request_id=handle.request_id,
+    )
+
+
+def _message_item(record) -> SessionMessageItem:
+    return SessionMessageItem(
+        message_id=record.message_id,
+        request_id=record.request_id,
+        run_id=record.run_id,
+        role=record.role,
+        status=record.status,
+        content=record.content,
+        content_type=record.content_type,
+        sequence_no=record.sequence_no,
+        metadata=record.metadata_json or {},
+        created_at=record.created_at,
+        completed_at=record.completed_at,
     )

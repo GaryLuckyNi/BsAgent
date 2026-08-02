@@ -33,13 +33,105 @@ class Base(DeclarativeBase):
 
 class AgentSession(Base):
     __tablename__ = "agent_sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "user_id",
+            "session_id",
+            name="uq_agent_sessions_tenant_user_external",
+        ),
+        Index(
+            "ix_agent_sessions_tenant_active_run",
+            "tenant_id",
+            "active_run_id",
+        ),
+    )
 
-    session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False)
     tenant_id: Mapped[str] = mapped_column(String(64), index=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[str] = mapped_column(String(32), default="active")
+    active_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    next_sequence_no: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text("1"),
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+
+
+class AgentMessage(Base):
+    __tablename__ = "agent_messages"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_key",
+            "sequence_no",
+            name="uq_agent_messages_sequence",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "request_id",
+            "role",
+            name="uq_agent_messages_tenant_request_role",
+        ),
+        CheckConstraint(
+            "role IN ('user', 'assistant')",
+            name="ck_agent_messages_role",
+        ),
+        CheckConstraint(
+            "status IN "
+            "('pending', 'streaming', 'completed', 'failed', 'interrupted')",
+            name="ck_agent_messages_status",
+        ),
+        Index("ix_agent_messages_run_id", "run_id"),
+        Index(
+            "ix_agent_messages_tenant_created",
+            "tenant_id",
+            "created_at",
+            "message_id",
+        ),
+    )
+
+    message_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    session_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="text",
+        server_default=text("'text'"),
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(
+        "metadata",
+        TRACE_JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utc_now,
+        server_default=func.now(),
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
 
 class AgentRun(Base):
@@ -67,6 +159,7 @@ class AgentRun(Base):
 
     run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     session_id: Mapped[str] = mapped_column(String(64), index=True)
+    session_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     tenant_id: Mapped[str] = mapped_column(String(64), index=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
     trace_id: Mapped[str] = mapped_column(String(128), index=True)
@@ -239,6 +332,7 @@ class ApprovalRecord(Base):
     approval_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     run_id: Mapped[str] = mapped_column(String(64), index=True)
     session_id: Mapped[str] = mapped_column(String(64), index=True)
+    session_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     tenant_id: Mapped[str] = mapped_column(String(64), index=True)
     request_user_id: Mapped[str] = mapped_column(String(64), index=True)
     approval_type: Mapped[str] = mapped_column(String(32), index=True)
@@ -250,6 +344,7 @@ class ApprovalRecord(Base):
     status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
     decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
     resume_claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resume_claim_generation: Mapped[int] = mapped_column(Integer, default=0)
     resume_attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_resume_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     resume_claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -274,6 +369,7 @@ class AssetRecord(Base):
             name="ck_asset_records_status",
         ),
         Index("ix_asset_records_tenant_asset", "tenant_id", "asset_id"),
+        Index("ix_asset_records_session_key", "session_key"),
         Index(
             "ix_asset_records_tenant_sha_status",
             "tenant_id",
@@ -292,6 +388,7 @@ class AssetRecord(Base):
     tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    session_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     object_key: Mapped[str] = mapped_column(String(512), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     media_type: Mapped[str] = mapped_column(String(64), nullable=False)

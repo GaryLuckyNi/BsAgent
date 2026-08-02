@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -29,12 +29,14 @@ class ApprovalResumeClaim:
     record: ApprovalRecord
     acquired: bool
     claim_token: str | None
+    claim_generation: int | None
 
 
 class ApprovalRecordCreate(BaseModel):
     approval_id: str
     run_id: str
     session_id: str
+    session_key: str
     tenant_id: str
     request_user_id: str
     approval_type: Literal["tool_call"] = "tool_call"
@@ -43,6 +45,7 @@ class ApprovalRecordCreate(BaseModel):
     arguments_hash: str
     payload: dict[str, Any] = Field(default_factory=dict)
     checkpoint_thread_id: str
+    checkpoint_namespace: Literal[""] = ""
 
 
 class ApprovalRepository:
@@ -58,6 +61,7 @@ class ApprovalRepository:
             approval_id=data.approval_id,
             run_id=data.run_id,
             session_id=data.session_id,
+            session_key=data.session_key,
             tenant_id=data.tenant_id,
             request_user_id=data.request_user_id,
             approval_type=data.approval_type,
@@ -65,7 +69,16 @@ class ApprovalRepository:
             tool_version=data.tool_version,
             arguments_hash=data.arguments_hash,
             payload_json=json.dumps(
-                data.payload,
+                {
+                    **data.payload,
+                    "run_id": data.run_id,
+                    "session_id": data.session_id,
+                    "session_key": data.session_key,
+                    "tenant_id": data.tenant_id,
+                    "request_user_id": data.request_user_id,
+                    "checkpoint_thread_id": data.checkpoint_thread_id,
+                    "checkpoint_namespace": data.checkpoint_namespace,
+                },
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
@@ -93,6 +106,7 @@ class ApprovalRepository:
                 approval_id=payload["approval_id"],
                 run_id=payload["run_id"],
                 session_id=payload["session_id"],
+                session_key=payload["session_key"],
                 tenant_id=payload["tenant_id"],
                 request_user_id=payload["request_user_id"],
                 approval_type=payload["approval_type"],
@@ -101,6 +115,7 @@ class ApprovalRepository:
                 arguments_hash=payload["arguments_hash"],
                 payload=payload,
                 checkpoint_thread_id=payload["checkpoint_thread_id"],
+                checkpoint_namespace=payload["checkpoint_namespace"],
             )
         )
 
@@ -133,9 +148,12 @@ class ApprovalRepository:
         tenant_id: str,
         decision: Literal["approved", "rejected"],
         decided_by: str,
+        now: datetime | None = None,
+        claim_timeout: timedelta = timedelta(seconds=300),
     ) -> ApprovalResumeClaim:
         claim_token = uuid4().hex
-        claimed_at = datetime.now(UTC)
+        claimed_at = now or datetime.now(UTC)
+        stale_before = claimed_at - claim_timeout
         result = self._session.execute(
             update(ApprovalRecord)
             .where(
@@ -150,12 +168,19 @@ class ApprovalRepository:
                         ApprovalRecord.status == "resume_failed",
                         ApprovalRecord.decision == decision,
                     ),
+                    and_(
+                        ApprovalRecord.status == "resuming",
+                        ApprovalRecord.decision == decision,
+                        ApprovalRecord.resume_claimed_at.is_not(None),
+                        ApprovalRecord.resume_claimed_at <= stale_before,
+                    ),
                 ),
             )
             .values(
                 status="resuming",
                 decision=decision,
                 resume_claim_token=claim_token,
+                resume_claim_generation=ApprovalRecord.resume_claim_generation + 1,
                 resume_attempts=ApprovalRecord.resume_attempts + 1,
                 resume_claimed_by=decided_by,
                 resume_claimed_at=claimed_at,
@@ -178,6 +203,7 @@ class ApprovalRepository:
                 record=record,
                 acquired=True,
                 claim_token=claim_token,
+                claim_generation=record.resume_claim_generation,
             )
         if record is None:
             raise ApprovalNotFoundError(f"Approval not found: {approval_id}")
@@ -190,7 +216,12 @@ class ApprovalRepository:
                 f"Approval {approval_id} resume is already in progress."
             )
         if record.status in {"approved", "rejected"}:
-            return ApprovalResumeClaim(record=record, acquired=False, claim_token=None)
+            return ApprovalResumeClaim(
+                record=record,
+                acquired=False,
+                claim_token=None,
+                claim_generation=None,
+            )
         raise ApprovalConflictError(
             f"Approval {approval_id} cannot be claimed from status {record.status}."
         )
@@ -201,6 +232,7 @@ class ApprovalRepository:
         approval_id: str,
         tenant_id: str,
         claim_token: str,
+        claim_generation: int,
     ) -> ApprovalRecord:
         result = self._session.execute(
             update(ApprovalRecord)
@@ -209,6 +241,7 @@ class ApprovalRepository:
                 ApprovalRecord.tenant_id == tenant_id,
                 ApprovalRecord.status == "resuming",
                 ApprovalRecord.resume_claim_token == claim_token,
+                ApprovalRecord.resume_claim_generation == claim_generation,
             )
             .values(
                 status=ApprovalRecord.decision,
@@ -231,6 +264,7 @@ class ApprovalRepository:
         approval_id: str,
         tenant_id: str,
         claim_token: str,
+        claim_generation: int,
         error: str,
     ) -> ApprovalRecord:
         result = self._session.execute(
@@ -240,6 +274,7 @@ class ApprovalRepository:
                 ApprovalRecord.tenant_id == tenant_id,
                 ApprovalRecord.status == "resuming",
                 ApprovalRecord.resume_claim_token == claim_token,
+                ApprovalRecord.resume_claim_generation == claim_generation,
             )
             .values(
                 status="resume_failed",
@@ -257,10 +292,39 @@ class ApprovalRepository:
             )
         return record
 
+    def renew_resume_claim(
+        self,
+        *,
+        approval_id: str,
+        tenant_id: str,
+        claim_token: str,
+        claim_generation: int,
+        now: datetime | None = None,
+    ) -> None:
+        result = self._session.execute(
+            update(ApprovalRecord)
+            .where(
+                ApprovalRecord.approval_id == approval_id,
+                ApprovalRecord.tenant_id == tenant_id,
+                ApprovalRecord.status == "resuming",
+                ApprovalRecord.resume_claim_token == claim_token,
+                ApprovalRecord.resume_claim_generation == claim_generation,
+            )
+            .values(resume_claimed_at=now or datetime.now(UTC))
+            .execution_options(synchronize_session=False)
+        )
+        self._session.flush()
+        if result.rowcount != 1:
+            raise ApprovalConflictError(
+                f"Approval {approval_id} resume claim is no longer owned."
+            )
+
 def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
+    payload = json.loads(record.payload_json)
     return (
         record.run_id == data.run_id
         and record.session_id == data.session_id
+        and record.session_key == data.session_key
         and record.tenant_id == data.tenant_id
         and record.request_user_id == data.request_user_id
         and record.approval_type == data.approval_type
@@ -268,6 +332,13 @@ def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
         and record.tool_version == data.tool_version
         and record.arguments_hash == data.arguments_hash
         and record.checkpoint_thread_id == data.checkpoint_thread_id
+        and payload.get("run_id") == data.run_id
+        and payload.get("session_id") == data.session_id
+        and payload.get("session_key") == data.session_key
+        and payload.get("tenant_id") == data.tenant_id
+        and payload.get("request_user_id") == data.request_user_id
+        and payload.get("checkpoint_thread_id") == data.checkpoint_thread_id
+        and payload.get("checkpoint_namespace") == data.checkpoint_namespace
     )
 
 

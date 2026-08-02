@@ -4,7 +4,7 @@
 
 **Goal:** 建立租户隔离的会话身份和 Message 事实源，并完成 Trace Task 4-9 的生产生命周期闭环。
 
-**Architecture:** PostgreSQL 保存 Session、Message、Run、Approval 和业务 Trace；LangGraph PostgresSaver 只保存可恢复图状态；每次执行使用独立有界 `TraceBuffer`，业务提交后再由独立事务批量持久化 Trace。外部 `session_id` 只作为租户内业务标识，服务端 `session_key` 作为内部主键和 Checkpoint Thread ID。
+**Architecture:** PostgreSQL 保存 Session、Message、Run、Approval 和业务 Trace；LangGraph PostgresSaver 只保存单 Run 可恢复图状态；每次执行使用独立有界 `TraceBuffer`，业务提交后再由独立事务批量持久化 Trace。外部 `session_id` 只作为租户内业务标识，服务端 `session_key` 仅作为业务会话内部主键；Checkpoint Thread ID 由 `tenant_id`、`session_key` 与 `request_id` 版本化派生，根 `checkpoint_ns` 保持 LangGraph 原生空值。跨 Run 多轮历史唯一来自 PostgreSQL `agent_messages`。
 
 **Tech Stack:** Python 3.11、FastAPI、SQLAlchemy 2、Alembic、PostgreSQL、SQLite 测试、LangGraph PostgresSaver、Redis、Celery、OpenTelemetry、pytest、Ruff。
 
@@ -298,13 +298,21 @@ Reducer 只按 `message_id` 去重，不再回退到 `role:content`。
 ```python
 config = {
     "configurable": {
-        "thread_id": state["session_key"],
-        "checkpoint_ns": state["tenant_id"],
+        "thread_id": build_checkpoint_thread_id(
+            tenant_id=state["tenant_id"],
+            session_key=state["session_key"],
+            request_id=state["request_id"],
+        ),
+        "checkpoint_ns": "",
     }
 }
 ```
 
-Approval interrupt 同时保存 `checkpoint_thread_id=session_key` 和 `checkpoint_namespace=tenant_id`。
+`build_checkpoint_thread_id` 使用 `cpr1_<sha256(tenant_id + NUL + session_key + NUL + request_id)>`，使租户、业务会话和单次 Run 共同进入真实 Saver Thread ID，同时不泄露原始标识。相同三元组稳定，同 Session 的不同 `request_id` 必须隔离。LangGraph 将 `checkpoint_ns` 用作图/子图拓扑 namespace，根图必须保持空字符串，不能把租户写入该字段。
+
+Approval interrupt 同时保存真实派生的 `checkpoint_thread_id`、根 `checkpoint_namespace=""` 和原始 `tenant_id/session_id/session_key` 业务归属字段。
+
+恢复入口只接受 `cpr1_[0-9a-f]{64}` 和根 namespace 空字符串；裸 `session_id`、旧 `cp_` 坐标、畸形派生 ID 或非空 namespace 必须在读取 Saver 前明确拒绝。旧键缺少可靠租户和 Run 归属，不提供自动探测或迁移回退。
 
 - [ ] **Step 4：验证并提交**
 
@@ -338,11 +346,11 @@ def test_post_message_persists_user_and_assistant(client):
     assert [item["role"] for item in history.json()["items"]] == ["user", "assistant"]
 ```
 
-重复幂等键不得第二次执行 Graph；跨租户查询统一 404；上下文只加载最近 N 条 `completed` Message。
+重复幂等键不得第二次执行 Graph；跨租户查询统一 404；上下文只加载最近 N 条 `completed` Message。测试必须证明软删除、失败、未完成和窗口外 Message 不会进入 `history`，也不会从其他 Run Checkpoint 回流。
 
 - [ ] **Step 2：接入 Turn 初始化和完成**
 
-`Idempotency-Key` 可选，缺失时服务端生成 UUID。API 用短事务创建 Turn 并提交，再启动 Graph。响应增加 `message_id` 和 `request_id`，保持现有字段兼容。模型调用期间不得持有创建 Turn 的事务。
+`Idempotency-Key` 可选，缺失时服务端生成 UUID。API 用短事务创建 Turn 并提交，再按稳定顺序显式加载裁剪后的 `agent_messages` history，将其与 `session_key`、`request_id` 一起传给 Graph；禁止依赖 Checkpoint 补齐多轮上下文。响应增加 `message_id` 和 `request_id`，保持现有字段兼容。模型调用期间不得持有创建 Turn 的事务。
 
 - [ ] **Step 3：增加租户消息查询 API**
 
@@ -404,7 +412,7 @@ SSE 最终只产生一条 Assistant Message；审批中断为 `interrupted`；�
 
 - [ ] **Step 3：审批恢复复用原 Turn**
 
-`ApprovalResumeSnapshot` 增加 `session_key`、`checkpoint_namespace` 和 `assistant_message_id`。恢复前按租户和 Run 加载 Turn，完成后更新原 Assistant Message。
+`ApprovalResumeSnapshot` 增加 `session_key`、`checkpoint_namespace` 和 `assistant_message_id`。恢复前按租户和 Run 加载 Turn，使用审批记录中的派生 `checkpoint_thread_id` 定位 Checkpoint，并校验 `checkpoint_namespace` 只能是根 namespace 空字符串；任何非空值都明确拒绝，不能静默恢复。完成后更新原 Assistant Message。
 
 - [ ] **Step 4：验证并提交**
 
@@ -690,13 +698,13 @@ git commit -m "feat: enforce bounded trace retention"
 - Modify: `backend/app/tests/integration/test_live_postgres_checkpointer.py`
 - Modify: `backend/app/tests/integration/test_trace_api.py`
 
-- [ ] **Step 1：增加真实 PostgreSQL 隔离证明**
+- [ ] **Step 1：增加真实 PostgreSQL 隔离与旧坐标归零证明**
 
-Trace API 测试 monkeypatch `PostgresSaver.get_tuple` 为禁止调用，证明 API 不读取 Checkpointer。真实 PostgreSQL 测试使用相同外部 `session_id` 创建两个租户，断言 `session_key`、Checkpoint 和消息历史互不相同。
+Trace API 测试 monkeypatch `PostgresSaver.get_tuple` 为禁止调用，证明 API 不读取 Checkpointer。真实 PostgreSQL 测试使用相同外部 `session_id` 创建两个租户，断言 `session_key`、派生 Checkpoint Thread ID 和消息历史互不相同。生产门禁还必须查询并证明 `running`、`interrupted`、待审批 Run 已排空，引用裸 `session_id` Thread ID 的在途 Approval 为零，Checkpointer 中不再存在需要恢复的旧坐标。
 
 - [ ] **Step 2：更新中文文档**
 
-说明 Message、Run、Checkpoint、Trace 职责；租户 Session Key；普通与流式写入时序；Trace 独立事务；采样状态；30 天保留；OTLP；故障告警；Message 不保存私有推理。
+说明 Message、Run、Checkpoint、Trace 职责；租户 Session Key；普通与流式写入时序；Trace 独立事务；采样状态；30 天保留；OTLP；故障告警；Message 不保存私有推理。Checkpoint 身份升级按破坏性部署执行：上线前停止新流量并排空可恢复执行，旧 Checkpoint 不自动迁移而按保留策略清理；会话历史从 `agent_messages` 恢复，因此排空后清理 Checkpoint 不影响历史事实源。
 
 - [ ] **Step 3：执行全量验证**
 
@@ -745,4 +753,6 @@ git commit -m "docs: finalize session message and trace operations"
 - [ ] Agent Node Span 只包含白名单属性。
 - [ ] Trace 清理任务具有批量上限，默认保留 30 天。
 - [ ] Checkpointer、Message 和 Trace 具有独立存储职责和生产隔离证明。
+- [ ] Checkpoint 身份升级前已停流量并排空 `running`、`interrupted`、待审批 Run；旧 Checkpoint 坐标和引用旧坐标的 Approval 生产门禁计数均为零。
+- [ ] 旧裸 Checkpoint 不读取、不反序列化、不自动迁移；会话历史仅从 `agent_messages` 恢复。
 - [ ] Alembic、Backend 全量测试、Ruff、生产配置门禁和 `git diff --check` 全部通过。

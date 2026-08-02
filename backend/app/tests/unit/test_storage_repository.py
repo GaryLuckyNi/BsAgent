@@ -4,11 +4,11 @@ from sqlalchemy.orm import Session
 
 from app.graph.runtime import run_question_answer_graph
 from app.graph.state import create_initial_state
-from app.harness.tracing import InMemoryTraceStore, TraceEvent
+from app.harness.tracing import InMemoryTraceStore
 from app.schemas.approvals import ApprovalRequest
 from app.schemas.memory import ExperienceCommitPayload
 from app.schemas.memory import MemoryCandidate
-from app.storage.models import AgentRun, AgentSession, AgentTraceEvent, Base, MemoryCandidateRecord
+from app.storage.models import AgentRun, AgentSession, Base, MemoryCandidateRecord
 from app.storage.repositories import persist_agent_run
 
 
@@ -20,7 +20,7 @@ class RecordingExperienceStore:
         self.payloads.append(payload)
 
 
-def test_persist_agent_run_stores_session_run_and_trace_events():
+def test_persist_agent_run_stores_session_and_run():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
     trace_store = InMemoryTraceStore()
@@ -36,19 +36,16 @@ def test_persist_agent_run_stores_session_run_and_trace_events():
         run = persist_agent_run(
             session=session,
             state=state,
-            trace_events=trace_store.events,
             status="completed",
         )
 
-        saved_session = session.get(AgentSession, "session_1")
+        saved_session = session.get(AgentSession, state["session_key"])
         saved_run = session.get(AgentRun, run.run_id)
-        saved_events = session.scalars(select(AgentTraceEvent)).all()
 
     assert saved_session.tenant_id == "tenant_1"
     assert saved_run.trace_id == state["trace_id"]
     assert saved_run.intent == "conversation"
     assert saved_run.risk_level == "low"
-    assert {event.node_name for event in saved_events} >= {"intent_router", "final_response"}
 
 
 def test_persist_agent_run_updates_existing_run_when_resumed():
@@ -60,144 +57,25 @@ def test_persist_agent_run_updates_existing_run_when_resumed():
         user_id="user_1",
         user_message="执行高风险工具",
     )
-    first_event = TraceEvent(
-        trace_id=state["trace_id"],
-        node_name="approval_gate",
-        status="success",
-        latency_ms=1,
-    )
-    resumed_event = TraceEvent(
-        trace_id=state["trace_id"],
-        node_name="tool_agent",
-        status="success",
-        latency_ms=2,
-    )
-
     with Session(engine) as session:
         persist_agent_run(
             session=session,
             state=state,
-            trace_events=[first_event],
             status="interrupted",
+            run_id="stable_run_1",
         )
         persist_agent_run(
             session=session,
             state=state,
-            trace_events=[resumed_event],
             status="completed",
+            run_id="stable_run_1",
         )
 
         saved_runs = session.scalars(select(AgentRun)).all()
-        saved_events = session.scalars(select(AgentTraceEvent)).all()
 
     assert len(saved_runs) == 1
+    assert saved_runs[0].run_id == "stable_run_1"
     assert saved_runs[0].status == "completed"
-    assert [event.node_name for event in saved_events] == ["approval_gate", "tool_agent"]
-
-
-def test_persist_agent_run_deduplicates_same_trace_event_on_retry():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    state = create_initial_state(
-        session_id="session_1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="执行高风险工具",
-    )
-    trace_event = TraceEvent(
-        trace_id=state["trace_id"],
-        node_name="tool_agent",
-        status="success",
-        latency_ms=2,
-    )
-
-    with Session(engine) as session:
-        persist_agent_run(
-            session=session,
-            state=state,
-            trace_events=[trace_event],
-            status="completed",
-        )
-        persist_agent_run(
-            session=session,
-            state=state,
-            trace_events=[trace_event],
-            status="completed",
-        )
-
-        saved_events = session.scalars(select(AgentTraceEvent)).all()
-
-    assert len(saved_events) == 1
-
-
-def test_persist_agent_run_rejects_trace_event_from_another_trace():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    state = create_initial_state(
-        session_id="session_1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="执行高风险工具",
-    )
-    trace_event = TraceEvent(
-        trace_id="trace_from_another_run",
-        node_name="tool_agent",
-        status="success",
-        latency_ms=2,
-    )
-
-    with Session(engine) as session:
-        with pytest.raises(RuntimeError) as exc_info:
-            persist_agent_run(
-                session=session,
-                state=state,
-                trace_events=[trace_event],
-                status="completed",
-            )
-
-    assert exc_info.value.code == "trace_event_integrity_error"
-
-
-def test_persist_agent_run_rejects_conflicting_existing_trace_event():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    state = create_initial_state(
-        session_id="session_1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="执行高风险工具",
-    )
-    original = TraceEvent(
-        trace_id=state["trace_id"],
-        node_name="tool_agent",
-        status="success",
-        latency_ms=2,
-    )
-    conflicting = TraceEvent(
-        event_id=original.event_id,
-        trace_id=state["trace_id"],
-        node_name="approval_gate",
-        status="error",
-        latency_ms=5,
-        error="changed event",
-    )
-
-    with Session(engine) as session:
-        persist_agent_run(
-            session=session,
-            state=state,
-            trace_events=[original],
-            status="completed",
-        )
-        with pytest.raises(RuntimeError) as exc_info:
-            persist_agent_run(
-                session=session,
-                state=state,
-                trace_events=[conflicting],
-                status="completed",
-            )
-
-    assert exc_info.value.code == "trace_event_integrity_error"
 
 
 def test_persist_agent_run_stores_and_merges_memory_candidates():
@@ -242,13 +120,11 @@ def test_persist_agent_run_stores_and_merges_memory_candidates():
         persist_agent_run(
             session=session,
             state=first_state,
-            trace_events=[],
             status="completed",
         )
         persist_agent_run(
             session=session,
             state=second_state,
-            trace_events=[],
             status="completed",
         )
 
@@ -258,6 +134,74 @@ def test_persist_agent_run_stores_and_merges_memory_candidates():
     assert saved_candidates[0].confidence == 0.95
     assert saved_candidates[0].sensitivity == "high"
     assert saved_candidates[0].approval_status == "pending"
+
+
+def test_persist_agent_run_uses_override_run_id_for_memory_candidate():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="记住偏好",
+    )
+    state["memory_candidates"] = [
+        MemoryCandidate(
+            candidate_id="memcand_override",
+            memory_type="user_preference",
+            content="使用中文",
+            confidence=0.9,
+            approval_status="not_required",
+            sensitivity="low",
+            source="user_explicit_preference",
+        )
+    ]
+
+    with Session(engine) as session:
+        persist_agent_run(
+            session=session,
+            state=state,
+            status="completed",
+            run_id="stable_run_1",
+        )
+        candidate = session.get(MemoryCandidateRecord, "memcand_override")
+        run = session.get(AgentRun, "stable_run_1")
+        request_run = session.get(AgentRun, state["request_id"])
+
+    assert candidate.run_id == run.run_id == "stable_run_1"
+    assert candidate.tenant_id == "tenant_1"
+    assert candidate.user_id == "user_1"
+    assert request_run is None
+
+
+def test_persist_agent_run_rejects_cross_tenant_existing_session_key():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        session_key="shared_session_key",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="问题",
+    )
+
+    with Session(engine) as session:
+        session.add(
+            AgentSession(
+                session_key="shared_session_key",
+                session_id="session_1",
+                tenant_id="tenant_2",
+                user_id="user_1",
+            )
+        )
+        session.commit()
+
+        with pytest.raises(ValueError, match="agent_session_identity_conflict"):
+            persist_agent_run(
+                session=session,
+                state=state,
+                status="completed",
+            )
 
 
 def test_persist_agent_run_commits_approved_memory_to_injected_experience_store():
@@ -296,7 +240,6 @@ def test_persist_agent_run_commits_approved_memory_to_injected_experience_store(
         persist_agent_run(
             session=session,
             state=state,
-            trace_events=[],
             status="completed",
             experience_store=experience_store,
         )

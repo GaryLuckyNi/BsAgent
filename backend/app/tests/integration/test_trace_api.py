@@ -1,17 +1,18 @@
 import json
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.postgres import PostgresSaver
 import pytest
-from pydantic import BaseModel
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api import sessions
 from app.graph.state import create_initial_state
+from app.harness.query import TraceQueryRepository
 from app.harness.node_runner import NodeRunner
 from app.harness.tracing import (
-    TraceArtifact,
     TraceEvent,
     get_trace_store,
     summarize_node_transition,
@@ -22,7 +23,12 @@ from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
 from app.security.dependencies import get_current_principal
 from app.security.principal import Principal
 from app.storage.database import get_db
-from app.storage.models import Base
+from app.storage.models import (
+    AgentRun,
+    AgentTraceArtifact,
+    AgentTraceEvent,
+    Base,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -45,13 +51,81 @@ def create_test_app_with_database(*, override_principal=True):
 
     app = create_app()
     app.dependency_overrides[get_db] = override_get_db
+    app.state.testing_engine = engine
+    app.state.testing_session_local = testing_session_local
     if override_principal:
         app.dependency_overrides[get_current_principal] = lambda: Principal(
             tenant_id="tenant_1",
-            user_id="admin_1",
-            scopes=("*",),
+            user_id="user_1",
+            scopes=("agent:invoke", "agent:read", "trace:read"),
         )
     return app
+
+
+def seed_persisted_trace(
+    app,
+    *,
+    trace_id="trace_db_1",
+    run_id="run_db_1",
+    tenant_id="tenant_1",
+    capture_status="captured",
+    capture_level="detailed",
+    event_count=1,
+    artifact_count=1,
+):
+    with app.state.testing_session_local.begin() as session:
+        session.add(
+            AgentRun(
+                run_id=run_id,
+                session_id=f"session_{run_id}",
+                session_key=f"session_key_{run_id}",
+                tenant_id=tenant_id,
+                user_id=f"user_{tenant_id}",
+                trace_id=trace_id,
+                status="completed",
+                trace_capture_status=capture_status,
+                trace_capture_level=(
+                    capture_level if capture_status == "captured" else None
+                ),
+            )
+        )
+        for index in range(event_count):
+            event_id = f"event_{run_id}_{index:04d}"
+            session.add(
+                AgentTraceEvent(
+                    event_id=event_id,
+                    trace_id=trace_id,
+                    run_id=run_id,
+                    node_name=f"node_{index:04d}",
+                    event_type="node",
+                    status="success",
+                    latency_ms=index,
+                    metadata_json={
+                        "database_password": "event-secret",
+                        "visible": index,
+                    },
+                    capture_level=capture_level,
+                )
+            )
+            if index < artifact_count:
+                session.add(
+                    AgentTraceArtifact(
+                        artifact_id=f"artifact_{run_id}_{index:04d}",
+                        trace_id=trace_id,
+                        run_id=run_id,
+                        event_id=event_id,
+                        artifact_type="output_summary",
+                        payload={
+                            "client_secret": "artifact-secret",
+                            "visible": index,
+                        },
+                        size_bytes=64,
+                        capture_level=capture_level,
+                        created_at=datetime.now(UTC) + timedelta(seconds=index),
+                        expires_at=datetime.now(UTC) + timedelta(days=1),
+                    )
+                )
+    return trace_id
 
 
 def test_get_trace_requires_authenticated_principal():
@@ -74,93 +148,244 @@ def test_get_trace_requires_authenticated_principal():
     assert response.status_code == 401
 
 
-def test_get_trace_returns_events_and_artifacts():
-    store = get_trace_store()
-    store.clear()
-    trace_id = "trace_debug_1"
-    input_ref = store.save_artifact(
-        TraceArtifact(
-            trace_id=trace_id,
-            node_name="intent_router",
-            artifact_type="input_summary",
-            payload={"user_message": {"preview": "制度是什么？"}},
-        )
+def test_trace_api_reads_database_after_memory_store_is_cleared():
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(app)
+    get_trace_store().clear()
+
+    response = TestClient(app).get(
+        f"/api/traces/{trace_id}?include_artifacts=true"
     )
-    output_ref = store.save_artifact(
-        TraceArtifact(
-            trace_id=trace_id,
-            node_name="intent_router",
-            artifact_type="output_summary",
-            payload={"intent": {"intent": "knowledge_qa"}},
-        )
+
+    assert response.status_code == 200
+    assert response.json()["capture_status"] == "captured"
+    assert response.json()["events"][0]["event_id"] == "event_run_db_1_0000"
+    assert "artifact_run_db_1_0000" in response.json()["artifacts"]
+
+
+def test_trace_api_never_reads_postgres_checkpointer(monkeypatch):
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(app)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Trace API 禁止读取 PostgresSaver。")
+
+    monkeypatch.setattr(PostgresSaver, "get_tuple", forbidden)
+    monkeypatch.setattr(PostgresSaver, "list", forbidden)
+
+    response = TestClient(app).get(
+        f"/api/traces/{trace_id}?include_artifacts=true"
     )
-    store.record_event(
-        TraceEvent(
-            trace_id=trace_id,
-            node_name="intent_router",
-            status="success",
-            latency_ms=3,
-            input_ref=input_ref,
-            output_ref=output_ref,
-        )
+
+    assert response.status_code == 200
+    assert response.json()["trace_id"] == trace_id
+
+
+@pytest.mark.parametrize("capture_status", ["not_sampled", "persist_failed"])
+def test_trace_api_returns_empty_data_for_uncaptured_status(capture_status):
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(
+        app,
+        trace_id=f"trace_{capture_status}",
+        run_id=f"run_{capture_status}",
+        capture_status=capture_status,
+        event_count=1,
+        artifact_count=1,
     )
+
+    response = TestClient(app).get(f"/api/traces/{trace_id}")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "trace_id": trace_id,
+        "capture_status": capture_status,
+        "capture_level": None,
+        "events": [],
+        "artifacts": {},
+    }
+
+
+def test_trace_api_does_not_query_artifacts_unless_requested():
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(app)
+    statements = []
+
+    def record_statement(_conn, _cursor, statement, _parameters, _context, _many):
+        statements.append(statement)
+
+    event.listen(app.state.testing_engine, "before_cursor_execute", record_statement)
+    try:
+        response = TestClient(app).get(f"/api/traces/{trace_id}")
+    finally:
+        event.remove(
+            app.state.testing_engine,
+            "before_cursor_execute",
+            record_statement,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["artifacts"] == {}
+    assert not any("agent_trace_artifacts" in statement for statement in statements)
+
+
+def test_trace_api_enforces_stable_pagination_limits():
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(
+        app,
+        event_count=505,
+        artifact_count=105,
+    )
+
+    response = TestClient(app).get(
+        f"/api/traces/{trace_id}?include_artifacts=true"
+        "&event_limit=500&artifact_limit=100"
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["events"]) == 500
+    assert body["events"][0]["event_id"] == "event_run_db_1_0000"
+    assert body["events"][-1]["event_id"] == "event_run_db_1_0499"
+    assert len(body["artifacts"]) == 100
+    assert (
+        TestClient(app).get(f"/api/traces/{trace_id}?event_limit=501").status_code
+        == 422
+    )
+    assert (
+        TestClient(app).get(f"/api/traces/{trace_id}?artifact_limit=101").status_code
+        == 422
+    )
+
+    with app.state.testing_session_local() as session:
+        view = TraceQueryRepository(session).get_trace(
+            trace_id=trace_id,
+            tenant_id="tenant_1",
+            include_artifacts=True,
+            event_limit=10_000,
+            artifact_limit=10_000,
+        )
+    assert view is not None
+    assert len(view.events) == 500
+    assert len(view.artifacts) == 100
+
+
+def test_trace_api_isolates_duplicate_trace_ids_by_tenant_and_run():
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(
+        app,
+        trace_id="trace_shared",
+        run_id="run_tenant_1",
+        tenant_id="tenant_1",
+    )
+    seed_persisted_trace(
+        app,
+        trace_id=trace_id,
+        run_id="run_tenant_2",
+        tenant_id="tenant_2",
+    )
+    client = TestClient(app)
+
+    own_response = client.get(f"/api/traces/{trace_id}")
+
+    assert own_response.status_code == 200
+    assert {item["run_id"] for item in own_response.json()["events"]} == {
+        "run_tenant_1"
+    }
+
+    app.dependency_overrides[get_current_principal] = lambda: Principal(
+        tenant_id="tenant_1",
+        user_id="operator_1",
+        scopes=("trace:read", "trace:read:any"),
+    )
+    cross_tenant = client.get(
+        f"/api/traces/{trace_id}?tenant_id=tenant_2&include_artifacts=true"
+    )
+
+    assert cross_tenant.status_code == 200
+    assert {item["run_id"] for item in cross_tenant.json()["events"]} == {
+        "run_tenant_2"
+    }
+    assert {
+        item["run_id"] for item in cross_tenant.json()["artifacts"].values()
+    } == {"run_tenant_2"}
+
+
+def test_trace_api_hides_cross_tenant_target_and_restricts_tenant_parameter():
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(
+        app,
+        trace_id="trace_tenant_2",
+        run_id="run_tenant_2",
+        tenant_id="tenant_2",
+    )
+    client = TestClient(app)
+
+    hidden = client.get(f"/api/traces/{trace_id}?tenant_id=tenant_2")
+    own_parameter = client.get(
+        "/api/traces/missing_trace?tenant_id=tenant_1"
+    )
+
+    assert hidden.status_code == 404
+    assert hidden.json()["detail"]["code"] == "trace_not_found"
+    assert own_parameter.status_code == 403
+    assert own_parameter.json()["detail"] == {
+        "code": "permission_denied",
+        "permission": "trace:read:any",
+    }
+
+
+def test_trace_api_rejects_unsafe_identifiers():
     client = TestClient(create_test_app_with_database())
 
-    response = client.get(f"/api/traces/{trace_id}")
+    assert client.get("/api/traces/trace%20unsafe").status_code == 422
+    assert (
+        client.get("/api/traces/trace_safe?tenant_id=tenant%20unsafe").status_code
+        == 422
+    )
+
+
+def test_get_trace_returns_events_and_artifacts():
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(
+        app,
+        trace_id="trace_debug_1",
+        run_id="run_debug_1",
+        event_count=2,
+        artifact_count=2,
+    )
+    client = TestClient(app)
+
+    response = client.get(f"/api/traces/{trace_id}?include_artifacts=true")
 
     assert response.status_code == 200
     body = response.json()
     assert body["trace_id"] == trace_id
-    assert body["events"][0]["node_name"] == "intent_router"
-    assert body["artifacts"][input_ref]["payload"]["user_message"]["preview"] == "制度是什么？"
-    assert body["artifacts"][output_ref]["payload"]["intent"]["intent"] == "knowledge_qa"
+    assert body["events"][0]["node_name"] == "node_0000"
+    assert body["artifacts"]["artifact_run_debug_1_0000"]["payload"] == {
+        "client_secret": "***",
+        "visible": 0,
+    }
 
 
-def test_get_trace_redacts_pydantic_values_in_events_and_artifacts():
-    class SensitivePayload(BaseModel):
-        database_password: str
-        visible: str
-
-    store = get_trace_store()
-    store.clear()
-    trace_id = "trace_sensitive_1"
-    artifact_ref = store.save_artifact(
-        TraceArtifact(
-            trace_id=trace_id,
-            node_name="tool_agent",
-            artifact_type="input_summary",
-            payload={
-                "request": SensitivePayload(
-                    database_password="artifact-secret",
-                    visible="safe",
-                )
-            },
-        )
-    )
-    store.record_event(
-        TraceEvent(
-            trace_id=trace_id,
-            node_name="tool_agent",
-            status="success",
-            latency_ms=1,
-            metadata={
-                "request": SensitivePayload(
-                    database_password="event-secret",
-                    visible="safe",
-                )
-            },
-        )
+def test_get_trace_redacts_database_events_and_artifacts_again():
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(
+        app,
+        trace_id="trace_sensitive_1",
+        run_id="run_sensitive_1",
     )
 
-    response = TestClient(create_test_app_with_database()).get(f"/api/traces/{trace_id}")
+    response = TestClient(app).get(
+        f"/api/traces/{trace_id}?include_artifacts=true"
+    )
 
     assert response.status_code == 200
     serialized = response.text
     assert "artifact-secret" not in serialized
     assert "event-secret" not in serialized
-    assert response.json()["artifacts"][artifact_ref]["payload"]["request"] == {
+    assert response.json()["events"][0]["metadata"] == {
         "database_password": "***",
-        "visible": "safe",
+        "visible": 0,
     }
 
 
@@ -232,33 +457,10 @@ def test_trace_summaries_keep_only_whitelisted_metadata_without_body_content():
         input_state={**state, "tool_calls": []},
         output_state=state,
     )
-    store = get_trace_store()
-    store.clear()
-    store.save_artifact(
-        TraceArtifact(
-            trace_id=state["trace_id"],
-            node_name="tool_agent",
-            artifact_type="output_summary",
-            payload=state_summary,
-        )
-    )
-    store.record_event(
-        TraceEvent(
-            trace_id=state["trace_id"],
-            node_name="tool_agent",
-            status="success",
-            latency_ms=7,
-            metadata=transition_summary,
-        )
-    )
-    api_response = TestClient(create_test_app_with_database()).get(
-        f"/api/traces/{state['trace_id']}"
-    )
-    assert api_response.status_code == 200
     serialized = json.dumps(
         {"state": state_summary, "transition": transition_summary},
         ensure_ascii=False,
-    ) + api_response.text
+    )
 
     for secret in (
         "user-message-secret",
@@ -370,15 +572,16 @@ def test_trace_exposes_market_data_coverage_without_credentials():
 
 
 def test_trace_event_error_is_sanitized_when_recorded_and_returned_by_api():
-    store = get_trace_store()
-    store.clear()
-    trace_id = "trace_error_sanitization"
-    event = TraceEvent(
-        trace_id=trace_id,
-        node_name="tool_agent",
-        status="error",
-        latency_ms=1,
-        error=(
+    app = create_test_app_with_database()
+    trace_id = seed_persisted_trace(
+        app,
+        trace_id="trace_error_sanitization",
+        run_id="run_error_sanitization",
+    )
+    with app.state.testing_session_local.begin() as session:
+        persisted_event = session.query(AgentTraceEvent).one()
+        persisted_event.status = "error"
+        persisted_event.error = (
             "Bearer bearer-secret-value "
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMTIzNCJ9.signature12345 "
             "postgresql://agent:database-secret@db/prod "
@@ -386,13 +589,9 @@ def test_trace_event_error_is_sanitized_when_recorded_and_returned_by_api():
             "client_secret: colon-secret "
             "Authorization: Basic dXNlcjpwYXNzd29yZA== "
             "https://api.example.com/callback?access_token=query-secret"
-        ),
-    )
+        )
 
-    store.record_event(event)
-
-    assert store.list_events(trace_id)[0].error != event.error
-    response = TestClient(create_test_app_with_database()).get(f"/api/traces/{trace_id}")
+    response = TestClient(app).get(f"/api/traces/{trace_id}")
     assert response.status_code == 200
     serialized = response.text
     for secret in (
@@ -437,11 +636,7 @@ def test_node_runner_trace_never_records_arbitrary_exception_text():
         "message": "节点执行失败。",
         "handled": False,
     }
-    response = TestClient(create_test_app_with_database()).get(
-        f"/api/traces/{state['trace_id']}"
-    )
-    assert response.status_code == 200
-    serialized = response.text + repr(store.list_artifacts(state["trace_id"]))
+    serialized = repr(store.list_artifacts(state["trace_id"]))
     for secret in (
         "db-secret",
         "client-secret",
@@ -453,6 +648,8 @@ def test_node_runner_trace_never_records_arbitrary_exception_text():
 
 def test_session_message_trace_can_be_queried(monkeypatch):
     monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
+    monkeypatch.setattr(sessions.settings, "trace_success_sample_ratio", 1)
+    monkeypatch.setattr(sessions.settings, "trace_detailed_sample_ratio", 1)
     store = get_trace_store()
     store.clear()
     client = TestClient(create_test_app_with_database())
@@ -464,7 +661,9 @@ def test_session_message_trace_can_be_queried(monkeypatch):
     )
 
     trace_id = session_response.json()["trace_id"]
-    trace_response = client.get(f"/api/traces/{trace_id}")
+    trace_response = client.get(
+        f"/api/traces/{trace_id}?include_artifacts=true"
+    )
 
     assert trace_response.status_code == 200
     body = trace_response.json()

@@ -3,6 +3,9 @@ from time import perf_counter
 from typing import Any, Literal
 from uuid import uuid4
 
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
+
 from app.graph.state import AgentError, AgentState
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import (
@@ -32,6 +35,8 @@ class NodeObservation:
     started_at: float
     baseline: NodeBaseline
     input_ref: str | None
+    span: Any | None
+    span_scope: Any | None
 
 
 class NodeObserver:
@@ -40,13 +45,16 @@ class NodeObserver:
         *,
         trace_buffer: TraceBuffer | None = None,
         trace_store: InMemoryTraceStore | None = None,
+        tracer: Any | None = None,
     ) -> None:
         self.trace_buffer = trace_buffer
         self.trace_store = trace_store if trace_buffer is None else None
         if self.trace_buffer is None and self.trace_store is None:
             self.trace_store = get_trace_store()
+        self.tracer = tracer or trace.get_tracer("bs_agent.node")
 
     def observe_start(self, node_name: str, state: AgentState) -> NodeObservation:
+        span, span_scope = self._start_span()
         return NodeObservation(
             node_name=node_name,
             trace_id=state["trace_id"],
@@ -58,6 +66,8 @@ class NodeObserver:
                 artifact_type="input_summary",
                 summary=summarize_state(state),
             ),
+            span=span,
+            span_scope=span_scope,
         )
 
     def record_success(
@@ -82,16 +92,23 @@ class NodeObserver:
             observation=observation,
             state=state,
         )
+        latency_ms = measure_latency_ms(observation.started_at)
         self._record_event(
             TraceEvent(
                 trace_id=observation.trace_id,
                 node_name=observation.node_name,
                 status="success",
-                latency_ms=measure_latency_ms(observation.started_at),
+                latency_ms=latency_ms,
                 input_ref=observation.input_ref,
                 output_ref=output_ref,
                 metadata=metadata,
             )
+        )
+        self._finish_span(
+            observation=observation,
+            state=state,
+            status="success",
+            latency_ms=latency_ms,
         )
 
     def record_error(
@@ -129,6 +146,34 @@ class NodeObserver:
             handled=True,
         )
 
+    def record_interrupted(
+        self,
+        *,
+        observation: NodeObservation,
+        state: AgentState,
+    ) -> None:
+        self._finish_span(
+            observation=observation,
+            state=state,
+            status="interrupted",
+            latency_ms=measure_latency_ms(observation.started_at),
+        )
+
+    def record_untraced_error(
+        self,
+        *,
+        observation: NodeObservation,
+        state: AgentState,
+        error_code: str,
+    ) -> None:
+        self._finish_span(
+            observation=observation,
+            state=state,
+            status="error",
+            latency_ms=measure_latency_ms(observation.started_at),
+            error_code=error_code,
+        )
+
     def _record_error_event(
         self,
         *,
@@ -164,18 +209,83 @@ class NodeObserver:
             "message": safe_message,
             "handled": handled,
         }
+        latency_ms = measure_latency_ms(observation.started_at)
         self._record_event(
             TraceEvent(
                 trace_id=observation.trace_id,
                 node_name=observation.node_name,
                 status=status,
-                latency_ms=measure_latency_ms(observation.started_at),
+                latency_ms=latency_ms,
                 input_ref=observation.input_ref,
                 output_ref=output_ref,
                 error=f"{error_code}:{exception_type}",
                 metadata=metadata,
             )
         )
+        self._finish_span(
+            observation=observation,
+            state=state,
+            status=status,
+            latency_ms=latency_ms,
+            error_code=error_code,
+        )
+
+    def _start_span(self) -> tuple[Any | None, Any | None]:
+        span = None
+        span_scope = None
+        try:
+            span = self.tracer.start_span("bs_agent.node")
+            span_scope = trace.use_span(
+                span,
+                end_on_exit=False,
+                record_exception=False,
+                set_status_on_exception=False,
+            )
+            span_scope.__enter__()
+        except Exception:
+            if span is not None:
+                try:
+                    span.end()
+                except Exception:
+                    pass
+            return None, None
+        return span, span_scope
+
+    def _finish_span(
+        self,
+        *,
+        observation: NodeObservation,
+        state: AgentState,
+        status: str,
+        latency_ms: float,
+        error_code: str | None = None,
+    ) -> None:
+        span = observation.span
+        if span is None:
+            return
+        try:
+            attributes = _build_span_attributes(
+                observation=observation,
+                state=state,
+                status=status,
+                latency_ms=latency_ms,
+                error_code=error_code,
+            )
+            span.set_attributes(attributes)
+            if error_code is not None:
+                span.set_status(Status(StatusCode.ERROR))
+        except Exception:
+            pass
+        finally:
+            try:
+                if observation.span_scope is not None:
+                    observation.span_scope.__exit__(None, None, None)
+            except Exception:
+                pass
+            try:
+                span.end()
+            except Exception:
+                pass
 
     def _record_artifact(
         self,
@@ -221,6 +331,38 @@ def _build_baseline(state: AgentState) -> NodeBaseline:
         memory_candidate_count=len(state["memory_candidates"]),
         approval_status=approval_status.status if approval_status else None,
     )
+
+
+def _build_span_attributes(
+    *,
+    observation: NodeObservation,
+    state: AgentState,
+    status: str,
+    latency_ms: float,
+    error_code: str | None,
+) -> dict[str, str | bool | int | float]:
+    evidence = state["evidence"]
+    evidence_count = len(evidence.items) if evidence else 0
+    approval_status = state["approval_status"]
+    attributes: dict[str, str | bool | int | float] = {
+        "bs.agent.node.name": observation.node_name,
+        "bs.agent.node.status": status,
+        "bs.agent.node.duration_ms": round(latency_ms, 3),
+        "bs.agent.tool.call_count": max(
+            0,
+            len(state["tool_calls"]) - observation.baseline.tool_call_count,
+        ),
+        "bs.agent.evidence.item_count": max(
+            0,
+            evidence_count - observation.baseline.evidence_item_count,
+        ),
+        "bs.agent.approval.required": bool(
+            approval_status is not None and approval_status.required
+        ),
+    }
+    if error_code is not None:
+        attributes["bs.agent.error.code"] = error_code
+    return attributes
 
 
 def _apply_baseline_transition_metadata(

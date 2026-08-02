@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterator
+import re
 from typing import Any
 
 from langgraph.graph import END, StateGraph
@@ -25,7 +26,11 @@ from app.graph.nodes.skill_agent import (
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.nodes.verifier import verifier_node
-from app.graph.state import AgentState, create_initial_state
+from app.graph.state import (
+    AgentState,
+    build_checkpoint_thread_id,
+    create_initial_state,
+)
 from app.schemas.messages import Message
 from app.harness.error_boundary import (
     build_safe_error_record,
@@ -37,6 +42,7 @@ from app.harness.error_boundary import (
 )
 from app.harness.node_runner import NodeRunner
 from app.harness.observer import NodeObserver
+from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolCallRequest
@@ -58,6 +64,19 @@ class AgentGraphExecutionError(RuntimeError):
         self.code = code
         self.http_status = http_status
         super().__init__(f"{node_name}: {message}")
+
+
+class LegacyCheckpointIncompatibleError(RuntimeError):
+    code = "legacy_checkpoint_incompatible"
+    http_status = 409
+
+    def __init__(self) -> None:
+        super().__init__(
+            "旧 Checkpoint 不可安全恢复：坐标缺少可靠的租户或 Run 归属，请重新执行请求。"
+        )
+
+
+_CHECKPOINT_THREAD_ID_PATTERN = re.compile(r"cpr1_[0-9a-f]{64}")
 
 
 class _UnavailableAttachmentResolver:
@@ -103,18 +122,18 @@ def _append_assistant_message(state: AgentState) -> None:
     content = final_response.get("content")
     if not content:
         return
-    message_id = f"{state['request_id']}:assistant"
+    message_id = state["assistant_message_id"]
     if any(
-        message.metadata.get("message_id") == message_id
+        message.message_id == message_id
         for message in state["messages"]
     ):
         return
     state["messages"].append(
         Message(
+            message_id=message_id,
             role="assistant",
             content=content,
             metadata={
-                "message_id": message_id,
                 "request_id": state["request_id"],
                 "trace_id": state["trace_id"],
             },
@@ -312,6 +331,7 @@ def build_question_answer_graph(
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     memory_retriever: MemoryRetriever | None = None,
+    trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
@@ -320,7 +340,7 @@ def build_question_answer_graph(
     allow_test_tool_agent_override: bool = False,
     attachment_resolver: AttachmentContextResolver | None = None,
 ):
-    runner = NodeRunner(trace_store=trace_store)
+    runner = NodeRunner(trace_buffer=trace_buffer, trace_store=trace_store)
     selected_registry_factory = tool_registry_factory or getattr(
         tool_agent_node, "tool_registry_factory", None
     ) or get_default_tool_registry
@@ -481,14 +501,21 @@ def build_question_answer_graph(
 def run_question_answer_graph(
     *,
     session_id: str,
+    session_key: str | None = None,
     tenant_id: str,
     user_id: str,
     user_message: str,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    user_message_id: str | None = None,
+    assistant_message_id: str | None = None,
+    history: list[Message] | None = None,
     mock_evidence: bool = True,
     retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     memory_retriever: MemoryRetriever | None = None,
+    trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
@@ -500,14 +527,21 @@ def run_question_answer_graph(
 ) -> AgentState:
     state, graph, config = _prepare_question_answer_run(
         session_id=session_id,
+        session_key=session_key,
         tenant_id=tenant_id,
         user_id=user_id,
         user_message=user_message,
+        request_id=request_id,
+        trace_id=trace_id,
+        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
+        history=history,
         mock_evidence=mock_evidence,
         retriever_node=retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         memory_retriever=memory_retriever,
+        trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
@@ -523,14 +557,21 @@ def run_question_answer_graph(
 def stream_question_answer_graph(
     *,
     session_id: str,
+    session_key: str | None = None,
     tenant_id: str,
     user_id: str,
     user_message: str,
+    request_id: str | None = None,
+    trace_id: str | None = None,
+    user_message_id: str | None = None,
+    assistant_message_id: str | None = None,
+    history: list[Message] | None = None,
     mock_evidence: bool = True,
     retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     memory_retriever: MemoryRetriever | None = None,
+    trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
     llm_client: LlmClient | None = None,
@@ -542,14 +583,21 @@ def stream_question_answer_graph(
 ) -> Iterator[AgentState]:
     state, graph, config = _prepare_question_answer_run(
         session_id=session_id,
+        session_key=session_key,
         tenant_id=tenant_id,
         user_id=user_id,
         user_message=user_message,
+        request_id=request_id,
+        trace_id=trace_id,
+        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
+        history=history,
         mock_evidence=mock_evidence,
         retriever_node=retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         memory_retriever=memory_retriever,
+        trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
@@ -570,14 +618,21 @@ def stream_question_answer_graph(
 def _prepare_question_answer_run(
     *,
     session_id: str,
+    session_key: str | None,
     tenant_id: str,
     user_id: str,
     user_message: str,
+    request_id: str | None,
+    trace_id: str | None,
+    user_message_id: str | None,
+    assistant_message_id: str | None,
+    history: list[Message] | None,
     mock_evidence: bool,
     retriever_node: Callable[[AgentState], AgentState] | None,
     skill_agent_node: Callable[[AgentState], AgentState] | None,
     tool_agent_node: Callable[[AgentState], AgentState] | None,
     memory_retriever: MemoryRetriever | None,
+    trace_buffer: TraceBuffer | None,
     trace_store: InMemoryTraceStore | None,
     checkpointer: Checkpointer,
     llm_client: LlmClient | None,
@@ -599,9 +654,15 @@ def _prepare_question_answer_run(
     )
     state = create_initial_state(
         session_id=session_id,
+        session_key=session_key,
         tenant_id=tenant_id,
         user_id=user_id,
         user_message=user_message,
+        request_id=request_id,
+        trace_id=trace_id,
+        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
+        history=history,
         permission_scopes=permission_scopes,
         tool_catalog_digest=tool_registry_snapshot.catalog_digest,
         attachment_ids=attachment_ids,
@@ -611,6 +672,7 @@ def _prepare_question_answer_run(
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         memory_retriever=memory_retriever,
+        trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
@@ -619,12 +681,23 @@ def _prepare_question_answer_run(
         allow_test_tool_agent_override=allow_test_tool_agent_override,
         attachment_resolver=attachment_resolver,
     )
-    config = (
-        {"configurable": {"thread_id": state["session_id"]}}
-        if checkpointer is not None
-        else None
-    )
+    config = _checkpoint_config(state, enabled=checkpointer is not None)
     return state, graph, config
+
+
+def _checkpoint_config(state: AgentState | dict, *, enabled: bool) -> dict | None:
+    if not enabled:
+        return None
+    return {
+        "configurable": {
+            "thread_id": build_checkpoint_thread_id(
+                tenant_id=state["tenant_id"],
+                session_key=state["session_key"],
+                request_id=state["request_id"],
+            ),
+            "checkpoint_ns": "",
+        }
+    }
 
 
 def _state_from_stream_update(
@@ -646,12 +719,14 @@ def _state_from_stream_update(
 def resume_question_answer_graph(
     *,
     checkpoint_thread_id: str,
+    checkpoint_namespace: str = "",
     approval_decision: dict,
     mock_evidence: bool = True,
     retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     memory_retriever: MemoryRetriever | None = None,
+    trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer,
     llm_client: LlmClient | None = None,
@@ -659,6 +734,10 @@ def resume_question_answer_graph(
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
     allow_test_tool_agent_override: bool = False,
 ) -> AgentState:
+    if checkpoint_namespace != "":
+        raise ValueError("checkpoint_namespace must be empty for the root graph")
+    if _CHECKPOINT_THREAD_ID_PATTERN.fullmatch(checkpoint_thread_id) is None:
+        raise LegacyCheckpointIncompatibleError()
     selected_retriever_node = retriever_node
     if selected_retriever_node is None:
         selected_retriever_node = build_default_rag_retriever_node()
@@ -674,6 +753,7 @@ def resume_question_answer_graph(
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         memory_retriever=memory_retriever,
+        trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
         llm_client=llm_client,
@@ -681,11 +761,17 @@ def resume_question_answer_graph(
         tool_registry_snapshot=tool_registry_snapshot,
         allow_test_tool_agent_override=allow_test_tool_agent_override,
     )
-    config = {"configurable": {"thread_id": checkpoint_thread_id}}
+    config = {
+        "configurable": {
+            "thread_id": checkpoint_thread_id,
+            "checkpoint_ns": checkpoint_namespace,
+        }
+    }
     snapshot = graph.get_state(config)
     checkpoint_digest = snapshot.values.get("tool_catalog_digest")
     if snapshot.values and checkpoint_digest != tool_registry_snapshot.catalog_digest:
         _record_resume_catalog_guard_trace(
+            trace_buffer=trace_buffer,
             trace_store=trace_store,
             state=snapshot.values,
             error=ToolCatalogChangedError(),
@@ -712,11 +798,12 @@ def resume_question_answer_graph(
 
 def _record_resume_catalog_guard_trace(
     *,
+    trace_buffer: TraceBuffer | None,
     trace_store: InMemoryTraceStore | None,
     state: AgentState,
     error: BaseException,
 ) -> None:
-    observer = NodeObserver(trace_store=trace_store)
+    observer = NodeObserver(trace_buffer=trace_buffer, trace_store=trace_store)
     observation = observer.observe_start("catalog_guard", state)
     observer.record_error(
         observation=observation,

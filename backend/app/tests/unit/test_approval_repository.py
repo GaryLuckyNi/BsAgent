@@ -1,4 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
+import json
+from datetime import UTC, datetime, timedelta
 from threading import Barrier
 
 import pytest
@@ -32,6 +34,7 @@ def _pending(*, approval_id: str = "approval_1", tenant_id: str = "tenant_1"):
         approval_id=approval_id,
         run_id="run_1",
         session_id="session_1",
+        session_key="session_key_1",
         tenant_id=tenant_id,
         request_user_id="user_1",
         approval_type="tool_call",
@@ -53,6 +56,9 @@ def test_approval_repository_creates_pending_record_idempotently(session):
     assert second.approval_id == "approval_1"
     assert second.status == "pending"
     assert repository.list_pending(tenant_id="tenant_1") == [second]
+    payload = json.loads(second.payload_json)
+    assert payload["session_key"] == "session_key_1"
+    assert payload["checkpoint_namespace"] == ""
 
 
 def test_approval_repository_rejects_same_id_with_changed_hash(session):
@@ -89,6 +95,7 @@ def test_approval_repository_completed_decision_is_idempotent(session):
         approval_id="approval_1",
         tenant_id="tenant_1",
         claim_token=claim.claim_token,
+        claim_generation=claim.claim_generation,
     )
     second = repository.claim_resume(
         approval_id="approval_1",
@@ -117,6 +124,7 @@ def test_approval_repository_rejects_conflicting_second_decision(session):
         approval_id="approval_1",
         tenant_id="tenant_1",
         claim_token=claim.claim_token,
+        claim_generation=claim.claim_generation,
     )
 
     with pytest.raises(ApprovalConflictError, match="already decided"):
@@ -186,6 +194,7 @@ def test_approval_repository_failed_resume_can_be_reclaimed_by_same_decision(ses
         approval_id="approval_1",
         tenant_id="tenant_1",
         claim_token=first.claim_token,
+        claim_generation=first.claim_generation,
         error="checkpoint missing",
     )
 
@@ -203,6 +212,7 @@ def test_approval_repository_failed_resume_can_be_reclaimed_by_same_decision(ses
         approval_id="approval_1",
         tenant_id="tenant_1",
         claim_token=retry.claim_token,
+        claim_generation=retry.claim_generation,
     )
 
     assert failed_status == "resume_failed"
@@ -215,6 +225,129 @@ def test_approval_repository_failed_resume_can_be_reclaimed_by_same_decision(ses
     assert completed.decided_at == original_decided_at
     assert completed.resume_claimed_by == "approver_2"
     assert completed.last_resume_error == "checkpoint missing"
+
+
+def test_approval_repository_reclaims_expired_resume_lease(session):
+    repository = ApprovalRepository(session)
+    repository.create_pending(_pending())
+    started_at = datetime(2026, 1, 1, tzinfo=UTC)
+    first = repository.claim_resume(
+        approval_id="approval_1",
+        tenant_id="tenant_1",
+        decision="approved",
+        decided_by="approver_1",
+        now=started_at,
+        claim_timeout=timedelta(seconds=300),
+    )
+
+    reclaimed = repository.claim_resume(
+        approval_id="approval_1",
+        tenant_id="tenant_1",
+        decision="approved",
+        decided_by="approver_2",
+        now=started_at + timedelta(seconds=301),
+        claim_timeout=timedelta(seconds=300),
+    )
+
+    assert reclaimed.acquired is True
+    assert reclaimed.claim_token != first.claim_token
+    assert reclaimed.record.resume_attempts == 2
+    assert reclaimed.record.resume_claimed_by == "approver_2"
+    assert reclaimed.claim_generation == first.claim_generation + 1
+
+
+def test_stale_resume_generation_cannot_complete_or_fail_reclaimed_work(session):
+    repository = ApprovalRepository(session)
+    repository.create_pending(_pending())
+    started_at = datetime(2026, 1, 1, tzinfo=UTC)
+    first = repository.claim_resume(
+        approval_id="approval_1",
+        tenant_id="tenant_1",
+        decision="approved",
+        decided_by="approver_1",
+        now=started_at,
+        claim_timeout=timedelta(seconds=300),
+    )
+    reclaimed = repository.claim_resume(
+        approval_id="approval_1",
+        tenant_id="tenant_1",
+        decision="approved",
+        decided_by="approver_2",
+        now=started_at + timedelta(seconds=301),
+        claim_timeout=timedelta(seconds=300),
+    )
+
+    with pytest.raises(ApprovalConflictError, match="no longer owned"):
+        repository.complete_resume(
+            approval_id="approval_1",
+            tenant_id="tenant_1",
+            claim_token=reclaimed.claim_token,
+            claim_generation=first.claim_generation,
+        )
+    with pytest.raises(ApprovalConflictError, match="no longer owned"):
+        repository.fail_resume(
+            approval_id="approval_1",
+            tenant_id="tenant_1",
+            claim_token=reclaimed.claim_token,
+            claim_generation=first.claim_generation,
+            error="stale worker",
+        )
+
+    completed = repository.complete_resume(
+        approval_id="approval_1",
+        tenant_id="tenant_1",
+        claim_token=reclaimed.claim_token,
+        claim_generation=reclaimed.claim_generation,
+    )
+    assert completed.status == "approved"
+
+
+def test_approval_repository_does_not_steal_fresh_resume_lease(session):
+    repository = ApprovalRepository(session)
+    repository.create_pending(_pending())
+    started_at = datetime(2026, 1, 1, tzinfo=UTC)
+    repository.claim_resume(
+        approval_id="approval_1",
+        tenant_id="tenant_1",
+        decision="approved",
+        decided_by="approver_1",
+        now=started_at,
+        claim_timeout=timedelta(seconds=300),
+    )
+
+    with pytest.raises(ApprovalConflictError, match="in progress"):
+        repository.claim_resume(
+            approval_id="approval_1",
+            tenant_id="tenant_1",
+            decision="approved",
+            decided_by="approver_2",
+            now=started_at + timedelta(seconds=299),
+            claim_timeout=timedelta(seconds=300),
+        )
+
+
+def test_approval_repository_does_not_reclaim_stale_lease_with_new_decision(session):
+    repository = ApprovalRepository(session)
+    repository.create_pending(_pending())
+    started_at = datetime(2026, 1, 1, tzinfo=UTC)
+    repository.claim_resume(
+        approval_id="approval_1",
+        tenant_id="tenant_1",
+        decision="approved",
+        decided_by="approver_1",
+        now=started_at,
+        claim_timeout=timedelta(seconds=300),
+    )
+
+    with pytest.raises(ApprovalConflictError, match="already decided as approved"):
+        repository.claim_resume(
+            approval_id="approval_1",
+            tenant_id="tenant_1",
+            decision="rejected",
+            decided_by="approver_2",
+            now=started_at + timedelta(seconds=301),
+            claim_timeout=timedelta(seconds=300),
+        )
 
 
 def test_approval_repository_concurrent_create_pending_is_idempotent(tmp_path):

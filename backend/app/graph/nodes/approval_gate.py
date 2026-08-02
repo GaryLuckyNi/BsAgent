@@ -3,7 +3,7 @@ from typing import Any
 
 from langgraph.types import interrupt
 
-from app.graph.state import AgentState
+from app.graph.state import AgentState, build_checkpoint_thread_id
 from app.schemas.approvals import (
     ApprovalRequest,
     ApprovalStatus,
@@ -59,6 +59,7 @@ def approval_gate_node(state: AgentState) -> AgentState:
             "approval_type": "tool_call",
             "run_id": state["request_id"],
             "session_id": state["session_id"],
+            "session_key": state["session_key"],
             "tenant_id": state["tenant_id"],
             "request_user_id": state["user_id"],
             "call_id": descriptor.call_id,
@@ -67,7 +68,12 @@ def approval_gate_node(state: AgentState) -> AgentState:
             "arguments_hash": arguments_hash,
             "arguments": safe_arguments,
             "purpose": descriptor.purpose,
-            "checkpoint_thread_id": state["session_id"],
+            "checkpoint_thread_id": build_checkpoint_thread_id(
+                tenant_id=state["tenant_id"],
+                session_key=state["session_key"],
+                request_id=state["request_id"],
+            ),
+            "checkpoint_namespace": "",
             "status": "pending",
         }
     )

@@ -46,7 +46,7 @@
 
 ### 4.4 LangGraph Checkpoint
 
-保存图执行状态，用于中断、审批和故障恢复。Checkpoint 不是会话消息数据库，也不是观测数据库。Checkpoint Thread ID 必须使用服务端生成的租户隔离内部标识。
+保存单次 Run 的图执行状态，用于中断、审批和故障恢复。Checkpoint 不是会话消息数据库，也不是观测数据库。Checkpoint Thread ID 必须由 `tenant_id`、`session_key` 和 `request_id` 通过稳定、不可逆且无歧义的版本化 SHA256 坐标派生得到，避免跨租户、跨 Run 碰撞和业务身份泄露。`checkpoint_ns` 是 LangGraph 的图/子图拓扑 namespace，根图固定使用空字符串，不能作为业务租户分区。
 
 ### 4.5 Trace 与 OpenTelemetry
 
@@ -60,7 +60,7 @@
 (tenant_id, user_id, session_id)
 ```
 
-Checkpoint Thread ID 使用 `session_key`，不再直接使用外部 `session_id`。Session、Message、Run、Approval、Asset 和 Trace 的 Repository 均通过租户上下文查询，禁止先按裸 ID 查询再修改租户字段。
+`session_key` 只表示业务会话归属，不作为 Checkpoint Thread ID。Checkpoint 使用 `cpr1_<sha256(tenant_id + NUL + session_key + NUL + request_id)>`，不再直接使用外部 `session_id`、裸 `session_key` 或旧 `cp_` 坐标。这样不同租户、不同 Session 和同 Session 的不同 Run 均完全隔离；同一 `request_id` 的审批恢复或重试保持稳定坐标。`checkpoint_ns` 保留给 LangGraph 子图拓扑，根图读写和审批恢复均显式使用空字符串。Session、Message、Run、Approval、Asset 和 Trace 的 Repository 均通过租户上下文查询，禁止先按裸 ID 查询再修改租户字段。
 
 跨租户无权访问和资源不存在统一返回 404，避免通过响应差异枚举资源。
 
@@ -110,9 +110,9 @@ Checkpoint Thread ID 使用 `session_key`，不再直接使用外部 `session_id
 
 ## 8. 多轮上下文
 
-PostgreSQL 是 Message 事实源，Redis 可以缓存最近消息。构造 Agent State 时按 `sequence_no` 加载最近 N 条已完成消息，加上当前用户消息。`pending`、`failed` 和软删除消息默认不进入模型上下文。
+PostgreSQL `agent_messages` 是多轮历史唯一事实源，Redis 可以缓存最近消息。构造 Agent State 时按 `sequence_no` 加载最近 N 条已完成消息，显式作为 `history` 传入，再加上当前用户消息。`pending`、`failed`、软删除和窗口外消息不得进入模型上下文，也不得从旧 Run Checkpoint 回流。
 
-Checkpoint 恢复使用 Checkpoint 内已有状态，不重复从数据库追加相同 Message。Message Reducer 继续按稳定消息 ID 去重。
+Checkpoint 只恢复同一 `request_id` 的单 Run 执行状态，不负责跨 Run 多轮历史。审批恢复使用 Checkpoint 内已有状态，不重复从数据库追加相同 Message；新 Run 必须使用新坐标并仅接收 Task 4 显式裁剪后的 `history`。Message Reducer 继续按稳定消息 ID 去重。
 
 未来会话过长时，可以新增 `conversation_summaries`，但摘要不能覆盖或删除原始 Message，也不能在本阶段提前实现。
 
@@ -165,14 +165,18 @@ Message 后续使用独立租户保留策略，不能复用 Trace 的 30 天清�
 ## 12. 迁移策略
 
 1. 新增 `session_key` 和 `agent_messages`，保留外部 `session_id`。
-2. 为现有 Session 回填 `session_key`，新 Checkpoint 只使用 `session_key`。
-3. 开发环境允许清理旧 Checkpoint；生产迁移必须提供旧 Thread ID 到 `session_key` 的兼容窗口或明确停机迁移。
-4. 现有历史 Checkpoint 中的 Message 不自动反向灌入业务消息表，避免重复和错误归属。
-5. 完成 Repository 双边界测试后，删除按裸 `session_id` 查询并覆盖租户字段的旧逻辑。
+2. 为现有 Session 回填 `session_key`，新 Checkpoint 使用租户、`session_key` 与 `request_id` 派生的 `cpr1_` Thread ID，根 `checkpoint_ns` 保持空字符串。
+3. Checkpoint 身份升级是破坏性部署边界。上线前停止新流量，排空所有 `running`、`interrupted`、待审批 Run，并确认不存在仍引用裸 `session_id` Thread ID 的在途 Approval。
+4. 旧裸 Thread ID 缺少可靠租户归属，禁止自动读取、反序列化或迁移到派生 Thread ID；应用必须明确拒绝旧坐标，旧 Checkpoint 按保留策略清理。
+5. 会话历史以 PostgreSQL `agent_messages` 为事实源，Checkpoint 只承担在途图执行恢复。完成排空后可以清理旧 Checkpoint，不能从旧 Checkpoint 反向灌入 Message。
+6. 完成 Repository 双边界测试后，删除按裸 `session_id` 查询并覆盖租户字段的旧逻辑。
 
 ## 13. 验收标准
 
 - 两个租户使用相同外部 `session_id` 时，Session、Message、Checkpoint、Approval 和 Trace 完全隔离。
+- 生产发布门禁证明所有运行中、审批中执行已排空，旧 Checkpoint 坐标和引用旧坐标的 Approval 数量均为零。
+- 裸 `session_id`、旧 `cp_` 坐标或不符合 `cpr1_[0-9a-f]{64}` 的 Checkpoint 坐标在读取 Saver 前被明确拒绝，不执行危险的旧数据反序列化迁移。
+- 同一 Session 的不同 `request_id` 不共享 Checkpoint；新 Run 的消息严格来自显式裁剪后的 `agent_messages` history 与当前 turn。
 - 普通请求、SSE、异常和审批恢复均只产生一组幂等 Message 和 Run。
 - SSE 期间不逐 Token 写 PostgreSQL，也不持有长业务事务。
 - 进程重启后可从 PostgreSQL 查询历史消息和数据库 Trace。

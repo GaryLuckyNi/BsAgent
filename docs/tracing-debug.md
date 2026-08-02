@@ -1,70 +1,70 @@
-# Tracing 与调试能力
+# Trace 与调试运行手册
 
-## 当前能力
+## 1. 数据职责
 
-第一版调试能力使用本地 Trace Store，默认开启，记录每个节点的输入/输出白名单 state summary。
+生产系统把会话事实、执行状态、恢复现场和观测数据分开保存，任何一类都不能替代另一类：
 
-本地 artifact 是脱敏摘要，不保存完整 state。它用于全链路测试时快速观察每个节点做了什么。
+| 数据 | 事实源与职责 | 明确不负责 |
+| --- | --- | --- |
+| Message | PostgreSQL `agent_messages`；保存租户可见的用户与助手消息、多轮历史、顺序和完成状态 | 不保存模型私有思维链、系统 Prompt、原始工具参数、凭证或异常堆栈 |
+| `AgentRun` | PostgreSQL `agent_runs`；表示一次请求触发的执行，保存业务状态、`trace_id` 和采样状态 | 不保存完整消息正文或 Graph channel |
+| Run 级 Checkpoint | 官方 LangGraph Saver 表；只恢复同一 `request_id` 对应 Run 的 Graph 中断现场 | 不是跨 Run 会话历史，也不是 Trace 查询库 |
+| 业务 Trace | `agent_trace_events`、`agent_trace_artifacts`；按 Run 保存安全节点摘要和诊断索引 | 不读取 Checkpointer，不保存完整 State 或用户正文 |
+| OpenTelemetry | OTLP Span；观察 API、HTTPX、SQLAlchemy、Celery 和 Agent Node 的跨服务时延与错误 | 不作为业务审计或会话事实源 |
 
-## 本地 Trace 查询
+外部 `session_id` 只用于 API。服务端使用不可变 `session_key` 隔离业务会话；Checkpoint 再由 `tenant_id`、`session_key`、`request_id` 派生 `cpr1_<sha256>` Run 坐标。Trace API 只查询业务 Trace 表，并按 `trace_id + tenant_id` 执行 RBAC。
 
-发送一次会话请求后，响应会包含 `trace_id`：
+## 2. 写入时序
+
+普通请求与流式请求使用相同的业务边界：
+
+1. 短事务创建或锁定 Session，幂等创建 `AgentRun`、已完成 User Message 和 `pending` Assistant Message，然后提交。
+2. 在无业务数据库事务状态下运行 Graph、模型和工具。Run 级 Checkpoint 可在节点边界写入恢复现场。
+3. 普通请求完成时用短事务更新原 Assistant Message 与 Run；SSE 只在内存中发送 token，不逐 token 写 PostgreSQL，结束时一次写入完整正文。
+4. 审批中断时把原 Assistant Message 和 Run 标记为 `interrupted`；审批恢复沿用原 `run_id`、Message ID 和 Checkpoint Thread ID，不新建重复消息。
+5. 业务事务提交或回滚后，当前请求的有界 `TraceBuffer` 最多 flush 一次。Trace 使用独立短事务，失败不会回滚已完成回答。
+
+`agent_messages` 是历史事实源。新 Run 的上下文只从最近已完成且未删除的 Message 构造；旧 Checkpoint 内容不得回流到新 Run 的历史。
+
+## 3. 采样与查询
+
+`AgentRun.trace_capture_status` 的含义：
+
+- `pending`：Run 尚未完成 Trace 决策。
+- `not_sampled`：正常成功链路未命中稳定采样，只返回空事件与空 artifact。
+- `captured`：已持久化；`minimal` 保存事件摘要，`detailed` 还保存有预算限制的脱敏 artifact。
+- `persist_failed`：Trace 独立持久化失败；业务回答保持原结果，但必须告警。
+
+正常成功链路按 `trace_id` 稳定采样，默认成功采样率 `0.1`、详细采样率 `0.01`。执行失败、高风险、发生审批或 Verifier 非 `pass` 时强制详细捕获。每 Run 默认最多 128 个 Event、16 个 Artifact，单个 Artifact 最多 32768 字节。
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/sessions/e2e_s1/messages \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "tenant_id": "tenant_1",
-    "user_id": "user_1",
-    "message": "RAG 是什么？"
-  }'
+curl -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  "https://agent.example.com/api/traces/<trace_id>?include_artifacts=true"
 ```
 
-然后查询：
+默认不返回 Artifact；显式请求仍会在响应前再次脱敏。分页上限为 500 个 Event 和 100 个 Artifact。跨租户无权访问与不存在都返回 404。
 
-```bash
-curl http://127.0.0.1:8000/api/traces/<trace_id>
-```
+重点查看节点摘要中的意图、风险、工具调用数量、证据 ID、Verifier 结果、时延和稳定错误码。Trace 不保存用户消息、analysis、草稿、最终回答正文、原始工具参数/结果或原始异常文本。这里的 `analysis` 指业务分析产物；模型私有思维链在 Message、Trace 和 OpenTelemetry 中都不保存、不导出。
 
-返回内容包含：
+## 4. OpenTelemetry
 
-- `events`：节点执行顺序、状态、耗时、输入 artifact ref、输出 artifact ref。
-- `artifacts`：每个 artifact ref 对应的脱敏 state summary。
+生产设置 `BS_AGENT_OTEL_ENABLED=true`，通过内部 Collector 的 OTLP/HTTP 端点发送到持久化观测后端。`bs_agent.node` Span 只允许节点名、Run 状态、稳定错误码、时延、工具调用数量和证据数量等白名单属性；不得导出正文、Prompt、工具参数、租户/用户原文或原始异常。
 
-你可以重点看这些节点的 output summary：
+业务 Trace 与 OpenTelemetry 是互补关系：前者支持受 RBAC 保护的 Run 诊断，后者支持跨服务聚合、延迟分位数和依赖故障定位。两者都不能读取或修改 LangGraph Checkpointer。
 
-- `intent_router`：intent、risk_level、candidate_skill。
-- `planner_agent`：execution_mode、步骤数量、retrieval 策略、允许的工具名和请求 call ID。
-- `skill_agent`：Skill 名称、版本、状态、允许的工具名和请求 call ID。
-- `retriever_agent`：工具状态/错误码、evidence coverage、evidence IDs。
-- `analysis_agent`：finding 数量、缺失信息数量、confidence。
-- `synthesizer`：正文长度、claim 数量、cited evidence IDs、confidence。
-- `verifier`：verdict、faithfulness score、错误/风险数量。
-- `final_response`：正文长度、引用 ID 和审批状态，不包含最终回答正文。
+## 5. 保留与清理
 
-## 脱敏规则
+Trace Event 和 Artifact 默认保留 30 天。Celery Beat 每小时派发 `bs_agent.traces.purge_expired` 到 `maintenance` 队列，`maintenance-worker` 按 `BS_AGENT_TRACE_CLEANUP_BATCH_SIZE` 有界选择和删除，默认每批最多 1000 条，并使用短事务。首版不自动删除 `AgentRun` 和 `agent_messages`；Message 必须使用独立的租户保留策略，不能复用 Trace 的 30 天任务。
 
-Trace 首先使用固定字段白名单，不保存用户消息、工具参数/结果、analysis 正文、草稿正文或最终回答正文；随后还会递归脱敏敏感 key。异常事件不保存原始 `str(exc)`：
+## 6. 故障与告警
 
-- `event.error` 仅为稳定的 `error_code:ExceptionType`。
-- metadata 仅保留 `error_code`、`exception_type` 和服务端白名单 message。
-- Store/API 防御性清洗 URI userinfo/query、Authorization Basic/Bearer、Proxy-Authorization、JWT、冒号/等号凭证赋值，并截断异常字段。
+| 信号 | 告警与处置 |
+| --- | --- |
+| `trace_capture_status=persist_failed` 增长 | 告警；检查业务 PostgreSQL、连接池、schema 和身份冲突日志。不得把业务回答改成失败 |
+| `trace_persistence_status_update_failed` | 高优先级告警；Trace 写入与失败状态回写都失败，核查数据库可用性 |
+| Trace API 404 激增 | 区分真实不存在、租户 RBAC 和调用方缓存的过期 `trace_id`，不要绕过租户过滤 |
+| OTLP 导出失败或 Collector 不健康 | 检查 Collector、外部 OTLP 地址和网络；业务 Trace 仍可独立查询 |
+| `maintenance` 队列积压或最老 Trace 超过 30 天 | 检查 Scheduler 单实例、`maintenance-worker`、重试和批量配置，禁止改成无界全表删除 |
+| Checkpoint 错误 | 按 Run 恢复故障处理；不要让 Trace API 降级为读取 Saver |
 
-RAG Provider 的 502/503 等已归一化失败会作为成功提交的节点状态出现：Retriever 事件本身为 success，工具记录和 State error 带业务错误码，最终返回 `execution_error_response`。该终态通过 `response_type/business_error_code` 暴露给调用方，不走 citation 校验或业务审批；Trace 仍只保存错误码与正文长度，不保存 Provider 原始诊断。只有 ready/call ID/指纹等执行契约错误才记录失败节点事件。
-
-Gateway 不信任 Provider 返回的失败 DTO 标识。失败结果写入 Trace 前会重建 `tool_call_id`，固定请求 `tool_name` 和当前 `trace_id`，清空 result，并使用安全 status/error/latency；Provider 在标识、结果或错误文本中植入的内容不会成为 Trace 数据。原始诊断仍只能进入未来的高权限安全日志。
-
-当前仍是进程内存储，服务重启后会丢失。后续可接数据库或对象存储。
-
-## 当前边界
-
-当前版本还没有做：
-
-- artifact 持久化数据库表
-- trace retention 策略
-- checkpoint id 与 trace artifact 绑定
-- 失败节点 replay
-- 外部观测平台集成
-- OpenTelemetry exporter
-
-这些属于下一层工业化增强。
+故障排查期间可以临时提高采样率，但必须评估数据库容量和敏感数据边界，问题结束后恢复基线。任何时候都不能通过扩大字段白名单来记录私有思维链、完整 Prompt、完整回答或凭证。

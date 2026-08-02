@@ -29,6 +29,7 @@ def test_asset_migration_round_trip_creates_contract_indexes_and_constraint(
         "tenant_id",
         "user_id",
         "session_id",
+        "session_key",
         "object_key",
         "sha256",
         "media_type",

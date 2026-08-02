@@ -1,7 +1,9 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import pytest
+from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -10,6 +12,7 @@ from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.retriever_agent import build_rag_retriever_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.checkpoints import build_graph_checkpointer
+from app.graph import runtime
 from app.graph.runtime import (
     AgentGraphExecutionError,
     build_question_answer_graph,
@@ -20,6 +23,7 @@ from app.graph.runtime import (
 from app.graph.state import create_initial_state
 from app.schemas.approvals import ReadyToolCall
 from app.harness.tracing import InMemoryTraceStore
+from app.harness.trace_buffer import TraceBuffer
 from app.llm.schemas import LlmCompletionResult
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError
@@ -31,6 +35,47 @@ from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchTool
 from app.tools.registry import ToolRegistry
 from app.tools.registry import ExecutionBinding
+
+
+def test_runtime_records_each_run_only_in_its_explicit_trace_buffer():
+    first_buffer = TraceBuffer(max_events=128, max_artifacts=0)
+    second_buffer = TraceBuffer(max_events=128, max_artifacts=0)
+
+    def run(session_id, trace_id, buffer):
+        return run_question_answer_graph(
+            session_id=session_id,
+            tenant_id="tenant-1",
+            user_id="user-1",
+            user_message="你好",
+            trace_id=trace_id,
+            trace_buffer=buffer,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            run,
+            "session-first",
+            "trace-first",
+            first_buffer,
+        )
+        second_future = executor.submit(
+            run,
+            "session-second",
+            "trace-second",
+            second_buffer,
+        )
+        first = first_future.result()
+        second = second_future.result()
+
+    assert first["trace_id"] == "trace-first"
+    assert second["trace_id"] == "trace-second"
+    assert first_buffer.events
+    assert second_buffer.events
+    assert {event.trace_id for event in first_buffer.events} == {"trace-first"}
+    assert {event.trace_id for event in second_buffer.events} == {"trace-second"}
+    assert {event.event_id for event in first_buffer.events}.isdisjoint(
+        event.event_id for event in second_buffer.events
+    )
 
 
 def test_graph_routes_validated_image_context_without_rag_or_tools():
@@ -420,25 +465,39 @@ def _acceptance_market_registry(
     return factory
 
 
-def test_question_answer_graph_writes_checkpoint_by_session_id():
+def test_question_answer_graph_writes_checkpoint_by_derived_tenant_thread_id():
     checkpointer = InMemorySaver()
+    session_key = "internal-checkpoint-key"
 
     result = run_question_answer_graph(
         session_id="checkpoint_s1",
+        session_key=session_key,
         tenant_id="t1",
         user_id="u1",
+        request_id="checkpoint-request-1",
         user_message="你好",
         checkpointer=checkpointer,
     )
 
+    thread_id = runtime.build_checkpoint_thread_id(
+        tenant_id="t1",
+        session_key=session_key,
+        request_id=result["request_id"],
+    )
     checkpoint = checkpointer.get_tuple(
-        {"configurable": {"thread_id": result["session_id"]}}
+        {"configurable": {"thread_id": thread_id, "checkpoint_ns": ""}}
     )
 
     assert checkpoint is not None
     assert checkpoint.checkpoint["channel_values"]["final_response"]["trace_id"] == result[
         "trace_id"
     ]
+    assert checkpointer.get(
+        {"configurable": {"thread_id": session_key, "checkpoint_ns": ""}}
+    ) is None
+    assert checkpointer.get(
+        {"configurable": {"thread_id": result["session_id"], "checkpoint_ns": ""}}
+    ) is None
 
 
 def test_catalog_guard_records_trace_before_rejecting_changed_catalog():
@@ -609,44 +668,145 @@ def test_question_answer_graph_skips_skill_and_retrieval_for_conversation_intent
     assert "analysis_agent" not in node_names
 
 
-def test_question_answer_graph_appends_messages_across_session_checkpoint():
+def test_question_answer_graph_scopes_checkpoint_to_run_and_uses_explicit_history():
     checkpointer = InMemorySaver()
 
     first = run_question_answer_graph(
         session_id="session_multi_turn",
+        session_key="session-key-multi-turn",
         tenant_id="tenant_1",
         user_id="user_1",
-        user_message="你好",
+        request_id="request-1",
+        trace_id="trace-1",
+        user_message_id="message-user-1",
+        assistant_message_id="message-assistant-1",
+        history=[],
+        user_message="不应从旧 Checkpoint 回流",
         checkpointer=checkpointer,
         llm_client=ConversationRoutingLlmClient(),
     )
-    second = run_question_answer_graph(
+    without_history = run_question_answer_graph(
         session_id="session_multi_turn",
+        session_key="session-key-multi-turn",
         tenant_id="tenant_1",
         user_id="user_1",
+        request_id="request-2",
+        trace_id="trace-2",
+        user_message_id="message-user-2",
+        assistant_message_id="message-assistant-2",
+        history=[],
         user_message="继续使用中文",
         checkpointer=checkpointer,
         llm_client=ConversationRoutingLlmClient(),
     )
 
-    assert first["request_id"] != second["request_id"]
-    assert second["user_message"] == "继续使用中文"
-    assert [message.role for message in second["messages"]] == [
+    with_history = run_question_answer_graph(
+        session_id="session_multi_turn",
+        session_key="session-key-multi-turn",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        request_id="request-3",
+        trace_id="trace-3",
+        user_message_id="message-user-3",
+        assistant_message_id="message-assistant-3",
+        history=first["messages"],
+        user_message="显式加载历史后继续",
+        checkpointer=checkpointer,
+        llm_client=ConversationRoutingLlmClient(),
+    )
+
+    assert first["request_id"] != without_history["request_id"]
+    assert [message.role for message in without_history["messages"]] == [
+        "user",
+        "assistant",
+    ]
+    assert [message.content for message in without_history["messages"]][0] == (
+        "继续使用中文"
+    )
+    assert all(
+        "不应从旧 Checkpoint 回流" not in message.content
+        for message in without_history["messages"]
+    )
+    assert [message.role for message in with_history["messages"]] == [
         "user",
         "assistant",
         "user",
         "assistant",
     ]
-    assert [message.content for message in second["messages"]][::2] == [
-        "你好",
-        "继续使用中文",
+    assert [message.content for message in with_history["messages"]][::2] == [
+        "不应从旧 Checkpoint 回流",
+        "显式加载历史后继续",
     ]
-    assert len(
+
+
+def test_question_answer_graph_isolates_same_external_session_by_tenant_session_key():
+    checkpointer = InMemorySaver()
+    shared_session_key = "shared-internal-key"
+
+    first = run_question_answer_graph(
+        session_id="shared-session",
+        session_key=shared_session_key,
+        tenant_id="tenant-a",
+        user_id="user-1",
+        request_id="request-a",
+        trace_id="trace-a",
+        user_message_id="message-user-a",
+        assistant_message_id="message-assistant-a",
+        user_message="租户 A 的问题",
+        history=[],
+        checkpointer=checkpointer,
+        llm_client=ConversationRoutingLlmClient(),
+    )
+    second = run_question_answer_graph(
+        session_id="shared-session",
+        session_key=shared_session_key,
+        tenant_id="tenant-b",
+        user_id="user-1",
+        request_id="request-b",
+        trace_id="trace-b",
+        user_message_id="message-user-b",
+        assistant_message_id="message-assistant-b",
+        user_message="租户 B 的问题",
+        history=[],
+        checkpointer=checkpointer,
+        llm_client=ConversationRoutingLlmClient(),
+    )
+
+    assert [message.content for message in first["messages"]][0] == "租户 A 的问题"
+    assert [message.content for message in second["messages"]][0] == "租户 B 的问题"
+    assert all("租户 A" not in message.content for message in second["messages"])
+    tenant_a_thread_id = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-a",
+        session_key=shared_session_key,
+        request_id=first["request_id"],
+    )
+    tenant_b_thread_id = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-b",
+        session_key=shared_session_key,
+        request_id=second["request_id"],
+    )
+    assert tenant_a_thread_id != tenant_b_thread_id
+    assert checkpointer.get(
+        {"configurable": {"thread_id": tenant_a_thread_id, "checkpoint_ns": ""}}
+    ) is not None
+    assert checkpointer.get(
+        {"configurable": {"thread_id": tenant_b_thread_id, "checkpoint_ns": ""}}
+    ) is not None
+    assert checkpointer.get(
+        {"configurable": {"thread_id": shared_session_key, "checkpoint_ns": ""}}
+    ) is None
+    assert checkpointer.get(
         {
-            message.metadata["message_id"]
-            for message in second["messages"]
+            "configurable": {
+                "thread_id": runtime.build_checkpoint_thread_id(
+                    tenant_id="tenant-c",
+                    session_key=shared_session_key,
+                    request_id=first["request_id"],
+                ),
+                "checkpoint_ns": "",
+            }
         }
-    ) == 4
+    ) is None
 
 
 def test_question_answer_graph_streams_node_updates_with_final_state():
@@ -1103,12 +1263,21 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
 
     assert interrupt_payload["approval_type"] == "tool_call"
     assert interrupt_payload["tool_name"] == "rag_search"
-    assert interrupt_payload["checkpoint_thread_id"] == result["session_id"]
+    assert interrupt_payload["checkpoint_thread_id"] == (
+        runtime.build_checkpoint_thread_id(
+            tenant_id=result["tenant_id"],
+            session_key=result["session_key"],
+            request_id=result["request_id"],
+        )
+    )
+    assert interrupt_payload["checkpoint_namespace"] == ""
+    assert interrupt_payload["session_key"] == result["session_key"]
     assert retrieval_calls == []
     assert "retriever_agent" not in node_names
 
     resumed = resume_question_answer_graph(
         checkpoint_thread_id=interrupt_payload["checkpoint_thread_id"],
+        checkpoint_namespace=interrupt_payload["checkpoint_namespace"],
         approval_decision={
             "approval_id": interrupt_payload["approval_id"],
             "arguments_hash": interrupt_payload["arguments_hash"],
@@ -1125,7 +1294,6 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     assert resumed["approval_requests"][0].status == "approved"
     assert resumed["final_response"]["approval_status"] == "approved"
     assert resumed["final_response"] is not None
-
     rejected_checkpointer = InMemorySaver()
     rejected_initial = run_question_answer_graph(
         session_id="s2",
@@ -1155,6 +1323,62 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     assert retrieval_calls == [result["request_id"]]
     assert rejected["final_response"]["approval_status"] == "rejected"
     assert "未执行任何外部操作" in rejected["final_response"]["content"]
+
+
+def test_question_answer_graph_rejects_non_root_checkpoint_namespace_on_resume():
+    with pytest.raises(ValueError, match="checkpoint_namespace must be empty"):
+        resume_question_answer_graph(
+            checkpoint_thread_id="cp_invalid",
+            checkpoint_namespace="tenant_1",
+            approval_decision={},
+            checkpointer=InMemorySaver(),
+        )
+
+
+@pytest.mark.parametrize(
+    "checkpoint_thread_id",
+    [
+        "legacy-session-id",
+        f"cp_{'a' * 64}",
+        "cp_invalid",
+        f"cp_{'a' * 63}",
+        f"cp_{'A' * 64}",
+    ],
+)
+def test_question_answer_graph_rejects_legacy_checkpoint_before_reading_saver(
+    monkeypatch,
+    checkpoint_thread_id,
+):
+    checkpointer = InMemorySaver()
+    legacy_config = checkpointer.put(
+        {
+            "configurable": {
+                "thread_id": checkpoint_thread_id,
+                "checkpoint_ns": "",
+            }
+        },
+        empty_checkpoint(),
+        {"source": "input", "step": -1, "parents": {}},
+        {},
+    )
+    assert checkpointer.get(legacy_config) is not None
+
+    def fail_if_saver_is_read(*_args, **_kwargs):
+        raise AssertionError("legacy checkpoint must not be read")
+
+    monkeypatch.setattr(checkpointer, "get_tuple", fail_if_saver_is_read)
+
+    with pytest.raises(runtime.LegacyCheckpointIncompatibleError) as exc_info:
+        resume_question_answer_graph(
+            checkpoint_thread_id=checkpoint_thread_id,
+            checkpoint_namespace="",
+            approval_decision={},
+            checkpointer=checkpointer,
+        )
+
+    assert exc_info.value.code == "legacy_checkpoint_incompatible"
+    assert exc_info.value.http_status == 409
+    assert "旧 Checkpoint 不可安全恢复" in str(exc_info.value)
 
 
 def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():
@@ -1383,7 +1607,16 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
     assert event.status == "error"
     assert event.error == "tool_catalog_changed:ToolCatalogChangedError"
     snapshot = checkpointer.get_tuple(
-        {"configurable": {"thread_id": initial["session_id"]}}
+        {
+            "configurable": {
+                "thread_id": runtime.build_checkpoint_thread_id(
+                    tenant_id=initial["tenant_id"],
+                    session_key=initial["session_key"],
+                    request_id=initial["request_id"],
+                ),
+                "checkpoint_ns": "",
+            }
+        }
     )
     assert initial["tool_catalog_digest"] in repr(snapshot.checkpoint)
 
@@ -2050,7 +2283,16 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
     serialized += "".join(
         repr(checkpoint.checkpoint)
         for checkpoint in checkpointer.list(
-            {"configurable": {"thread_id": initial["session_id"]}}
+            {
+                "configurable": {
+                    "thread_id": runtime.build_checkpoint_thread_id(
+                        tenant_id=initial["tenant_id"],
+                        session_key=initial["session_key"],
+                        request_id=initial["request_id"],
+                    ),
+                    "checkpoint_ns": "",
+                }
+            }
         )
     )
     assert "post-side-effect-checkpoint-secret" not in serialized
@@ -2064,7 +2306,16 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
     )
     replayed = graph.invoke(
         None,
-        config={"configurable": {"thread_id": initial["session_id"]}},
+        config={
+            "configurable": {
+                "thread_id": runtime.build_checkpoint_thread_id(
+                    tenant_id=initial["tenant_id"],
+                    session_key=initial["session_key"],
+                    request_id=initial["request_id"],
+                ),
+                "checkpoint_ns": "",
+            }
+        },
     )
     assert replayed["final_response"]["response_type"] == "execution_error_response"
     assert provider_calls == ["write-once"]

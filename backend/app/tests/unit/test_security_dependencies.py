@@ -64,14 +64,15 @@ def test_mock_identity_resolves_headers_through_rbac(monkeypatch):
         "user_id": "user-1",
         "scopes": [
             "agent:invoke",
+            "agent:read",
             "asset:delete",
             "asset:read",
             "asset:write",
             "mcp:local",
-                "rag:retrieve",
-                "trace:read",
-                "web:search",
-            ],
+            "rag:retrieve",
+            "trace:read",
+            "web:search",
+        ],
     }
     assert captured[0].tenant_id == "tenant-1"
     assert captured[0].user_id == "user-1"

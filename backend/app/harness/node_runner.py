@@ -17,8 +17,13 @@ class NodeRunner:
         self,
         trace_store: InMemoryTraceStore | None = None,
         trace_buffer: TraceBuffer | None = None,
+        tracer: object | None = None,
     ) -> None:
-        self.observer = NodeObserver(trace_buffer=trace_buffer, trace_store=trace_store)
+        self.observer = NodeObserver(
+            trace_buffer=trace_buffer,
+            trace_store=trace_store,
+            tracer=tracer,
+        )
 
     def run(
         self,
@@ -34,6 +39,7 @@ class NodeRunner:
             self.observer.record_success(observation=observation, state=result)
             return result
         except GraphInterrupt:
+            self.observer.record_interrupted(observation=observation, state=state)
             raise
         except Exception as exc:
             classified = classify_recoverable_error(exc)
@@ -58,6 +64,12 @@ class NodeRunner:
                         observation=observation,
                         state=state,
                         error=exc,
+                        error_code=classified.code,
+                    )
+                else:
+                    self.observer.record_untraced_error(
+                        observation=observation,
+                        state=state,
                         error_code=classified.code,
                     )
                 raise

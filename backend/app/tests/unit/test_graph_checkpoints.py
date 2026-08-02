@@ -1,3 +1,4 @@
+from hashlib import sha256
 import sys
 from types import ModuleType
 
@@ -6,7 +7,7 @@ from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from app.graph import checkpoints
+from app.graph import checkpoints, runtime
 from app.graph.checkpoints import (
     CheckpointBackendError,
     build_graph_checkpointer,
@@ -43,6 +44,61 @@ def test_build_graph_checkpointer_can_be_disabled():
     checkpointer = build_graph_checkpointer(backend="none")
 
     assert checkpointer is None
+
+
+def test_checkpoint_thread_id_is_stable_tenant_scoped_and_opaque():
+    expected_digest = sha256(
+        b"tenant-1\0internal-session-key\0request-1"
+    ).hexdigest()
+    expected = f"cpr1_{expected_digest}"
+
+    first = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-1",
+        session_key="internal-session-key",
+        request_id="request-1",
+    )
+    repeated = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-1",
+        session_key="internal-session-key",
+        request_id="request-1",
+    )
+    other_tenant = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-2",
+        session_key="internal-session-key",
+        request_id="request-1",
+    )
+    other_request = runtime.build_checkpoint_thread_id(
+        tenant_id="tenant-1",
+        session_key="internal-session-key",
+        request_id="request-2",
+    )
+
+    assert first == repeated == expected
+    assert other_tenant != first
+    assert other_request != first
+    assert "tenant-1" not in first
+    assert "internal-session-key" not in first
+
+
+def test_checkpoint_config_uses_derived_thread_id_and_root_namespace():
+    state = {
+        "session_id": "shared-external-session",
+        "session_key": "internal-session-key",
+        "tenant_id": "tenant-1",
+        "request_id": "request-1",
+    }
+
+    assert runtime._checkpoint_config(state, enabled=True) == {
+        "configurable": {
+            "thread_id": runtime.build_checkpoint_thread_id(
+                tenant_id="tenant-1",
+                session_key="internal-session-key",
+                request_id="request-1",
+            ),
+            "checkpoint_ns": "",
+        }
+    }
+    assert runtime._checkpoint_config(state, enabled=False) is None
 
 
 def test_build_graph_checkpointer_reuses_same_backend_instance():

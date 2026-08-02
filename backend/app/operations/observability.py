@@ -5,7 +5,7 @@ import re
 import sys
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import uuid4
 
@@ -118,18 +118,27 @@ def configure_telemetry(
     engine: Any,
     config: Any,
     installer: Any | None = None,
+    exporter: Any | None = None,
 ) -> Any | None:
     if not config.otel_enabled:
         return None
+    if getattr(app.state, "_bs_agent_telemetry_configured", False):
+        return app.state._bs_agent_telemetry_runtime
     selected_installer = installer or _install_opentelemetry
-    return selected_installer(
-        app=app,
-        engine=engine,
-        service_name=config.service_name,
-        environment=config.app_env,
-        endpoint=config.otel_exporter_otlp_traces_endpoint,
-        sample_ratio=config.otel_trace_sample_ratio,
-    )
+    installer_kwargs = {
+        "app": app,
+        "engine": engine,
+        "service_name": config.service_name,
+        "environment": config.app_env,
+        "endpoint": config.otel_exporter_otlp_traces_endpoint,
+        "sample_ratio": config.otel_trace_sample_ratio,
+    }
+    if exporter is not None:
+        installer_kwargs["exporter"] = exporter
+    runtime = selected_installer(**installer_kwargs)
+    app.state._bs_agent_telemetry_runtime = runtime
+    app.state._bs_agent_telemetry_configured = True
+    return runtime
 
 
 def configure_worker_telemetry(
@@ -157,13 +166,19 @@ class TelemetryRuntime:
     fastapi_instrumentor: Any
     httpx_instrumentor: Any
     sqlalchemy_instrumentor: Any
+    _shutdown: bool = field(default=False, init=False, repr=False)
 
     def shutdown(self) -> None:
-        self.fastapi_instrumentor.uninstrument_app(self.app)
-        self.httpx_instrumentor.uninstrument()
-        self.sqlalchemy_instrumentor.uninstrument()
-        self.provider.force_flush(timeout_millis=5_000)
-        self.provider.shutdown()
+        if self._shutdown:
+            return
+        self._shutdown = True
+        _run_telemetry_cleanup(
+            lambda: self.fastapi_instrumentor.uninstrument_app(self.app),
+            self.httpx_instrumentor.uninstrument,
+            self.sqlalchemy_instrumentor.uninstrument,
+            lambda: self.provider.force_flush(timeout_millis=5_000),
+            self.provider.shutdown,
+        )
 
 
 @dataclass
@@ -172,13 +187,29 @@ class WorkerTelemetryRuntime:
     celery_instrumentor: Any
     httpx_instrumentor: Any
     sqlalchemy_instrumentor: Any
+    _shutdown: bool = field(default=False, init=False, repr=False)
 
     def shutdown(self) -> None:
-        self.celery_instrumentor.uninstrument()
-        self.httpx_instrumentor.uninstrument()
-        self.sqlalchemy_instrumentor.uninstrument()
-        self.provider.force_flush(timeout_millis=5_000)
-        self.provider.shutdown()
+        if self._shutdown:
+            return
+        self._shutdown = True
+        _run_telemetry_cleanup(
+            self.celery_instrumentor.uninstrument,
+            self.httpx_instrumentor.uninstrument,
+            self.sqlalchemy_instrumentor.uninstrument,
+            lambda: self.provider.force_flush(timeout_millis=5_000),
+            self.provider.shutdown,
+        )
+
+
+def _run_telemetry_cleanup(*callbacks: Any) -> None:
+    for callback in callbacks:
+        try:
+            callback()
+        except Exception:
+            logging.getLogger("bs_agent.telemetry").warning(
+                "telemetry_cleanup_failed"
+            )
 
 
 def _install_opentelemetry(
@@ -189,7 +220,9 @@ def _install_opentelemetry(
     environment: str,
     endpoint: str,
     sample_ratio: float,
+    exporter: Any | None = None,
 ) -> TelemetryRuntime:
+    from opentelemetry import trace
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -209,8 +242,9 @@ def _install_opentelemetry(
         sampler=ParentBased(TraceIdRatioBased(sample_ratio)),
     )
     provider.add_span_processor(
-        BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
+        BatchSpanProcessor(exporter or OTLPSpanExporter(endpoint=endpoint))
     )
+    trace.set_tracer_provider(provider)
     fastapi_instrumentor = FastAPIInstrumentor()
     httpx_instrumentor = HTTPXClientInstrumentor()
     sqlalchemy_instrumentor = SQLAlchemyInstrumentor()
@@ -241,6 +275,7 @@ def _install_worker_opentelemetry(
     endpoint: str,
     sample_ratio: float,
 ) -> WorkerTelemetryRuntime:
+    from opentelemetry import trace
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.instrumentation.celery import CeleryInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
@@ -262,6 +297,7 @@ def _install_worker_opentelemetry(
     provider.add_span_processor(
         BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
     )
+    trace.set_tracer_provider(provider)
     celery_instrumentor = CeleryInstrumentor()
     httpx_instrumentor = HTTPXClientInstrumentor()
     sqlalchemy_instrumentor = SQLAlchemyInstrumentor()

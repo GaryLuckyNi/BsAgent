@@ -333,6 +333,7 @@ def test_trace_orm_uses_jsonb_on_postgres_and_json_on_sqlite():
 def test_trace_orm_create_all_persists_defaults_and_artifact():
     from app.storage.models import (
         AgentRun,
+        AgentSession,
         AgentTraceArtifact,
         AgentTraceEvent,
         Base,
@@ -343,9 +344,17 @@ def test_trace_orm_create_all_persists_defaults_and_artifact():
     now = datetime.now(UTC)
 
     with Session(engine) as session:
+        agent_session = AgentSession(
+            session_key="session_key_orm",
+            session_id="session_orm",
+            tenant_id="tenant_orm",
+            user_id="user_orm",
+            status="active",
+        )
         run = AgentRun(
             run_id="run_orm",
             session_id="session_orm",
+            session_key=agent_session.session_key,
             tenant_id="tenant_orm",
             user_id="user_orm",
             trace_id="trace_orm",
@@ -371,6 +380,8 @@ def test_trace_orm_create_all_persists_defaults_and_artifact():
             capture_level="detailed",
             expires_at=now + timedelta(days=30),
         )
+        session.add(agent_session)
+        session.flush()
         session.add(run)
         session.flush()
         session.add(event)
