@@ -42,6 +42,28 @@ class ConversationRepository:
             )
         )
 
+    def list_owned_sessions(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        limit: int,
+    ) -> list[AgentSession]:
+        return list(
+            self._session.scalars(
+                select(AgentSession)
+                .where(
+                    AgentSession.tenant_id == tenant_id,
+                    AgentSession.user_id == user_id,
+                )
+                .order_by(
+                    AgentSession.updated_at.desc(),
+                    AgentSession.session_key.desc(),
+                )
+                .limit(limit)
+            )
+        )
+
     def get_or_create_session(
         self,
         *,

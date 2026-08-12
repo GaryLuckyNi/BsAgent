@@ -369,6 +369,37 @@ def test_get_messages_returns_404_for_cross_tenant_session(monkeypatch):
     assert response.json()["detail"]["code"] == "session_not_found"
 
 
+def test_list_sessions_returns_only_principal_owned_sessions():
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        db.add_all(
+            [
+                AgentSession(
+                    session_key="session_key_owned",
+                    session_id="session_owned",
+                    tenant_id="tenant_1",
+                    user_id="user_1",
+                    status="active",
+                ),
+                AgentSession(
+                    session_key="session_key_other",
+                    session_id="session_other",
+                    tenant_id="tenant_1",
+                    user_id="user_2",
+                    status="active",
+                ),
+            ]
+        )
+        db.commit()
+
+    response = TestClient(app).get("/api/sessions", params={"limit": 10})
+
+    assert response.status_code == 200
+    assert [item["session_id"] for item in response.json()["items"]] == [
+        "session_owned"
+    ]
+
+
 def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
     captured = {}
     monkeypatch.setattr(sessions, "CONVERSATION_HISTORY_LIMIT", 4)

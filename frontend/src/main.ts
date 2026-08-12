@@ -10,6 +10,13 @@ import {
   type TraceEvent
 } from './agent-stream'
 import { OidcAuthController, type AuthSnapshot } from './auth'
+import {
+  conversationIdentityKey,
+  resolveConversationSession,
+  saveConversationSession,
+  toConversationMessages,
+  type PersistedConversationMessage
+} from './conversation-session'
 import { invocationBlockedReason, type ServiceHealth } from './service-status'
 
 type AgentResponse = {
@@ -17,6 +24,11 @@ type AgentResponse = {
   trace_id: string
   cited_evidence_ids: string[]
   approval_status: string
+}
+
+type SessionMessagePage = {
+  items: PersistedConversationMessage[]
+  next_before_sequence: number | null
 }
 
 type AssetStatus =
@@ -103,6 +115,7 @@ type RuntimeState = {
   trace: TraceResponse | null
   health: ServiceHealth
   busy: boolean
+  historyLoading: boolean
   error: string
   lastLatencyMs: number | null
   attachments: PendingAttachment[]
@@ -118,15 +131,18 @@ let authController: OidcAuthController | null = null
 let authEnabled = false
 const maxAttachments = 4
 const maxImageBytes = 10 * 1024 * 1024
+let conversationLoadVersion = 0
+let activeConversation = ''
 
 const state: RuntimeState = {
   tenantId: 'tenant_1',
   userId: 'user_1',
-  sessionId: `session_${crypto.randomUUID().slice(0, 8)}`,
+  sessionId: '',
   messages: [],
   trace: null,
   health: 'checking',
   busy: false,
+  historyLoading: false,
   error: '',
   lastLatencyMs: null,
   attachments: [],
@@ -249,11 +265,28 @@ sessionInput.value = state.sessionId
 tenantInput.addEventListener('input', () => {
   state.tenantId = tenantInput.value.trim()
 })
+tenantInput.addEventListener('change', () => {
+  void activateConversation()
+})
 userInput.addEventListener('input', () => {
   state.userId = userInput.value.trim()
 })
+userInput.addEventListener('change', () => {
+  void activateConversation()
+})
 sessionInput.addEventListener('input', () => {
   state.sessionId = sessionInput.value.trim()
+})
+sessionInput.addEventListener('change', () => {
+  if (!state.sessionId || !state.tenantId || !state.userId) {
+    return
+  }
+  saveConversationSession(
+    window.localStorage,
+    { tenantId: state.tenantId, userId: state.userId },
+    state.sessionId
+  )
+  void activateConversation({ requestedSessionId: state.sessionId, force: true })
 })
 refreshHealthButton.addEventListener('click', () => {
   void checkHealth()
@@ -297,6 +330,9 @@ async function initializeAuthentication() {
       render()
     }
     await authController.initialize()
+    if (!authEnabled) {
+      await activateConversation()
+    }
   } catch (error) {
     state.authStatus = 'error'
     state.error = error instanceof Error ? error.message : '认证初始化失败。'
@@ -318,12 +354,69 @@ function applyAuthSnapshot(snapshot: AuthSnapshot) {
     if (!snapshot.tenantId || !snapshot.userId) {
       state.authStatus = 'error'
       state.error = '身份令牌缺少 tenant_id 或 sub claim，请联系管理员。'
+    } else {
+      void activateConversation()
     }
   }
   if (snapshot.error) {
     state.error = snapshot.error
   }
   render()
+}
+
+async function activateConversation(options?: {
+  requestedSessionId?: string
+  force?: boolean
+}) {
+  if (!state.tenantId || !state.userId) {
+    return
+  }
+  const identity = { tenantId: state.tenantId, userId: state.userId }
+  const sessionId =
+    options?.requestedSessionId ??
+    resolveConversationSession(
+      window.localStorage,
+      identity,
+      () => `session_${crypto.randomUUID().slice(0, 8)}`
+    )
+  const conversationKey = `${conversationIdentityKey(identity)}\u0000${sessionId}`
+  if (!options?.force && activeConversation === conversationKey) {
+    return
+  }
+
+  saveConversationSession(window.localStorage, identity, sessionId)
+  activeConversation = conversationKey
+  state.sessionId = sessionId
+  state.messages = []
+  state.trace = null
+  state.error = ''
+  state.historyLoading = true
+  const loadVersion = ++conversationLoadVersion
+  render()
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=200`,
+      { headers: authHeaders() }
+    )
+    const page = await parseJsonResponse<SessionMessagePage>(response)
+    if (loadVersion !== conversationLoadVersion) {
+      return
+    }
+    state.messages = toConversationMessages(page.items)
+  } catch (error) {
+    if (loadVersion !== conversationLoadVersion) {
+      return
+    }
+    if (!(error instanceof ApiError && error.status === 404)) {
+      state.error = apiErrorMessage(error)
+    }
+  } finally {
+    if (loadVersion === conversationLoadVersion) {
+      state.historyLoading = false
+      render()
+    }
+  }
 }
 
 async function toggleAuthentication() {
@@ -346,6 +439,11 @@ async function toggleAuthentication() {
 async function submitMessage() {
   const message = messageInput.value.trim()
   state.error = ''
+  if (state.historyLoading) {
+    state.error = '正在恢复会话历史，请稍后发送。'
+    render()
+    return
+  }
   if (!message) {
     state.error = '请输入消息。'
     render()
@@ -367,6 +465,11 @@ async function submitMessage() {
     render()
     return
   }
+  saveConversationSession(
+    window.localStorage,
+    { tenantId: state.tenantId, userId: state.userId },
+    state.sessionId
+  )
   const unavailableAttachment = state.attachments.find(
     (attachment) => !['ready', 'partial'].includes(attachment.status)
   )
@@ -838,10 +941,13 @@ function render() {
   const authenticationRequired = authEnabled && state.authStatus !== 'authenticated'
   tenantInput.disabled = authEnabled
   userInput.disabled = authEnabled
-  sendButton.disabled = state.busy || authenticationRequired
+  sendButton.disabled = state.busy || state.historyLoading || authenticationRequired
   attachButton.disabled =
-    state.busy || authenticationRequired || state.attachments.length >= maxAttachments
-  sendButton.textContent = state.busy ? '运行中' : '发送'
+    state.busy ||
+    state.historyLoading ||
+    authenticationRequired ||
+    state.attachments.length >= maxAttachments
+  sendButton.textContent = state.busy ? '运行中' : state.historyLoading ? '加载中' : '发送'
   authButton.hidden = !authEnabled
   authButton.disabled = state.authStatus === 'loading'
   authButton.textContent = state.authStatus === 'authenticated' ? '退出登录' : '登录'

@@ -196,6 +196,41 @@ class SessionMessagePage(BaseModel):
     next_before_sequence: int | None = None
 
 
+class SessionItem(BaseModel):
+    session_id: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionPage(BaseModel):
+    items: list[SessionItem]
+
+
+@router.get("", response_model=SessionPage)
+def list_sessions(
+    limit: int = Query(default=20, ge=1, le=100),
+    principal: Principal = Depends(require_permission("agent:read")),
+    db: Session = Depends(get_db),
+) -> SessionPage:
+    records = ConversationRepository(db).list_owned_sessions(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        limit=limit,
+    )
+    return SessionPage(
+        items=[
+            SessionItem(
+                session_id=record.session_id,
+                status=record.status,
+                created_at=record.created_at,
+                updated_at=record.updated_at,
+            )
+            for record in records
+        ]
+    )
+
+
 @router.post(
     "/{session_id}/messages",
     response_model=SessionMessageResponse,

@@ -45,6 +45,12 @@ class AgentSession(Base):
             "tenant_id",
             "active_run_id",
         ),
+        Index(
+            "ix_agent_sessions_tenant_user_updated",
+            "tenant_id",
+            "user_id",
+            "updated_at",
+        ),
     )
 
     session_key: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -60,7 +66,11 @@ class AgentSession(Base):
         server_default=text("1"),
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=_utc_now,
+        onupdate=_utc_now,
+    )
 
 
 class AgentMessage(Base):

@@ -9,7 +9,7 @@ from app.conversations.repository import (
     ConversationNotFoundError,
     ConversationRepository,
 )
-from app.storage.models import AgentMessage, AgentRun, Base
+from app.storage.models import AgentMessage, AgentRun, AgentSession, Base
 
 
 @pytest.fixture()
@@ -80,6 +80,46 @@ def test_same_external_session_id_isolated_by_tenant_and_user(session):
         user_id="missing",
         session_id="shared",
     ) is None
+
+
+def test_list_owned_sessions_returns_latest_sessions_with_identity_isolation(session):
+    session.add_all(
+        [
+            AgentSession(
+                session_key="session_key_old",
+                session_id="session_old",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                status="active",
+                updated_at=datetime(2026, 8, 1, tzinfo=UTC),
+            ),
+            AgentSession(
+                session_key="session_key_new",
+                session_id="session_new",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                status="active",
+                updated_at=datetime(2026, 8, 2, tzinfo=UTC),
+            ),
+            AgentSession(
+                session_key="session_key_other_user",
+                session_id="session_other_user",
+                tenant_id="tenant_1",
+                user_id="user_2",
+                status="active",
+                updated_at=datetime(2026, 8, 3, tzinfo=UTC),
+            ),
+        ]
+    )
+    session.flush()
+
+    records = ConversationRepository(session).list_owned_sessions(
+        tenant_id="tenant_1",
+        user_id="user_1",
+        limit=1,
+    )
+
+    assert [record.session_id for record in records] == ["session_new"]
 
 
 def test_lock_session_requires_full_ownership(session):
