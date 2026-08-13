@@ -12,6 +12,7 @@ const backendDatabaseUrl =
 const ports = {
   backend: Number(process.env.BS_AGENT_BACKEND_PORT || 8000),
   frontend: Number(process.env.BS_AGENT_FRONTEND_PORT || 5175),
+  mcp: Number(process.env.BS_AGENT_MCP_PORT || 8011),
   'admin-backend': Number(process.env.BS_AGENT_ADMIN_BACKEND_PORT || 8002),
   'admin-frontend': Number(process.env.BS_AGENT_ADMIN_FRONTEND_PORT || 5173)
 }
@@ -36,7 +37,7 @@ const services = {
       BS_AGENT_SKILL_REGISTRY_BASE_URL: `http://127.0.0.1:${ports['admin-backend']}`,
       BS_AGENT_SKILL_DEFINITION_CACHE_TTL_SECONDS: '5',
       BS_AGENT_MCP_SERVER_NAME: 'local',
-      MCP_MARKET_DATA_ADMIN_BASE_URL: `http://127.0.0.1:${ports['admin-backend']}`
+      BS_AGENT_MCP_SERVER_URL: `http://127.0.0.1:${ports.mcp}/mcp`
     },
     port: ports.backend,
     startupTasks: [
@@ -50,6 +51,19 @@ const services = {
         }
       }
     ]
+  },
+  mcp: {
+    label: 'mcp',
+    command: python,
+    args: ['-m', 'app.main'],
+    cwd: 'mcp server',
+    env: {
+      MCP_SERVER_HOST: host,
+      MCP_SERVER_PORT: String(ports.mcp),
+      MCP_SERVER_PATH: '/mcp',
+      MCP_MARKET_DATA_ADMIN_BASE_URL: `http://127.0.0.1:${ports['admin-backend']}`
+    },
+    port: ports.mcp
   },
   frontend: {
     label: 'frontend',
@@ -123,7 +137,7 @@ const services = {
   }
 }
 
-const defaultServiceNames = ['backend', 'frontend', 'admin-backend', 'admin-frontend']
+const defaultServiceNames = ['mcp', 'admin-backend', 'backend', 'frontend', 'admin-frontend']
 const rawArgs = process.argv.slice(2)
 const checkOnly = rawArgs.includes('--check')
 const stopOnly = rawArgs.includes('--stop')
@@ -382,6 +396,7 @@ BsAgent 本地开发启动器
 
 默认端口:
   backend         http://127.0.0.1:${ports.backend}
+  mcp             http://127.0.0.1:${ports.mcp}/mcp
   frontend        http://127.0.0.1:${ports.frontend}
   admin-backend   http://127.0.0.1:${ports['admin-backend']}
   admin-frontend  http://127.0.0.1:${ports['admin-frontend']}
@@ -390,6 +405,7 @@ BsAgent 本地开发启动器
   PYTHON          Python 解释器路径，默认 /opt/anaconda3/bin/python3
   BS_AGENT_DEV_HOST
   BS_AGENT_BACKEND_PORT
+  BS_AGENT_MCP_PORT
   BS_AGENT_FRONTEND_PORT
   BS_AGENT_ADMIN_BACKEND_PORT
   BS_AGENT_ADMIN_FRONTEND_PORT
@@ -397,6 +413,7 @@ BsAgent 本地开发启动器
 
 启动器会自动设置:
   BS_AGENT_SKILL_REGISTRY_BASE_URL=http://127.0.0.1:<admin-backend-port>
+  BS_AGENT_MCP_SERVER_URL=http://127.0.0.1:<mcp-port>/mcp
   MCP_MARKET_DATA_ADMIN_BASE_URL=http://127.0.0.1:<admin-backend-port>
 `)
 }

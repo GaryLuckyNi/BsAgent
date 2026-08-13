@@ -17,6 +17,7 @@ from sqlalchemy.pool import StaticPool
 from app.api import approvals, sessions
 from app.conversations.service import BeginTurn, ConversationService
 from app.graph.state import build_checkpoint_thread_id, create_initial_state
+from app.graph import runtime
 from app.graph.runtime import AgentGraphExecutionError
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import TraceEvent
@@ -39,6 +40,72 @@ from app.storage.models import (
     Base,
     ExperienceEntryRecord,
 )
+from app.tools.registry import ToolRegistry
+
+
+class FailingExperienceStore:
+    def list_for_user(self, **_kwargs):
+        raise RuntimeError("postgresql://user:secret@memory.internal")
+
+    def save(self, _payload):
+        raise RuntimeError("postgresql://user:secret@memory.internal")
+
+
+def test_experience_recall_failure_is_safe_and_observable():
+    buffer = TraceBuffer()
+
+    entries = sessions._recall_experience_entries(
+        experience_store=FailingExperienceStore(),
+        tenant_id="tenant_1",
+        user_id="user_1",
+        query="分析海能达",
+        trace_id="trace_1",
+        trace_buffer=buffer,
+    )
+
+    assert entries == []
+    assert len(buffer.events) == 1
+    assert buffer.events[0].node_name == "memory_recall"
+    assert buffer.events[0].status == "handled_error"
+    assert buffer.events[0].error == "长期经验召回失败，本次请求未注入历史偏好。"
+
+
+def test_experience_commit_failure_does_not_raise_and_is_observable():
+    buffer = TraceBuffer()
+    state = create_initial_state(
+        session_id="session_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="记住所有回答用中文",
+        trace_id="trace_1",
+    )
+    state["memory_candidates"] = [
+        MemoryCandidate(
+            candidate_id="memcand_1",
+            memory_type="user_preference",
+            memory_key="language",
+            content="所有回答用中文",
+            confidence=1.0,
+            sensitivity="low",
+            approval_status="not_required",
+        )
+    ]
+
+    sessions._commit_external_experience_memories(
+        state,
+        FailingExperienceStore(),
+        trace_buffer=buffer,
+    )
+
+    assert len(buffer.events) == 1
+    assert buffer.events[0].node_name == "memory_commit"
+    assert buffer.events[0].status == "handled_error"
+    assert "secret" not in str(buffer.events[0])
+
+
+@pytest.fixture(autouse=True)
+def isolate_session_api_tests_from_external_mcp(monkeypatch):
+    monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
 
 
 class PreferenceResponseLlmClient:

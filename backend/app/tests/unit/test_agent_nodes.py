@@ -309,7 +309,7 @@ def _stock_tool_spec(name: str) -> ToolSpec:
             properties["window_days"] = {"type": "integer", "minimum": 20, "maximum": 250}
     return ToolSpec(
         name=name,
-        version="mcp-stdio-v1",
+        version="mcp-http-v1",
         description=f"测试股票工具 {name}",
         input_schema={
             "type": "object",
@@ -441,7 +441,7 @@ def _market_snapshot_tool_spec() -> ToolSpec:
     }
     return ToolSpec(
         name="mcp.market.stock.market_snapshot",
-        version="mcp-stdio-v1",
+        version="mcp-http-v1",
         description="查询 A 股行情和估值快照",
         input_schema={
             "type": "object",
@@ -4007,7 +4007,7 @@ def test_synthesizer_renders_successful_tool_execution_result():
         ToolCallRecord(
             request=ToolCallRequest(
                 tool_name="mcp.mock.echo",
-                tool_version="mcp-stdio-v1",
+                tool_version="mcp-http-v1",
                 arguments={"numbers": list(range(1, 51))},
                 purpose="计算 1 到 50 的总和",
             ),
@@ -4048,7 +4048,7 @@ def test_synthesizer_renders_tool_result_with_product_voice():
         ToolCallRecord(
             request=ToolCallRequest(
                 tool_name="mcp.mock.echo",
-                tool_version="mcp-stdio-v1",
+                tool_version="mcp-http-v1",
                 arguments={"numbers": [1, 2, 3]},
                 purpose="计算用户给出的数字总和",
             ),
@@ -4577,3 +4577,30 @@ def test_approval_coordinator_does_not_commit_memory_candidate_twice():
     build_approval_coordinator_node(experience_store=store)(state)
 
     assert store.payloads == []
+
+
+def test_approval_coordinator_commits_explicit_low_risk_memory_without_approval():
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="记住我的语言偏好：以后都用中文",
+    )
+    state["memory_candidates"] = [
+        MemoryCandidate(
+            candidate_id="memcand_1",
+            memory_type="user_preference",
+            memory_key="language",
+            content="以后都用中文",
+            confidence=0.9,
+            approval_status="not_required",
+            sensitivity="low",
+            source="user_explicit_preference",
+        )
+    ]
+    store = RecordingExperienceStore()
+
+    build_approval_coordinator_node(experience_store=store)(state)
+
+    assert len(store.payloads) == 1
+    assert store.payloads[0].memory_key == "language"

@@ -39,7 +39,7 @@ def _pending(*, approval_id: str = "approval_1", tenant_id: str = "tenant_1"):
         request_user_id="user_1",
         approval_type="tool_call",
         tool_name="mcp.mock.write_order",
-        tool_version="mcp-stdio-v1",
+        tool_version="mcp-http-v1",
         arguments_hash="hash_1",
         payload={"arguments_summary": {"symbol": "600519.SH"}},
         checkpoint_thread_id="run_1",

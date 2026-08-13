@@ -129,10 +129,15 @@ def test_default_readiness_probes_database_redis_and_object_store():
         def check_health(self):
             calls.append("object_store")
 
+    class ExperienceStore:
+        def check_health(self):
+            calls.append("experience_store")
+
     service = build_readiness_service(
         engine=Engine(),
         redis_client=Redis(),
         object_store=ObjectStore(),
+        experience_store=ExperienceStore(),
     )
 
     report = service.check()
@@ -142,8 +147,9 @@ def test_default_readiness_probes_database_redis_and_object_store():
         "database": "ok",
         "redis": "ok",
         "object_store": "ok",
+        "experience_store": "ok",
     }
-    assert calls == ["database", "redis", "object_store"]
+    assert calls == ["database", "redis", "object_store", "experience_store"]
 
 
 def test_app_lifespan_reuses_and_closes_runtime_resources():
@@ -180,6 +186,13 @@ def test_app_lifespan_reuses_and_closes_runtime_resources():
         def close(self):
             calls.append("object_store.close")
 
+    class ExperienceRuntime:
+        def open(self):
+            calls.append("experience_store.open")
+
+        def close(self):
+            calls.append("experience_store.close")
+
     from app.main import create_app
 
     engine = Engine()
@@ -189,6 +202,7 @@ def test_app_lifespan_reuses_and_closes_runtime_resources():
         database_engine=engine,
         redis_client=redis,
         object_store=object_store,
+        experience_store_runtime=ExperienceRuntime(),
     )
 
     with TestClient(app) as client:
@@ -197,9 +211,11 @@ def test_app_lifespan_reuses_and_closes_runtime_resources():
         assert client.get("/health/ready").status_code == 200
 
     assert calls == [
+        "experience_store.open",
         "database",
         "redis",
         "object_store",
+        "experience_store.close",
         "object_store.close",
         "redis.close",
         "database.close",

@@ -40,7 +40,11 @@ def build_llm_intent_router_node(
     return build_intent_router_node(
         router=HybridIntentRouter(
             llm_client=llm_client,
-            available_tools=available_tools or list_default_tool_specs(),
+            available_tools=(
+                list_default_tool_specs()
+                if available_tools is None
+                else available_tools
+            ),
         )
     )
 

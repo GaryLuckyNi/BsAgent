@@ -10,6 +10,7 @@ from app.schemas.memory import ExperienceCommitPayload
 from app.schemas.memory import MemoryCandidate
 from app.storage.models import AgentRun, AgentSession, Base, MemoryCandidateRecord
 from app.storage.repositories import persist_agent_run
+from app.tools.registry import ToolRegistry
 
 
 class RecordingExperienceStore:
@@ -30,6 +31,7 @@ def test_persist_agent_run_stores_session_and_run():
         user_id="user_1",
         user_message="你好",
         trace_store=trace_store,
+        tool_registry_factory=ToolRegistry,
     )
 
     with Session(engine) as session:
@@ -46,6 +48,37 @@ def test_persist_agent_run_stores_session_and_run():
     assert saved_run.trace_id == state["trace_id"]
     assert saved_run.intent == "conversation"
     assert saved_run.risk_level == "low"
+
+
+def test_persist_agent_run_does_not_implicitly_build_an_experience_store(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    state = create_initial_state(
+        session_id="session_1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="记住所有回答用中文",
+    )
+    state["memory_candidates"] = [
+        MemoryCandidate(
+            candidate_id="memcand_1",
+            memory_type="user_preference",
+            memory_key="language",
+            content="所有回答用中文",
+            confidence=1.0,
+            approval_status="not_required",
+            sensitivity="low",
+        )
+    ]
+
+    with Session(engine) as session:
+        persist_agent_run(session=session, state=state, status="completed")
+
+    with Session(engine) as session:
+        assert session.query(MemoryCandidateRecord).count() == 1
+        from app.storage.models import ExperienceEntryRecord
+
+        assert session.query(ExperienceEntryRecord).count() == 0
 
 
 def test_persist_agent_run_updates_existing_run_when_resumed():

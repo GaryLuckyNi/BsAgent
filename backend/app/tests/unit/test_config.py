@@ -42,6 +42,9 @@ def _production_settings(**overrides):
         "rag_config_revision": "research-v1",
         "mcp_server_revision": "research-tools-2026.07",
         "mcp_config_revision": "production-v1",
+        "mcp_server_url": "http://mcp-server:8011/mcp",
+        "experience_store_backend": "langgraph_postgres",
+        "experience_store_postgres_url": "postgresql://agent@postgres/agent",
         "rate_limit_backend": "redis",
         "log_format": "json",
         "trace_backend": "database",
@@ -67,6 +70,7 @@ def _production_settings(**overrides):
         ({"trace_backend": "memory"}, "trace_backend"),
         ({"otel_enabled": False}, "otel_enabled"),
         ({"use_mock_rag": True}, "use_mock_rag"),
+        ({"experience_store_backend": "sqlalchemy"}, "experience_store_backend"),
     ],
 )
 def test_production_rejects_development_backends(overrides, expected_field):
@@ -100,6 +104,9 @@ def test_production_rejects_development_backends(overrides, expected_field):
         ({"skill_registry_base_url": ""}, "skill_registry_base_url"),
         ({"rag_provider_revision": "local-dev"}, "rag_provider_revision"),
         ({"mcp_server_revision": "local-dev"}, "mcp_server_revision"),
+        ({"mcp_server_url": "not-a-url"}, "mcp_server_url"),
+        ({"mcp_server_url": "http://127.0.0.1:8011/mcp"}, "mcp_server_url"),
+        ({"experience_store_postgres_url": None}, "experience_store_postgres_url"),
     ],
 )
 def test_production_requires_external_service_configuration(overrides, expected_field):

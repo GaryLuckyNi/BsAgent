@@ -6,6 +6,9 @@ from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import BaseTool as LangChainTool
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
@@ -45,20 +48,14 @@ class DynamicMcpToolInput(BaseModel):
         return self
 
 
-class McpStdioClient:
+class McpHttpClient:
     def __init__(
         self,
         *,
-        command: str,
-        args: list[str],
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
+        url: str,
         timeout_seconds: float = 30.0,
     ) -> None:
-        self._command = command
-        self._args = args
-        self._cwd = cwd
-        self._env = dict(env or {})
+        self._url = url
         self._timeout_seconds = timeout_seconds
 
     async def list_tools(
@@ -66,73 +63,44 @@ class McpStdioClient:
         *,
         server_name: str,
         risk_level: Literal["low", "medium", "high"] = "medium",
-    ) -> list["DynamicMcpStdioTool"]:
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
-
-        params = StdioServerParameters(
-            command=self._command,
-            args=self._args,
-            env=self._env,
-            cwd=self._cwd,
+    ) -> list["DynamicMcpHttpTool"]:
+        client = self._client(server_name)
+        discovered = await asyncio.wait_for(
+            client.get_tools(server_name=server_name),
+            timeout=self._timeout_seconds,
         )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await asyncio.wait_for(
-                    session.list_tools(),
-                    timeout=self._timeout_seconds,
-                )
-
-        tools: list[DynamicMcpStdioTool] = []
-        for tool in result.tools:
-            mcp_tool_name = tool.name
-            input_schema = getattr(tool, "inputSchema", None) or {}
-            output_schema = getattr(tool, "outputSchema", None)
+        tools: list[DynamicMcpHttpTool] = []
+        for tool in discovered:
+            input_schema = _langchain_input_schema(tool)
             tools.append(
-                DynamicMcpStdioTool(
-                    name=f"mcp.{server_name}.{mcp_tool_name}",
+                DynamicMcpHttpTool(
+                    name=f"mcp.{server_name}.{tool.name}",
                     server_name=server_name,
-                    mcp_tool_name=mcp_tool_name,
-                    description=getattr(tool, "description", None) or mcp_tool_name,
+                    langchain_tool=tool,
+                    description=tool.description or tool.name,
                     input_schema=input_schema,
-                    output_schema=output_schema,
-                    command=self._command,
-                    args=self._args,
-                    cwd=self._cwd,
-                    env=self._env,
                     timeout_seconds=self._timeout_seconds,
                     risk_level=risk_level,
                 )
             )
         return tools
 
-    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict:
-        return await asyncio.wait_for(
-            self._call_tool(tool_name, arguments),
-            timeout=self._timeout_seconds,
+    def _client(self, server_name: str) -> MultiServerMCPClient:
+        return MultiServerMCPClient(
+            {
+                server_name: {
+                    "transport": "streamable_http",
+                    "url": self._url,
+                    "timeout": self._timeout_seconds,
+                    "sse_read_timeout": self._timeout_seconds,
+                }
+            },
+            handle_tool_errors=True,
         )
 
-    async def _call_tool(self, tool_name: str, arguments: dict[str, Any]) -> dict:
-        from mcp import ClientSession, StdioServerParameters
-        from mcp.client.stdio import stdio_client
 
-        params = StdioServerParameters(
-            command=self._command,
-            args=self._args,
-            env=self._env,
-            cwd=self._cwd,
-        )
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                result = await session.call_tool(tool_name, arguments)
-
-        return _parse_mcp_tool_result(result)
-
-
-class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
-    version = "mcp-stdio-v1"
+class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
+    version = "mcp-http-v1"
     input_model = DynamicMcpToolInput
     timeout_ms = 30_000
     requires_explicit_execution_binding = True
@@ -142,32 +110,20 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
         *,
         name: str,
         server_name: str,
-        mcp_tool_name: str,
+        langchain_tool: LangChainTool,
         description: str,
         input_schema: dict[str, Any],
-        output_schema: dict[str, Any] | None,
-        command: str,
-        args: list[str],
-        cwd: str | None = None,
-        env: dict[str, str] | None = None,
         timeout_seconds: float = 30.0,
         risk_level: Literal["low", "medium", "high"] = "medium",
     ) -> None:
         self.name = name
-        self.description = description or mcp_tool_name
-        self.output_schema = output_schema or {}
+        self.description = description or langchain_tool.name
+        self.output_schema = {}
         self.permission_scope = [f"mcp:{server_name}"]
         self.risk_level = risk_level
         self.timeout_ms = int(timeout_seconds * 1000)
         self._input_schema = input_schema or {"type": "object", "properties": {}}
-        self._mcp_tool_name = mcp_tool_name
-        self._client = McpStdioClient(
-            command=command,
-            args=args,
-            cwd=cwd,
-            env=env,
-            timeout_seconds=timeout_seconds,
-        )
+        self._langchain_tool = langchain_tool
 
         class ToolInput(DynamicMcpToolInput):
             json_schema = self._input_schema
@@ -191,10 +147,18 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
     async def run(self, input_data: DynamicMcpToolInput) -> ToolCallResult:
         start = perf_counter()
         try:
-            payload = await self._client.call_tool(
-                self._mcp_tool_name,
-                input_data.model_dump(),
+            response = await asyncio.wait_for(
+                self._langchain_tool.ainvoke(
+                    {
+                        "type": "tool_call",
+                        "id": f"mcp_{uuid4().hex}",
+                        "name": self._langchain_tool.name,
+                        "args": input_data.model_dump(),
+                    }
+                ),
+                timeout=self.timeout_ms / 1000,
             )
+            payload = _langchain_tool_payload(response)
         except McpToolResponseError as exc:
             return _failure_result(
                 tool_name=self.name,
@@ -220,7 +184,7 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
 
         market_error = _market_envelope_error(
             payload,
-            require_market_envelope=self._mcp_tool_name.startswith("stock."),
+            require_market_envelope=self._langchain_tool.name.startswith("stock."),
         )
         if market_error is not None:
             return _failure_result(
@@ -242,46 +206,48 @@ class DynamicMcpStdioTool(Tool[DynamicMcpToolInput]):
         )
 
 
-def discover_mcp_stdio_tools(
+def discover_mcp_http_tools(
     *,
-    command: str,
-    args: list[str],
-    cwd: str | None,
-    env: dict[str, str] | None = None,
+    url: str,
     server_name: str,
     timeout_seconds: float,
     risk_level: Literal["low", "medium", "high"] = "medium",
-) -> list[DynamicMcpStdioTool]:
-    client = McpStdioClient(
-        command=command,
-        args=args,
-        cwd=cwd,
-        env=env,
+) -> list[DynamicMcpHttpTool]:
+    client = McpHttpClient(
+        url=url,
         timeout_seconds=timeout_seconds,
     )
     return asyncio.run(client.list_tools(server_name=server_name, risk_level=risk_level))
 
 
-def _parse_mcp_tool_result(result) -> dict:
-    if getattr(result, "isError", False):
-        raise McpToolResponseError(_protocol_error_code(result))
+def _langchain_input_schema(tool: LangChainTool) -> dict[str, Any]:
+    schema = tool.args_schema
+    if isinstance(schema, dict):
+        return schema
+    if schema is not None:
+        return schema.model_json_schema()
+    return {"type": "object", "properties": {}}
 
-    structured = _structured_content(result)
-    if structured is not None:
-        if isinstance(structured, dict):
-            return structured
-        raise McpToolResponseError("mcp_tool_response_invalid")
 
-    for block in getattr(result, "content", None) or []:
-        text = getattr(block, "text", None)
-        if not isinstance(text, str):
-            continue
-        try:
-            parsed = json.loads(text)
-        except (TypeError, ValueError):
-            continue
-        if isinstance(parsed, dict):
-            return parsed
+def _langchain_tool_payload(response: object) -> dict[str, Any]:
+    if not isinstance(response, ToolMessage) or response.status == "error":
+        raise McpToolResponseError("mcp_tool_execution_failed")
+    artifact = response.artifact
+    if isinstance(artifact, dict):
+        payload = artifact.get("structured_content")
+        if isinstance(payload, dict):
+            return payload
+
+    content = response.content
+    if isinstance(content, list) and len(content) == 1:
+        block = content[0]
+        if isinstance(block, dict) and block.get("type") == "text":
+            try:
+                payload = json.loads(block.get("text", ""))
+            except (TypeError, json.JSONDecodeError):
+                payload = None
+            if isinstance(payload, dict):
+                return payload
     raise McpToolResponseError("mcp_tool_response_invalid")
 
 
@@ -349,24 +315,6 @@ def _market_envelope_error(
         )
     except Exception:
         return _invalid_response_error()
-
-
-def _structured_content(result) -> Any:
-    structured = getattr(result, "structuredContent", None)
-    if structured is not None:
-        return structured
-    return getattr(result, "structured_content", None)
-
-
-def _protocol_error_code(result) -> str:
-    structured = _structured_content(result)
-    if not isinstance(structured, dict):
-        return "mcp_tool_execution_failed"
-    error = structured.get("error")
-    code = error.get("code") if isinstance(error, dict) else structured.get("code")
-    if code in {"invalid_field_request", "invalid_params", -32602, "-32602"}:
-        return "invalid_field_request"
-    return "mcp_tool_execution_failed"
 
 
 def _valid_failure_error(error: object) -> bool:

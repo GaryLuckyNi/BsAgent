@@ -36,7 +36,6 @@ WORKDIR /app
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 COPY backend ./backend
-COPY ["mcp server", "/app/mcp server"]
 COPY deploy/run-migrations.sh ./deploy/run-migrations.sh
 
 RUN chmod 0555 /app/deploy/run-migrations.sh \

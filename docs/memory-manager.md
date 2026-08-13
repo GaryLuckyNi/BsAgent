@@ -26,7 +26,7 @@ Memory Manager 负责 Agentic RAG 系统里的记忆治理。它不直接替代 
 边界规则：
 
 - 长期 Knowledge：由文档/知识索引服务处理，RAG 只负责检索。
-- 长期 Experience：例如用户偏好、交互习惯、稳定约束，审批后交给 `ExperienceStore` 保存。当前实现是 SQLAlchemy，本地可用 SQLite，生产建议使用 Postgres。
+- 长期 Experience：例如用户偏好、交互习惯、稳定约束，审批后交给 `ExperienceStore` 保存。本地兼容 SQLAlchemy，生产使用 LangGraph 官方 `PostgresStore`。
 - BsAgent：只负责 Experience 候选生成、审批、状态协调和审计，不直接成为长期 Knowledge 的事实源。
 
 ## 读取路径
@@ -40,7 +40,7 @@ query + tenant_id + user_id
 -> MemoryContext(entries, sources)
 ```
 
-这为后续接入数据库 experience store 检索入口预留了位置。当前代码不直接绑定具体基础设施，避免 Memory Manager 和某个存储实现强耦合。
+生产召回按 `("tenants", tenant_id, "users", user_id, "experiences")` namespace 隔离，并受 `experience_memory_recall_limit` 约束。第一版未配置 embedding，因此只做有界结构化读取；后续配置 Store 向量索引后，可复用同一接口增加语义排序。
 
 ## 写入候选
 
@@ -119,13 +119,13 @@ ExperienceStore.save(payload)
 
 该标记用于避免图恢复或节点重跑时重复提交经验记忆。
 
-Session API 的持久化路径也会执行同一套提交规则。`persist_agent_run(...)` 在同一个数据库事务中保存：
+Session API 的持久化路径也会执行同一套提交规则。`persist_agent_run(...)` 在业务数据库事务中保存：
 
 - `agent_runs`
 - `agent_trace_events`
-- 已审批的 `experience_entries`
+- memory candidates 与审批审计
 
-因此正常 HTTP 请求不需要在 API 层手动调用第二次提交；审批节点和 repository 共用 `commit_approved_experience_memories(...)`，避免两套判断逻辑漂移。
+业务事务提交成功后，API 再调用 `commit_approved_experience_memories(...)` 写入外部 LangGraph Store。这样业务事务回滚时不会提前污染长期经验。外部 Store 写入失败不会回滚已完成消息，而是记录安全日志；零丢失补偿需要后续引入数据库 outbox。
 
 ## 存储边界
 
@@ -150,13 +150,18 @@ MemoryCandidate
 
 `commit_candidate(...)` 不创建本地长期记忆事实表，只返回 `ExperienceCommitPayload`。由于 `MemoryCandidate` 已经不包含 Knowledge 类型，后续 experience store 不需要再到处判断 `long_term_knowledge`。
 
-当前只提供一种长期 Experience Store 实现：`SqlAlchemyExperienceStore`。它用于保存审批后的长期 Experience：
+当前提供两种长期 Experience Store 适配器：
+
+- `SqlAlchemyExperienceStore`：本地开发与兼容测试。
+- `LangGraphExperienceStore`：包装官方 `BaseStore`，生产由应用生命周期初始化 `PostgresStore`。
+
+生产长期经验使用稳定 `memory_key`：同一用户的同一偏好槽位通过 `put(namespace, memory_key, value)` 覆盖更新，不会随对话无限追加。候选与审批仍保留在业务 PostgreSQL 中作为审计源。
 
 - `experience_entries`：保存用户偏好、会话经验等 Experience 条目。
 - `source_candidate_id` 具备唯一约束，用于避免同一候选重复提交。
 - `list_for_user(...)` 可以按租户和用户读取经验条目。
 
-本地开发可以继续使用 SQLite；生产建议将 `BS_AGENT_DATABASE_URL` 指向 Postgres。Redis 不作为长期 ExperienceStore 后端，只保留给后续短期热数据、缓存、TTL 状态或限流等场景。
+本地开发可以继续使用 SQLite；生产必须配置 `BS_AGENT_EXPERIENCE_STORE_BACKEND=langgraph_postgres` 和 `BS_AGENT_EXPERIENCE_STORE_POSTGRES_URL`。Redis 不作为长期 ExperienceStore 后端，只承载短期热数据、缓存、TTL 状态或限流。
 
 该表不存储长期 Knowledge；Knowledge 仍然由外部知识索引/RAG 检索链路承载。
 
@@ -208,10 +213,18 @@ memory_manager
 
 Session API 会在图执行前构造 `ExperienceStore`，并通过 `ExperienceMemoryRetriever` 将长期 Experience 召回到 `memory_context`。当前 synthesizer 会识别中文回答偏好，并将其应用到草稿回答中。
 
+## 运行保障
+
+- 应用启动时建立 `PostgresStore` 连接并执行官方 `setup()`。
+- 生产 readiness 检查长期经验 Store；初始化失败时服务不接流量。
+- 召回失败会降级为空记忆并记录 `memory_recall` Trace，不向产品端泄露异常详情。
+- 单次召回有数量上限，不把完整用户画像无界塞入上下文。
+
 ## 后续扩展
 
 下一阶段可以继续补：
 
+- 使用数据库 outbox 异步补偿业务事务提交后失败的长期经验写入。
 - 管理 API：触发用户遗忘、租户遗忘和保留策略执行。
 - 更丰富的偏好解析，例如回答长度、格式、引用风格。
 - 独立的短期热数据层，例如 `ShortTermMemoryStore`、工具结果缓存和限流状态；这些能力应使用 Redis，但不归入长期 ExperienceStore。

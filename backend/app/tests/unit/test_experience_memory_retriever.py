@@ -24,9 +24,15 @@ class ExperienceEntry:
 
 
 class ExperienceStore:
-    def list_for_user(self, *, tenant_id: str, user_id: str):
+    def __init__(self) -> None:
+        self.query = None
+        self.limit = None
+
+    def list_for_user(self, *, tenant_id: str, user_id: str, query=None, limit=None):
         assert tenant_id == "tenant_1"
         assert user_id == "user_1"
+        self.query = query
+        self.limit = limit
         return [
             ExperienceEntry(
                 source_candidate_id="memcand_1",
@@ -38,7 +44,8 @@ class ExperienceStore:
 
 
 def test_experience_memory_retriever_maps_entries_to_evidence_package():
-    package = ExperienceMemoryRetriever(ExperienceStore())(
+    store = ExperienceStore()
+    package = ExperienceMemoryRetriever(store, recall_limit=6)(
         "差旅报销需要什么？",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -49,3 +56,5 @@ def test_experience_memory_retriever_maps_entries_to_evidence_package():
     assert package.items[0].chunk_id == "experience/memcand_1"
     assert package.items[0].content == "用户偏好：所有回答用中文"
     assert package.items[0].metadata["memory_type"] == "user_preference"
+    assert store.query == "差旅报销需要什么？"
+    assert store.limit == 6

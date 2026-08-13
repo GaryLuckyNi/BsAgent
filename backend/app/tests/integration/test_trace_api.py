@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.api import sessions
+from app.graph import runtime
 from app.graph.state import create_initial_state
 from app.harness.query import TraceQueryRepository
 from app.harness.node_runner import NodeRunner
@@ -29,11 +30,13 @@ from app.storage.models import (
     AgentTraceEvent,
     Base,
 )
+from app.tools.registry import ToolRegistry
 
 
 @pytest.fixture(autouse=True)
 def avoid_live_llm_provider(monkeypatch):
     monkeypatch.setattr(sessions, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
 
 
 def create_test_app_with_database(*, override_principal=True):

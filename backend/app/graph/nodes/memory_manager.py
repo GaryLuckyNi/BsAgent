@@ -63,6 +63,7 @@ class MemoryManager:
                         content=content,
                     ),
                     memory_type="user_preference",
+                    memory_key=_preference_key(statement, content),
                     content=content,
                     confidence=0.9,
                     approval_status="pending" if sensitivity == "high" else "not_required",
@@ -171,6 +172,19 @@ def _extract_memory_content(user_message: str) -> str:
 
 def _is_user_preference(user_message: str) -> bool:
     return "偏好" in user_message or "我喜欢" in user_message
+
+
+def _preference_key(statement: str, content: str) -> str:
+    combined = f"{statement} {content}"
+    if any(term in combined for term in ("语言", "中文", "英文")):
+        return "language"
+    if any(term in combined for term in ("简洁", "简短", "详细", "回答偏好")):
+        return "response_detail"
+    if any(term in combined for term in ("关注", "行业", "领域")):
+        return "focus_domain"
+    if any(term in combined for term in ("联系", "邮件", "电话")):
+        return "contact"
+    return f"preference_{sha256(_normalize_candidate_content(content).encode()).hexdigest()[:12]}"
 
 
 def _approval_requests_for_pending_memory_candidates(

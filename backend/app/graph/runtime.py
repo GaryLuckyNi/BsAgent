@@ -393,7 +393,10 @@ def build_question_answer_graph(
     _add_harnessed_node(
         graph,
         "intent_router",
-        build_llm_intent_router_node(llm_client=llm_client),
+        build_llm_intent_router_node(
+            llm_client=llm_client,
+            available_tools=list(tool_specs_snapshot),
+        ),
         runner,
     )
     _add_harnessed_node(

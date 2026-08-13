@@ -1,8 +1,9 @@
 import pytest
+from langgraph.store.memory import InMemoryStore
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.memory.experience_store import SqlAlchemyExperienceStore
+from app.memory.experience_store import LangGraphExperienceStore, SqlAlchemyExperienceStore
 from app.memory.factory import build_experience_store
 from app.storage.models import Base
 
@@ -39,3 +40,12 @@ def test_build_experience_store_rejects_redis_as_long_term_experience_backend():
                 session=session,
                 settings=FakeSettings(experience_store_backend="redis"),
             )
+
+
+def test_build_experience_store_wraps_official_langgraph_store():
+    store = build_experience_store(
+        settings=FakeSettings(experience_store_backend="langgraph"),
+        base_store=InMemoryStore(),
+    )
+
+    assert isinstance(store, LangGraphExperienceStore)

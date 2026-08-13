@@ -1,7 +1,9 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
+from langgraph.store.base import BaseStore
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,6 +22,102 @@ class ExperienceRetentionPolicy(BaseModel):
 class ExperienceStore(Protocol):
     def save(self, payload: ExperienceCommitPayload) -> None:
         raise NotImplementedError
+
+    def list_for_user(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        query: str | None = None,
+        limit: int | None = None,
+    ) -> list[Any]:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class ExperienceEntry:
+    source_candidate_id: str
+    tenant_id: str
+    user_id: str
+    memory_type: str
+    memory_key: str
+    content: str
+    sensitivity: str
+    source: str | None
+
+
+class LangGraphExperienceStore:
+    def __init__(self, store: BaseStore, *, recall_limit: int = 8) -> None:
+        self._store = store
+        self._recall_limit = recall_limit
+
+    def save(self, payload: ExperienceCommitPayload) -> None:
+        memory_key = payload.memory_key or payload.candidate_id
+        self._store.put(
+            _experience_namespace(payload.tenant_id, payload.user_id),
+            memory_key,
+            {
+                "source_candidate_id": payload.candidate_id,
+                "tenant_id": payload.tenant_id,
+                "user_id": payload.user_id,
+                "memory_type": payload.memory_type,
+                "memory_key": memory_key,
+                "content": payload.content,
+                "sensitivity": payload.sensitivity,
+                "source": payload.source,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+        )
+
+    def list_for_user(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        query: str | None = None,
+        limit: int | None = None,
+    ) -> list[ExperienceEntry]:
+        del query
+        items = self._store.search(
+            _experience_namespace(tenant_id, user_id),
+            limit=min(limit or self._recall_limit, self._recall_limit),
+        )
+        return [_experience_entry(item.value) for item in items]
+
+    def forget_user(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        memory_type: Literal["conversation", "user_preference"] | None = None,
+    ) -> int:
+        namespace = _experience_namespace(tenant_id, user_id)
+        items = self._store.search(namespace, limit=10_000)
+        selected = [
+            item
+            for item in items
+            if memory_type is None or item.value.get("memory_type") == memory_type
+        ]
+        for item in selected:
+            self._store.delete(namespace, item.key)
+        return len(selected)
+
+
+def _experience_namespace(tenant_id: str, user_id: str) -> tuple[str, ...]:
+    return ("tenants", tenant_id, "users", user_id, "experiences")
+
+
+def _experience_entry(value: dict[str, Any]) -> ExperienceEntry:
+    return ExperienceEntry(
+        source_candidate_id=str(value["source_candidate_id"]),
+        tenant_id=str(value["tenant_id"]),
+        user_id=str(value["user_id"]),
+        memory_type=str(value["memory_type"]),
+        memory_key=str(value["memory_key"]),
+        content=str(value["content"]),
+        sensitivity=str(value.get("sensitivity", "low")),
+        source=value.get("source"),
+    )
 
 
 class SqlAlchemyExperienceStore:
@@ -53,15 +151,21 @@ class SqlAlchemyExperienceStore:
         *,
         tenant_id: str,
         user_id: str,
+        query: str | None = None,
+        limit: int | None = None,
     ) -> list[ExperienceEntryRecord]:
-        return list(
+        del query
+        entries = list(
             self._session.scalars(
                 select(ExperienceEntryRecord)
                 .where(ExperienceEntryRecord.tenant_id == tenant_id)
                 .where(ExperienceEntryRecord.user_id == user_id)
-                .order_by(ExperienceEntryRecord.created_at.asc())
+                .order_by(ExperienceEntryRecord.created_at.desc())
+                .limit(limit)
             )
         )
+        entries.reverse()
+        return entries
 
     def forget_user(
         self,

@@ -12,16 +12,29 @@ class ExperienceEntryLike(Protocol):
 
 
 class ExperienceReader(Protocol):
-    def list_for_user(self, *, tenant_id: str, user_id: str) -> list[ExperienceEntryLike]:
+    def list_for_user(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        query: str | None = None,
+        limit: int | None = None,
+    ) -> list[ExperienceEntryLike]:
         raise NotImplementedError
 
 
 class ExperienceMemoryRetriever:
-    def __init__(self, experience_reader: ExperienceReader) -> None:
+    def __init__(self, experience_reader: ExperienceReader, *, recall_limit: int = 8) -> None:
         self._experience_reader = experience_reader
+        self._recall_limit = recall_limit
 
     def __call__(self, query: str, *, tenant_id: str, user_id: str) -> EvidencePackage:
-        entries = self._experience_reader.list_for_user(tenant_id=tenant_id, user_id=user_id)
+        entries = self._experience_reader.list_for_user(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            query=query,
+            limit=self._recall_limit,
+        )
         return EvidencePackage(
             evidence_package_id="evp_experience_memory",
             query_set=[query],

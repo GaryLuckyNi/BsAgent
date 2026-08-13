@@ -1,7 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
+from langgraph.store.memory import InMemoryStore
+
 from app.memory.experience_store import ExperienceCommitPayload, ExperienceStore
-from app.memory.experience_store import ExperienceRetentionPolicy, SqlAlchemyExperienceStore
+from app.memory.experience_store import (
+    ExperienceRetentionPolicy,
+    LangGraphExperienceStore,
+    SqlAlchemyExperienceStore,
+)
 from app.storage.models import Base, ExperienceEntryRecord
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -22,6 +28,7 @@ def test_experience_store_contract_accepts_user_preference_payload():
         tenant_id="tenant_1",
         user_id="user_1",
         memory_type="user_preference",
+        memory_key="language",
         content="所有的文档用中文",
         sensitivity="low",
         source="user_explicit_preference",
@@ -30,6 +37,96 @@ def test_experience_store_contract_accepts_user_preference_payload():
     store.save(payload)
 
     assert store.payloads == [payload]
+
+
+def test_langgraph_experience_store_overwrites_same_preference_key():
+    store = LangGraphExperienceStore(InMemoryStore())
+    store.save(
+        ExperienceCommitPayload(
+            candidate_id="first",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            memory_type="user_preference",
+            memory_key="response_detail",
+            content="回答简洁一些",
+        )
+    )
+    store.save(
+        ExperienceCommitPayload(
+            candidate_id="second",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            memory_type="user_preference",
+            memory_key="response_detail",
+            content="回答详细一些",
+        )
+    )
+
+    entries = store.list_for_user(tenant_id="tenant_1", user_id="user_1")
+
+    assert len(entries) == 1
+    assert entries[0].content == "回答详细一些"
+    assert entries[0].source_candidate_id == "second"
+
+
+def test_langgraph_experience_store_isolates_namespace_and_limits_recall():
+    store = LangGraphExperienceStore(InMemoryStore(), recall_limit=2)
+    for index in range(3):
+        store.save(
+            ExperienceCommitPayload(
+                candidate_id=f"candidate-{index}",
+                tenant_id="tenant_1",
+                user_id="user_1",
+                memory_type="user_preference",
+                memory_key=f"preference-{index}",
+                content=f"偏好 {index}",
+            )
+        )
+    store.save(
+        ExperienceCommitPayload(
+            candidate_id="other-user",
+            tenant_id="tenant_1",
+            user_id="user_2",
+            memory_type="user_preference",
+            memory_key="language",
+            content="其他用户偏好",
+        )
+    )
+
+    entries = store.list_for_user(tenant_id="tenant_1", user_id="user_1")
+
+    assert len(entries) == 2
+    assert all(entry.user_id == "user_1" for entry in entries)
+
+
+def test_langgraph_experience_store_accepts_recall_query_without_embedding_index():
+    received_queries = []
+
+    class StoreWithoutIndex(InMemoryStore):
+        def search(self, search_prefix, *, query=None, **kwargs):
+            received_queries.append(query)
+            return super().search(search_prefix, query=None, **kwargs)
+
+    store = LangGraphExperienceStore(StoreWithoutIndex())
+    store.save(
+        ExperienceCommitPayload(
+            candidate_id="candidate-1",
+            tenant_id="tenant_1",
+            user_id="user_1",
+            memory_type="user_preference",
+            memory_key="language",
+            content="所有回答使用中文",
+        )
+    )
+
+    entries = store.list_for_user(
+        tenant_id="tenant_1",
+        user_id="user_1",
+        query="分析海能达",
+    )
+
+    assert [entry.content for entry in entries] == ["所有回答使用中文"]
+    assert received_queries == [None]
 
 
 def test_sqlalchemy_experience_store_saves_user_preference_entry():

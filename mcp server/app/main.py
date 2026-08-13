@@ -1,5 +1,6 @@
-from inspect import signature
 from collections.abc import Sequence
+from inspect import signature
+import os
 from typing import Annotated, Literal
 
 from app.market_data.capabilities import MARKET_DATA_FIELD_APIS
@@ -14,6 +15,11 @@ from pydantic import Field, ValidationError
 mcp = FastMCP(
     name="bs-agent-local-mcp",
     instructions="本地 MCP Server，用于 BsAgent 调用真实 MCP tools 的联调验证。",
+    host=os.getenv("MCP_SERVER_HOST", "127.0.0.1"),
+    port=int(os.getenv("MCP_SERVER_PORT", "8011")),
+    streamable_http_path=os.getenv("MCP_SERVER_PATH", "/mcp"),
+    stateless_http=True,
+    json_response=True,
 )
 market_data_provider = build_configured_market_data_provider()
 
@@ -203,7 +209,7 @@ def _success_envelope(result: MarketDataResult) -> dict:
 
 
 def main() -> None:
-    mcp.run(transport="stdio")
+    mcp.run(transport="streamable-http")
 
 
 if __name__ == "__main__":

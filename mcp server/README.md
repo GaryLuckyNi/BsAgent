@@ -2,7 +2,7 @@
 
 ## 目标
 
-该目录提供真实 MCP stdio server。Agent 在启动期通过 `list_tools` 动态发现工具，运行期经权限、风险、参数 Schema、超时与错误归一化后调用，不使用 HTTP mock 接口。
+该目录提供独立运行的真实 MCP Streamable HTTP Server。Agent 在启动期通过 `list_tools` 动态发现工具，运行期经权限、风险、参数 Schema、超时与错误归一化后调用，不使用 HTTP mock 接口。
 
 当前工具：
 
@@ -18,14 +18,22 @@ MCP 是工具能力提供方，不是顶层 intent。Intent Router 判断用户�
 
 ## 启动
 
-stdio server 通常由 Agent 作为子进程启动：
+本地独立启动：
 
 ```bash
 cd "mcp server"
 /opt/anaconda3/bin/python3 -m app.main
 ```
 
-不要用浏览器或 `curl` 调用该进程；协议通过标准输入输出交换 JSON-RPC。
+默认 MCP Endpoint 为 `http://127.0.0.1:8011/mcp`。这是 MCP Streamable HTTP 协议端点，不是普通 REST API；客户端使用官方 MCP SDK 或 `langchain-mcp-adapters` 连接。
+
+可通过以下环境变量调整监听地址：
+
+```bash
+export MCP_SERVER_HOST=127.0.0.1
+export MCP_SERVER_PORT=8011
+export MCP_SERVER_PATH=/mcp
+```
 
 ## 市场数据源状态
 
@@ -111,11 +119,12 @@ export TUSHARE_SMOKE_SYMBOL=600519.SH
 ## Agent 调用链路
 
 ```text
-MCP 启动期 list_tools
+MCP Streamable HTTP Server 独立启动
+-> langchain-mcp-adapters MultiServerMCPClient.get_tools
 -> ToolRegistry 快照与 catalog digest
 -> Intent Router / Planner / Skill evidence contract
 -> ToolExecutionGateway 权限、审批、参数与风险校验
--> MCP stdio call_tool
+-> LangChain MCP Tool.ainvoke
 -> 业务 envelope 与错误归一化
 -> Analysis 字段级 ToolFact / coverage
 -> Synthesizer claims

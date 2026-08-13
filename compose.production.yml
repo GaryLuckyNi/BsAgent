@@ -16,6 +16,9 @@ x-backend-environment: &backend-environment
   BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL: postgresql://bs_agent:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bs_agent
   BS_AGENT_REDIS_URL: redis://:${REDIS_PASSWORD_URLENCODED:?REDIS_PASSWORD_URLENCODED is required}@redis:6379/0
   BS_AGENT_SHORT_TERM_MEMORY_BACKEND: redis
+  BS_AGENT_EXPERIENCE_STORE_BACKEND: langgraph_postgres
+  BS_AGENT_EXPERIENCE_STORE_POSTGRES_URL: postgresql://bs_agent:${POSTGRES_PASSWORD_URLENCODED}@postgres:5432/bs_agent
+  BS_AGENT_EXPERIENCE_MEMORY_RECALL_LIMIT: ${EXPERIENCE_MEMORY_RECALL_LIMIT:-8}
   BS_AGENT_CELERY_BROKER_URL: redis://:${REDIS_PASSWORD_URLENCODED}@redis:6379/1
   BS_AGENT_RATE_LIMIT_BACKEND: redis
   BS_AGENT_LOG_FORMAT: json
@@ -32,9 +35,7 @@ x-backend-environment: &backend-environment
   BS_AGENT_RAG_PROVIDER_REVISION: ${RAG_PROVIDER_REVISION:?RAG_PROVIDER_REVISION is required}
   BS_AGENT_RAG_CONFIG_REVISION: ${RAG_CONFIG_REVISION:?RAG_CONFIG_REVISION is required}
   BS_AGENT_SKILL_REGISTRY_BASE_URL: ${SKILL_REGISTRY_BASE_URL:?SKILL_REGISTRY_BASE_URL is required}
-  BS_AGENT_MCP_SERVER_COMMAND: /usr/local/bin/python
-  BS_AGENT_MCP_SERVER_ARGS: '["-m","app.main"]'
-  BS_AGENT_MCP_SERVER_CWD: /app/mcp server
+  BS_AGENT_MCP_SERVER_URL: http://mcp-server:8011/mcp
   BS_AGENT_MCP_SERVER_NAME: research-tools
   BS_AGENT_MCP_SERVER_REVISION: ${MCP_SERVER_REVISION:?MCP_SERVER_REVISION is required}
   BS_AGENT_MCP_CONFIG_REVISION: ${MCP_CONFIG_REVISION:?MCP_CONFIG_REVISION is required}
@@ -64,6 +65,25 @@ x-backend-environment: &backend-environment
   BS_AGENT_OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
 
 services:
+  mcp-server:
+    build:
+      context: .
+      dockerfile: mcp server/Dockerfile
+    environment:
+      MCP_SERVER_HOST: 0.0.0.0
+      MCP_SERVER_PORT: 8011
+      MCP_SERVER_PATH: /mcp
+      MCP_MARKET_DATA_ADMIN_BASE_URL: ${MCP_MARKET_DATA_ADMIN_BASE_URL:?MCP_MARKET_DATA_ADMIN_BASE_URL is required}
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN:?TUSHARE_TOKEN is required}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8011), 2).close()"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks: [backend]
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -186,6 +206,8 @@ services:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy
+      mcp-server:
+        condition: service_healthy
     restart: "no"
     networks: [backend]
 
@@ -204,6 +226,8 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
+      mcp-server:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
       release-gate:

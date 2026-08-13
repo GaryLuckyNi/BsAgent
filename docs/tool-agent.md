@@ -175,13 +175,13 @@ Tool Agent 与 Retriever 统一通过 `graph/tool_context.py` 构造执行上下
 
 ## MCP Gateway 与动态发现
 
-BsAgent 默认不再手工注册某个本地 MCP adapter。服务启动构建默认 `ToolRegistry` 时，`McpGateway` 会通过官方 MCP Python SDK 启动配置的 stdio server，并调用 `ClientSession.list_tools()` 动态发现工具：
+BsAgent 默认不再手工注册本地 MCP adapter。构建默认 `ToolRegistry` 时，`McpGateway` 通过官方 `langchain-mcp-adapters` 连接独立的 Streamable HTTP Server，并调用 `MultiServerMCPClient.get_tools()` 动态发现工具：
 
 ```text
-MCP stdio server
--> ClientSession.list_tools()
+MCP Streamable HTTP Server
+-> MultiServerMCPClient.get_tools()
 -> McpGateway.discover_tools()
--> DynamicMcpStdioTool
+-> DynamicMcpHttpTool
 -> ToolRegistry
 -> ToolSpec(name="mcp.<server>.<tool>")
 ```
@@ -198,34 +198,31 @@ mcp.<server_name>.<tool_name>
 mcp:<server_name>
 ```
 
-当前已经提供一个本地真实 MCP stdio server，用于验证 Agent 调用 MCP 工具：
+当前已经提供一个真实 MCP Streamable HTTP Server，用于验证 Agent 调用 MCP 工具：
 
 ```text
 mcp server/
 ```
 
-MCP server 不暴露 HTTP API，也不需要固定端口。它由 MCP client 作为子进程启动：
+MCP Server 是独立进程，默认暴露标准 Streamable HTTP Endpoint：
 
 ```text
-cd "mcp server"
-/opt/anaconda3/bin/python3 -m app.main
+http://127.0.0.1:8011/mcp
 ```
 
 BsAgent 默认配置：
 
 ```text
-BS_AGENT_MCP_SERVER_COMMAND=<当前 Python 解释器>
-BS_AGENT_MCP_SERVER_ARGS=["-m","app.main"]
-BS_AGENT_MCP_SERVER_CWD=./mcp server
+BS_AGENT_MCP_SERVER_URL=http://127.0.0.1:8011/mcp
 BS_AGENT_MCP_SERVER_NAME=local
 BS_AGENT_MCP_TIMEOUT_SECONDS=30
 ```
 
-`tools/mcp_stdio.py` 提供通用 `DynamicMcpStdioTool`。它保存 MCP tool 的原始 `inputSchema/outputSchema`，用 `jsonschema` 做动态参数校验，并在执行时通过 `ClientSession.call_tool(...)` 调用真实 MCP tool。
+`tools/mcp_http.py` 使用官方 `MultiServerMCPClient` 获取 LangChain Tool，并包装为内部 `DynamicMcpHttpTool`。运行时调用官方 LangChain Tool 的 `ainvoke(...)`；结构化结果从 `ToolMessage.artifact.structured_content` 读取，再进入现有 Tool Agent 治理边界。
 
 ## 金融 MCP 工具
 
-A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent 不直接访问财经 API，也不在 Agent 代码中内置数据源 SDK；结构化行情、公司资料、财务指标等能力都必须经过 MCP server 和 Tool Agent 边界。
+A 股结构化数据通过 MCP Streamable HTTP 动态发现为内部 `ToolSpec`。Agent 不直接访问财经 API，也不在 Agent 代码中内置数据源 SDK；结构化行情、公司资料、财务指标等能力都必须经过 MCP Server 和 Tool Agent 边界。
 
 工具名由 MCP server 名称和远端工具名动态组成，不应在 Planner、Skill 或 Analysis 中写死 server 名称。能力示例：
 
@@ -333,5 +330,5 @@ Trace Artifact 使用固定白名单摘要，只记录数量、状态、证据 I
 - function calling dict 参数解析。
 - function calling 非法 JSON 拒绝。
 - MCP manifest 转内部 `ToolSpec`。
-- MCP stdio 工具动态发现与通用 adapter。
+- MCP Streamable HTTP 工具动态发现与官方 LangChain adapter。
 - `tool_action` 图分支按 Planner 生成的 ToolCall 执行动态 MCP 工具。

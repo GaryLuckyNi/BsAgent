@@ -182,7 +182,7 @@ def test_node_runner_records_tool_agent_execution_metadata_for_new_records_only(
         ToolCallRecord(
             request=ToolCallRequest(
                 tool_name="mcp.mock.previous",
-                tool_version="mcp-stdio-v1",
+                tool_version="mcp-http-v1",
                 arguments={},
                 purpose="前置调用",
             ),
@@ -204,7 +204,7 @@ def test_node_runner_records_tool_agent_execution_metadata_for_new_records_only(
             ToolCallRecord(
                 request=ToolCallRequest(
                     tool_name="mcp.mock.echo",
-                    tool_version="mcp-stdio-v1",
+                    tool_version="mcp-http-v1",
                     arguments={"text": "hello"},
                     purpose="验证工具执行摘要",
                 ),

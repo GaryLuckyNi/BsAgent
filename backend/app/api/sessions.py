@@ -4,6 +4,7 @@ import logging
 from collections.abc import AsyncIterator, Generator, Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from time import perf_counter
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -41,9 +42,13 @@ from app.harness.persistence import (
     finalize_trace_best_effort,
 )
 from app.harness.trace_buffer import TraceBuffer
+from app.harness.tracing import TraceEvent, measure_latency_ms
 from app.llm.deepseek import LlmConfigurationError
 from app.llm.factory import maybe_build_llm_client
 from app.memory.factory import build_experience_store
+from app.memory.dependencies import get_experience_store
+from app.memory.commit import commit_approved_experience_memories
+from app.memory.experience_store import ExperienceStore, SqlAlchemyExperienceStore
 from app.memory.retriever import ExperienceMemoryRetriever
 from app.memory.short_term_factory import build_short_term_memory_store
 from app.memory.short_term_store import ShortTermMemoryStore
@@ -103,10 +108,14 @@ class _ExperienceSnapshotReader:
         *,
         tenant_id: str,
         user_id: str,
+        query: str | None = None,
+        limit: int | None = None,
     ) -> list[_ExperienceEntrySnapshot]:
+        del query
         if tenant_id != self.tenant_id or user_id != self.user_id:
             return []
-        return list(self.entries)
+        entries = list(self.entries)
+        return entries[:limit] if limit is not None else entries
 
 
 @dataclass(frozen=True)
@@ -244,6 +253,7 @@ def post_message(
     attachment_resolver: VisionAttachmentContextResolver = Depends(
         get_attachment_context_resolver
     ),
+    experience_store: ExperienceStore = Depends(get_experience_store),
     idempotency_key: str | None = Header(
         default=None,
         alias="Idempotency-Key",
@@ -259,6 +269,7 @@ def post_message(
             principal=principal,
             db=db,
             attachment_resolver=attachment_resolver,
+            experience_store=experience_store,
             request_id=idempotency_key or f"req_{uuid4().hex}",
         )
     except AgentGraphExecutionError as exc:
@@ -334,6 +345,7 @@ def post_message_stream(
     attachment_resolver: VisionAttachmentContextResolver = Depends(
         get_attachment_context_resolver
     ),
+    experience_store: ExperienceStore = Depends(get_experience_store),
     idempotency_key: str | None = Header(
         default=None,
         alias="Idempotency-Key",
@@ -349,6 +361,7 @@ def post_message_stream(
             principal=principal,
             db=db,
             attachment_resolver=attachment_resolver,
+            experience_store=experience_store,
             request_id=idempotency_key or f"req_{uuid4().hex}",
         ),
         media_type="text/event-stream",
@@ -367,6 +380,8 @@ def _load_execution_snapshot(
     request: SessionMessageRequest,
     handle: TurnHandle,
     attachment_resolver: VisionAttachmentContextResolver,
+    experience_store: ExperienceStore,
+    trace_buffer: TraceBuffer | None = None,
 ) -> _ExecutionSnapshot:
     history_records = ConversationRepository(db).list_context_messages(
         tenant_id=principal.tenant_id,
@@ -384,9 +399,13 @@ def _load_execution_snapshot(
         )
         for record in history_records
     )
-    experience_entries = build_experience_store(session=db).list_for_user(
+    experience_entries = _recall_experience_entries(
+        experience_store=experience_store,
         tenant_id=principal.tenant_id,
         user_id=principal.user_id,
+        query=request.message,
+        trace_id=handle.trace_id,
+        trace_buffer=trace_buffer,
     )
     memory_reader = _ExperienceSnapshotReader(
         tenant_id=principal.tenant_id,
@@ -427,6 +446,43 @@ def _load_execution_snapshot(
     )
 
 
+def _recall_experience_entries(
+    *,
+    experience_store: ExperienceStore,
+    tenant_id: str,
+    user_id: str,
+    query: str,
+    trace_id: str,
+    trace_buffer: TraceBuffer | None,
+):
+    started_at = perf_counter()
+    try:
+        entries = experience_store.list_for_user(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            query=query,
+            limit=settings.experience_memory_recall_limit,
+        )
+    except Exception:
+        logger.exception(
+            "experience_memory_recall_failed",
+            extra={"tenant_id": tenant_id, "user_id": user_id},
+        )
+        if trace_buffer is not None:
+            trace_buffer.record_event(
+                TraceEvent(
+                    trace_id=trace_id,
+                    node_name="memory_recall",
+                    status="handled_error",
+                    latency_ms=measure_latency_ms(started_at),
+                    error="长期经验召回失败，本次请求未注入历史偏好。",
+                    metadata={"error_code": "experience_memory_recall_failed"},
+                )
+            )
+        return []
+    return entries
+
+
 def _run_and_persist_agent_message(
     *,
     session_id: str,
@@ -434,6 +490,7 @@ def _run_and_persist_agent_message(
     principal: Principal,
     db: Session,
     attachment_resolver: VisionAttachmentContextResolver,
+    experience_store: ExperienceStore,
     request_id: str,
 ) -> SessionMessageResponse:
     conversation_service = ConversationService(db)
@@ -478,6 +535,8 @@ def _run_and_persist_agent_message(
             request=request,
             handle=handle,
             attachment_resolver=attachment_resolver,
+            experience_store=experience_store,
+            trace_buffer=trace_buffer,
         )
         db.commit()
 
@@ -505,11 +564,10 @@ def _run_and_persist_agent_message(
         )
 
         interrupt_payloads = _interrupt_payloads(state)
-        experience_store = build_experience_store(session=db)
         _persist_agent_message_state(
             db=db,
             state=state,
-            experience_store=experience_store,
+            experience_store=_transactional_experience_store(experience_store),
             interrupt_payloads=interrupt_payloads,
             run_id=handle.run_id,
             update_run_status=False,
@@ -529,6 +587,11 @@ def _run_and_persist_agent_message(
                 metadata=_assistant_response_metadata(final_response),
             )
         db.commit()
+        _commit_external_experience_memories(
+            state,
+            experience_store,
+            trace_buffer=trace_buffer,
+        )
         if not interrupt_payloads:
             _record_short_term_session_event(
                 store=build_short_term_memory_store(),
@@ -614,8 +677,10 @@ def _stream_agent_message(
     principal: Principal,
     db: Session,
     attachment_resolver: VisionAttachmentContextResolver,
+    experience_store: ExperienceStore | None = None,
     request_id: str,
 ) -> Iterator[str]:
+    experience_store = experience_store or build_experience_store(session=db)
     conversation_service = ConversationService(db)
     handle: TurnHandle | None = None
     state: AgentState | None = None
@@ -669,6 +734,8 @@ def _stream_agent_message(
             request=request,
             handle=handle,
             attachment_resolver=attachment_resolver,
+            experience_store=experience_store,
+            trace_buffer=trace_buffer,
         )
         db.commit()
         identity = _stream_identity(handle)
@@ -734,11 +801,10 @@ def _stream_agent_message(
                 http_status=500,
             )
         interrupt_payloads = _interrupt_payloads(state)
-        experience_store = build_experience_store(session=db)
         _persist_agent_message_state(
             db=db,
             state=state,
-            experience_store=experience_store,
+            experience_store=_transactional_experience_store(experience_store),
             interrupt_payloads=interrupt_payloads,
             run_id=handle.run_id,
             update_run_status=False,
@@ -750,6 +816,11 @@ def _stream_agent_message(
                 run_id=handle.run_id,
             )
         db.commit()
+        _commit_external_experience_memories(
+            state,
+            experience_store,
+            trace_buffer=trace_buffer,
+        )
         if interrupt_payloads:
             finalized = True
             trace_lifecycle.failed = False
@@ -1046,6 +1117,49 @@ def _persist_agent_message_state(
         update_run_status=update_run_status,
         commit=commit,
     )
+
+
+def _transactional_experience_store(
+    experience_store: ExperienceStore,
+) -> ExperienceStore | None:
+    if isinstance(experience_store, SqlAlchemyExperienceStore):
+        return experience_store
+    return None
+
+
+def _commit_external_experience_memories(
+    state: AgentState,
+    experience_store: ExperienceStore,
+    *,
+    trace_buffer: TraceBuffer | None = None,
+) -> None:
+    if isinstance(experience_store, SqlAlchemyExperienceStore):
+        return
+    try:
+        commit_approved_experience_memories(
+            state=state,
+            experience_store=experience_store,
+        )
+    except Exception:
+        logger.exception(
+            "experience_memory_postcommit_failed",
+            extra={
+                "tenant_id": state["tenant_id"],
+                "user_id": state["user_id"],
+                "request_id": state["request_id"],
+            },
+        )
+        if trace_buffer is not None:
+            trace_buffer.record_event(
+                TraceEvent(
+                    trace_id=state["trace_id"],
+                    node_name="memory_commit",
+                    status="handled_error",
+                    latency_ms=0,
+                    error="长期经验写入失败，候选审计已保留。",
+                    metadata={"error_code": "experience_memory_commit_failed"},
+                )
+            )
 
 
 def _sse(event: str, data: dict) -> str:

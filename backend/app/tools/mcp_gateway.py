@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.tools import ToolSpec
 from app.tools.base import Tool
-from app.tools.mcp_stdio import discover_mcp_stdio_tools
+from app.tools.mcp_http import discover_mcp_http_tools
 from app.tools.registry import ExecutionBinding
 
 
@@ -16,10 +16,7 @@ McpToolDiscoverer = Callable[..., list[Tool]]
 
 class McpServerConfig(BaseModel):
     name: str
-    command: str
-    args: list[str] = Field(default_factory=list)
-    cwd: str | None = None
-    env: dict[str, str] = Field(default_factory=dict)
+    url: str
     timeout_seconds: float = Field(default=30.0, gt=0)
     default_risk_level: Literal["low", "medium", "high"] = "medium"
     deployment_revision: str = "development"
@@ -36,16 +33,13 @@ class McpToolManifest(BaseModel):
 
 
 class McpGateway:
-    def __init__(self, *, discoverer: McpToolDiscoverer = discover_mcp_stdio_tools) -> None:
+    def __init__(self, *, discoverer: McpToolDiscoverer = discover_mcp_http_tools) -> None:
         self._tool_specs: dict[str, ToolSpec] = {}
         self._discoverer = discoverer
 
     def discover_tools(self, config: McpServerConfig) -> list[Tool]:
         tools = self._discoverer(
-            command=config.command,
-            args=config.args,
-            cwd=config.cwd,
-            env=config.env,
+            url=config.url,
             server_name=config.name,
             timeout_seconds=config.timeout_seconds,
             risk_level=config.default_risk_level,
@@ -82,7 +76,7 @@ class McpGateway:
     ) -> ExecutionBinding:
         return ExecutionBinding(
             provider="mcp",
-            implementation_id=f"mcp.stdio.{tool.name}",
+            implementation_id=f"mcp.http.{tool.name}",
             server_id=config.name,
             deployment_revision=config.deployment_revision,
             config_revision=_execution_config_revision(config),
@@ -92,13 +86,10 @@ class McpGateway:
 def _execution_config_revision(config: McpServerConfig) -> str:
     canonical = json.dumps(
         {
-            "args": config.args,
-            "command": config.command,
             "config_revision": config.config_revision,
-            "cwd": config.cwd,
             "default_risk_level": config.default_risk_level,
-            "env_keys": sorted(config.env),
             "timeout_seconds": config.timeout_seconds,
+            "url_digest": sha256(config.url.encode()).hexdigest(),
         },
         ensure_ascii=True,
         sort_keys=True,

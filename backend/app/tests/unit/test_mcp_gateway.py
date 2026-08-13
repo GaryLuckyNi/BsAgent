@@ -33,7 +33,7 @@ def test_mcp_gateway_discovers_tools_through_configured_provider():
     calls = []
     discovered_spec = ToolSpec(
         name="mcp.stock.company_profile",
-        version="mcp-stdio-v1",
+        version="mcp-http-v1",
         description="查询公司资料",
     )
     discovered_tools = [SimpleNamespace(spec=discovered_spec)]
@@ -45,10 +45,7 @@ def test_mcp_gateway_discovers_tools_through_configured_provider():
     gateway = McpGateway(discoverer=discoverer)
     config = McpServerConfig(
         name="stock",
-        command="python",
-        args=["-m", "app.main"],
-        cwd="/srv/mcp-stock",
-        env={"TUSHARE_TOKEN": "secret-token"},
+        url="http://mcp-stock:8011/mcp",
         timeout_seconds=12.5,
         default_risk_level="medium",
     )
@@ -59,10 +56,7 @@ def test_mcp_gateway_discovers_tools_through_configured_provider():
     assert gateway.list_tool_specs() == [discovered_spec]
     assert calls == [
         {
-            "command": "python",
-            "args": ["-m", "app.main"],
-            "cwd": "/srv/mcp-stock",
-            "env": {"TUSHARE_TOKEN": "secret-token"},
+            "url": "http://mcp-stock:8011/mcp",
             "server_name": "stock",
             "timeout_seconds": 12.5,
             "risk_level": "medium",
@@ -75,7 +69,7 @@ def test_mcp_execution_binding_tracks_server_and_config_revisions():
     first = McpGateway.execution_binding(
         McpServerConfig(
             name="stock-a",
-            command="python",
+            url="http://mcp-a:8011/mcp",
             deployment_revision="deploy-1",
             config_revision="config-1",
         ),
@@ -84,7 +78,7 @@ def test_mcp_execution_binding_tracks_server_and_config_revisions():
     second = McpGateway.execution_binding(
         McpServerConfig(
             name="stock-b",
-            command="python",
+            url="http://mcp-b:8011/mcp",
             deployment_revision="deploy-2",
             config_revision="config-2",
         ),
@@ -92,18 +86,15 @@ def test_mcp_execution_binding_tracks_server_and_config_revisions():
     )
 
     assert first.digest != second.digest
-    assert "python" not in first.model_dump_json()
+    assert "mcp-a" not in first.model_dump_json()
 
 
-def test_mcp_execution_binding_tracks_effective_process_config_without_leaking_it():
+def test_mcp_execution_binding_tracks_effective_http_config_without_leaking_it():
     tool = SimpleNamespace(name="mcp.stock.company_profile")
     first = McpGateway.execution_binding(
         McpServerConfig(
             name="stock",
-            command="python",
-            args=["-m", "server.first"],
-            cwd="/srv/mcp-first",
-            env={"TUSHARE_TOKEN": "secret-token"},
+            url="https://mcp-first.internal/mcp",
             deployment_revision="deploy-1",
             config_revision="config-1",
         ),
@@ -112,9 +103,7 @@ def test_mcp_execution_binding_tracks_effective_process_config_without_leaking_i
     second = McpGateway.execution_binding(
         McpServerConfig(
             name="stock",
-            command="uv",
-            args=["run", "server.second"],
-            cwd="/srv/mcp-second",
+            url="https://mcp-second.internal/mcp",
             deployment_revision="deploy-1",
             config_revision="config-1",
         ),
@@ -123,31 +112,14 @@ def test_mcp_execution_binding_tracks_effective_process_config_without_leaking_i
 
     assert first.digest != second.digest
     serialized = first.model_dump_json()
-    assert "server.first" not in serialized
-    assert "/srv/mcp-first" not in serialized
-    assert "secret-token" not in serialized
+    assert "mcp-first.internal" not in serialized
 
 
-def test_mcp_execution_binding_tracks_env_keys_without_leaking_values():
+def test_mcp_execution_binding_identifies_streamable_http_transport():
     tool = SimpleNamespace(name="mcp.stock.company_profile")
-    first = McpGateway.execution_binding(
-        McpServerConfig(
-            name="stock",
-            command="python",
-            env={"TUSHARE_TOKEN": "secret-token"},
-        ),
-        tool=tool,
-    )
-    second = McpGateway.execution_binding(
-        McpServerConfig(
-            name="stock",
-            command="python",
-            env={"OTHER_TOKEN": "secret-token"},
-        ),
+    binding = McpGateway.execution_binding(
+        McpServerConfig(name="stock", url="https://mcp.internal/mcp"),
         tool=tool,
     )
 
-    assert first.digest != second.digest
-    serialized = first.model_dump_json()
-    assert "TUSHARE_TOKEN" not in serialized
-    assert "secret-token" not in serialized
+    assert binding.implementation_id == "mcp.http.mcp.stock.company_profile"

@@ -37,6 +37,11 @@ from app.tools.registry import ToolRegistry
 from app.tools.registry import ExecutionBinding
 
 
+@pytest.fixture(autouse=True)
+def isolate_graph_tests_from_external_mcp(monkeypatch):
+    monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
+
+
 def test_runtime_records_each_run_only_in_its_explicit_trace_buffer():
     first_buffer = TraceBuffer(max_events=128, max_artifacts=0)
     second_buffer = TraceBuffer(max_events=128, max_artifacts=0)

@@ -1,9 +1,12 @@
-from pathlib import Path
 import json
+import os
+import socket
+import subprocess
+import time
 
 import pytest
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
 
 from app import main as server_main
 from app.market_data.provider import MarketDataError
@@ -15,16 +18,45 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.mark.anyio
-async def test_mcp_stdio_server_lists_and_invokes_tools():
-    server_root = Path(__file__).resolve().parents[1]
-    params = StdioServerParameters(
-        command="/opt/anaconda3/bin/python3",
-        args=["-m", "app.main"],
-        cwd=str(server_root),
+@pytest.fixture(scope="module")
+def mcp_server_url():
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    env = {
+        **os.environ,
+        "MCP_SERVER_HOST": "127.0.0.1",
+        "MCP_SERVER_PORT": str(port),
+        "MCP_SERVER_PATH": "/mcp",
+    }
+    process = subprocess.Popen(
+        ["/opt/anaconda3/bin/python3", "-m", "app.main"],
+        cwd=os.path.dirname(os.path.dirname(__file__)),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
     )
-
-    async with stdio_client(params) as (read, write):
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with socket.socket() as probe:
+            if probe.connect_ex(("127.0.0.1", port)) == 0:
+                break
+        if process.poll() is not None:
+            stdout, stderr = process.communicate()
+            raise RuntimeError(f"MCP Server 启动失败: {stdout}\n{stderr}")
+        time.sleep(0.05)
+    else:
+        process.terminate()
+        raise RuntimeError("MCP Server 启动超时")
+    try:
+        yield f"http://127.0.0.1:{port}/mcp"
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+@pytest.mark.anyio
+async def test_mcp_http_server_lists_and_invokes_tools(mcp_server_url):
+    async with streamable_http_client(mcp_server_url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             tools = await session.list_tools()
@@ -37,15 +69,10 @@ async def test_mcp_stdio_server_lists_and_invokes_tools():
             assert json.loads(echo_result.content[0].text) == {"text": "hello mcp"}
 
 @pytest.mark.anyio
-async def test_market_tools_publish_field_selection_schema_without_risk_events():
-    server_root = Path(__file__).resolve().parents[1]
-    params = StdioServerParameters(
-        command="/opt/anaconda3/bin/python3",
-        args=["-m", "app.main"],
-        cwd=str(server_root),
-    )
-
-    async with stdio_client(params) as (read, write):
+async def test_market_tools_publish_field_selection_schema_without_risk_events(
+    mcp_server_url,
+):
+    async with streamable_http_client(mcp_server_url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             listed = await session.list_tools()
@@ -125,15 +152,9 @@ async def test_market_tools_publish_field_selection_schema_without_risk_events()
 async def test_invalid_field_selection_returns_business_failure_and_keeps_session_usable(
     required_fields,
     optional_fields,
+    mcp_server_url,
 ):
-    server_root = Path(__file__).resolve().parents[1]
-    params = StdioServerParameters(
-        command="/opt/anaconda3/bin/python3",
-        args=["-m", "app.main"],
-        cwd=str(server_root),
-    )
-
-    async with stdio_client(params) as (read, write):
+    async with streamable_http_client(mcp_server_url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             failed = await session.call_tool(
@@ -177,15 +198,9 @@ async def test_invalid_field_selection_returns_business_failure_and_keeps_sessio
 )
 async def test_protocol_argument_validation_fails_without_executing_provider_or_leaking(
     arguments,
+    mcp_server_url,
 ):
-    server_root = Path(__file__).resolve().parents[1]
-    params = StdioServerParameters(
-        command="/opt/anaconda3/bin/python3",
-        args=["-m", "app.main"],
-        cwd=str(server_root),
-    )
-
-    async with stdio_client(params) as (read, write):
+    async with streamable_http_client(mcp_server_url) as (read, write, _):
         async with ClientSession(read, write) as session:
             await session.initialize()
             failed = await session.call_tool("stock.market_snapshot", arguments)

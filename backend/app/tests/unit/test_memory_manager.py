@@ -50,6 +50,7 @@ def test_memory_manager_proposes_user_preference_candidate_from_explicit_stateme
         MemoryCandidate(
             candidate_id="memcand_tenant_1_user_1_user_preference_37b0d342d6e6",
             memory_type="user_preference",
+            memory_key="language",
             content="所有的文档用中文",
             confidence=0.9,
             approval_status="not_required",
@@ -80,6 +81,33 @@ def test_memory_manager_marks_sensitive_preference_as_pending_for_approval():
     assert candidates[0].content == "发邮件到 alice@example.com"
     assert candidates[0].sensitivity == "high"
     assert candidates[0].approval_status == "pending"
+    assert candidates[0].memory_key == "contact"
+
+
+def test_memory_manager_assigns_stable_keys_to_supported_preferences():
+    manager = MemoryManager()
+
+    language = manager.propose_candidates(
+        user_message="记住我的语言偏好：以后都用中文",
+        tenant_id="tenant_1",
+        user_id="user_1",
+    )
+    detail = manager.propose_candidates(
+        user_message="记住我的回答偏好：回答简洁一些",
+        tenant_id="tenant_1",
+        user_id="user_1",
+    )
+    focus = manager.propose_candidates(
+        user_message="记住我的关注偏好：重点关注半导体行业",
+        tenant_id="tenant_1",
+        user_id="user_1",
+    )
+
+    assert [language[0].memory_key, detail[0].memory_key, focus[0].memory_key] == [
+        "language",
+        "response_detail",
+        "focus_domain",
+    ]
 
 
 def test_memory_manager_deduplicates_repeated_user_preference_candidates():

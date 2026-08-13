@@ -1,5 +1,5 @@
-import sys
 from typing import Literal
+from urllib.parse import urlparse
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,31 +19,19 @@ class Settings(BaseSettings):
     short_term_memory_backend: Literal["none", "redis"] = "none"
     short_term_memory_ttl_seconds: int = 3600
     short_term_memory_max_events: int = 100
+    experience_store_backend: Literal["sqlalchemy", "langgraph_postgres"] = "sqlalchemy"
+    experience_store_postgres_url: str | None = None
+    experience_memory_recall_limit: int = Field(default=8, ge=1, le=50)
     graph_checkpointer_backend: Literal["memory", "none", "sqlite", "postgres"] = "sqlite"
     graph_checkpoint_sqlite_path: str = "./bs_agent_checkpoints.sqlite"
     graph_checkpoint_postgres_url: str | None = None
     skill_registry_base_url: str = "http://localhost:8010"
     skill_definition_cache_ttl_seconds: int = 300
-    mcp_server_command: str = sys.executable
-    mcp_server_args: list[str] = ["-m", "app.main"]
-    mcp_server_cwd: str = "./mcp server"
+    mcp_server_url: str = "http://127.0.0.1:8011/mcp"
     mcp_server_name: str = "local"
     mcp_timeout_seconds: float = 30.0
     mcp_server_revision: str = "local-dev"
     mcp_config_revision: str = "default"
-    mcp_server_env_passthrough: list[str] = Field(
-        default_factory=lambda: [
-            "MCP_MARKET_DATA_ADMIN_BASE_URL",
-            "MCP_MARKET_DATA_ADMIN_TIMEOUT_SECONDS",
-            "MCP_MARKET_DATA_PROVIDER",
-            "MCP_TUSHARE_TOKEN_ENV_VAR",
-            "MCP_TUSHARE_ENABLED_API_NAMES",
-            "MCP_TUSHARE_BASE_URL",
-            "MCP_TUSHARE_TIMEOUT_SECONDS",
-            "MCP_TUSHARE_STOCK_BASIC_CACHE_TTL_SECONDS",
-            "TUSHARE_TOKEN",
-        ]
-    )
     llm_provider: Literal["deepseek"] = "deepseek"
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -153,6 +141,10 @@ class Settings(BaseSettings):
             invalid.append("database_url")
         if self.short_term_memory_backend != "redis":
             invalid.append("short_term_memory_backend")
+        if self.experience_store_backend != "langgraph_postgres":
+            invalid.append("experience_store_backend")
+        if not _is_postgres_url(self.experience_store_postgres_url):
+            invalid.append("experience_store_postgres_url")
         if self.rate_limit_backend != "redis":
             invalid.append("rate_limit_backend")
         if self.log_format != "json":
@@ -175,6 +167,8 @@ class Settings(BaseSettings):
             invalid.append("mcp_server_revision")
         if _is_development_revision(self.mcp_config_revision):
             invalid.append("mcp_config_revision")
+        if not _is_production_mcp_url(self.mcp_server_url):
+            invalid.append("mcp_server_url")
         if not self.redis_url.strip():
             invalid.append("redis_url")
         if self.graph_checkpointer_backend != "postgres":
@@ -244,6 +238,18 @@ def _is_postgres_url(value: str | None) -> bool:
 
 def _is_development_revision(value: str | None) -> bool:
     return not _has_text(value) or value.strip().lower() in {"default", "local-dev"}
+
+
+def _is_production_mcp_url(value: str | None) -> bool:
+    if not _has_text(value):
+        return False
+    parsed = urlparse(value)
+    return (
+        parsed.scheme in {"http", "https"}
+        and bool(parsed.hostname)
+        and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
+        and bool(parsed.path.strip("/"))
+    )
 
 
 settings = Settings()
