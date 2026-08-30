@@ -1,4 +1,4 @@
-import type { RuntimeConfig } from './auth'
+import type { RuntimeConfig } from '@/auth'
 
 declare global {
   interface Window {

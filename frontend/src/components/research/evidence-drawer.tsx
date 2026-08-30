@@ -3,7 +3,7 @@ import { ArrowUpRight, BookOpenText, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 import type { EvidenceSource } from '../../domain/research'
-import { cn } from '../../lib/cn'
+import { cn } from '@/utils/cn'
 
 export function EvidenceDrawer({ open, activeIndex, evidence, onOpenChange }: {
   open: boolean

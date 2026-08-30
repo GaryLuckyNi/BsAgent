@@ -1,7 +1,7 @@
 import { MessageSquareText, MoreHorizontal, PenLine, Search } from 'lucide-react'
 
 import type { ResearchThread } from '../../domain/research'
-import { cn } from '../../lib/cn'
+import { cn } from '@/utils/cn'
 
 export function ResearchSidebar({ threads, activeThreadId, onActivate, onCreate }: {
   threads: ResearchThread[]

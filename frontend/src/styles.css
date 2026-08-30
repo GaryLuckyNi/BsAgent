@@ -1,5 +1,32 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted-surface);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 :root {
   font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
   color: #152238;
@@ -10,6 +37,25 @@
   --gold: #ad8550;
   --line: #e3e7ec;
   --muted: #6f7988;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.21 0.025 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.025 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.025 255);
+  --primary: oklch(0.24 0.055 255);
+  --primary-foreground: oklch(0.98 0.004 250);
+  --secondary: oklch(0.96 0.008 250);
+  --secondary-foreground: oklch(0.25 0.035 255);
+  --muted-surface: oklch(0.96 0.008 250);
+  --muted-foreground: oklch(0.55 0.02 255);
+  --accent: oklch(0.95 0.02 75);
+  --accent-foreground: oklch(0.4 0.06 65);
+  --destructive: oklch(0.58 0.22 27);
+  --border: oklch(0.91 0.012 250);
+  --input: oklch(0.91 0.012 250);
+  --ring: oklch(0.55 0.06 255);
+  --radius: 0.5rem;
 }
 
 * { box-sizing: border-box; }
@@ -25,10 +71,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .brand b { font-family: Georgia, serif; font-size: 20px; letter-spacing: .2px; }
 .brand i { color: #91a0b7; font-style: normal; font-size: 11px; padding-left: 10px; border-left: 1px solid #46536a; }
 .main-nav { display: flex; align-items: stretch; height: 100%; margin-left: auto; }
-.main-nav button { position: relative; display: flex; align-items: center; gap: 6px; padding: 0 15px; border: 0; background: transparent; color: #93a0b3; font-size: 13px; }
+.main-nav button,.main-nav a { position: relative; display: flex; align-items: center; gap: 6px; padding: 0 15px; border: 0; background: transparent; color: #93a0b3; font-size: 13px; text-decoration: none; }
 .main-nav button:disabled { cursor: default; opacity: .72; }
-.main-nav button.active { color: #fff; background: #152641; }
-.main-nav button.active::after { content: ""; position: absolute; left: 15px; right: 15px; bottom: 0; height: 2px; background: #c39a61; }
+.main-nav .active { color: #fff; background: #152641; }
+.main-nav .active::after { content: ""; position: absolute; left: 15px; right: 15px; bottom: 0; height: 2px; background: #c39a61; }
 .top-actions { display: flex; align-items: center; gap: 4px; }
 .top-actions > button { border: 0; background: transparent; color: #abb5c4; padding: 8px; border-radius: 7px; }
 .top-actions > button:hover { background: #21314b; color: white; }
@@ -69,7 +115,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .conversation { min-height: 0; overflow-y: auto; scroll-behavior: smooth; }
 .conversation-content { width: min(820px, calc(100% - 48px)); margin: 0 auto; padding: 34px 0 24px; }
-.message { display: flex; gap: 12px; margin-bottom: 32px; }
+.message { display: flex; flex-direction: row; gap: 12px; margin-bottom: 32px; }
 .message--user { justify-content: flex-end; }
 .message--user .message-body { max-width: 72%; padding: 12px 16px; border-radius: 10px 10px 2px 10px; background: #eef2f7; color: #25344a; }
 .assistant-avatar { flex: 0 0 32px; width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid #d7c7ae; border-radius: 8px; background: #f8f4ed; color: #9a7646; }
@@ -123,6 +169,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .quick-prompts button:hover { border-color: #c9b18e; color: #806038; background: #fffaf3; }
 .inline-error { margin-bottom: 7px; padding: 7px 10px; border: 1px solid #edcfca; border-radius: 6px; background: #fff7f5; color: #a44f42; font-size: 11px; }
 
+.route-error { min-height: calc(100vh - 64px); display: grid; place-content: center; justify-items: center; gap: 10px; padding: 32px; text-align: center; background: #fff; }
+.route-error p { margin: 0; color: #b38a55; font: 600 14px Georgia, serif; letter-spacing: .12em; }
+.route-error h1 { margin: 0; color: #17263d; font: 600 28px Georgia, "Songti SC", serif; }
+.route-error span { color: #808895; font-size: 13px; }
+.route-error a { margin-top: 8px; padding: 9px 14px; border-radius: 6px; background: #142a49; color: #fff; font-size: 12px; text-decoration: none; }
+
 .drawer-overlay { position: fixed; inset: 0; z-index: 50; background: #0b14252e; animation: fade-in .18s ease; }
 .evidence-drawer { position: fixed; z-index: 51; top: 0; right: 0; width: min(440px, 94vw); height: 100vh; background: #fbfbfa; border-left: 1px solid #dfe3e7; box-shadow: -18px 0 50px #0e1a2c1c; animation: slide-in .22s ease; overflow-y: auto; }
 .drawer-header { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; align-items: center; padding: 22px 24px 17px; background: #fbfbfaf2; border-bottom: 1px solid #e4e7ea; backdrop-filter: blur(10px); }
@@ -157,7 +209,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
   .brand-mark { width: 30px; height: 30px; }
   .main-nav { margin-left: auto; }
   .main-nav button:not(.active) { display: none; }
-  .main-nav button.active { padding-inline: 12px; }
+  .main-nav .active { padding-inline: 12px; }
   .top-actions > button:not(.profile) { display: none; }
   .workspace { display: block; height: calc(100vh - 56px); }
   .desktop-sidebar { display: none; }
