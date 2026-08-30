@@ -8,7 +8,24 @@
 
 ## 前端边界
 
-页面组件只负责组合与展示，可复用业务单元收口在 `src/hooks/`：
+路由使用 React Router 的 `createBrowserRouter`：
+
+- `/` 重定向到 `/ai-research`。
+- `/ai-research` 是当前唯一开放的业务页面。
+- 其他未知路径进入统一错误页；尚未开发的主菜单不创建占位路由。
+
+目录职责：
+
+- `src/layouts/`：产品级框架和 `Outlet`。
+- `src/views/`：页面级业务组装。
+- `src/components/research/`：AI 研究领域展示与组件适配。
+- `src/components/ai-elements/`：由官方 AI Elements registry 生成的组件源码。
+- `src/components/ui/`：AI Elements 依赖的 shadcn/ui 基础组件。
+- `src/hooks/`：可复用业务状态和语义化命令。
+- `src/services/`：HTTP 和 SSE 协议。
+- `src/utils/`：不带业务状态的通用 TypeScript 工具。
+
+业务 hooks 包括：
 
 - `useResearchSession`：会话恢复、SSE 发送、取消与消息状态。
 - `useResearchHistory`：研究历史与激活会话。
@@ -16,7 +33,17 @@
 - `useEvidenceDrawer`：证据抽屉开关和引用索引定位。
 - `useAuthentication`：OIDC 初始化、身份映射和登录/退出命令。
 
-网络协议集中在 `src/services/research-api.ts`，组件内不直接调用 `fetch`、解析 SSE 或读写 `localStorage`。
+网络协议集中在 `src/services/research-api.ts`，业务 view、layout 和 research 组件不直接调用 `fetch`、解析 SSE 或读写 `localStorage`。
+
+## AI Elements
+
+`Conversation`、`Message`、`PromptInput` 和 `Reasoning` 由官方 CLI 安装：
+
+```bash
+npx ai-elements@latest add conversation message prompt-input reasoning
+```
+
+项目保留自有 SSE 后端契约，在 `components/research/` 中将领域消息适配为 AI Elements props，不使用 AI SDK `useChat` 替换后端通信。为控制投资研究页的体积，官方 `Streamdown` 当前只启用 CJK 插件，未启用尚未使用的代码高亮、数学公式和 Mermaid 插件。
 
 ## 接口
 
