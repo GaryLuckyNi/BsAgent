@@ -21,7 +21,6 @@ export function ResearchSidebar({ threads, activeThreadId, onActivate, onCreate 
           <time>{thread.updatedAt}</time>
         </button>
       ))}</nav>
-      <div className="watch-card"><span>研究助手</span><b>行情数据待接入</b><p>配置 Tushare 后，研究结果将融合实时市场数据。</p></div>
     </aside>
   )
 }
