@@ -52,7 +52,7 @@ export function ResearchWorkspace({ authentication, history, session, attachment
       </div>
       <div className="desktop-sidebar"><ResearchSidebar {...sidebarProps} /></div>
       <section className="research-main">
-        <ResearchHeader title={history.activeThread?.title} isOnline={session.isOnline} />
+        <ResearchHeader title={history.activeThread?.title} />
         <ResearchConversation messages={session.messages} onCitation={openCitation} />
         <ResearchComposer
           busy={session.isStreaming}

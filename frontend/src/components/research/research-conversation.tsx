@@ -8,7 +8,7 @@ export function ResearchConversation({ messages, onCitation }: {
   onCitation: (message: ResearchMessage, index: number) => void
 }) {
   return (
-    <Conversation className="conversation">
+    <Conversation className="conversation" initial={false}>
       <ConversationContent className="conversation-content">
         {messages.map((message) => <ResearchMessageItem key={message.id} message={message} onCitation={onCitation} />)}
       </ConversationContent>
