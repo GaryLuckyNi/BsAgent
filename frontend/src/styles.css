@@ -109,7 +109,8 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .status-chip span { width: 6px; height: 6px; border-radius: 50%; background: #a3aab4; }
 .status-chip span.online { background: #3a8c69; box-shadow: 0 0 0 3px #3a8c6918; }
 
-.conversation { min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-behavior: smooth; }
+.conversation { min-height: 0; overflow: hidden; }
+.conversation > div:first-child { overscroll-behavior: contain; scroll-behavior: smooth; }
 .conversation-content { width: min(820px, calc(100% - 48px)); margin: 0 auto; padding: 34px 0 24px; }
 .message { display: flex; flex-direction: row; gap: 12px; margin-bottom: 32px; }
 .message--user { justify-content: flex-end; }

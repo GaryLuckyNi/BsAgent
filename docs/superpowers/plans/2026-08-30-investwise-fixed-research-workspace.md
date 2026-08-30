@@ -1,6 +1,6 @@
 # InvestWise AI 研究工作区固定布局实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 移除行情待接入卡片，使 InvestWise 顶部导航和完整输入区域固定可见，并让 AI 对话成为页面唯一的纵向滚动区域。
 
@@ -23,7 +23,7 @@
 - Modify: `frontend/src/components/research/research-sidebar.tsx`
 - Modify: `frontend/src/styles.css`
 
-- [ ] **Step 1: 编写失败的侧栏回归测试**
+- [x] **Step 1: 编写失败的侧栏回归测试**
 
 ```tsx
 import { render, screen } from '@testing-library/react'
@@ -48,13 +48,13 @@ describe('ResearchSidebar', () => {
 })
 ```
 
-- [ ] **Step 2: 运行测试并确认先失败**
+- [x] **Step 2: 运行测试并确认先失败**
 
 Run: `cd frontend && npx vitest run src/components/research/research-sidebar.test.tsx`
 
 Expected: FAIL，页面仍能找到“行情数据待接入”。
 
-- [ ] **Step 3: 删除侧栏卡片和孤立样式**
+- [x] **Step 3: 删除侧栏卡片和孤立样式**
 
 从 `ResearchSidebar` 返回值中删除：
 
@@ -68,13 +68,13 @@ Expected: FAIL，页面仍能找到“行情数据待接入”。
 
 从 `styles.css` 删除 `.watch-card`、`.watch-card span`、`.watch-card b` 和 `.watch-card p` 规则。
 
-- [ ] **Step 4: 运行侧栏测试并确认通过**
+- [x] **Step 4: 运行侧栏测试并确认通过**
 
 Run: `cd frontend && npx vitest run src/components/research/research-sidebar.test.tsx`
 
 Expected: 1 test passed。
 
-- [ ] **Step 5: 提交卡片移除**
+- [x] **Step 5: 提交卡片移除**
 
 ```bash
 git add frontend/src/components/research/research-sidebar.tsx frontend/src/components/research/research-sidebar.test.tsx frontend/src/styles.css
@@ -86,7 +86,7 @@ git commit -m "feat(frontend): remove pending market data card"
 **Files:**
 - Modify: `frontend/src/styles.css`
 
-- [ ] **Step 1: 收紧页面根节点和应用骨架的高度边界**
+- [x] **Step 1: 收紧页面根节点和应用骨架的高度边界**
 
 将根节点和应用骨架调整为视口级布局：
 
@@ -118,7 +118,7 @@ body {
 }
 ```
 
-- [ ] **Step 2: 让路由工作区填满剩余空间而不推高页面**
+- [x] **Step 2: 让路由工作区填满剩余空间而不推高页面**
 
 更新工作区和两侧容器：
 
@@ -143,7 +143,7 @@ body {
 }
 ```
 
-- [ ] **Step 3: 保证只有对话区滚动且输入区完整吸底**
+- [x] **Step 3: 保证只有对话区滚动且输入区完整吸底**
 
 保留 `.research-main` 的三行 Grid，并补充输入区和对话区边界：
 
@@ -165,9 +165,18 @@ body {
 }
 ```
 
+同时让非研究路由的错误页继承剩余高度，避免应用根节点锁定滚动后被裁切：
+
+```css
+.route-error {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+```
+
 在 `@media (max-width: 820px)` 中把顶部导航高度同步为 `56px`，工作区继续填满剩余空间，不再使用 `calc(100vh - 56px)`。
 
-- [ ] **Step 4: 运行全部测试和生产构建**
+- [x] **Step 4: 运行全部测试和生产构建**
 
 Run: `cd frontend && npm test`
 
@@ -177,7 +186,7 @@ Run: `cd frontend && npm run build`
 
 Expected: TypeScript 和 Vite 构建成功，退出码为 0。
 
-- [ ] **Step 5: 提交固定布局**
+- [x] **Step 5: 提交固定布局**
 
 ```bash
 git add frontend/src/styles.css
@@ -190,13 +199,13 @@ git commit -m "fix(frontend): constrain AI research workspace scrolling"
 - Verify: `frontend/src/styles.css`
 - Verify: `frontend/src/components/research/research-sidebar.tsx`
 
-- [ ] **Step 1: 启动开发服务器**
+- [x] **Step 1: 启动开发服务器**
 
 Run: `cd frontend && npm run dev -- --port 5175`
 
 Expected: Vite 在 `http://127.0.0.1:5175/` 提供页面。
 
-- [ ] **Step 2: 验证桌面端滚动边界**
+- [x] **Step 2: 验证桌面端滚动边界**
 
 在 1440 × 900 视口打开 `/ai-research`，记录 `.topbar`、`.conversation` 和 `.composer-wrap` 的边界位置。滚动 `.conversation` 后确认：
 
@@ -206,7 +215,7 @@ Expected: Vite 在 `http://127.0.0.1:5175/` 提供页面。
 - `.conversation.scrollTop` 发生变化；
 - 页面中不存在“行情数据待接入”。
 
-- [ ] **Step 3: 验证移动端布局与侧栏交互**
+- [x] **Step 3: 验证移动端布局与侧栏交互**
 
 将视口设为 390 × 844，确认：
 
@@ -215,7 +224,7 @@ Expected: Vite 在 `http://127.0.0.1:5175/` 提供页面。
 - 点击“研究记录”后侧栏可打开并关闭；
 - 对话区仍可独立滚动。
 
-- [ ] **Step 4: 检查控制台并完成最终验证**
+- [x] **Step 4: 检查控制台并完成最终验证**
 
 确认页面控制台无 error 级别日志，然后重新运行：
 
