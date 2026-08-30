@@ -10,7 +10,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-use-controllable-state": "^1.2.6",
     "@streamdown/cjk": "^1.0.3",
     "ai": "^7.0.84",

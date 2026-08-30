@@ -1,5 +1,5 @@
-import * as Dialog from '@radix-ui/react-dialog'
 import { ArrowUpRight, BookOpenText, X } from 'lucide-react'
+import { Dialog } from 'radix-ui'
 import { useEffect, useRef } from 'react'
 
 import type { EvidenceSource } from '../../domain/research'
