@@ -161,6 +161,7 @@ def _upgrade_approval_records(connection) -> None:
         "ck_approval_records_approval_type",
         "ck_approval_records_status",
         "ck_approval_records_inflight_checkpoint",
+        "ck_approval_records_resume_attempts",
     ):
         op.create_check_constraint(
             constraint_name,
@@ -177,6 +178,7 @@ def _upgrade_approval_records(connection) -> None:
                     "status NOT IN ('pending', 'resuming', 'resume_failed') "
                     "OR (checkpoint_id IS NOT NULL AND interrupt_id IS NOT NULL)"
                 ),
+                "ck_approval_records_resume_attempts": "resume_attempts >= 0",
             }[constraint_name],
         )
     op.create_index(
@@ -202,6 +204,7 @@ def _downgrade_approval_records(connection) -> None:
         table_name="approval_records",
     )
     for constraint_name in (
+        "ck_approval_records_resume_attempts",
         "ck_approval_records_inflight_checkpoint",
         "ck_approval_records_status",
         "ck_approval_records_approval_type",

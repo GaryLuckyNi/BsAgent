@@ -8,6 +8,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect as inspect_database, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 
 from app.core.config import settings
 
@@ -132,6 +133,7 @@ def test_native_memory_approval_upgrade_preserves_terminal_projection(
             "ck_approval_records_approval_type",
             "ck_approval_records_status",
             "ck_approval_records_inflight_checkpoint",
+            "ck_approval_records_resume_attempts",
         }.issubset({
             constraint["name"]
             for constraint in inspector.get_check_constraints("approval_records")
@@ -155,6 +157,26 @@ def test_native_memory_approval_upgrade_preserves_terminal_projection(
         assert approval == (
             "user_1", "mcp.mock.write", "digest_1", "high", "tool_call", "", None, None
         )
+        with engine.connect() as connection:
+            with pytest.raises(IntegrityError):
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO approval_records
+                            (approval_id, tenant_id, run_id, approval_type,
+                             subject_name, risk_level, action_digest,
+                             checkpoint_thread_id, checkpoint_namespace, status,
+                             requested_by, resume_claim_generation,
+                             resume_attempts, created_at)
+                        VALUES
+                            ('approval_negative_attempts', 'tenant_1', 'run_1',
+                             'tool_call', 'mcp.mock.write', 'high', 'digest_2',
+                             'thread_1', '', 'approved', 'user_1', 0, -1,
+                             CURRENT_TIMESTAMP)
+                        """
+                    )
+                )
+            connection.rollback()
 
 
 def test_native_memory_approval_upgrade_rejects_inflight_legacy_approvals(

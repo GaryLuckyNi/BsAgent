@@ -32,10 +32,7 @@ class SqlAlchemyMemoryStore:
             changed = (
                 existing.memory_key != memory_key
                 or existing.content != candidate.content
-                or existing.confidence != confidence
-                or existing.sensitivity != sensitivity
                 or existing.approval_status != approval_status
-                or existing.source != source
             )
             existing.memory_key = memory_key
             existing.content = candidate.content

@@ -366,6 +366,10 @@ class ApprovalRecord(Base):
             "OR (checkpoint_id IS NOT NULL AND interrupt_id IS NOT NULL)",
             name="ck_approval_records_inflight_checkpoint",
         ),
+        CheckConstraint(
+            "resume_attempts >= 0",
+            name="ck_approval_records_resume_attempts",
+        ),
         Index(
             "ix_approval_records_tenant_status_created",
             "tenant_id",

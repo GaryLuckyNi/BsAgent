@@ -80,6 +80,43 @@ def test_memory_candidate_resets_store_sync_only_for_effective_changes():
     assert changed.store_sync_error is None
 
 
+def test_memory_candidate_metadata_merge_keeps_synced_state():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        store = SqlAlchemyMemoryStore(session)
+        record = store.save_candidate(
+            _candidate(),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
+        )
+        synced_at = datetime.now(UTC)
+        record.store_sync_status = "synced"
+        record.store_synced_at = synced_at
+        record.store_sync_error = "old error"
+        session.flush()
+
+        merged = store.save_candidate(
+            _candidate(
+                confidence=0.95,
+                sensitivity="high",
+                source="user_explicit_preference",
+            ),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
+        )
+
+    assert merged.confidence == 0.95
+    assert merged.sensitivity == "high"
+    assert merged.source == "user_explicit_preference"
+    assert merged.store_sync_status == "synced"
+    assert merged.store_synced_at == synced_at
+    assert merged.store_sync_error == "old error"
+
+
 def test_commit_candidate_keeps_memory_key_in_compatibility_payload():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
