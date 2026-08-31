@@ -308,6 +308,16 @@ class AgentTraceArtifact(Base):
 
 class MemoryCandidateRecord(Base):
     __tablename__ = "memory_candidates"
+    __table_args__ = (
+        CheckConstraint(
+            "store_sync_status IN ('pending', 'syncing', 'synced', 'failed')",
+            name="ck_memory_candidates_store_sync_status",
+        ),
+        CheckConstraint(
+            "store_sync_attempts >= 0",
+            name="ck_memory_candidates_store_sync_attempts",
+        ),
+    )
 
     candidate_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(64), index=True)
@@ -319,55 +329,84 @@ class MemoryCandidateRecord(Base):
     approval_status: Mapped[str] = mapped_column(String(32), index=True)
     sensitivity: Mapped[str] = mapped_column(String(32), default="low")
     source: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
-
-
-class ExperienceEntryRecord(Base):
-    __tablename__ = "experience_entries"
-
-    entry_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
-    user_id: Mapped[str] = mapped_column(String(64), index=True)
-    memory_type: Mapped[str] = mapped_column(String(64), index=True)
-    content: Mapped[str] = mapped_column(Text)
-    source_candidate_id: Mapped[str] = mapped_column(String(128), unique=True)
-    sensitivity: Mapped[str] = mapped_column(String(32), default="low")
-    source: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    memory_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    store_sync_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="pending",
+        server_default=text("'pending'"),
+    )
+    store_sync_attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    store_synced_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    store_sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
 
 
 class ApprovalRecord(Base):
     __tablename__ = "approval_records"
+    __table_args__ = (
+        CheckConstraint(
+            "approval_type IN ('tool_call', 'memory_write')",
+            name="ck_approval_records_approval_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'resuming', 'resume_failed', 'approved', 'rejected')",
+            name="ck_approval_records_status",
+        ),
+        CheckConstraint(
+            "status NOT IN ('pending', 'resuming', 'resume_failed') "
+            "OR (checkpoint_id IS NOT NULL AND interrupt_id IS NOT NULL)",
+            name="ck_approval_records_inflight_checkpoint",
+        ),
+        Index(
+            "ix_approval_records_tenant_status_created",
+            "tenant_id",
+            "status",
+            "created_at",
+        ),
+    )
 
     approval_id: Mapped[str] = mapped_column(String(128), primary_key=True)
-    run_id: Mapped[str] = mapped_column(String(64), index=True)
-    session_id: Mapped[str] = mapped_column(String(64), index=True)
-    session_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
-    request_user_id: Mapped[str] = mapped_column(String(64), index=True)
-    approval_type: Mapped[str] = mapped_column(String(32), index=True)
-    tool_name: Mapped[str] = mapped_column(String(256), index=True)
-    tool_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    arguments_hash: Mapped[str] = mapped_column(String(64))
-    payload_json: Mapped[str] = mapped_column(Text)
-    checkpoint_thread_id: Mapped[str] = mapped_column(String(128), index=True)
-    status: Mapped[str] = mapped_column(String(32), index=True, default="pending")
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    approval_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    subject_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False)
+    action_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    checkpoint_thread_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    checkpoint_namespace: Mapped[str] = mapped_column(String(128), nullable=False)
+    checkpoint_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    interrupt_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     decision: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    resume_claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    resume_claim_generation: Mapped[int] = mapped_column(Integer, default=0)
-    resume_attempts: Mapped[int] = mapped_column(Integer, default=0)
-    last_resume_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    resume_claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    resume_claimed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        nullable=True,
-    )
+    requested_by: Mapped[str] = mapped_column(String(64), nullable=False)
     decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
     decided_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
+    resume_claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resume_claim_generation: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+    )
+    resume_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    resume_claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resume_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    last_resume_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class AssetRecord(Base):

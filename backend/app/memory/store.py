@@ -18,16 +18,35 @@ class SqlAlchemyMemoryStore:
     ) -> MemoryCandidateRecord:
         existing = self._session.get(MemoryCandidateRecord, candidate.candidate_id)
         if existing is not None:
-            existing.confidence = max(existing.confidence, candidate.confidence)
-            existing.sensitivity = _higher_sensitivity(
+            memory_key = candidate.memory_key or candidate.candidate_id
+            confidence = max(existing.confidence, candidate.confidence)
+            sensitivity = _higher_sensitivity(
                 existing.sensitivity,
                 candidate.sensitivity,
             )
-            existing.approval_status = _merged_approval_status(
+            approval_status = _merged_approval_status(
                 existing.approval_status,
                 candidate.approval_status,
             )
-            existing.source = candidate.source or existing.source
+            source = candidate.source or existing.source
+            changed = (
+                existing.memory_key != memory_key
+                or existing.content != candidate.content
+                or existing.confidence != confidence
+                or existing.sensitivity != sensitivity
+                or existing.approval_status != approval_status
+                or existing.source != source
+            )
+            existing.memory_key = memory_key
+            existing.content = candidate.content
+            existing.confidence = confidence
+            existing.sensitivity = sensitivity
+            existing.approval_status = approval_status
+            existing.source = source
+            if changed:
+                existing.store_sync_status = "pending"
+                existing.store_synced_at = None
+                existing.store_sync_error = None
             return existing
 
         record = MemoryCandidateRecord(
@@ -36,6 +55,7 @@ class SqlAlchemyMemoryStore:
             user_id=user_id,
             run_id=run_id,
             memory_type=candidate.memory_type,
+            memory_key=candidate.memory_key or candidate.candidate_id,
             content=candidate.content,
             confidence=candidate.confidence,
             approval_status=candidate.approval_status,
@@ -57,6 +77,7 @@ class SqlAlchemyMemoryStore:
             tenant_id=candidate.tenant_id,
             user_id=candidate.user_id,
             memory_type=candidate.memory_type,
+            memory_key=candidate.memory_key,
             content=candidate.content,
             sensitivity=candidate.sensitivity,
             source=candidate.source,

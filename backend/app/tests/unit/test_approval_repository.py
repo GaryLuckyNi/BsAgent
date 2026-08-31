@@ -1,5 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor
-import json
 from datetime import UTC, datetime, timedelta
 from threading import Barrier
 
@@ -33,16 +32,16 @@ def _pending(*, approval_id: str = "approval_1", tenant_id: str = "tenant_1"):
     return ApprovalRecordCreate(
         approval_id=approval_id,
         run_id="run_1",
-        session_id="session_1",
-        session_key="session_key_1",
         tenant_id=tenant_id,
-        request_user_id="user_1",
         approval_type="tool_call",
-        tool_name="mcp.mock.write_order",
-        tool_version="mcp-http-v1",
-        arguments_hash="hash_1",
-        payload={"arguments_summary": {"symbol": "600519.SH"}},
+        subject_name="mcp.mock.write_order",
+        risk_level="high",
+        action_digest="hash_1",
         checkpoint_thread_id="run_1",
+        checkpoint_namespace="",
+        checkpoint_id="checkpoint_1",
+        interrupt_id="interrupt_1",
+        requested_by="user_1",
     )
 
 
@@ -56,9 +55,10 @@ def test_approval_repository_creates_pending_record_idempotently(session):
     assert second.approval_id == "approval_1"
     assert second.status == "pending"
     assert repository.list_pending(tenant_id="tenant_1") == [second]
-    payload = json.loads(second.payload_json)
-    assert payload["session_key"] == "session_key_1"
-    assert payload["checkpoint_namespace"] == ""
+    assert second.subject_name == "mcp.mock.write_order"
+    assert second.checkpoint_id == "checkpoint_1"
+    assert second.interrupt_id == "interrupt_1"
+    assert second.requested_by == "user_1"
 
 
 def test_approval_repository_rejects_same_id_with_changed_hash(session):
@@ -67,7 +67,7 @@ def test_approval_repository_rejects_same_id_with_changed_hash(session):
 
     with pytest.raises(ApprovalConflictError, match="payload does not match"):
         repository.create_pending(
-            _pending().model_copy(update={"arguments_hash": "changed_hash"})
+            _pending().model_copy(update={"action_digest": "changed_hash"})
         )
 
 

@@ -1,10 +1,9 @@
-import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from sqlalchemy import and_, case, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -35,17 +34,16 @@ class ApprovalResumeClaim:
 class ApprovalRecordCreate(BaseModel):
     approval_id: str
     run_id: str
-    session_id: str
-    session_key: str
     tenant_id: str
-    request_user_id: str
-    approval_type: Literal["tool_call"] = "tool_call"
-    tool_name: str
-    tool_version: str | None = None
-    arguments_hash: str
-    payload: dict[str, Any] = Field(default_factory=dict)
+    approval_type: Literal["tool_call", "memory_write"]
+    subject_name: str
+    risk_level: Literal["low", "medium", "high"]
+    action_digest: str
     checkpoint_thread_id: str
-    checkpoint_namespace: Literal[""] = ""
+    checkpoint_namespace: str
+    checkpoint_id: str
+    interrupt_id: str
+    requested_by: str
 
 
 class ApprovalRepository:
@@ -60,30 +58,16 @@ class ApprovalRepository:
         record = ApprovalRecord(
             approval_id=data.approval_id,
             run_id=data.run_id,
-            session_id=data.session_id,
-            session_key=data.session_key,
             tenant_id=data.tenant_id,
-            request_user_id=data.request_user_id,
             approval_type=data.approval_type,
-            tool_name=data.tool_name,
-            tool_version=data.tool_version,
-            arguments_hash=data.arguments_hash,
-            payload_json=json.dumps(
-                {
-                    **data.payload,
-                    "run_id": data.run_id,
-                    "session_id": data.session_id,
-                    "session_key": data.session_key,
-                    "tenant_id": data.tenant_id,
-                    "request_user_id": data.request_user_id,
-                    "checkpoint_thread_id": data.checkpoint_thread_id,
-                    "checkpoint_namespace": data.checkpoint_namespace,
-                },
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ),
+            subject_name=data.subject_name,
+            risk_level=data.risk_level,
+            action_digest=data.action_digest,
             checkpoint_thread_id=data.checkpoint_thread_id,
+            checkpoint_namespace=data.checkpoint_namespace,
+            checkpoint_id=data.checkpoint_id,
+            interrupt_id=data.interrupt_id,
+            requested_by=data.requested_by,
             status="pending",
         )
         try:
@@ -105,17 +89,16 @@ class ApprovalRepository:
             ApprovalRecordCreate(
                 approval_id=payload["approval_id"],
                 run_id=payload["run_id"],
-                session_id=payload["session_id"],
-                session_key=payload["session_key"],
                 tenant_id=payload["tenant_id"],
-                request_user_id=payload["request_user_id"],
                 approval_type=payload["approval_type"],
-                tool_name=payload["tool_name"],
-                tool_version=payload.get("tool_version"),
-                arguments_hash=payload["arguments_hash"],
-                payload=payload,
+                subject_name=payload["subject_name"],
+                risk_level=payload["risk_level"],
+                action_digest=payload["action_digest"],
                 checkpoint_thread_id=payload["checkpoint_thread_id"],
                 checkpoint_namespace=payload["checkpoint_namespace"],
+                checkpoint_id=payload["checkpoint_id"],
+                interrupt_id=payload["interrupt_id"],
+                requested_by=payload["requested_by"],
             )
         )
 
@@ -320,25 +303,18 @@ class ApprovalRepository:
             )
 
 def _matches_create(record: ApprovalRecord, data: ApprovalRecordCreate) -> bool:
-    payload = json.loads(record.payload_json)
     return (
         record.run_id == data.run_id
-        and record.session_id == data.session_id
-        and record.session_key == data.session_key
         and record.tenant_id == data.tenant_id
-        and record.request_user_id == data.request_user_id
         and record.approval_type == data.approval_type
-        and record.tool_name == data.tool_name
-        and record.tool_version == data.tool_version
-        and record.arguments_hash == data.arguments_hash
+        and record.subject_name == data.subject_name
+        and record.risk_level == data.risk_level
+        and record.action_digest == data.action_digest
         and record.checkpoint_thread_id == data.checkpoint_thread_id
-        and payload.get("run_id") == data.run_id
-        and payload.get("session_id") == data.session_id
-        and payload.get("session_key") == data.session_key
-        and payload.get("tenant_id") == data.tenant_id
-        and payload.get("request_user_id") == data.request_user_id
-        and payload.get("checkpoint_thread_id") == data.checkpoint_thread_id
-        and payload.get("checkpoint_namespace") == data.checkpoint_namespace
+        and record.checkpoint_namespace == data.checkpoint_namespace
+        and record.checkpoint_id == data.checkpoint_id
+        and record.interrupt_id == data.interrupt_id
+        and record.requested_by == data.requested_by
     )
 
 
