@@ -115,7 +115,7 @@ def test_postgres_store_runtime_reuses_and_reopens_live_store(
 
     runtime = PostgresStoreRuntime(
         settings=SimpleNamespace(
-            experience_store_postgres_url=live_postgres_store.dsn
+            memory_store_postgres_url=live_postgres_store.dsn
         )
     )
     namespace = _namespace("runtime-tenant", "runtime-user")
@@ -146,7 +146,7 @@ def test_postgres_store_runtime_serializes_close_and_open(
 
     runtime = PostgresStoreRuntime(
         settings=SimpleNamespace(
-            experience_store_postgres_url=live_postgres_store.dsn
+            memory_store_postgres_url=live_postgres_store.dsn
         )
     )
     first = runtime.open()

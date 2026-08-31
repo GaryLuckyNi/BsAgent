@@ -19,12 +19,12 @@ class Settings(BaseSettings):
     short_term_memory_backend: Literal["none", "redis"] = "none"
     short_term_memory_ttl_seconds: int = 3600
     short_term_memory_max_events: int = 100
-    experience_store_backend: Literal["sqlalchemy", "langgraph_postgres"] = "sqlalchemy"
-    experience_store_postgres_url: str | None = None
+    memory_store_postgres_url: str = (
+        "postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent"
+    )
     experience_memory_recall_limit: int = Field(default=8, ge=1, le=50)
-    graph_checkpointer_backend: Literal["memory", "none", "sqlite", "postgres"] = "sqlite"
-    graph_checkpoint_sqlite_path: str = "./bs_agent_checkpoints.sqlite"
     graph_checkpoint_postgres_url: str | None = None
+    graph_recursion_limit: int = Field(default=32, ge=8, le=256)
     skill_registry_base_url: str = "http://localhost:8010"
     skill_definition_cache_ttl_seconds: int = 300
     mcp_server_url: str = "http://127.0.0.1:8011/mcp"
@@ -129,6 +129,8 @@ class Settings(BaseSettings):
                 "启用 OpenTelemetry 时必须配置 "
                 "otel_exporter_otlp_traces_endpoint"
             )
+        if not _is_postgres_url(self.memory_store_postgres_url):
+            raise ValueError("memory_store_postgres_url 必须是 PostgreSQL URL")
         if self.app_env != "production":
             return self
 
@@ -141,10 +143,6 @@ class Settings(BaseSettings):
             invalid.append("database_url")
         if self.short_term_memory_backend != "redis":
             invalid.append("short_term_memory_backend")
-        if self.experience_store_backend != "langgraph_postgres":
-            invalid.append("experience_store_backend")
-        if not _is_postgres_url(self.experience_store_postgres_url):
-            invalid.append("experience_store_postgres_url")
         if self.rate_limit_backend != "redis":
             invalid.append("rate_limit_backend")
         if self.log_format != "json":
@@ -171,8 +169,6 @@ class Settings(BaseSettings):
             invalid.append("mcp_server_url")
         if not self.redis_url.strip():
             invalid.append("redis_url")
-        if self.graph_checkpointer_backend != "postgres":
-            invalid.append("graph_checkpointer_backend")
         if not _is_postgres_url(self.graph_checkpoint_postgres_url):
             invalid.append("graph_checkpoint_postgres_url")
         if self.asset_store_backend != "s3":

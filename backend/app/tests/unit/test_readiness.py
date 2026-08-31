@@ -1,10 +1,20 @@
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
+import pytest
 
 from app.operations.health import (
     DependencyProbe,
     ReadinessService,
     build_readiness_service,
 )
+
+
+@pytest.fixture
+def inject_test_checkpointer(monkeypatch):
+    from app import main as main_module
+
+    monkeypatch.setattr(main_module, "build_graph_checkpointer", InMemorySaver)
+    monkeypatch.setattr(main_module, "close_graph_checkpointer", lambda: None)
 
 
 def test_readiness_service_reports_each_dependency_without_leaking_error_details():
@@ -28,7 +38,7 @@ def test_readiness_service_reports_each_dependency_without_leaking_error_details
     assert "redis.internal" not in str(report)
 
 
-def test_liveness_does_not_execute_readiness_probes():
+def test_liveness_does_not_execute_readiness_probes(inject_test_checkpointer):
     calls: list[str] = []
     service = ReadinessService(
         probes=[DependencyProbe(name="database", check=lambda: calls.append("database"))]
@@ -45,7 +55,10 @@ def test_liveness_does_not_execute_readiness_probes():
     assert calls == []
 
 
-def test_create_app_does_not_discover_tools_during_app_creation(monkeypatch):
+def test_create_app_does_not_discover_tools_during_app_creation(
+    monkeypatch,
+    inject_test_checkpointer,
+):
     from app import main as main_module
 
     def fail_if_called():
@@ -63,7 +76,9 @@ def test_create_app_does_not_discover_tools_during_app_creation(monkeypatch):
     assert app.title == "bs-agent-service"
 
 
-def test_readiness_returns_503_when_a_required_dependency_is_unavailable():
+def test_readiness_returns_503_when_a_required_dependency_is_unavailable(
+    inject_test_checkpointer,
+):
     service = ReadinessService(
         probes=[
             DependencyProbe(
@@ -87,7 +102,9 @@ def test_readiness_returns_503_when_a_required_dependency_is_unavailable():
     }
 
 
-def test_readiness_returns_200_when_required_dependencies_are_available():
+def test_readiness_returns_200_when_required_dependencies_are_available(
+    inject_test_checkpointer,
+):
     service = ReadinessService(
         probes=[DependencyProbe(name="database", check=lambda: None)]
     )
@@ -103,7 +120,7 @@ def test_readiness_returns_200_when_required_dependencies_are_available():
     assert response.json()["components"] == {"database": "ok"}
 
 
-def test_default_readiness_probes_database_redis_and_object_store():
+def test_default_readiness_probes_database_redis_object_store_and_memory_store():
     calls: list[str] = []
 
     class Connection:
@@ -129,15 +146,15 @@ def test_default_readiness_probes_database_redis_and_object_store():
         def check_health(self):
             calls.append("object_store")
 
-    class ExperienceStore:
+    class MemoryStoreRuntime:
         def check_health(self):
-            calls.append("experience_store")
+            calls.append("memory_store")
 
     service = build_readiness_service(
         engine=Engine(),
         redis_client=Redis(),
         object_store=ObjectStore(),
-        experience_store=ExperienceStore(),
+        memory_store=MemoryStoreRuntime(),
     )
 
     report = service.check()
@@ -147,12 +164,45 @@ def test_default_readiness_probes_database_redis_and_object_store():
         "database": "ok",
         "redis": "ok",
         "object_store": "ok",
-        "experience_store": "ok",
+        "memory_store": "ok",
     }
-    assert calls == ["database", "redis", "object_store", "experience_store"]
+    assert calls == ["database", "redis", "object_store", "memory_store"]
 
 
-def test_app_lifespan_reuses_and_closes_runtime_resources():
+def test_readiness_is_not_ready_when_memory_store_is_unavailable():
+    class Engine:
+        def connect(self):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def execute(self, _statement):
+            return None
+
+    class ObjectStore:
+        def check_health(self):
+            return None
+
+    class MemoryStoreRuntime:
+        def check_health(self):
+            raise RuntimeError("Postgres unavailable")
+
+    report = build_readiness_service(
+        engine=Engine(),
+        redis_client=None,
+        object_store=ObjectStore(),
+        memory_store=MemoryStoreRuntime(),
+    ).check()
+
+    assert report.ready is False
+    assert report.components["memory_store"] == "unavailable"
+
+
+def test_app_lifespan_reuses_and_closes_runtime_resources(inject_test_checkpointer):
     calls: list[str] = []
 
     class Connection:
@@ -186,12 +236,12 @@ def test_app_lifespan_reuses_and_closes_runtime_resources():
         def close(self):
             calls.append("object_store.close")
 
-    class ExperienceRuntime:
+    class MemoryStoreRuntime:
         def open(self):
-            calls.append("experience_store.open")
+            calls.append("memory_store.open")
 
         def close(self):
-            calls.append("experience_store.close")
+            calls.append("memory_store.close")
 
     from app.main import create_app
 
@@ -202,7 +252,7 @@ def test_app_lifespan_reuses_and_closes_runtime_resources():
         database_engine=engine,
         redis_client=redis,
         object_store=object_store,
-        experience_store_runtime=ExperienceRuntime(),
+        memory_store_runtime=MemoryStoreRuntime(),
     )
 
     with TestClient(app) as client:
@@ -211,11 +261,11 @@ def test_app_lifespan_reuses_and_closes_runtime_resources():
         assert client.get("/health/ready").status_code == 200
 
     assert calls == [
-        "experience_store.open",
+        "memory_store.open",
         "database",
         "redis",
         "object_store",
-        "experience_store.close",
+        "memory_store.close",
         "object_store.close",
         "redis.close",
         "database.close",

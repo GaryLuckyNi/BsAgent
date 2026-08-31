@@ -21,7 +21,6 @@ def _production_settings(**overrides):
         "rbac_backend": "principal",
         "database_url": "postgresql+psycopg://agent@postgres/agent",
         "short_term_memory_backend": "redis",
-        "graph_checkpointer_backend": "postgres",
         "graph_checkpoint_postgres_url": "postgresql://agent@postgres/agent",
         "asset_store_backend": "s3",
         "asset_s3_bucket": "agent-private-assets",
@@ -43,8 +42,7 @@ def _production_settings(**overrides):
         "mcp_server_revision": "research-tools-2026.07",
         "mcp_config_revision": "production-v1",
         "mcp_server_url": "http://mcp-server:8011/mcp",
-        "experience_store_backend": "langgraph_postgres",
-        "experience_store_postgres_url": "postgresql://agent@postgres/agent",
+        "memory_store_postgres_url": "postgresql://agent@postgres/agent",
         "rate_limit_backend": "redis",
         "log_format": "json",
         "trace_backend": "database",
@@ -62,7 +60,6 @@ def _production_settings(**overrides):
         ({"rbac_backend": "mock"}, "rbac_backend"),
         ({"asset_store_backend": "local"}, "asset_store_backend"),
         ({"database_url": "sqlite:///agent.db"}, "database_url"),
-        ({"graph_checkpointer_backend": "sqlite"}, "graph_checkpointer_backend"),
         ({"short_term_memory_backend": "none"}, "short_term_memory_backend"),
         ({"image_analysis_dispatcher_backend": "noop"}, "image_analysis_dispatcher_backend"),
         ({"rate_limit_backend": "none"}, "rate_limit_backend"),
@@ -70,7 +67,6 @@ def _production_settings(**overrides):
         ({"trace_backend": "memory"}, "trace_backend"),
         ({"otel_enabled": False}, "otel_enabled"),
         ({"use_mock_rag": True}, "use_mock_rag"),
-        ({"experience_store_backend": "sqlalchemy"}, "experience_store_backend"),
     ],
 )
 def test_production_rejects_development_backends(overrides, expected_field):
@@ -106,7 +102,8 @@ def test_production_rejects_development_backends(overrides, expected_field):
         ({"mcp_server_revision": "local-dev"}, "mcp_server_revision"),
         ({"mcp_server_url": "not-a-url"}, "mcp_server_url"),
         ({"mcp_server_url": "http://127.0.0.1:8011/mcp"}, "mcp_server_url"),
-        ({"experience_store_postgres_url": None}, "experience_store_postgres_url"),
+        ({"memory_store_postgres_url": None}, "memory_store_postgres_url"),
+        ({"memory_store_postgres_url": "sqlite:///agent.db"}, "memory_store_postgres_url"),
     ],
 )
 def test_production_requires_external_service_configuration(overrides, expected_field):
@@ -122,7 +119,7 @@ def test_production_accepts_complete_externalized_configuration():
     assert settings.app_env == "production"
     assert settings.auth_provider == "jwt"
     assert settings.asset_store_backend == "s3"
-    assert settings.graph_checkpointer_backend == "postgres"
+    assert settings.graph_checkpoint_postgres_url == "postgresql://agent@postgres/agent"
     assert settings.rate_limit_backend == "redis"
     assert settings.log_format == "json"
 
@@ -149,6 +146,44 @@ def test_local_defaults_remain_offline_friendly():
     assert settings.trace_max_events_per_run == 128
     assert settings.trace_max_artifacts_per_run == 16
     assert settings.trace_max_artifact_bytes == 32 * 1024
+    assert settings.memory_store_postgres_url == (
+        "postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent"
+    )
+
+
+@pytest.mark.parametrize("app_env", ["local", "test", "production"])
+def test_memory_store_accepts_postgres_url_in_every_environment(app_env):
+    if app_env == "production":
+        runtime = _production_settings()
+    else:
+        runtime = Settings(
+            _env_file=None,
+            app_env=app_env,
+            memory_store_postgres_url="postgresql://agent@postgres/agent",
+        )
+
+    assert runtime.memory_store_postgres_url == "postgresql://agent@postgres/agent"
+
+
+@pytest.mark.parametrize("app_env", ["local", "test"])
+@pytest.mark.parametrize("memory_store_postgres_url", ["", "sqlite:///agent.db"])
+def test_local_and_test_reject_missing_or_non_postgres_memory_store_url(
+    app_env,
+    memory_store_postgres_url,
+):
+    with pytest.raises(ValidationError, match="memory_store_postgres_url"):
+        Settings(
+            _env_file=None,
+            app_env=app_env,
+            memory_store_postgres_url=memory_store_postgres_url,
+        )
+
+
+def test_settings_remove_custom_long_term_store_configuration():
+    assert all(
+        not field.startswith("experience" + "_store")
+        for field in Settings.model_fields
+    )
 
 
 def test_otel_requires_trace_endpoint_when_enabled():

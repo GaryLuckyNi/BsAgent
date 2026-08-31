@@ -27,10 +27,10 @@ class PostgresStoreRuntime:
         with self._lock:
             if self._store is not None:
                 return self._store
-            url = self._settings.experience_store_postgres_url
+            url = self._settings.memory_store_postgres_url
             if not url:
                 raise PostgresStoreRuntimeError(
-                    "LangGraph PostgresStore requires experience_store_postgres_url."
+                    "LangGraph PostgresStore requires memory_store_postgres_url."
                 )
             context = PostgresStore.from_conn_string(
                 url,

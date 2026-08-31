@@ -14,7 +14,7 @@ from app.assets.object_store import ObjectStore
 from app.core.config import Settings
 from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpointer
-from app.memory.runtime import ExperienceStoreRuntime
+from app.memory.runtime import PostgresStoreRuntime
 from app.operations.health import ReadinessService, build_readiness_service
 from app.operations.observability import (
     RequestContextMiddleware,
@@ -33,7 +33,7 @@ def create_app(
     database_engine: Any | None = None,
     redis_client: Any | None = None,
     object_store: ObjectStore | None = None,
-    experience_store_runtime: ExperienceStoreRuntime | None = None,
+    memory_store_runtime: PostgresStoreRuntime | None = None,
     tool_catalog_runtime: ToolCatalogRuntime | None = None,
     config: Settings | None = None,
 ) -> FastAPI:
@@ -41,7 +41,7 @@ def create_app(
     selected_engine = database_engine or engine
     selected_object_store = object_store or build_object_store(config=runtime)
     selected_redis = redis_client or _build_redis_client(runtime)
-    selected_experience_runtime = experience_store_runtime or ExperienceStoreRuntime(
+    selected_memory_runtime = memory_store_runtime or PostgresStoreRuntime(
         settings=runtime
     )
     selected_tool_catalog = tool_catalog_runtime or get_default_tool_catalog_runtime()
@@ -52,13 +52,13 @@ def create_app(
     async def lifespan(_: FastAPI):
         try:
             build_graph_checkpointer()
-            selected_experience_runtime.open()
+            selected_memory_runtime.open()
             if runtime.app_env == "production":
                 selected_tool_catalog.open()
             yield
         finally:
             close_graph_checkpointer()
-            selected_experience_runtime.close()
+            selected_memory_runtime.close()
             if runtime.app_env == "production":
                 selected_tool_catalog.close()
             if telemetry_runtime is not None:
@@ -78,7 +78,7 @@ def create_app(
     app.state.redis_client = selected_redis
     app.state.config = runtime
     app.state.asset_object_store = selected_object_store
-    app.state.experience_store_runtime = selected_experience_runtime
+    app.state.memory_store_runtime = selected_memory_runtime
     app.state.tool_catalog_runtime = selected_tool_catalog
     app.state.rate_limit_service = build_rate_limit_service(
         config=runtime,
@@ -88,9 +88,7 @@ def create_app(
         engine=selected_engine,
         redis_client=selected_redis,
         object_store=selected_object_store,
-        experience_store=(
-            selected_experience_runtime if runtime.app_env == "production" else None
-        ),
+        memory_store=selected_memory_runtime,
         tool_catalog=(
             selected_tool_catalog if runtime.app_env == "production" else None
         ),
