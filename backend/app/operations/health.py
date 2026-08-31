@@ -45,7 +45,7 @@ def build_readiness_service(
     engine: Any,
     redis_client: Any | None,
     object_store: HealthCheckable,
-    memory_store: HealthCheckable | None = None,
+    memory_store: HealthCheckable,
     tool_catalog: HealthCheckable | None = None,
 ) -> ReadinessService:
     probes = [
@@ -58,13 +58,12 @@ def build_readiness_service(
     probes.append(
         DependencyProbe(name="object_store", check=object_store.check_health),
     )
-    if memory_store is not None:
-        probes.append(
-            DependencyProbe(
-                name="memory_store",
-                check=memory_store.check_health,
-            )
+    probes.append(
+        DependencyProbe(
+            name="memory_store",
+            check=memory_store.check_health,
         )
+    )
     if tool_catalog is not None:
         probes.append(
             DependencyProbe(name="tool_catalog", check=tool_catalog.check_health),

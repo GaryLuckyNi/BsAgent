@@ -169,6 +169,19 @@ def test_default_readiness_probes_database_redis_object_store_and_memory_store()
     assert calls == ["database", "redis", "object_store", "memory_store"]
 
 
+def test_build_readiness_service_requires_memory_store():
+    class ObjectStore:
+        def check_health(self):
+            return None
+
+    with pytest.raises(TypeError, match="memory_store"):
+        build_readiness_service(
+            engine=object(),
+            redis_client=None,
+            object_store=ObjectStore(),
+        )
+
+
 def test_readiness_is_not_ready_when_memory_store_is_unavailable():
     class Engine:
         def connect(self):
