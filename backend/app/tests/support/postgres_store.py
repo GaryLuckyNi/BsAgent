@@ -1,5 +1,6 @@
 import os
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from uuid import uuid4
 
@@ -23,19 +24,22 @@ def live_postgres_store() -> Iterator[LivePostgresStore]:
     if not postgres_url:
         pytest.skip("未配置真实 PostgreSQL Store 测试地址。")
 
+    with open_isolated_postgres_store(postgres_url) as resource:
+        yield resource
+
+
+@contextmanager
+def open_isolated_postgres_store(
+    postgres_url: str,
+) -> Iterator[LivePostgresStore]:
     schema_name = f"store_{uuid4().hex}"
     with psycopg.connect(postgres_url, autocommit=True) as connection:
         connection.execute(
             sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema_name))
         )
 
-    isolated_dsn = (
-        make_url(postgres_url)
-        .set(drivername="postgresql")
-        .update_query_dict({"options": f"-csearch_path={schema_name}"})
-        .render_as_string(hide_password=False)
-    )
     try:
+        isolated_dsn = _build_isolated_dsn(postgres_url, schema_name)
         with PostgresStore.from_conn_string(isolated_dsn) as store:
             store.setup()
             yield LivePostgresStore(dsn=isolated_dsn, store=store)
@@ -46,3 +50,12 @@ def live_postgres_store() -> Iterator[LivePostgresStore]:
                     sql.Identifier(schema_name)
                 )
             )
+
+
+def _build_isolated_dsn(postgres_url: str, schema_name: str) -> str:
+    return (
+        make_url(postgres_url)
+        .set(drivername="postgresql")
+        .update_query_dict({"options": f"-csearch_path={schema_name}"})
+        .render_as_string(hide_password=False)
+    )

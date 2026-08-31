@@ -55,7 +55,10 @@ class PostgresStoreRuntime:
     def close(self) -> None:
         with self._lock:
             context = self._context
-            self._context = None
-            self._store = None
-        if context is not None:
-            context.__exit__(None, None, None)
+            if context is None:
+                return
+            try:
+                context.__exit__(None, None, None)
+            finally:
+                self._context = None
+                self._store = None
