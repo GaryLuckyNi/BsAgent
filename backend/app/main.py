@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpointer
 from app.memory.runtime import PostgresStoreRuntime
 from app.operations.health import ReadinessService, build_readiness_service
+from app.operations.lifecycle import close_resources
 from app.operations.observability import (
     RequestContextMiddleware,
     configure_logging,
@@ -57,16 +58,16 @@ def create_app(
                 selected_tool_catalog.open()
             yield
         finally:
-            close_graph_checkpointer()
-            selected_memory_runtime.close()
+            closers = [close_graph_checkpointer, selected_memory_runtime.close]
             if runtime.app_env == "production":
-                selected_tool_catalog.close()
+                closers.append(selected_tool_catalog.close)
             if telemetry_runtime is not None:
-                telemetry_runtime.shutdown()
-            selected_object_store.close()
+                closers.append(telemetry_runtime.shutdown)
+            closers.append(selected_object_store.close)
             if selected_redis is not None:
-                selected_redis.close()
-            selected_engine.dispose()
+                closers.append(selected_redis.close)
+            closers.append(selected_engine.dispose)
+            close_resources(*closers)
 
     app = FastAPI(title=runtime.service_name, lifespan=lifespan)
     app.add_middleware(RequestContextMiddleware)
