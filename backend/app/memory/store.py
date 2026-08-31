@@ -33,6 +33,8 @@ class SqlAlchemyMemoryStore:
                 existing.memory_key != memory_key
                 or existing.content != candidate.content
                 or existing.approval_status != approval_status
+                or existing.sensitivity != sensitivity
+                or existing.source != source
             )
             existing.memory_key = memory_key
             existing.content = candidate.content

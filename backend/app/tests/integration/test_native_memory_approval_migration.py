@@ -47,6 +47,56 @@ def _upgrade_baseline(config):
     command.upgrade(config, "20260802_0012")
 
 
+def _schema_snapshot(engine):
+    inspector = inspect_database(engine)
+    table_names = (
+        "memory_candidates",
+        "approval_records",
+        "experience_entries",
+    )
+    snapshot = {
+        "tables": tuple(sorted(inspector.get_table_names())),
+    }
+    for table_name in table_names:
+        snapshot[table_name] = {
+            "columns": tuple(
+                sorted(
+                    (
+                        column["name"],
+                        str(column["type"]),
+                        column["nullable"],
+                        column["default"],
+                    )
+                    for column in inspector.get_columns(table_name)
+                )
+            ),
+            "indexes": tuple(
+                sorted(
+                    (
+                        index["name"],
+                        tuple(index["column_names"]),
+                        index["unique"],
+                    )
+                    for index in inspector.get_indexes(table_name)
+                )
+            ),
+            "check_constraints": tuple(
+                sorted(
+                    (constraint["name"], constraint["sqltext"])
+                    for constraint in inspector.get_check_constraints(table_name)
+                )
+            ),
+        }
+    return snapshot
+
+
+def _assert_constraint_rejects(engine, statement):
+    with engine.connect() as connection:
+        with pytest.raises(IntegrityError):
+            connection.execute(text(statement))
+        connection.rollback()
+
+
 def _insert_terminal_legacy_rows(engine):
     with engine.begin() as connection:
         connection.execute(
@@ -157,26 +207,55 @@ def test_native_memory_approval_upgrade_preserves_terminal_projection(
         assert approval == (
             "user_1", "mcp.mock.write", "digest_1", "high", "tool_call", "", None, None
         )
-        with engine.connect() as connection:
-            with pytest.raises(IntegrityError):
-                connection.execute(
-                    text(
-                        """
-                        INSERT INTO approval_records
-                            (approval_id, tenant_id, run_id, approval_type,
-                             subject_name, risk_level, action_digest,
-                             checkpoint_thread_id, checkpoint_namespace, status,
-                             requested_by, resume_claim_generation,
-                             resume_attempts, created_at)
-                        VALUES
-                            ('approval_negative_attempts', 'tenant_1', 'run_1',
-                             'tool_call', 'mcp.mock.write', 'high', 'digest_2',
-                             'thread_1', '', 'approved', 'user_1', 0, -1,
-                             CURRENT_TIMESTAMP)
-                        """
-                    )
-                )
-            connection.rollback()
+        _assert_constraint_rejects(
+            engine,
+            "UPDATE memory_candidates SET store_sync_status = 'invalid'",
+        )
+        _assert_constraint_rejects(
+            engine,
+            "UPDATE memory_candidates SET store_sync_attempts = -1",
+        )
+        _assert_constraint_rejects(
+            engine,
+            "UPDATE approval_records SET approval_type = 'invalid'",
+        )
+        _assert_constraint_rejects(
+            engine,
+            "UPDATE approval_records SET status = 'invalid'",
+        )
+        _assert_constraint_rejects(
+            engine,
+            """
+            INSERT INTO approval_records
+                (approval_id, tenant_id, run_id, approval_type, subject_name,
+                 risk_level, action_digest, checkpoint_thread_id,
+                 checkpoint_namespace, checkpoint_id, status, requested_by,
+                 resume_claim_generation, resume_attempts, created_at)
+            VALUES
+                ('approval_missing_checkpoint', 'tenant_1', 'run_1', 'tool_call',
+                 'mcp.mock.write', 'high', 'digest_2', 'thread_1', '', NULL,
+                 'pending', 'user_1', 0, 0, CURRENT_TIMESTAMP)
+            """,
+        )
+        _assert_constraint_rejects(
+            engine,
+            """
+            INSERT INTO approval_records
+                (approval_id, tenant_id, run_id, approval_type, subject_name,
+                 risk_level, action_digest, checkpoint_thread_id,
+                 checkpoint_namespace, checkpoint_id, interrupt_id, status,
+                 requested_by, resume_claim_generation, resume_attempts, created_at)
+            VALUES
+                ('approval_missing_interrupt', 'tenant_1', 'run_1', 'tool_call',
+                 'mcp.mock.write', 'high', 'digest_3', 'thread_1', '',
+                 'checkpoint_1', NULL, 'pending', 'user_1', 0, 0,
+                 CURRENT_TIMESTAMP)
+            """,
+        )
+        _assert_constraint_rejects(
+            engine,
+            "UPDATE approval_records SET resume_attempts = -1",
+        )
 
 
 def test_native_memory_approval_upgrade_rejects_inflight_legacy_approvals(
@@ -184,6 +263,7 @@ def test_native_memory_approval_upgrade_rejects_inflight_legacy_approvals(
 ):
     with _live_migration_database(monkeypatch) as (config, engine):
         _upgrade_baseline(config)
+        before_snapshot = _schema_snapshot(engine)
         with engine.begin() as connection:
             connection.execute(
                 text(
@@ -205,11 +285,11 @@ def test_native_memory_approval_upgrade_rejects_inflight_legacy_approvals(
         with pytest.raises(RuntimeError, match="在途审批"):
             command.upgrade(config, "20260901_0013")
 
-        columns = {
-            column["name"] for column in inspect_database(engine).get_columns("approval_records")
-        }
-        assert "payload_json" in columns
-        assert "subject_name" not in columns
+        assert _schema_snapshot(engine) == before_snapshot
+        with engine.connect() as connection:
+            assert connection.scalar(text("SELECT version_num FROM alembic_version")) == (
+                "20260802_0012"
+            )
 
 
 def test_native_memory_approval_downgrade_recreates_only_empty_experience_table(
