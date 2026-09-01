@@ -1,3 +1,5 @@
+import pytest
+
 from app.memory.candidates import propose_explicit_preference_candidates
 
 
@@ -30,6 +32,33 @@ def test_merges_duplicate_explicit_preferences():
 
 def test_does_not_propose_candidate_for_general_knowledge_question():
     assert _candidates("什么是资产负债表？") == []
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "你的回答偏好是什么？",
+        "可以记住什么？",
+        "请解释什么是回答偏好。",
+    ],
+)
+def test_does_not_propose_candidate_for_preference_questions_or_explanations(message):
+    assert _candidates(message) == []
+
+
+@pytest.mark.parametrize(
+    ("message", "memory_key"),
+    [
+        ("请记住我的回答偏好是简洁", "response_detail"),
+        ("以后请用中文回答", "language"),
+        ("我更关注现金流", "focus_domain"),
+    ],
+)
+def test_proposes_candidate_for_explicit_preference_statements(message, memory_key):
+    candidates = _candidates(message)
+
+    assert len(candidates) == 1
+    assert candidates[0].memory_key == memory_key
 
 
 def test_marks_email_and_phone_preferences_pending_approval():

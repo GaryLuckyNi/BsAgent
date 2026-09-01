@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 长期偏好读取会忽略畸形 Store 条目并安全降级搜索、迭代与解码异常；偏好候选仅接受用户明确指令或第一人称稳定偏好陈述。
 - 区分规划偏好与呈现偏好，关注领域仅约束 Planner，不再进入 Synthesizer 的回答策略。
 - Planner 与 Synthesizer 按需通过 LangGraph 原生 Runtime Store 读取租户/用户严格隔离的长期偏好；Planner 生成稳定、可合并的用户明确偏好候选，读取失败安全降级。
 - API 会话与审批恢复链路统一注入官方 LangGraph `BaseStore`，移除已失效的 ExperienceStore 召回、双写与最终提交路径；业务库继续保留 Memory Candidate 审计记录。

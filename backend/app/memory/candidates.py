@@ -45,8 +45,22 @@ def _explicit_preference_statements(user_message: str) -> list[str]:
     return [
         statement
         for statement in statements
-        if any(marker in statement for marker in ("记住", "偏好", "我喜欢", "以后回答"))
+        if _is_explicit_preference_statement(statement)
     ]
+
+
+def _is_explicit_preference_statement(statement: str) -> bool:
+    normalized = statement.strip()
+    if any(
+        marker in normalized
+        for marker in ("是什么", "可以记住什么", "能记住什么", "如何记住", "怎么记住")
+    ):
+        return False
+    if normalized.startswith(("请记住", "记住", "以后请", "以后回答")):
+        return True
+    if normalized.startswith(("我喜欢", "我偏好", "我希望", "我更关注", "我关注")):
+        return True
+    return bool(re.match(r"^我的(?:回答)?偏好(?:是|为).+", normalized))
 
 
 def _extract_preference_content(statement: str) -> str:

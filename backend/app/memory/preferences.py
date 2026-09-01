@@ -1,5 +1,5 @@
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from langgraph.runtime import Runtime
@@ -25,6 +25,8 @@ def experience_namespace(tenant_id: str, user_id: str) -> tuple[str, ...]:
 
 def decode_user_preference(item: Item) -> UserPreference | None:
     value = item.value
+    if not isinstance(value, Mapping):
+        return None
     if value.get("memory_type") != _PREFERENCE_MEMORY_TYPE:
         return None
     content = value.get("content")
@@ -53,10 +55,15 @@ def recall_user_preferences(
             filter={"memory_type": _PREFERENCE_MEMORY_TYPE},
             limit=settings.experience_memory_recall_limit,
         )
+        preferences = []
+        for item in items:
+            preference = decode_user_preference(item)
+            if preference is not None:
+                preferences.append(preference)
+        return preferences
     except Exception:
         _record_recall_failure(state, on_failure=on_failure, reason="store_read_failed")
         return []
-    return [preference for item in items if (preference := decode_user_preference(item))]
 
 
 def planning_preference_constraints(
