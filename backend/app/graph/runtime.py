@@ -12,7 +12,10 @@ from app.graph.nodes.attachment_analyzer import (
     AttachmentContextResolver,
     build_attachment_analyzer_node,
 )
-from app.graph.nodes.approval_gate import build_approval_gate_node
+from app.graph.nodes.approval_gate import (
+    ApprovalPayloadMismatchError,
+    build_approval_gate_node,
+)
 from app.graph.nodes.approval_coordinator import approval_coordinator_node
 from app.graph.nodes.intent_router import build_llm_intent_router_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
@@ -276,6 +279,8 @@ def _add_harnessed_node(
 
 def _route_after_planner(state: AgentState) -> str:
     plan = state["plan"] or {}
+    if _has_pending_memory_approval(state):
+        return "approval_gate"
     if plan.get("execution_mode") == "image_analysis":
         return "analysis_agent"
     if plan.get("execution_mode") == "direct_response":
@@ -288,6 +293,8 @@ def _route_after_planner(state: AgentState) -> str:
 
 
 def _route_after_skill_agent(state: AgentState) -> str:
+    if _has_pending_memory_approval(state):
+        return "approval_gate"
     if _requested_tools(state):
         return "tool_agent"
     if _has_pending_tool_approval(state):
@@ -298,6 +305,8 @@ def _route_after_skill_agent(state: AgentState) -> str:
 
 
 def _route_after_tool_agent(state: AgentState) -> str:
+    if _has_pending_memory_approval(state):
+        return "approval_gate"
     if _has_pending_tool_approval(state):
         return "approval_gate"
     if _has_ready_rag_call(state):
@@ -315,6 +324,8 @@ def _route_after_tool_agent(state: AgentState) -> str:
 def _route_after_approval_gate(state: AgentState) -> str:
     if state["approval_status"] is not None and state["approval_status"].status == "rejected":
         return "synthesizer"
+    if _has_pending_memory_approval(state):
+        return "approval_gate"
     if _requested_tools(state):
         return "tool_agent"
     if state["image_analyses"]:
@@ -336,6 +347,14 @@ def _has_stock_tool_result(state: AgentState) -> bool:
 
 def _has_pending_tool_approval(state: AgentState) -> bool:
     return state["pending_tool_approval"] is not None
+
+
+def _has_pending_memory_approval(state: AgentState) -> bool:
+    return any(
+        candidate.approval_status == "pending"
+        and candidate.sensitivity in {"medium", "high"}
+        for candidate in state["memory_candidates"]
+    )
 
 
 def _requested_tools(state: AgentState) -> list[ToolCallRequest]:
@@ -771,6 +790,9 @@ def resume_question_answer_graph(
     *,
     checkpoint_thread_id: str,
     checkpoint_namespace: str = "",
+    checkpoint_id: str,
+    interrupt_id: str,
+    action_digest: str,
     approval_decision: dict,
     mock_evidence: bool = True,
     retriever_node: Callable[[AgentState], AgentState] | None = None,
@@ -816,9 +838,17 @@ def resume_question_answer_graph(
         "configurable": {
             "thread_id": checkpoint_thread_id,
             "checkpoint_ns": checkpoint_namespace,
+            "checkpoint_id": checkpoint_id,
         }
     }
     snapshot = graph.get_state(config)
+    interrupt_payload = _find_interrupt_payload(snapshot, interrupt_id=interrupt_id)
+    if (
+        interrupt_payload is None
+        or interrupt_payload.get("approval_id") != approval_decision.get("approval_id")
+        or interrupt_payload.get("action_digest") != action_digest
+    ):
+        raise ApprovalPayloadMismatchError("审批目标 Interrupt 与已保存快照不匹配。")
     checkpoint_digest = snapshot.values.get("tool_catalog_digest")
     if snapshot.values and checkpoint_digest != tool_registry_snapshot.catalog_digest:
         _record_resume_catalog_guard_trace(
@@ -833,18 +863,17 @@ def resume_question_answer_graph(
             code="tool_catalog_changed",
             http_status=409,
         )
-    command = Command(
-        resume=approval_decision,
-        update=(
-            {"permission_scopes": list(permission_scopes)}
-            if permission_scopes is not None
-            else None
-        ),
-    )
-    return graph.invoke(
-        command,
-        config=config,
-    )
+    return graph.invoke(Command(resume=approval_decision), config=config)
+
+
+def _find_interrupt_payload(snapshot: Any, *, interrupt_id: str) -> dict[str, Any] | None:
+    for task in getattr(snapshot, "tasks", ()):
+        for item in getattr(task, "interrupts", ()):
+            if getattr(item, "id", None) == interrupt_id and isinstance(
+                getattr(item, "value", None), dict
+            ):
+                return item.value
+    return None
 
 
 def _record_resume_catalog_guard_trace(

@@ -7,6 +7,7 @@ from langgraph.runtime import Runtime
 from pydantic import BaseModel
 
 from app.graph.nodes.approval_coordinator import approval_coordinator_node
+from app.graph.nodes.approval_gate import approval_gate_node, build_approval_action
 from app.graph.nodes.analysis_agent import analysis_agent_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.nodes.skill_agent import build_skill_agent_node
@@ -20,6 +21,7 @@ from app.graph.nodes.synthesizer import (
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.nodes.verifier import verifier_node
 from app.graph.state import create_initial_state
+from app.schemas.memory import MemoryCandidate
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError
 from app.schemas.tools import ToolSpec
@@ -60,6 +62,71 @@ def test_planner_node_accepts_langgraph_runtime_without_store():
 
     assert result["plan"]["execution_mode"] == "direct_response"
     assert result["memory_candidates"][0].memory_key == "response_detail"
+
+
+def test_memory_approval_action_digest_is_stable_without_exposing_content():
+    state = create_initial_state(
+        session_id="approval-memory",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="请记住我的联系电话。",
+        request_id="run-1",
+    )
+    candidate = MemoryCandidate(
+        candidate_id="candidate-1",
+        memory_type="user_preference",
+        memory_key="contact",
+        content="13800138000",
+        confidence=0.9,
+        approval_status="pending",
+        sensitivity="high",
+    )
+    state["memory_candidates"] = [candidate]
+
+    first = build_approval_action(state)
+    second = build_approval_action(state)
+
+    assert first is not None
+    assert first.approval_type == "memory_write"
+    assert first.subject_name == "contact"
+    assert first.action_digest == second.action_digest
+    assert "13800138000" not in first.action_digest
+    assert first.interrupt_payload["candidate_id"] == "candidate-1"
+
+
+def test_memory_approval_rejection_marks_candidate_rejected(monkeypatch):
+    state = create_initial_state(
+        session_id="approval-memory-reject",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="请记住我的联系电话。",
+        request_id="run-1",
+    )
+    state["memory_candidates"] = [
+        MemoryCandidate(
+            candidate_id="candidate-1",
+            memory_type="user_preference",
+            memory_key="contact",
+            content="13800138000",
+            confidence=0.9,
+            approval_status="pending",
+            sensitivity="high",
+        )
+    ]
+    action = build_approval_action(state)
+    monkeypatch.setattr(
+        "app.graph.nodes.approval_gate.interrupt",
+        lambda _payload: {
+            "approval_id": action.interrupt_payload["approval_id"],
+            "action_digest": action.action_digest,
+            "decision": "rejected",
+        },
+    )
+
+    result = approval_gate_node(state)
+
+    assert result["memory_candidates"][0].approval_status == "rejected"
+    assert result["approval_status"] is None
 
 
 def test_synthesizer_node_accepts_langgraph_runtime_without_store():

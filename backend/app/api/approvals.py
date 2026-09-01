@@ -1,4 +1,3 @@
-import json
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
@@ -42,7 +41,6 @@ from app.security.rbac import get_rbac_provider
 from app.storage.database import get_db
 from app.storage.models import AgentMessage, AgentRun, ApprovalRecord
 from app.storage.repositories import persist_agent_run
-from app.tools.redaction import redact_sensitive_data
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
 
@@ -62,9 +60,11 @@ class ApprovalResumeSnapshot:
     trace_id: str
     request_id: str
     assistant_message_id: str
-    arguments_hash: str
     checkpoint_thread_id: str
     checkpoint_namespace: Literal[""]
+    checkpoint_id: str
+    interrupt_id: str
+    action_digest: str
     claim_token: str
     claim_generation: int
 
@@ -102,9 +102,7 @@ def decide_approval(
         )
         if pending_record is None:
             raise ApprovalNotFoundError(f"Approval not found: {approval_id}")
-        permission_scopes = _resolve_resume_permission_scopes(
-            pending_record,
-        )
+        _resolve_resume_permission_scopes(pending_record)
         claim = repository.claim_resume(
             approval_id=approval_id,
             tenant_id=principal.tenant_id,
@@ -114,11 +112,7 @@ def decide_approval(
                 seconds=settings.approval_resume_claim_timeout_seconds
             ),
         )
-        approval_record_payload = _parse_approval_payload(claim.record)
-        approval_payload = _approval_payload(
-            claim.record,
-            payload=approval_record_payload,
-        )
+        approval_payload = _approval_payload(claim.record)
         if claim.acquired:
             persisted_run = db.scalar(
                 select(AgentRun).where(
@@ -140,7 +134,6 @@ def decide_approval(
                 persisted_run,
                 user_message,
                 assistant_message,
-                approval_record_payload,
             )
         else:
             resume_snapshot = None
@@ -215,9 +208,12 @@ def decide_approval(
             state = resume_question_answer_graph(
                 checkpoint_thread_id=resume_snapshot.checkpoint_thread_id,
                 checkpoint_namespace=resume_snapshot.checkpoint_namespace,
+                checkpoint_id=resume_snapshot.checkpoint_id,
+                interrupt_id=resume_snapshot.interrupt_id,
+                action_digest=resume_snapshot.action_digest,
                 approval_decision={
                     "approval_id": resume_snapshot.approval_id,
-                    "arguments_hash": resume_snapshot.arguments_hash,
+                    "action_digest": resume_snapshot.action_digest,
                     "decision": request.decision,
                 },
                 mock_evidence=settings.use_mock_rag,
@@ -225,7 +221,6 @@ def decide_approval(
                 trace_buffer=trace_buffer,
                 checkpointer=build_graph_checkpointer(),
                 llm_client=maybe_build_llm_client(),
-                permission_scopes=permission_scopes,
             )
             lease.ensure_owned()
     except ApprovalResumeInProgressError as exc:
@@ -308,22 +303,9 @@ def decide_approval(
         ) from exc
     try:
         _validate_resume_state(resume_snapshot, state)
-        interrupt_payloads = [
-            interrupt.value for interrupt in state.get("__interrupt__", [])
-        ]
+        interrupt_payloads = _project_current_interrupts(state)
         for interrupt_payload in interrupt_payloads:
-            repository.create_pending_from_interrupt(
-                {
-                    **interrupt_payload,
-                    "run_id": resume_snapshot.run_id,
-                    "session_id": resume_snapshot.session_id,
-                    "session_key": state["session_key"],
-                    "tenant_id": resume_snapshot.tenant_id,
-                    "request_user_id": resume_snapshot.request_user_id,
-                    "checkpoint_thread_id": resume_snapshot.checkpoint_thread_id,
-                    "checkpoint_namespace": resume_snapshot.checkpoint_namespace,
-                }
-            )
+            repository.create_pending_from_interrupt(interrupt_payload)
         interrupted = bool(interrupt_payloads)
         run_status = "interrupted" if interrupted else (
             "rejected" if request.decision == "rejected" else "completed"
@@ -359,10 +341,7 @@ def decide_approval(
                     content=final_response.get("content", ""),
                     metadata=_assistant_response_metadata(final_response),
                 )
-        approval_payload = _approval_payload(
-            record,
-            payload=approval_record_payload,
-        )
+        approval_payload = _approval_payload(record)
         db.commit()
     except SQLAlchemyError as exc:
         try:
@@ -507,24 +486,19 @@ def _finalize_resume_trace_best_effort(
 
 def _approval_payload(
     record: ApprovalRecord,
-    *,
-    payload: dict | None = None,
 ) -> dict:
-    parsed_payload = payload if payload is not None else _parse_approval_payload(record)
     return {
         "approval_id": record.approval_id,
         "run_id": record.run_id,
-        "session_id": record.session_id,
-        "session_key": record.session_key,
         "tenant_id": record.tenant_id,
-        "request_user_id": record.request_user_id,
         "approval_type": record.approval_type,
-        "tool_name": record.tool_name,
-        "tool_version": record.tool_version,
-        "arguments_hash": record.arguments_hash,
-        "payload": redact_sensitive_data(parsed_payload),
+        "subject_name": record.subject_name,
+        "risk_level": record.risk_level,
+        "action_digest": record.action_digest,
         "checkpoint_thread_id": record.checkpoint_thread_id,
-        "checkpoint_namespace": parsed_payload.get("checkpoint_namespace", ""),
+        "checkpoint_namespace": record.checkpoint_namespace,
+        "checkpoint_id": record.checkpoint_id,
+        "interrupt_id": record.interrupt_id,
         "status": record.status,
         "decision": record.decision,
         "resume_attempts": record.resume_attempts,
@@ -546,40 +520,21 @@ def _resume_snapshot(
     run: AgentRun | None,
     user_message: AgentMessage,
     assistant_message: AgentMessage,
-    payload: dict,
 ) -> ApprovalResumeSnapshot:
     if claim_token is None or claim_generation is None:
         raise ApprovalConflictError("Approval resume claim identity is missing.")
     if run is None or (
         run.run_id != record.run_id
-        or run.session_id != record.session_id
-        or run.session_key != record.session_key
         or run.tenant_id != record.tenant_id
-        or run.user_id != record.request_user_id
+        or run.user_id != record.requested_by
     ):
         raise ApprovalResumeIdentityError(
             "Approval resume Run identity is inconsistent."
         )
-    expected_payload_identity = {
-        "run_id": record.run_id,
-        "session_id": record.session_id,
-        "session_key": record.session_key,
-        "tenant_id": record.tenant_id,
-        "request_user_id": record.request_user_id,
-        "checkpoint_thread_id": record.checkpoint_thread_id,
-        "checkpoint_namespace": "",
-    }
-    if any(
-        payload.get(field) != expected
-        for field, expected in expected_payload_identity.items()
-    ):
-        raise ApprovalResumeIdentityError(
-            "Approval payload identity is inconsistent."
-        )
     if (
         user_message.tenant_id != record.tenant_id
-        or user_message.user_id != record.request_user_id
-        or user_message.session_key != record.session_key
+        or user_message.user_id != record.requested_by
+        or user_message.session_key != run.session_key
         or user_message.run_id != record.run_id
     ):
         raise ApprovalResumeIdentityError(
@@ -587,8 +542,8 @@ def _resume_snapshot(
         )
     if (
         assistant_message.tenant_id != record.tenant_id
-        or assistant_message.user_id != record.request_user_id
-        or assistant_message.session_key != record.session_key
+        or assistant_message.user_id != record.requested_by
+        or assistant_message.session_key != run.session_key
         or assistant_message.run_id != record.run_id
         or assistant_message.request_id != user_message.request_id
         or assistant_message.sequence_no != user_message.sequence_no + 1
@@ -600,13 +555,12 @@ def _resume_snapshot(
         )
     expected_checkpoint_thread_id = build_checkpoint_thread_id(
         tenant_id=record.tenant_id,
-        session_key=record.session_key,
+        session_key=run.session_key,
         request_id=user_message.request_id,
     )
     if (
         record.checkpoint_thread_id != expected_checkpoint_thread_id
-        or payload["checkpoint_thread_id"] != expected_checkpoint_thread_id
-        or payload["checkpoint_namespace"] != ""
+        or record.checkpoint_namespace != ""
     ):
         raise ApprovalResumeIdentityError(
             "Approval checkpoint identity is inconsistent."
@@ -614,16 +568,18 @@ def _resume_snapshot(
     return ApprovalResumeSnapshot(
         approval_id=record.approval_id,
         run_id=record.run_id,
-        session_id=record.session_id,
-        session_key=record.session_key,
+        session_id=run.session_id,
+        session_key=run.session_key,
         tenant_id=record.tenant_id,
-        request_user_id=record.request_user_id,
+        request_user_id=record.requested_by,
         trace_id=run.trace_id,
         request_id=user_message.request_id,
         assistant_message_id=assistant_message.message_id,
-        arguments_hash=record.arguments_hash,
         checkpoint_thread_id=record.checkpoint_thread_id,
         checkpoint_namespace="",
+        checkpoint_id=record.checkpoint_id,
+        interrupt_id=record.interrupt_id,
+        action_digest=record.action_digest,
         claim_token=claim_token,
         claim_generation=claim_generation,
     )
@@ -636,11 +592,11 @@ def _resolve_resume_permission_scopes(
         provider = get_rbac_provider()
         request_principal = provider.resolve_principal(
             tenant_id=record.tenant_id,
-            user_id=record.request_user_id,
+            user_id=record.requested_by,
         )
         if (
             request_principal.tenant_id != record.tenant_id
-            or request_principal.user_id != record.request_user_id
+            or request_principal.user_id != record.requested_by
         ):
             raise ValueError("RBAC principal identity mismatch")
         scopes = tuple(provider.tool_scopes(request_principal))
@@ -733,7 +689,6 @@ def _load_resume_turn(
             select(AgentMessage).where(
                 AgentMessage.tenant_id == record.tenant_id,
                 AgentMessage.run_id == record.run_id,
-                AgentMessage.session_key == record.session_key,
                 AgentMessage.role.in_(("user", "assistant")),
             )
         )
@@ -785,6 +740,42 @@ def _assistant_response_metadata(final_response: dict) -> dict:
     }
 
 
+def _project_current_interrupts(state: AgentState) -> list[dict]:
+    raw_interrupts = state.get("__interrupt__", [])
+    if not raw_interrupts:
+        return []
+    config = {
+        "configurable": {
+            "thread_id": build_checkpoint_thread_id(
+                tenant_id=state["tenant_id"],
+                session_key=state["session_key"],
+                request_id=state["request_id"],
+            ),
+            "checkpoint_ns": "",
+        }
+    }
+    checkpoint_tuple = build_graph_checkpointer().get_tuple(config)
+    if checkpoint_tuple is None:
+        raise ApprovalResumeIdentityError("Approval checkpoint is missing.")
+    checkpoint_id = checkpoint_tuple.config["configurable"]["checkpoint_id"]
+    projected = []
+    for item in raw_interrupts:
+        payload = getattr(item, "value", item)
+        interrupt_id = getattr(item, "id", None)
+        if not isinstance(payload, dict) or not interrupt_id:
+            raise ApprovalResumeIdentityError("Approval interrupt is invalid.")
+        projected.append(
+            {
+                **payload,
+                "checkpoint_thread_id": config["configurable"]["thread_id"],
+                "checkpoint_namespace": "",
+                "checkpoint_id": checkpoint_id,
+                "interrupt_id": interrupt_id,
+            }
+        )
+    return projected
+
+
 def _persisted_assistant_response(
     message: AgentMessage,
     *,
@@ -801,20 +792,6 @@ def _persisted_assistant_response(
         "response_type": metadata.get("response_type"),
         "business_error_code": metadata.get("business_error_code"),
     }
-
-
-def _parse_approval_payload(record: ApprovalRecord) -> dict:
-    try:
-        payload = json.loads(record.payload_json)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise ApprovalResumeIdentityError(
-            "Approval payload is not valid JSON."
-        ) from exc
-    if not isinstance(payload, dict):
-        raise ApprovalResumeIdentityError(
-            "Approval payload identity is invalid."
-        )
-    return payload
 
 
 def _raise_persistence_unavailable(db: Session, exc: Exception) -> None:

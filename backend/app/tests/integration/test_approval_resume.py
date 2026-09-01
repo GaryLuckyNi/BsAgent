@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
@@ -76,15 +75,6 @@ def _seed_interrupted_turn(
         session_key="session_key_1",
         request_id="request_1",
     )
-    payload = {
-        "run_id": "run_1",
-        "session_id": "session_1",
-        "session_key": "session_key_1",
-        "tenant_id": "tenant_1",
-        "request_user_id": "user_1",
-        "checkpoint_thread_id": checkpoint_thread_id,
-        "checkpoint_namespace": "",
-    }
     db.add_all(
         [
             AgentSession(
@@ -133,16 +123,16 @@ def _seed_interrupted_turn(
             ApprovalRecord(
                 approval_id="approval_1",
                 run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
                 tenant_id="tenant_1",
-                request_user_id="user_1",
                 approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json=json.dumps(payload),
+                subject_name="mcp.mock.trade.submit",
+                risk_level="high",
+                action_digest="digest_1",
                 checkpoint_thread_id=checkpoint_thread_id,
+                checkpoint_namespace="",
+                checkpoint_id="checkpoint_1",
+                interrupt_id="interrupt_1",
+                requested_by="user_1",
                 status=approval_status,
                 decision=decision,
                 decided_by="approver_1" if decision else None,
@@ -179,13 +169,11 @@ def _resumed_state(*, final_content=None, interrupted=False):
                     "approval_id": "approval_2",
                     "approval_type": "tool_call",
                     "run_id": "run_1",
-                    "session_id": "session_1",
-                    "session_key": "session_key_1",
                     "tenant_id": "tenant_1",
-                    "request_user_id": "user_1",
-                    "tool_name": "mcp.mock.trade.submit",
-                    "tool_version": "1.0.0",
-                    "arguments_hash": "hash_2",
+                    "requested_by": "user_1",
+                    "subject_name": "mcp.mock.trade.submit",
+                    "risk_level": "high",
+                    "action_digest": "digest_2",
                     "arguments": {"symbol": "000001"},
                     "purpose": "第二笔交易",
                     "checkpoint_thread_id": build_checkpoint_thread_id(
@@ -194,6 +182,8 @@ def _resumed_state(*, final_content=None, interrupted=False):
                         request_id="request_1",
                     ),
                     "checkpoint_namespace": "",
+                    "checkpoint_id": "checkpoint_2",
+                    "interrupt_id": "interrupt_2",
                     "status": "pending",
                 }
             )
@@ -281,6 +271,17 @@ def test_approval_resume_interrupted_again_reuses_original_message(monkeypatch):
         lambda **_kwargs: _resumed_state(interrupted=True),
     )
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(
+        approvals,
+        "_project_current_interrupts",
+        lambda _state: [
+            {
+                **_state["__interrupt__"][0].value,
+                "checkpoint_id": "checkpoint_2",
+                "interrupt_id": "interrupt_2",
+            }
+        ],
+    )
     app, session_factory = _test_app()
     with session_factory() as db:
         _seed_interrupted_turn(db)

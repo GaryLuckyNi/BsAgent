@@ -34,7 +34,7 @@ from app.graph.runtime import (
     run_question_answer_graph,
     stream_question_answer_graph,
 )
-from app.graph.state import AgentState
+from app.graph.state import AgentState, build_checkpoint_thread_id
 from app.harness.capture_policy import TraceCaptureOutcome
 from app.harness.persistence import (
     TracePersistenceService,
@@ -989,7 +989,6 @@ def _persist_agent_message_state(
             {
                 **payload,
                 "run_id": run_id or payload["run_id"],
-                "session_key": state["session_key"],
             }
         )
     persist_agent_run(
@@ -1332,7 +1331,49 @@ def _record_short_term_session_event(
 
 
 def _interrupt_payloads(state: AgentState) -> list[dict]:
-    return [interrupt.value for interrupt in state.get("__interrupt__", [])]
+    raw_interrupts = state.get("__interrupt__", [])
+    if not raw_interrupts:
+        return []
+    config = {
+        "configurable": {
+            "thread_id": build_checkpoint_thread_id(
+                tenant_id=state["tenant_id"],
+                session_key=state["session_key"],
+                request_id=state["request_id"],
+            ),
+            "checkpoint_ns": "",
+        }
+    }
+    checkpoint_tuple = build_graph_checkpointer().get_tuple(config)
+    if checkpoint_tuple is None:
+        raise AgentGraphExecutionError(
+            node_name="approval_projection",
+            message="未找到审批 Interrupt 对应的 checkpoint。",
+            code="approval_checkpoint_missing",
+            http_status=409,
+        )
+    checkpoint_id = checkpoint_tuple.config["configurable"]["checkpoint_id"]
+    payloads = []
+    for item in raw_interrupts:
+        payload = getattr(item, "value", item)
+        interrupt_id = getattr(item, "id", None)
+        if not isinstance(payload, dict) or not interrupt_id:
+            raise AgentGraphExecutionError(
+                node_name="approval_projection",
+                message="审批 Interrupt 格式无效。",
+                code="approval_interrupt_invalid",
+                http_status=409,
+            )
+        payloads.append(
+            {
+                **payload,
+                "checkpoint_thread_id": config["configurable"]["thread_id"],
+                "checkpoint_namespace": "",
+                "checkpoint_id": checkpoint_id,
+                "interrupt_id": interrupt_id,
+            }
+        )
+    return payloads
 
 
 def _session_message_response(
