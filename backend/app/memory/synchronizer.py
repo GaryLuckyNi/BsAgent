@@ -1,8 +1,10 @@
 import logging
 from collections.abc import Iterable
+from datetime import UTC, datetime
 
 from langgraph.store.base import BaseStore
 from sqlalchemy import select
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.memory.preferences import experience_namespace
@@ -11,8 +13,10 @@ from app.storage.models import MemoryCandidateRecord
 logger = logging.getLogger(__name__)
 
 _SYNC_BATCH_LIMIT = 100
+_OPPORTUNISTIC_RECONCILE_LIMIT = 5
 _ELIGIBLE_APPROVAL_STATUSES = ("not_required", "approved")
 _RETRYABLE_SYNC_STATUSES = ("pending", "failed")
+_RECONCILABLE_SYNC_STATUSES = (*_RETRYABLE_SYNC_STATUSES, "syncing")
 
 
 class MemoryStoreSynchronizer:
@@ -33,13 +37,40 @@ class MemoryStoreSynchronizer:
         candidate_id_list = tuple(candidate_ids or ())
         if candidate_ids is not None and not candidate_id_list:
             return 0
+        return self._sync_candidates(
+            limit=self._batch_limit,
+            run_id=run_id,
+            candidate_ids=candidate_id_list,
+            sync_statuses=_RETRYABLE_SYNC_STATUSES,
+        )
+
+    def reconcile(self, *, limit: int, exclude_run_id: str | None = None) -> int:
+        """有界补偿所有租户的候选，每行按自身租户命名空间写入。"""
+        bounded_limit = max(0, min(limit, self._batch_limit, _SYNC_BATCH_LIMIT))
+        return self._sync_candidates(
+            limit=bounded_limit,
+            exclude_run_id=exclude_run_id,
+            sync_statuses=_RECONCILABLE_SYNC_STATUSES,
+        )
+
+    def _sync_candidates(
+        self,
+        *,
+        limit: int,
+        run_id: str | None = None,
+        exclude_run_id: str | None = None,
+        candidate_ids: tuple[str, ...] = (),
+        sync_statuses: tuple[str, ...],
+    ) -> int:
         synced = 0
         attempted_ids: set[str] = set()
-        while len(attempted_ids) < self._batch_limit:
+        while len(attempted_ids) < limit:
             candidate_id, succeeded = self._sync_next(
-                run_id,
-                candidate_id_list,
-                attempted_ids,
+                run_id=run_id,
+                exclude_run_id=exclude_run_id,
+                candidate_ids=candidate_ids,
+                attempted_ids=attempted_ids,
+                sync_statuses=sync_statuses,
             )
             if candidate_id is None:
                 break
@@ -49,23 +80,29 @@ class MemoryStoreSynchronizer:
 
     def _sync_next(
         self,
-        run_id: str,
+        *,
+        run_id: str | None,
+        exclude_run_id: str | None,
         candidate_ids: tuple[str, ...],
         attempted_ids: set[str],
+        sync_statuses: tuple[str, ...],
     ) -> tuple[str | None, bool]:
         with self._session_factory() as session:
             query = (
                 select(MemoryCandidateRecord)
                 .where(
-                    MemoryCandidateRecord.run_id == run_id,
                     MemoryCandidateRecord.memory_type == "user_preference",
                     MemoryCandidateRecord.approval_status.in_(_ELIGIBLE_APPROVAL_STATUSES),
-                    MemoryCandidateRecord.store_sync_status.in_(_RETRYABLE_SYNC_STATUSES),
+                    MemoryCandidateRecord.store_sync_status.in_(sync_statuses),
                 )
                 .order_by(MemoryCandidateRecord.created_at, MemoryCandidateRecord.candidate_id)
                 .limit(1)
                 .with_for_update(skip_locked=True)
             )
+            if run_id is not None:
+                query = query.where(MemoryCandidateRecord.run_id == run_id)
+            if exclude_run_id is not None:
+                query = query.where(MemoryCandidateRecord.run_id != exclude_run_id)
             if candidate_ids:
                 query = query.where(MemoryCandidateRecord.candidate_id.in_(candidate_ids))
             if attempted_ids:
@@ -93,7 +130,7 @@ class MemoryStoreSynchronizer:
                 candidate.store_sync_error = None
                 session.commit()
                 return candidate_id, True
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - Store 实现可抛出任意外部异常
                 session.rollback()
                 self._mark_failed(candidate_id, exc)
                 return candidate_id, False
@@ -103,8 +140,14 @@ class MemoryStoreSynchronizer:
         error_code = f"store_write_failed:{type(exc).__name__}"[:128]
         logger.warning("memory_store_sync_failed code=%s", error_code)
         with self._session_factory() as session:
-            candidate = session.get(MemoryCandidateRecord, candidate_id)
+            candidate = session.scalar(
+                select(MemoryCandidateRecord)
+                .where(MemoryCandidateRecord.candidate_id == candidate_id)
+                .with_for_update()
+            )
             if candidate is None:
+                return
+            if candidate.store_sync_status not in _RECONCILABLE_SYNC_STATUSES:
                 return
             candidate.store_sync_status = "failed"
             candidate.store_sync_attempts += 1
@@ -112,9 +155,7 @@ class MemoryStoreSynchronizer:
             session.commit()
 
 
-def _utc_now():
-    from datetime import UTC, datetime
-
+def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
@@ -127,7 +168,39 @@ def sync_committed_run(*, db: Session, store: BaseStore, run_id: str) -> int:
         expire_on_commit=False,
     )
     try:
-        return MemoryStoreSynchronizer(session_factory=factory, store=store).sync_run(run_id)
-    except Exception as exc:
+        synchronizer = MemoryStoreSynchronizer(session_factory=factory, store=store)
+        synced = synchronizer.sync_run(run_id)
+        reconciled = synchronizer.reconcile(
+            limit=_OPPORTUNISTIC_RECONCILE_LIMIT,
+            exclude_run_id=run_id,
+        )
+        logger.info(
+            "memory_store_post_commit_sync_completed run_synced=%s reconciled=%s",
+            synced,
+            reconciled,
+        )
+        return synced
+    except Exception as exc:  # noqa: BLE001 - 提交后补偿不得改变业务响应
         logger.warning("memory_store_sync_unavailable type=%s", type(exc).__name__)
         return 0
+
+
+def reconcile_memory_store(
+    *,
+    engine: Engine,
+    store: BaseStore,
+    limit: int = _SYNC_BATCH_LIMIT,
+) -> int:
+    """供应用启动等明确触发点执行一次有界历史补偿。"""
+    factory = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        autocommit=False,
+        expire_on_commit=False,
+    )
+    synced = MemoryStoreSynchronizer(
+        session_factory=factory,
+        store=store,
+    ).reconcile(limit=limit)
+    logger.info("memory_store_reconciliation_completed synced=%s limit=%s", synced, limit)
+    return synced

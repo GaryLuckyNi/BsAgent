@@ -1,7 +1,9 @@
+from datetime import UTC, datetime
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.memory.synchronizer import MemoryStoreSynchronizer
+from app.memory.synchronizer import MemoryStoreSynchronizer, sync_committed_run
 from app.storage.models import Base, MemoryCandidateRecord
 
 
@@ -107,3 +109,100 @@ def test_sync_run_records_sanitized_failure_and_retries_same_key():
         assert candidate.store_sync_status == "synced"
         assert candidate.store_sync_attempts == 2
     assert succeeding_store.calls[0][1] == "language"
+
+
+def test_reconcile_is_bounded_stably_ordered_and_recovers_stale_syncing():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    created_at = datetime(2026, 9, 1, tzinfo=UTC)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                _candidate(
+                    candidate_id="candidate_b",
+                    run_id="run_b",
+                    memory_key="detail",
+                    store_sync_status="failed",
+                    created_at=created_at,
+                ),
+                _candidate(
+                    candidate_id="candidate_a",
+                    run_id="run_a",
+                    memory_key="language",
+                    store_sync_status="syncing",
+                    created_at=created_at,
+                ),
+                _candidate(
+                    candidate_id="candidate_c",
+                    run_id="run_c",
+                    memory_key="focus",
+                    created_at=created_at,
+                ),
+            ]
+        )
+        session.commit()
+
+    store = RecordingStore()
+    synchronizer = MemoryStoreSynchronizer(session_factory=factory, store=store)
+
+    assert synchronizer.reconcile(limit=2) == 2
+    assert [call[1] for call in store.calls] == ["language", "detail"]
+    with Session(engine) as session:
+        assert session.get(MemoryCandidateRecord, "candidate_a").store_sync_status == "synced"
+        assert session.get(MemoryCandidateRecord, "candidate_b").store_sync_status == "synced"
+        assert session.get(MemoryCandidateRecord, "candidate_c").store_sync_status == "pending"
+
+
+def test_reconcile_excludes_current_run_from_opportunistic_retry():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    with Session(engine) as session:
+        session.add_all(
+            [
+                _candidate(store_sync_status="failed"),
+                _candidate(
+                    candidate_id="historical",
+                    run_id="run_old",
+                    memory_key="detail",
+                    store_sync_status="failed",
+                ),
+            ]
+        )
+        session.commit()
+
+    store = RecordingStore()
+    synchronizer = MemoryStoreSynchronizer(session_factory=factory, store=store)
+
+    assert synchronizer.reconcile(limit=1, exclude_run_id="run_1") == 1
+    assert [call[1] for call in store.calls] == ["detail"]
+
+
+def test_post_commit_sync_opportunistically_reconciles_historical_run():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    with factory() as session:
+        session.add_all(
+            [
+                _candidate(),
+                _candidate(
+                    candidate_id="historical",
+                    run_id="run_old",
+                    tenant_id="tenant_2",
+                    user_id="user_2",
+                    memory_key="detail",
+                    store_sync_status="failed",
+                ),
+            ]
+        )
+        session.commit()
+        store = RecordingStore()
+
+        assert sync_committed_run(db=session, store=store, run_id="run_1") == 1
+
+    assert [(call[0], call[1]) for call in store.calls] == [
+        (("tenants", "tenant_1", "users", "user_1", "experiences"), "language"),
+        (("tenants", "tenant_2", "users", "user_2", "experiences"), "detail"),
+    ]

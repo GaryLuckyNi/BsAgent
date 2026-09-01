@@ -253,6 +253,9 @@ def test_app_lifespan_reuses_and_closes_runtime_resources(inject_test_checkpoint
         def open(self):
             calls.append("memory_store.open")
 
+        def check_health(self):
+            return None
+
         def close(self):
             calls.append("memory_store.close")
 
@@ -283,3 +286,129 @@ def test_app_lifespan_reuses_and_closes_runtime_resources(inject_test_checkpoint
         "redis.close",
         "database.close",
     ]
+
+
+def test_app_lifespan_opens_store_before_bounded_memory_reconciliation(
+    inject_test_checkpointer,
+    monkeypatch,
+):
+    from app import main as main_module
+
+    calls: list[object] = []
+    store = object()
+
+    class Engine:
+        def dispose(self):
+            calls.append("database.close")
+
+    class MemoryStoreRuntime:
+        def open(self):
+            calls.append("memory_store.open")
+            return store
+
+        def close(self):
+            calls.append("memory_store.close")
+
+    class ObjectStore:
+        def close(self):
+            calls.append("object_store.close")
+
+    def reconcile(*, engine, store, limit):
+        calls.append(("memory.reconcile", engine, store, limit))
+        return 0
+
+    monkeypatch.setattr(main_module, "reconcile_memory_store", reconcile)
+    engine = Engine()
+    app = main_module.create_app(
+        database_engine=engine,
+        object_store=ObjectStore(),
+        memory_store_runtime=MemoryStoreRuntime(),
+        readiness_service=ReadinessService(probes=[]),
+    )
+
+    with TestClient(app):
+        pass
+
+    assert calls[:2] == [
+        "memory_store.open",
+        ("memory.reconcile", engine, store, 100),
+    ]
+
+
+def test_app_lifespan_continues_when_memory_reconciliation_fails(
+    inject_test_checkpointer,
+    monkeypatch,
+    caplog,
+):
+    from app import main as main_module
+
+    class Engine:
+        def dispose(self):
+            return None
+
+    class MemoryStoreRuntime:
+        def open(self):
+            return object()
+
+        def close(self):
+            return None
+
+    class ObjectStore:
+        def close(self):
+            return None
+
+    def fail_reconciliation(**_kwargs):
+        raise RuntimeError("postgresql://secret@example.invalid/db")
+
+    monkeypatch.setattr(
+        main_module,
+        "reconcile_memory_store",
+        fail_reconciliation,
+    )
+    app = main_module.create_app(
+        database_engine=Engine(),
+        object_store=ObjectStore(),
+        memory_store_runtime=MemoryStoreRuntime(),
+        readiness_service=ReadinessService(probes=[]),
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/health/ready").status_code == 200
+
+    assert "memory_store_startup_reconciliation_failed" in caplog.text
+    assert "secret" not in caplog.text
+
+
+def test_app_lifespan_continues_when_memory_store_open_fails(
+    inject_test_checkpointer,
+    caplog,
+):
+    from app import main as main_module
+
+    class Engine:
+        def dispose(self):
+            return None
+
+    class MemoryStoreRuntime:
+        def open(self):
+            raise RuntimeError("postgresql://secret@example.invalid/db")
+
+        def close(self):
+            return None
+
+    class ObjectStore:
+        def close(self):
+            return None
+
+    app = main_module.create_app(
+        database_engine=Engine(),
+        object_store=ObjectStore(),
+        memory_store_runtime=MemoryStoreRuntime(),
+        readiness_service=ReadinessService(probes=[]),
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/health/ready").status_code == 200
+
+    assert "memory_store_startup_open_failed" in caplog.text
+    assert "secret" not in caplog.text

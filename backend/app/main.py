@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -11,10 +12,10 @@ from app.api.sessions import router as sessions_router
 from app.api.traces import router as traces_router
 from app.assets.factory import build_object_store
 from app.assets.object_store import ObjectStore
-from app.core.config import Settings
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpointer
 from app.memory.runtime import PostgresStoreRuntime
+from app.memory.synchronizer import reconcile_memory_store
 from app.operations.health import ReadinessService, build_readiness_service
 from app.operations.lifecycle import close_resources
 from app.operations.observability import (
@@ -26,6 +27,8 @@ from app.operations.rate_limit import build_rate_limit_service
 from app.storage.database import engine
 from app.tools.catalog_runtime import ToolCatalogRuntime
 from app.tools.default_registry import get_default_tool_catalog_runtime
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -53,7 +56,26 @@ def create_app(
     async def lifespan(_: FastAPI):
         try:
             build_graph_checkpointer()
-            selected_memory_runtime.open()
+            memory_store = None
+            try:
+                memory_store = selected_memory_runtime.open()
+            except Exception as exc:  # noqa: BLE001 - 启动依赖失败交由 readiness 报告
+                logger.warning(
+                    "memory_store_startup_open_failed type=%s",
+                    type(exc).__name__,
+                )
+            if memory_store is not None:
+                try:
+                    reconcile_memory_store(
+                        engine=selected_engine,
+                        store=memory_store,
+                        limit=100,
+                    )
+                except Exception as exc:  # noqa: BLE001 - 补偿失败不得阻止启动
+                    logger.warning(
+                        "memory_store_startup_reconciliation_failed type=%s",
+                        type(exc).__name__,
+                    )
             if runtime.app_env == "production":
                 selected_tool_catalog.open()
             yield

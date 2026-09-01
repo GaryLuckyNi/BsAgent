@@ -1,5 +1,6 @@
-from contextlib import contextmanager
 import os
+from contextlib import contextmanager
+from threading import Barrier, Event, Lock, Thread
 from uuid import uuid4
 
 import psycopg
@@ -108,3 +109,86 @@ def test_live_postgres_sync_does_not_write_pending_or_rejected_candidates(
         assert synchronizer.sync_run("run_1") == 0
         namespace = experience_namespace("tenant_1", "user_1")
         assert live_postgres_store.store.search(namespace) == []
+
+
+def test_live_postgres_concurrent_reconcile_claims_candidate_once(
+    live_postgres_store: LivePostgresStore,
+):
+    class BlockingCountingStore:
+        def __init__(self):
+            self.entered = Event()
+            self.release = Event()
+            self.lock = Lock()
+            self.put_count = 0
+
+        def put(self, namespace, key, value):
+            with self.lock:
+                self.put_count += 1
+            self.entered.set()
+            assert self.release.wait(timeout=5)
+            live_postgres_store.store.put(namespace, key, value)
+
+    with _business_session_factory() as factory:
+        with factory() as session:
+            session.add(_candidate(store_sync_status="syncing"))
+            session.commit()
+        store = BlockingCountingStore()
+        start = Barrier(3)
+        results: list[int] = []
+
+        def reconcile():
+            start.wait(timeout=5)
+            result = MemoryStoreSynchronizer(
+                session_factory=factory,
+                store=store,
+            ).reconcile(limit=1)
+            results.append(result)
+
+        threads = [Thread(target=reconcile), Thread(target=reconcile)]
+        for thread in threads:
+            thread.start()
+        start.wait(timeout=5)
+        assert store.entered.wait(timeout=5)
+        store.release.set()
+        for thread in threads:
+            thread.join(timeout=5)
+            assert not thread.is_alive()
+
+        assert sorted(results) == [0, 1]
+        assert store.put_count == 1
+        with factory() as session:
+            candidate = session.get(MemoryCandidateRecord, "candidate_1")
+            assert candidate.store_sync_status == "synced"
+            assert candidate.store_sync_attempts == 1
+
+
+def test_live_postgres_syncing_is_not_visible_before_failed_put_rolls_back(
+    live_postgres_store: LivePostgresStore,
+):
+    class InspectingFailingStore:
+        def __init__(self, factory):
+            self.factory = factory
+            self.visible_status = None
+
+        def put(self, namespace, key, value):
+            with self.factory() as observer:
+                self.visible_status = observer.get(
+                    MemoryCandidateRecord,
+                    "candidate_1",
+                ).store_sync_status
+            raise RuntimeError("forced")
+
+    with _business_session_factory() as factory:
+        with factory() as session:
+            session.add(_candidate())
+            session.commit()
+        store = InspectingFailingStore(factory)
+
+        assert MemoryStoreSynchronizer(session_factory=factory, store=store).sync_run(
+            "run_1"
+        ) == 0
+        assert store.visible_status == "pending"
+        with factory() as session:
+            candidate = session.get(MemoryCandidateRecord, "candidate_1")
+            assert candidate.store_sync_status == "failed"
+            assert candidate.store_sync_attempts == 1
