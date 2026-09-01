@@ -677,7 +677,12 @@ def test_session_message_trace_can_be_queried(monkeypatch):
 
     assert trace_response.status_code == 200
     body = trace_response.json()
-    assert [event["node_name"] for event in body["events"]] == [
+    event_node_names = [event["node_name"] for event in body["events"]]
+    assert [
+        node_name
+        for node_name in event_node_names
+        if node_name != "experience_memory"
+    ] == [
         "catalog_guard",
         "attachment_analyzer",
         "intent_router",
@@ -687,6 +692,15 @@ def test_session_message_trace_can_be_queried(monkeypatch):
         "approval_coordinator",
         "final_response",
     ]
+    recall_indices = [
+        index
+        for index, node_name in enumerate(event_node_names)
+        if node_name == "experience_memory"
+    ]
+    assert len(recall_indices) == 2
+    planner_index = event_node_names.index("planner_agent")
+    synthesizer_index = event_node_names.index("synthesizer")
+    assert recall_indices[0] < planner_index < recall_indices[1] < synthesizer_index
     synthesizer_event = next(
         event for event in body["events"] if event["node_name"] == "synthesizer"
     )
