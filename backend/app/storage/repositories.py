@@ -1,8 +1,6 @@
 from sqlalchemy.orm import Session
 
 from app.graph.state import AgentState
-from app.memory.commit import commit_approved_experience_memories
-from app.memory.experience_store import ExperienceStore
 from app.memory.store import SqlAlchemyMemoryStore
 from app.storage.models import AgentRun, AgentSession
 
@@ -12,7 +10,6 @@ def persist_agent_run(
     session: Session,
     state: AgentState,
     status: str,
-    experience_store: ExperienceStore | None = None,
     commit: bool = True,
     run_id: str | None = None,
     update_run_status: bool = True,
@@ -71,11 +68,6 @@ def persist_agent_run(
             tenant_id=state["tenant_id"],
             user_id=state["user_id"],
             run_id=persisted_run_id,
-        )
-    if experience_store is not None:
-        commit_approved_experience_memories(
-            state=state,
-            experience_store=experience_store,
         )
     if commit:
         session.commit()

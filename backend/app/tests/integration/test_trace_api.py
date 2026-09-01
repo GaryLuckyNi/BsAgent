@@ -21,6 +21,7 @@ from app.harness.tracing import (
     summarize_state,
 )
 from app.main import create_app
+from app.memory.dependencies import get_memory_store
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
 from app.security.dependencies import get_current_principal
 from app.security.principal import Principal
@@ -32,6 +33,9 @@ from app.storage.models import (
     Base,
 )
 from app.tools.registry import ToolRegistry
+
+
+TEST_MEMORY_STORE = object()
 
 
 @pytest.fixture(autouse=True)
@@ -56,6 +60,7 @@ def create_test_app_with_database(*, override_principal=True):
 
     app = create_app()
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_memory_store] = lambda: TEST_MEMORY_STORE
     app.state.testing_engine = engine
     app.state.testing_session_local = testing_session_local
     if override_principal:
@@ -675,7 +680,6 @@ def test_session_message_trace_can_be_queried(monkeypatch):
     assert [event["node_name"] for event in body["events"]] == [
         "catalog_guard",
         "attachment_analyzer",
-        "memory_manager",
         "intent_router",
         "planner_agent",
         "synthesizer",

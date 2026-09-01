@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import re
 from datetime import UTC, datetime
@@ -24,6 +25,7 @@ from app.harness.tracing import TraceEvent
 from app.llm.deepseek import LlmConfigurationError
 from app.llm.schemas import LlmCompletionResult
 from app.main import create_app
+from app.memory.dependencies import get_memory_store
 from app.schemas.approvals import ApprovalRequest, ApprovalStatus
 from app.schemas.approvals import ReadyToolCall
 from app.schemas.memory import MemoryCandidate
@@ -38,69 +40,38 @@ from app.storage.models import (
     AgentTraceEvent,
     ApprovalRecord,
     Base,
-    ExperienceEntryRecord,
+    MemoryCandidateRecord,
 )
 from app.tools.registry import ToolRegistry
 
 
-class FailingExperienceStore:
-    def list_for_user(self, **_kwargs):
-        raise RuntimeError("postgresql://user:secret@memory.internal")
-
-    def save(self, _payload):
-        raise RuntimeError("postgresql://user:secret@memory.internal")
+TEST_MEMORY_STORE = object()
 
 
-def test_experience_recall_failure_is_safe_and_observable():
-    buffer = TraceBuffer()
+def test_api_modules_and_repository_expose_only_native_store_contract():
+    from app.storage import repositories
 
-    entries = sessions._recall_experience_entries(
-        experience_store=FailingExperienceStore(),
-        tenant_id="tenant_1",
-        user_id="user_1",
-        query="分析海能达",
-        trace_id="trace_1",
-        trace_buffer=buffer,
+    runtime_sources = "\n".join(
+        inspect.getsource(module) for module in (sessions, approvals, repositories)
     )
 
-    assert entries == []
-    assert len(buffer.events) == 1
-    assert buffer.events[0].node_name == "memory_recall"
-    assert buffer.events[0].status == "handled_error"
-    assert buffer.events[0].error == "长期经验召回失败，本次请求未注入历史偏好。"
-
-
-def test_experience_commit_failure_does_not_raise_and_is_observable():
-    buffer = TraceBuffer()
-    state = create_initial_state(
-        session_id="session_1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="记住所有回答用中文",
-        trace_id="trace_1",
+    for removed_symbol in (
+        "ExperienceStore",
+        "SqlAlchemyExperienceStore",
+        "ExperienceMemoryRetriever",
+        "memory_retriever",
+        "_ExperienceSnapshotReader",
+        "experience_entries",
+    ):
+        assert removed_symbol not in runtime_sources
+    assert "experience_store" not in inspect.signature(
+        repositories.persist_agent_run
+    ).parameters
+    assert tuple(inspect.signature(sessions._ExecutionSnapshot).parameters) == (
+        "history",
+        "attachment_resolver",
     )
-    state["memory_candidates"] = [
-        MemoryCandidate(
-            candidate_id="memcand_1",
-            memory_type="user_preference",
-            memory_key="language",
-            content="所有回答用中文",
-            confidence=1.0,
-            sensitivity="low",
-            approval_status="not_required",
-        )
-    ]
-
-    sessions._commit_external_experience_memories(
-        state,
-        FailingExperienceStore(),
-        trace_buffer=buffer,
-    )
-
-    assert len(buffer.events) == 1
-    assert buffer.events[0].node_name == "memory_commit"
-    assert buffer.events[0].status == "handled_error"
-    assert "secret" not in str(buffer.events[0])
+    assert "store=memory_store" in inspect.getsource(approvals.decide_approval)
 
 
 @pytest.fixture(autouse=True)
@@ -108,33 +79,6 @@ def isolate_session_api_tests_from_external_mcp(monkeypatch):
     monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
     monkeypatch.setattr(sessions, "build_graph_checkpointer", InMemorySaver)
     monkeypatch.setattr(approvals, "build_graph_checkpointer", InMemorySaver)
-
-
-class PreferenceResponseLlmClient:
-    async def complete(self, **kwargs):
-        if "意图分类器" in kwargs.get("system_prompt", ""):
-            return LlmCompletionResult(
-                content="""
-                {
-                  "intent": "conversation",
-                  "domain": "preference_ack",
-                  "sub_intent": "language_preference",
-                  "candidate_skill": null,
-                  "candidate_tool": null,
-                  "risk_level": "low",
-                  "confidence": 0.9,
-                  "needs_clarification": false,
-                  "reason_codes": ["classifier_selected_conversation"]
-                }
-                """,
-                model="fake-intent-model",
-                provider="fake",
-            )
-        return LlmCompletionResult(
-            content="我会继续使用中文回答。",
-            model="fake-render-model",
-            provider="fake",
-        )
 
 
 class StreamingNarrativeLlmClient:
@@ -195,6 +139,7 @@ def create_test_app_with_database(*, on_session=None, override_principal=True):
 
     app = create_app()
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_memory_store] = lambda: TEST_MEMORY_STORE
     if override_principal:
         async def override_get_current_principal(request: Request):
             payload = await request.json() if request.method == "POST" else {}
@@ -365,10 +310,16 @@ def _completed_graph_state(kwargs, *, content="ok"):
 
 
 def test_post_message_persists_user_and_assistant_and_returns_stable_ids(monkeypatch):
+    captured = {}
+
+    def fake_graph(**kwargs):
+        captured.update(kwargs)
+        return _completed_graph_state(kwargs, content="持久化回答")
+
     monkeypatch.setattr(
         sessions,
         "run_question_answer_graph",
-        lambda **kwargs: _completed_graph_state(kwargs, content="持久化回答"),
+        fake_graph,
     )
     app, testing_session_local = create_test_app_with_database()
     client = TestClient(app)
@@ -396,6 +347,8 @@ def test_post_message_persists_user_and_assistant_and_returns_stable_ids(monkeyp
         session_record = db.scalars(select(AgentSession)).one()
     assert [record.status for record in records] == ["completed", "completed"]
     assert session_record.active_run_id is None
+    assert captured["store"] is TEST_MEMORY_STORE
+    assert "memory_retriever" not in captured
 
 
 def test_post_message_replays_idempotency_key_without_running_graph_twice(monkeypatch):
@@ -626,11 +579,8 @@ def test_post_message_releases_turn_transaction_before_graph(monkeypatch):
 
     def fake_graph(**kwargs):
         observed["in_transaction"] = observed["db"].in_transaction()
-        memory = kwargs["memory_retriever"](
-            "问题",
-            tenant_id=kwargs["tenant_id"],
-            user_id=kwargs["user_id"],
-        )
+        observed["store"] = kwargs["store"]
+        observed["has_memory_retriever"] = "memory_retriever" in kwargs
         attachments = kwargs["attachment_resolver"].resolve(
             ["asset-1"],
             principal=Principal(
@@ -640,7 +590,6 @@ def test_post_message_releases_turn_transaction_before_graph(monkeypatch):
             ),
             session_id=kwargs["session_id"],
         )
-        observed["memory_content"] = memory.items[0].content
         observed["attachment_summary"] = attachments[0]["summary"]
         return _completed_graph_state(kwargs)
 
@@ -649,21 +598,6 @@ def test_post_message_releases_turn_transaction_before_graph(monkeypatch):
     app.dependency_overrides[sessions.get_attachment_context_resolver] = (
         lambda: source_resolver
     )
-    with testing_session_local() as db:
-        db.add(
-            ExperienceEntryRecord(
-                entry_id="experience-1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                memory_type="user_preference",
-                content="所有回答使用中文",
-                source_candidate_id="candidate-1",
-                sensitivity="low",
-                source="user_explicit_preference",
-            )
-        )
-        db.commit()
-
     response = TestClient(app).post(
         "/api/sessions/s1/messages",
         json={"message": "问题", "attachments": ["asset-1"]},
@@ -671,7 +605,8 @@ def test_post_message_releases_turn_transaction_before_graph(monkeypatch):
 
     assert response.status_code == 200
     assert observed["in_transaction"] is False
-    assert observed["memory_content"].endswith("所有回答使用中文")
+    assert observed["store"] is TEST_MEMORY_STORE
+    assert observed["has_memory_retriever"] is False
     assert observed["attachment_summary"] == "附件快照"
     assert source_resolver.calls == 1
 
@@ -1232,7 +1167,7 @@ def test_post_session_message_uses_graph_checkpointer(monkeypatch):
     assert captured["checkpointer"] is checkpointer
 
 
-def test_post_session_message_persists_approved_experience_memory(monkeypatch):
+def test_post_session_message_persists_memory_candidate_without_store_write(monkeypatch):
     def fake_graph(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         state["memory_candidates"] = [
@@ -1279,45 +1214,10 @@ def test_post_session_message_persists_approved_experience_memory(monkeypatch):
 
     assert response.status_code == 200
     with testing_session_local() as session:
-        saved = session.scalars(select(ExperienceEntryRecord)).one()
+        saved = session.scalars(select(MemoryCandidateRecord)).one()
 
-    assert saved.source_candidate_id == "memcand_1"
+    assert saved.candidate_id == "memcand_1"
     assert saved.content == "所有的文档用中文"
-
-
-def test_post_session_message_recalls_experience_memory_for_response(monkeypatch):
-    monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
-    monkeypatch.setattr(
-        sessions, "maybe_build_llm_client", lambda: PreferenceResponseLlmClient()
-    )
-    app, testing_session_local = create_test_app_with_database()
-    with testing_session_local() as session:
-        session.add(
-            ExperienceEntryRecord(
-                entry_id="exp_1",
-                tenant_id="tenant_1",
-                user_id="user_1",
-                memory_type="user_preference",
-                content="所有回答用中文",
-                source_candidate_id="memcand_existing",
-                sensitivity="low",
-                source="user_explicit_preference",
-            )
-        )
-        session.commit()
-    client = TestClient(app)
-
-    response = client.post(
-        "/api/sessions/s1/messages",
-        json={
-            "tenant_id": "tenant_1",
-            "user_id": "user_1",
-            "message": "请继续使用我的语言偏好",
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["content"].startswith("按你的中文偏好回答：")
 
 
 def test_approval_api_uses_dependency_principal_for_tenant_scope():
@@ -2581,6 +2481,8 @@ def test_stream_persists_original_turn_and_passes_run_identity(monkeypatch):
     assert captured["user_message_id"] == messages[0].message_id
     assert captured["assistant_message_id"] == messages[1].message_id
     assert captured["history"] == []
+    assert captured["store"] is TEST_MEMORY_STORE
+    assert "memory_retriever" not in captured
     assert [message.status for message in messages] == ["completed", "completed"]
     assert messages[1].content == "流式持久化回答"
     assert runs[0].status == "completed"
@@ -2725,6 +2627,7 @@ def test_closing_stream_generator_fails_started_turn(monkeypatch):
             ),
             db=db,
             attachment_resolver=None,
+            memory_store=TEST_MEMORY_STORE,
             request_id="stream-disconnect-1",
         )
         next(generator)
@@ -2760,6 +2663,7 @@ def test_cancelled_stream_fails_started_turn(monkeypatch):
             ),
             db=db,
             attachment_resolver=None,
+            memory_store=TEST_MEMORY_STORE,
             request_id="stream-cancelled-1",
         )
         with pytest.raises(asyncio.CancelledError):
@@ -2799,6 +2703,7 @@ def test_disconnect_after_business_completion_keeps_success_capture_outcome(
             ),
             db=db,
             attachment_resolver=None,
+            memory_store=TEST_MEMORY_STORE,
             request_id="stream-completed-disconnect-1",
         )
         for event in generator:

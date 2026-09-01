@@ -1,11 +1,11 @@
 import json
-import logging
 import threading
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from langgraph.store.base import BaseStore
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -35,9 +35,7 @@ from app.harness.persistence import (
 )
 from app.harness.trace_buffer import TraceBuffer
 from app.llm.factory import maybe_build_llm_client
-from app.memory.commit import commit_approved_experience_memories
-from app.memory.dependencies import get_experience_store
-from app.memory.experience_store import ExperienceStore, SqlAlchemyExperienceStore
+from app.memory.dependencies import get_memory_store
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
 from app.security.rbac import get_rbac_provider
@@ -47,7 +45,6 @@ from app.storage.repositories import persist_agent_run
 from app.tools.redaction import redact_sensitive_data
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
-logger = logging.getLogger(__name__)
 
 
 class ApprovalDecisionRequest(BaseModel):
@@ -95,7 +92,7 @@ def decide_approval(
     request: ApprovalDecisionRequest,
     principal: Principal = Depends(require_permission("approval:decide")),
     db: Session = Depends(get_db),
-    experience_store: ExperienceStore = Depends(get_experience_store),
+    memory_store: BaseStore = Depends(get_memory_store),
 ) -> dict:
     repository = ApprovalRepository(db)
     try:
@@ -224,6 +221,7 @@ def decide_approval(
                     "decision": request.decision,
                 },
                 mock_evidence=settings.use_mock_rag,
+                store=memory_store,
                 trace_buffer=trace_buffer,
                 checkpointer=build_graph_checkpointer(),
                 llm_client=maybe_build_llm_client(),
@@ -334,11 +332,6 @@ def decide_approval(
             session=db,
             state=state,
             status=run_status,
-            experience_store=(
-                experience_store
-                if isinstance(experience_store, SqlAlchemyExperienceStore)
-                else None
-            ),
             commit=False,
             run_id=resume_snapshot.run_id,
             update_run_status=False,
@@ -371,22 +364,6 @@ def decide_approval(
             payload=approval_record_payload,
         )
         db.commit()
-        if not isinstance(experience_store, SqlAlchemyExperienceStore):
-            try:
-                commit_approved_experience_memories(
-                    state=state,
-                    experience_store=experience_store,
-                )
-            except Exception:
-                # 审批与消息已可靠落库，外部经验写入失败由观测链路告警并允许后续补偿。
-                logger.exception(
-                    "experience_memory_postcommit_failed",
-                    extra={
-                        "tenant_id": state["tenant_id"],
-                        "user_id": state["user_id"],
-                        "request_id": state["request_id"],
-                    },
-                )
     except SQLAlchemyError as exc:
         try:
             _record_resume_failure(

@@ -13,6 +13,7 @@ from app.api import approvals
 from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.harness.tracing import TraceEvent
 from app.main import create_app
+from app.memory.dependencies import get_memory_store
 from app.security.dependencies import get_current_principal
 from app.security.principal import Principal
 from app.storage.database import get_db
@@ -24,6 +25,9 @@ from app.storage.models import (
     ApprovalRecord,
     Base,
 )
+
+
+TEST_MEMORY_STORE = object()
 
 
 @pytest.fixture(autouse=True)
@@ -53,6 +57,7 @@ def _test_app():
 
     app = create_app()
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_memory_store] = lambda: TEST_MEMORY_STORE
     app.dependency_overrides[get_current_principal] = override_principal
     return app, session_factory
 
