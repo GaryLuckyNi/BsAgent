@@ -46,6 +46,7 @@
 
 ### 测试
 
+- 对齐 Graph Runtime 审批恢复断言：以 `approval_status`、最终响应和已批准调用作为决定事实源，并验证独立副作用步骤具有不同 digest、Interrupt 与 approval。
 - 迁移 Graph Runtime 审批恢复测试至真实 checkpoint tuple 坐标、Interrupt 标识与 `action_digest` 契约，保留目录、绑定、多步骤、副作用和 RAG 风险语义。
 - 对齐会话 trace 查询测试与 Planner/Synthesizer 按需 Store 召回产生的安全 `experience_memory` 事件序列。
 - 新增真实 PostgreSQL 审批恢复 claim 集成测试：隔离 schema 下以两连接并发竞争验证单 owner、过期租约 generation fencing、旧 owner 心跳/完成拒绝，以及终态同决定幂等与异决定冲突。

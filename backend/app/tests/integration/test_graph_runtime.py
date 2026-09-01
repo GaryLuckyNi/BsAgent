@@ -1332,8 +1332,11 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     )
 
     assert retrieval_calls == [result["request_id"]]
-    assert resumed["approval_requests"][0].status == "approved"
+    assert resumed["approval_status"].status == "approved"
     assert resumed["final_response"]["approval_status"] == "approved"
+    assert [approval.call_id for approval in resumed["approved_tool_calls"]] == [
+        interrupt_payload["call_id"]
+    ]
     assert resumed["final_response"] is not None
     rejected_checkpointer = InMemorySaver()
     rejected_initial = run_question_answer_graph(
@@ -2687,18 +2690,21 @@ def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice(
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
     )
-    first = initial["__interrupt__"][0].value
+    first_interrupt = initial["__interrupt__"][0]
+    first = first_interrupt.value
     after_first = resume_question_answer_graph(
         **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
     )
-    second = after_first["__interrupt__"][0].value
+    second_interrupt = after_first["__interrupt__"][0]
+    second = second_interrupt.value
 
-    assert first["action_digest"] == second["action_digest"]
+    assert first["action_digest"] != second["action_digest"]
     assert first["call_id"] != second["call_id"]
     assert first["approval_id"] != second["approval_id"]
+    assert first_interrupt.id != second_interrupt.id
     assert calls == ["same"]
 
     completed = resume_question_answer_graph(
