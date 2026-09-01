@@ -42,7 +42,7 @@ from app.harness.error_boundary import (
 from app.harness.node_runner import NodeRunner
 from app.harness.observer import NodeObserver
 from app.harness.trace_buffer import TraceBuffer
-from app.harness.tracing import InMemoryTraceStore
+from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolCallRequest
 from app.tools.default_registry import get_default_tool_registry
@@ -95,6 +95,28 @@ def _catalog_guard_node(*, catalog_digest: str):
         return state
 
     return node
+
+
+def _memory_recall_failure_trace_callback(
+    *,
+    trace_buffer: TraceBuffer | None,
+    trace_store: InMemoryTraceStore | None,
+) -> Callable[[AgentState], None]:
+    def callback(state: AgentState) -> None:
+        event = TraceEvent(
+            trace_id=state["trace_id"],
+            node_name="experience_memory",
+            status="handled_error",
+            latency_ms=0,
+            error="experience_memory_recall_failed",
+            metadata={"event": "experience_memory_recall_failed"},
+        )
+        if trace_buffer is not None:
+            trace_buffer.record_event(event)
+        if trace_store is not None:
+            trace_store.record_event(event)
+
+    return callback
 
 
 def final_response_node(state: AgentState) -> AgentState:
@@ -388,6 +410,10 @@ def build_question_answer_graph(
             llm_client=llm_client,
         )
     graph = StateGraph(AgentState)
+    memory_recall_failure_trace = _memory_recall_failure_trace_callback(
+        trace_buffer=trace_buffer,
+        trace_store=trace_store,
+    )
     _add_harnessed_node(
         graph,
         "catalog_guard",
@@ -422,8 +448,10 @@ def build_question_answer_graph(
         build_planner_agent_node(
             llm_client=llm_client,
             available_tools=list(tool_specs_snapshot),
+            on_memory_recall_failure=memory_recall_failure_trace,
         ),
         runner,
+        runtime_aware=True,
     )
     _add_harnessed_node(
         graph,
@@ -450,8 +478,12 @@ def build_question_answer_graph(
     _add_harnessed_node(
         graph,
         "synthesizer",
-        build_synthesizer_node(llm_client=llm_client),
+        build_synthesizer_node(
+            llm_client=llm_client,
+            on_memory_recall_failure=memory_recall_failure_trace,
+        ),
         runner,
+        runtime_aware=True,
     )
     _add_harnessed_node(graph, "verifier", verifier_node, runner)
     _add_harnessed_node(

@@ -1,9 +1,13 @@
 import asyncio
 import json
 import re
+from collections.abc import Callable
+
+from langgraph.runtime import Runtime
 
 from app.graph.state import AgentState, AnswerClaim
 from app.llm.factory import LlmClient
+from app.memory.preferences import preference_constraints, recall_user_preferences
 from app.schemas.evidence import EvidencePackage
 
 
@@ -279,8 +283,12 @@ def _safe_handled_error_message(error: dict) -> str:
     return message if isinstance(message, str) else "请求执行失败，请稍后重试。"
 
 
-def build_synthesizer_node(*, llm_client: LlmClient | None = None):
-    def node(state: AgentState) -> AgentState:
+def build_synthesizer_node(
+    *,
+    llm_client: LlmClient | None = None,
+    on_memory_recall_failure: Callable[[AgentState], None] | None = None,
+):
+    def node(state: AgentState, runtime: Runtime | None = None) -> AgentState:
         evidence = state["evidence"]
         analysis = state["analysis"] or {}
         plan = state["plan"] or {}
@@ -291,6 +299,11 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
             llm_client=llm_client,
         )
         response_policy.update(plan_response_policy)
+        response_policy.update(
+            preference_constraints(
+                recall_user_preferences(runtime, state, on_failure=on_memory_recall_failure)
+            )
+        )
 
         handled_error = next(
             (error for error in reversed(state["errors"]) if error.get("handled")),
@@ -441,8 +454,8 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
     return node
 
 
-def synthesizer_node(state: AgentState) -> AgentState:
-    return build_synthesizer_node()(state)
+def synthesizer_node(state: AgentState, runtime: Runtime | None = None) -> AgentState:
+    return build_synthesizer_node()(state, runtime)
 
 
 def _render_image_analysis_content(

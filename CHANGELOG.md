@@ -6,6 +6,7 @@
 
 ### 变更
 
+- Planner 与 Synthesizer 按需通过 LangGraph 原生 Runtime Store 读取租户/用户严格隔离的长期偏好；Planner 生成稳定、可合并的用户明确偏好候选，读取失败安全降级。
 - API 会话与审批恢复链路统一注入官方 LangGraph `BaseStore`，移除已失效的 ExperienceStore 召回、双写与最终提交路径；业务库继续保留 Memory Candidate 审计记录。
 - Graph 组合根改为接收并编译官方 LangGraph `BaseStore`，移除固定 Memory 节点与过渡检索器参数；Harness 已支持透明传递 LangGraph runtime。
 - Agent State、Skill 输入与追踪摘要移除 `memory_context`，审批协调节点不再直接执行最终经验持久化。

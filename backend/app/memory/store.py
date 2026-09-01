@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.schemas.memory import ExperienceCommitPayload, MemoryCandidate
+from app.schemas.memory import MemoryCandidate
 from app.storage.models import MemoryCandidateRecord
 
 
@@ -64,24 +64,6 @@ class SqlAlchemyMemoryStore:
         self._session.add(record)
         self._session.flush([record])
         return record
-
-    def commit_candidate(self, candidate_id: str) -> ExperienceCommitPayload:
-        candidate = self._session.get(MemoryCandidateRecord, candidate_id)
-        if candidate is None:
-            raise KeyError(f"Memory candidate not found: {candidate_id}")
-
-        candidate.approval_status = "approved"
-        return ExperienceCommitPayload(
-            candidate_id=candidate.candidate_id,
-            tenant_id=candidate.tenant_id,
-            user_id=candidate.user_id,
-            memory_type=candidate.memory_type,
-            memory_key=candidate.memory_key,
-            content=candidate.content,
-            sensitivity=candidate.sensitivity,
-            source=candidate.source,
-        )
-
 
 def _higher_sensitivity(left: str, right: str) -> str:
     ranks = {

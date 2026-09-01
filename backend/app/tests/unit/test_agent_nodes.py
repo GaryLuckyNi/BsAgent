@@ -1,6 +1,7 @@
 import json
 
 import pytest
+from langgraph.runtime import Runtime
 from pydantic import BaseModel
 
 from app.graph.nodes.approval_coordinator import approval_coordinator_node
@@ -26,6 +27,35 @@ from app.skills.registry import SkillRegistry
 from app.tools.base import Tool
 from app.tools.registry import ToolRegistry
 from app.tools.redaction import InlineCredentialsForbiddenError
+
+
+def test_planner_node_accepts_langgraph_runtime_without_store():
+    state = create_initial_state(
+        session_id="runtime-planner",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="请记住：以后回答简洁。",
+    )
+    state["intent"] = {"intent": "conversation", "risk_level": "low"}
+
+    result = build_planner_agent_node(available_tools=[])(state, Runtime(store=None))
+
+    assert result["plan"]["execution_mode"] == "direct_response"
+    assert result["memory_candidates"][0].memory_key == "response_detail"
+
+
+def test_synthesizer_node_accepts_langgraph_runtime_without_store():
+    state = create_initial_state(
+        session_id="runtime-synthesizer",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="你好",
+    )
+    state["plan"] = {"execution_mode": "direct_response", "response_policy": {}}
+
+    result = build_synthesizer_node()(state, Runtime(store=None))
+
+    assert result["draft_answer"] is not None
 
 
 def test_equity_deterministic_fallback_groups_facts_and_guides_next_research_step():

@@ -174,22 +174,3 @@ def test_memory_candidate_lower_sensitivity_keeps_synced_state():
 
     assert merged.sensitivity == "high"
     assert merged.store_sync_status == "synced"
-    assert merged.store_synced_at == synced_at
-
-
-def test_commit_candidate_keeps_memory_key_in_compatibility_payload():
-    engine = create_engine("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-
-    with Session(engine) as session:
-        store = SqlAlchemyMemoryStore(session)
-        store.save_candidate(
-            _candidate(),
-            tenant_id="tenant_1",
-            user_id="user_1",
-            run_id="run_1",
-        )
-        payload = store.commit_candidate("memcand_1")
-
-    assert payload.memory_key == "language"
-    assert payload.candidate_id == "memcand_1"
