@@ -45,6 +45,7 @@
 
 ### 测试
 
+- 新增真实 PostgreSQL 审批恢复 claim 集成测试：隔离 schema 下以两连接并发竞争验证单 owner、过期租约 generation fencing、旧 owner 心跳/完成拒绝，以及终态同决定幂等与异决定冲突。
 - 真实 PostgreSQL `PostgresSaver` 审批测试改为贯穿项目 Graph、会话投影、ApprovalRepository 与恢复入口，Checkpointer 和业务审批投影均使用隔离 PostgreSQL schema，并完整校验禁存字段不存在；同时覆盖精确 checkpoint/Interrupt/digest 投影、恢复和错配拒绝。
 - 会话与审批 API 测试迁移为最小审批投影，并覆盖同步、流式中断的稳定身份和无敏感 payload 返回。
 - 新增 Planner 模块边界测试，防止后续将投研规划、工具校验和静态模板再次耦合回节点文件。
