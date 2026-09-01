@@ -3,8 +3,8 @@ import os
 import pytest
 from langgraph.checkpoint.postgres import PostgresSaver
 from sqlalchemy import create_engine, inspect, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app.api import sessions
 from app.approvals.repository import ApprovalRepository
@@ -54,9 +54,7 @@ def _exercise_application_lifecycle(
     monkeypatch,
 ):
     business_engine = create_engine(
-        "sqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        make_url(live_postgres_store.dsn).set(drivername="postgresql+psycopg")
     )
     Base.metadata.create_all(business_engine)
     business_sessions = sessionmaker(bind=business_engine, expire_on_commit=False)
@@ -77,12 +75,57 @@ def _exercise_application_lifecycle(
             record = ApprovalRepository(db).create_pending_from_interrupt(payload)
         with business_sessions() as db:
             persisted = db.scalar(select(ApprovalRecord))
-            assert persisted.approval_id == record.approval_id
-            assert persisted.checkpoint_id == payload["checkpoint_id"]
-            assert persisted.interrupt_id == payload["interrupt_id"]
-            assert persisted.action_digest == payload["action_digest"]
-            columns = {column["name"] for column in inspect(db.bind).get_columns("approval_records")}
-            assert columns.isdisjoint({"payload_json", "arguments", "content"})
+            assert persisted is not None
+            assert {
+                "approval_id": persisted.approval_id,
+                "run_id": persisted.run_id,
+                "tenant_id": persisted.tenant_id,
+                "approval_type": persisted.approval_type,
+                "subject_name": persisted.subject_name,
+                "risk_level": persisted.risk_level,
+                "action_digest": persisted.action_digest,
+                "checkpoint_thread_id": persisted.checkpoint_thread_id,
+                "checkpoint_namespace": persisted.checkpoint_namespace,
+                "checkpoint_id": persisted.checkpoint_id,
+                "interrupt_id": persisted.interrupt_id,
+                "requested_by": persisted.requested_by,
+                "status": persisted.status,
+            } == {
+                "approval_id": record.approval_id,
+                "run_id": payload["run_id"],
+                "tenant_id": payload["tenant_id"],
+                "approval_type": payload["approval_type"],
+                "subject_name": payload["subject_name"],
+                "risk_level": payload["risk_level"],
+                "action_digest": payload["action_digest"],
+                "checkpoint_thread_id": payload["checkpoint_thread_id"],
+                "checkpoint_namespace": payload["checkpoint_namespace"],
+                "checkpoint_id": payload["checkpoint_id"],
+                "interrupt_id": payload["interrupt_id"],
+                "requested_by": payload["requested_by"],
+                "status": "pending",
+            }
+            database_columns = {
+                column["name"]
+                for column in inspect(db.bind).get_columns("approval_records")
+            }
+            orm_columns = set(ApprovalRecord.__table__.columns.keys())
+            forbidden_columns = {
+                "payload",
+                "payload_json",
+                "arguments",
+                "content",
+                "session_id",
+                "session_key",
+                "request_user_id",
+                "tool_name",
+                "tool_version",
+                "arguments_hash",
+                "safe_arguments",
+                "purpose",
+            }
+            assert database_columns == orm_columns
+            assert database_columns.isdisjoint(forbidden_columns)
 
         resumed = _resume(saver, payload)
         candidate = next(
