@@ -41,6 +41,33 @@ from app.tools.registry import ExecutionBinding
 pytest_plugins = ("app.tests.support.postgres_store",)
 
 
+def _resume_kwargs(initial_state, checkpointer, *, decision):
+    interrupt = initial_state["__interrupt__"][0]
+    payload = interrupt.value
+    tuple_config = checkpointer.get_tuple(
+        {
+            "configurable": {
+                "thread_id": payload["checkpoint_thread_id"],
+                "checkpoint_ns": payload["checkpoint_namespace"],
+            }
+        }
+    )
+    assert tuple_config is not None
+    checkpoint_id = tuple_config.config["configurable"]["checkpoint_id"]
+    return {
+        "checkpoint_thread_id": payload["checkpoint_thread_id"],
+        "checkpoint_namespace": payload["checkpoint_namespace"],
+        "checkpoint_id": checkpoint_id,
+        "interrupt_id": interrupt.id,
+        "action_digest": payload["action_digest"],
+        "approval_decision": {
+            "approval_id": payload["approval_id"],
+            "action_digest": payload["action_digest"],
+            "decision": decision,
+        },
+    }
+
+
 
 @pytest.fixture(autouse=True)
 def isolate_graph_tests_from_external_mcp(monkeypatch):
@@ -1281,6 +1308,9 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
 
     assert interrupt_payload["approval_type"] == "tool_call"
     assert interrupt_payload["tool_name"] == "rag_search"
+    assert interrupt_payload["subject_name"] == "rag_search"
+    assert interrupt_payload["risk_level"] == "high"
+    assert interrupt_payload["action_digest"]
     assert interrupt_payload["checkpoint_thread_id"] == (
         runtime.build_checkpoint_thread_id(
             tenant_id=result["tenant_id"],
@@ -1289,18 +1319,11 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
         )
     )
     assert interrupt_payload["checkpoint_namespace"] == ""
-    assert interrupt_payload["session_key"] == result["session_key"]
     assert retrieval_calls == []
     assert "retriever_agent" not in node_names
 
     resumed = resume_question_answer_graph(
-        checkpoint_thread_id=interrupt_payload["checkpoint_thread_id"],
-        checkpoint_namespace=interrupt_payload["checkpoint_namespace"],
-        approval_decision={
-            "approval_id": interrupt_payload["approval_id"],
-            "arguments_hash": interrupt_payload["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(result, checkpointer, decision="approved"),
         retriever_node=fake_retriever,
         skill_agent_node=fake_skill_agent,
         trace_store=trace_store,
@@ -1324,14 +1347,8 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
         checkpointer=rejected_checkpointer,
         permission_scopes=["rag:retrieve"],
     )
-    rejected_payload = rejected_initial["__interrupt__"][0].value
     rejected = resume_question_answer_graph(
-        checkpoint_thread_id=rejected_payload["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": rejected_payload["approval_id"],
-            "arguments_hash": rejected_payload["arguments_hash"],
-            "decision": "rejected",
-        },
+        **_resume_kwargs(rejected_initial, rejected_checkpointer, decision="rejected"),
         retriever_node=fake_retriever,
         skill_agent_node=fake_skill_agent,
         checkpointer=rejected_checkpointer,
@@ -1348,6 +1365,9 @@ def test_question_answer_graph_rejects_non_root_checkpoint_namespace_on_resume()
         resume_question_answer_graph(
             checkpoint_thread_id="cp_invalid",
             checkpoint_namespace="tenant_1",
+            checkpoint_id="checkpoint-placeholder",
+            interrupt_id="interrupt-placeholder",
+            action_digest="digest-placeholder",
             approval_decision={},
             checkpointer=InMemorySaver(),
         )
@@ -1390,6 +1410,9 @@ def test_question_answer_graph_rejects_legacy_checkpoint_before_reading_saver(
         resume_question_answer_graph(
             checkpoint_thread_id=checkpoint_thread_id,
             checkpoint_namespace="",
+            checkpoint_id="checkpoint-placeholder",
+            interrupt_id="interrupt-placeholder",
+            action_digest="digest-placeholder",
             approval_decision={},
             checkpointer=checkpointer,
         )
@@ -1399,7 +1422,7 @@ def test_question_answer_graph_rejects_legacy_checkpoint_before_reading_saver(
     assert "旧 Checkpoint 不可安全恢复" in str(exc_info.value)
 
 
-def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():
+def test_question_answer_graph_rejects_old_digest_after_tool_arguments_change():
     checkpointer = InMemorySaver()
 
     def fake_skill_agent(state):
@@ -1448,13 +1471,13 @@ def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():
     changed = graph.invoke(None, config=config)
     changed_approval = changed["__interrupt__"][0].value
 
-    assert changed_approval["arguments_hash"] != old_approval["arguments_hash"]
+    assert changed_approval["action_digest"] != old_approval["action_digest"]
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         graph.invoke(
             Command(
                 resume={
                     "approval_id": old_approval["approval_id"],
-                    "arguments_hash": old_approval["arguments_hash"],
+                    "action_digest": old_approval["action_digest"],
                     "decision": "approved",
                 }
             ),
@@ -1463,10 +1486,7 @@ def test_question_answer_graph_rejects_old_hash_after_tool_arguments_change():
 
     assert exc_info.value.code == "approval_payload_mismatch"
     snapshot = graph.get_state(config)
-    assert all(
-        approval.arguments_hash != old_approval["arguments_hash"]
-        for approval in snapshot.values["approved_tool_calls"]
-    )
+    assert snapshot.values["approved_tool_calls"] == []
 
 
 def test_registered_high_risk_tool_is_normalized_into_approval_gate():
@@ -1593,7 +1613,6 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
         permission_scopes=["mcp:mock"],
         tool_registry_factory=registry_factory,
     )
-    approval = initial["__interrupt__"][0].value
     resume_trace_store = InMemoryTraceStore()
 
     def changed_registry_factory():
@@ -1606,12 +1625,7 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
 
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         resume_question_answer_graph(
-            checkpoint_thread_id=approval["checkpoint_thread_id"],
-            approval_decision={
-                "approval_id": approval["approval_id"],
-                "arguments_hash": approval["arguments_hash"],
-                "decision": "approved",
-            },
+            **_resume_kwargs(initial, checkpointer, decision="approved"),
             skill_agent_node=catalog_skill,
             trace_store=resume_trace_store,
             checkpointer=checkpointer,
@@ -1693,16 +1707,9 @@ def test_approval_resume_rejects_changed_executor_binding():
         permission_scopes=["mcp:mock"],
         tool_registry_factory=lambda: registry_for(ExecutorA),
     )
-    approval = initial["__interrupt__"][0].value
-
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         resume_question_answer_graph(
-            checkpoint_thread_id=approval["checkpoint_thread_id"],
-            approval_decision={
-                "approval_id": approval["approval_id"],
-                "arguments_hash": approval["arguments_hash"],
-                "decision": "approved",
-            },
+            **_resume_kwargs(initial, checkpointer, decision="approved"),
             skill_agent_node=binding_skill,
             checkpointer=checkpointer,
             permission_scopes=["mcp:mock"],
@@ -1770,16 +1777,9 @@ def test_approval_resume_rejects_changed_actual_rag_provider_binding():
         permission_scopes=["rag:retrieve"],
         tool_registry_factory=ToolRegistry,
     )
-    approval = initial["__interrupt__"][0].value
-
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         resume_question_answer_graph(
-            checkpoint_thread_id=approval["checkpoint_thread_id"],
-            approval_decision={
-                "approval_id": approval["approval_id"],
-                "arguments_hash": approval["arguments_hash"],
-                "decision": "approved",
-            },
+            **_resume_kwargs(initial, checkpointer, decision="approved"),
             retriever_node=rag_retriever("rag-b"),
             skill_agent_node=rag_skill,
             checkpointer=checkpointer,
@@ -1887,15 +1887,12 @@ def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
     assert resolved_request.arguments == {"entity_id": "ENTITY-42"}
     assert resolved_request.approval_required is True
     assert interrupt_payload["arguments"] == {"entity_id": "ENTITY-42"}
-    assert interrupt_payload["arguments_hash"] == tool_call_fingerprint(resolved_request)
+    assert interrupt_payload["subject_name"] == "mcp.mock.submit_entity"
+    assert interrupt_payload["risk_level"] == "high"
+    assert interrupt_payload["action_digest"]
 
     resumed = resume_question_answer_graph(
-        checkpoint_thread_id=interrupt_payload["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": interrupt_payload["approval_id"],
-            "arguments_hash": interrupt_payload["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=staged_skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
@@ -2223,15 +2220,8 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
         trace_store=trace_store,
         tool_registry_factory=lambda: registry,
     )
-    approval = initial["__interrupt__"][0].value
-
     resumed = resume_question_answer_graph(
-        checkpoint_thread_id=approval["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": approval["approval_id"],
-            "arguments_hash": approval["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=write_skill,
         checkpointer=checkpointer,
         trace_store=trace_store,
@@ -2553,12 +2543,7 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     assert second_calls == []
 
     after_first = resume_question_answer_graph(
-        checkpoint_thread_id=first_approval["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": first_approval["approval_id"],
-            "arguments_hash": first_approval["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
@@ -2572,12 +2557,7 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     assert second_approval["call_id"] != first_approval["call_id"]
 
     completed = resume_question_answer_graph(
-        checkpoint_thread_id=second_approval["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": second_approval["approval_id"],
-            "arguments_hash": second_approval["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(after_first, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
@@ -2709,30 +2689,20 @@ def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice(
     )
     first = initial["__interrupt__"][0].value
     after_first = resume_question_answer_graph(
-        checkpoint_thread_id=first["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": first["approval_id"],
-            "arguments_hash": first["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
     )
     second = after_first["__interrupt__"][0].value
 
-    assert first["arguments_hash"] == second["arguments_hash"]
+    assert first["action_digest"] == second["action_digest"]
     assert first["call_id"] != second["call_id"]
     assert first["approval_id"] != second["approval_id"]
     assert calls == ["same"]
 
     completed = resume_question_answer_graph(
-        checkpoint_thread_id=second["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": second["approval_id"],
-            "arguments_hash": second["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(after_first, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
@@ -2954,12 +2924,7 @@ def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
     assert provider_calls == []
 
     completed = resume_question_answer_graph(
-        checkpoint_thread_id=approval["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": approval["approval_id"],
-            "arguments_hash": approval["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         retriever_node=retriever,
@@ -3018,12 +2983,7 @@ def test_pending_descriptor_resumes_from_checkpointer():
     approval = initial["__interrupt__"][0].value
 
     completed = resume_question_answer_graph(
-        checkpoint_thread_id=approval["checkpoint_thread_id"],
-        approval_decision={
-            "approval_id": approval["approval_id"],
-            "arguments_hash": approval["arguments_hash"],
-            "decision": "approved",
-        },
+        **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         retriever_node=retriever,
         checkpointer=checkpointer,

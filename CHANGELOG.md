@@ -46,6 +46,7 @@
 
 ### 测试
 
+- 迁移 Graph Runtime 审批恢复测试至真实 checkpoint tuple 坐标、Interrupt 标识与 `action_digest` 契约，保留目录、绑定、多步骤、副作用和 RAG 风险语义。
 - 对齐会话 trace 查询测试与 Planner/Synthesizer 按需 Store 召回产生的安全 `experience_memory` 事件序列。
 - 新增真实 PostgreSQL 审批恢复 claim 集成测试：隔离 schema 下以两连接并发竞争验证单 owner、过期租约 generation fencing、旧 owner 心跳/完成拒绝，以及终态同决定幂等与异决定冲突。
 - 真实 PostgreSQL `PostgresSaver` 审批测试改为贯穿项目 Graph、会话投影、ApprovalRepository 与恢复入口，Checkpointer 和业务审批投影均使用隔离 PostgreSQL schema，并完整校验禁存字段不存在；同时覆盖精确 checkpoint/Interrupt/digest 投影、恢复和错配拒绝。
