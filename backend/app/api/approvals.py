@@ -102,7 +102,7 @@ def decide_approval(
         )
         if pending_record is None:
             raise ApprovalNotFoundError(f"Approval not found: {approval_id}")
-        _resolve_resume_permission_scopes(pending_record)
+        permission_scopes = _resolve_resume_permission_scopes(pending_record)
         claim = repository.claim_resume(
             approval_id=approval_id,
             tenant_id=principal.tenant_id,
@@ -221,6 +221,7 @@ def decide_approval(
                 trace_buffer=trace_buffer,
                 checkpointer=build_graph_checkpointer(),
                 llm_client=maybe_build_llm_client(),
+                permission_scopes=permission_scopes,
             )
             lease.ensure_owned()
     except ApprovalResumeInProgressError as exc:

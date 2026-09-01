@@ -200,31 +200,29 @@ def add_approval_resume_fixture(
         request_id=request_id,
     )
     selected_thread_id = checkpoint_thread_id or expected_thread_id
-    payload = {
-        "run_id": run_id,
-        "session_id": "session_1",
-        "session_key": "session_key_1",
-        "tenant_id": "tenant_1",
-        "request_user_id": "user_1",
-        "checkpoint_thread_id": selected_thread_id,
-        "checkpoint_namespace": "",
+    projection = {
+        "subject_name": "mcp.mock.trade.submit",
+        "risk_level": "high",
+        "action_digest": "digest_1",
+        "checkpoint_id": "checkpoint_1",
+        "interrupt_id": "interrupt_1",
     }
-    payload.update(payload_overrides or {})
+    projection.update(payload_overrides or {})
     db.add_all(
         [
             ApprovalRecord(
                 approval_id=approval_id,
                 run_id=run_id,
-                session_id="session_1",
-                session_key="session_key_1",
                 tenant_id="tenant_1",
-                request_user_id="user_1",
                 approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json=json.dumps(payload),
+                subject_name=projection["subject_name"],
+                risk_level=projection["risk_level"],
+                action_digest=projection["action_digest"],
                 checkpoint_thread_id=selected_thread_id,
+                checkpoint_namespace="",
+                checkpoint_id=projection["checkpoint_id"],
+                interrupt_id=projection["interrupt_id"],
+                requested_by="user_1",
                 status=status,
                 decision=decision,
                 resume_claim_token=resume_claim_token,
@@ -1231,16 +1229,16 @@ def test_approval_api_uses_dependency_principal_for_tenant_scope():
                 ApprovalRecord(
                     approval_id=approval_id,
                     run_id=f"run_{tenant_id}",
-                    session_id="session_1",
-                    session_key=f"session_key_{tenant_id}",
                     tenant_id=tenant_id,
-                    request_user_id="request-user",
                     approval_type="tool_call",
-                    tool_name="mcp.mock.trade.submit",
-                    tool_version="1.0.0",
-                    arguments_hash=f"hash_{tenant_id}",
-                    payload_json="{}",
+                    subject_name="mcp.mock.trade.submit",
+                    risk_level="high",
+                    action_digest=f"digest_{tenant_id}",
                     checkpoint_thread_id=f"run_{tenant_id}",
+                    checkpoint_namespace="",
+                    checkpoint_id=f"checkpoint_{tenant_id}",
+                    interrupt_id=f"interrupt_{tenant_id}",
+                    requested_by="request-user",
                     status="pending",
                 )
             )
@@ -1270,16 +1268,16 @@ def test_approval_endpoint_rejects_analyst_and_allows_mock_approver():
             ApprovalRecord(
                 approval_id="approval_1",
                 run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
                 tenant_id="tenant_1",
-                request_user_id="user_1",
                 approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
+                subject_name="mcp.mock.trade.submit",
+                risk_level="high",
+                action_digest="digest_1",
                 checkpoint_thread_id="run_1",
+                checkpoint_namespace="",
+                checkpoint_id="checkpoint_1",
+                interrupt_id="interrupt_1",
+                requested_by="user_1",
                 status="pending",
             )
         )
@@ -1300,31 +1298,23 @@ def test_approval_endpoint_rejects_analyst_and_allows_mock_approver():
     assert response.json()["items"][0]["approval_id"] == "approval_1"
 
 
-def test_approval_api_redacts_sensitive_payload_defensively():
+def test_approval_api_returns_minimal_projection_without_sensitive_payload():
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
         session.add(
             ApprovalRecord(
                 approval_id="approval_secret",
                 run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
                 tenant_id="tenant_1",
-                request_user_id="user_1",
                 approval_type="tool_call",
-                tool_name="mcp.mock.secret_write",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json=json.dumps(
-                    {
-                        "arguments": {
-                            "clientSecret": "client-value",
-                            "nested": {"refresh-token": "refresh-value"},
-                            "visible": "safe-value",
-                        }
-                    }
-                ),
+                subject_name="mcp.mock.secret_write",
+                risk_level="high",
+                action_digest="digest_secret",
                 checkpoint_thread_id="run_1",
+                checkpoint_namespace="",
+                checkpoint_id="checkpoint_1",
+                interrupt_id="interrupt_1",
+                requested_by="user_1",
                 status="pending",
             )
         )
@@ -1336,12 +1326,10 @@ def test_approval_api_redacts_sensitive_payload_defensively():
     )
 
     assert response.status_code == 200
-    arguments = response.json()["items"][0]["payload"]["arguments"]
-    assert arguments == {
-        "clientSecret": "***",
-        "nested": {"refresh-token": "***"},
-        "visible": "safe-value",
-    }
+    item = response.json()["items"][0]
+    assert "payload" not in item
+    assert "arguments" not in item
+    assert item["action_digest"] == "digest_secret"
 
 
 def test_post_session_message_persists_pending_tool_approval(monkeypatch):
@@ -1376,6 +1364,26 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
         return state
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", interrupted_graph)
+    monkeypatch.setattr(
+        sessions,
+        "_interrupt_payloads",
+        lambda state: [
+            {
+                "approval_id": "approval_1",
+                "approval_type": "tool_call",
+                "run_id": state["request_id"],
+                "tenant_id": state["tenant_id"],
+                "requested_by": state["user_id"],
+                "subject_name": "mcp.mock.trade.submit",
+                "risk_level": "high",
+                "action_digest": "digest_1",
+                "checkpoint_thread_id": build_checkpoint_thread_id(tenant_id=state["tenant_id"], session_key=state["session_key"], request_id=state["request_id"]),
+                "checkpoint_namespace": "",
+                "checkpoint_id": "checkpoint_1",
+                "interrupt_id": "interrupt_1",
+            }
+        ],
+    )
     app, testing_session_local = create_test_app_with_database()
     client = TestClient(app)
 
@@ -1394,9 +1402,9 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
     with testing_session_local() as session:
         approval = session.get(ApprovalRecord, "approval_1")
         run = session.scalars(select(AgentRun)).one()
-    assert approval.arguments_hash == "hash_1"
+    assert approval.action_digest == "digest_1"
     assert approval.run_id == run.run_id
-    assert approval.session_key == run.session_key
+    assert approval.checkpoint_thread_id.startswith("cpr1_")
     assert run.status == "interrupted"
 
 
@@ -1445,7 +1453,7 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
     assert captured["checkpoint_thread_id"] == expected_checkpoint
     assert captured["approval_decision"] == {
         "approval_id": "approval_1",
-        "arguments_hash": "hash_1",
+        "action_digest": "digest_1",
         "decision": "approved",
     }
     assert captured["permission_scopes"]
@@ -1544,7 +1552,7 @@ def test_approval_resume_rejects_payload_identity_mismatch_before_graph(monkeypa
     )
 
     assert response.status_code == 409
-    assert response.json()["detail"]["code"] == "approval_resume_identity_mismatch"
+    assert response.json()["detail"]["code"] == "approval_resume_failed"
     assert resume_calls == []
 
 
@@ -1710,6 +1718,11 @@ def test_approval_resume_rejects_state_identity_mismatch(
         return state
 
     monkeypatch.setattr(approvals, "resume_question_answer_graph", fake_resume)
+    monkeypatch.setattr(
+        approvals,
+        "_project_current_interrupts",
+        lambda state: [{"approval_id": "approval_child", "approval_type": "tool_call", "run_id": "run_1", "tenant_id": "tenant_1", "requested_by": "user_1", "subject_name": "mcp.mock.trade.submit", "risk_level": "high", "action_digest": "digest_child", "checkpoint_thread_id": build_checkpoint_thread_id(tenant_id="tenant_1", session_key="session_key_1", request_id="checkpoint_request_1"), "checkpoint_namespace": "", "checkpoint_id": "checkpoint_2", "interrupt_id": "interrupt_2"}],
+    )
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
@@ -1767,6 +1780,11 @@ def test_approval_resume_child_approval_keeps_original_run_identity(monkeypatch)
         return state
 
     monkeypatch.setattr(approvals, "resume_question_answer_graph", fake_resume)
+    monkeypatch.setattr(
+        approvals,
+        "_project_current_interrupts",
+        lambda state: [{"approval_id": "approval_child", "approval_type": "tool_call", "run_id": "run_1", "tenant_id": "tenant_1", "requested_by": "user_1", "subject_name": "mcp.mock.trade.submit", "risk_level": "high", "action_digest": "digest_child", "checkpoint_thread_id": build_checkpoint_thread_id(tenant_id="tenant_1", session_key="session_key_1", request_id="checkpoint_request_1"), "checkpoint_namespace": "", "checkpoint_id": "checkpoint_2", "interrupt_id": "interrupt_2"}],
+    )
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
     with testing_session_local() as session:
@@ -1783,17 +1801,11 @@ def test_approval_resume_child_approval_keeps_original_run_identity(monkeypatch)
     with testing_session_local() as session:
         child = session.get(ApprovalRecord, "approval_child")
         runs = list(session.scalars(select(AgentRun)))
-    child_payload = json.loads(child.payload_json)
     assert child.run_id == "run_1"
-    assert child.session_id == "session_1"
-    assert child.session_key == "session_key_1"
     assert child.tenant_id == "tenant_1"
-    assert child.request_user_id == "user_1"
+    assert child.requested_by == "user_1"
     assert child.checkpoint_thread_id == expected_checkpoint
-    assert child_payload["run_id"] == "run_1"
-    assert child_payload["session_key"] == "session_key_1"
-    assert child_payload["checkpoint_thread_id"] == expected_checkpoint
-    assert child_payload["checkpoint_namespace"] == ""
+    assert child.action_digest == "digest_child"
     assert [(run.run_id, run.status) for run in runs] == [("run_1", "interrupted")]
 
 
@@ -2011,16 +2023,16 @@ def test_approval_resume_in_progress_request_does_not_call_resume(monkeypatch):
             ApprovalRecord(
                 approval_id="approval_1",
                 run_id="run_1",
-                session_id="session_1",
-                session_key="session_key_1",
                 tenant_id="tenant_1",
-                request_user_id="user_1",
                 approval_type="tool_call",
-                tool_name="mcp.mock.trade.submit",
-                tool_version="1.0.0",
-                arguments_hash="hash_1",
-                payload_json="{}",
+                subject_name="mcp.mock.trade.submit",
+                risk_level="high",
+                action_digest="digest_1",
                 checkpoint_thread_id="run_1",
+                checkpoint_namespace="",
+                checkpoint_id="checkpoint_1",
+                interrupt_id="interrupt_1",
+                requested_by="user_1",
                 status="resuming",
                 decision="approved",
                 resume_claim_token="owned-by-another-request",
@@ -2794,6 +2806,7 @@ def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
         yield state
 
     monkeypatch.setattr(sessions, "stream_question_answer_graph", interrupted_stream)
+    monkeypatch.setattr(sessions, "_interrupt_payloads", lambda state: [{"approval_id": "stream_approval_1", "approval_type": "tool_call", "run_id": state["request_id"], "tenant_id": state["tenant_id"], "requested_by": state["user_id"], "subject_name": "mcp.mock.trade.submit", "risk_level": "high", "action_digest": "digest_stream", "checkpoint_thread_id": build_checkpoint_thread_id(tenant_id=state["tenant_id"], session_key=state["session_key"], request_id=state["request_id"]), "checkpoint_namespace": "", "checkpoint_id": "checkpoint_stream", "interrupt_id": "interrupt_stream"}])
     app, testing_session_local = create_test_app_with_database()
 
     response = TestClient(app).post(
