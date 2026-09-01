@@ -122,7 +122,7 @@ def test_redis_short_term_memory_store_deletes_session_hot_data():
     store.append_session_event(
         tenant_id="tenant_1",
         session_id="session_1",
-        event={"node": "memory_manager"},
+        event={"node": "skill_agent"},
     )
 
     deleted = store.delete_session(tenant_id="tenant_1", session_id="session_1")

@@ -30,7 +30,7 @@ def test_live_redis_short_term_memory_store_smoke_round_trip():
     store.append_session_event(
         tenant_id="tenant_smoke",
         session_id="session_smoke",
-        event={"node": "memory_manager"},
+        event={"node": "skill_agent"},
     )
 
     assert store.get_session_value(
@@ -41,6 +41,6 @@ def test_live_redis_short_term_memory_store_smoke_round_trip():
     assert store.list_session_events(
         tenant_id="tenant_smoke",
         session_id="session_smoke",
-    ) == [{"node": "memory_manager"}]
+    ) == [{"node": "skill_agent"}]
 
     assert store.delete_session(tenant_id="tenant_smoke", session_id="session_smoke") == 2
