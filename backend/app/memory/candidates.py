@@ -51,6 +51,8 @@ def _explicit_preference_statements(user_message: str) -> list[str]:
 
 def _is_explicit_preference_statement(statement: str) -> bool:
     normalized = statement.strip()
+    if "?" in normalized or "？" in normalized:
+        return False
     if any(
         marker in normalized
         for marker in ("是什么", "可以记住什么", "能记住什么", "如何记住", "怎么记住")

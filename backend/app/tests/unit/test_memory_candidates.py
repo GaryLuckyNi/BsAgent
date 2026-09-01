@@ -40,6 +40,8 @@ def test_does_not_propose_candidate_for_general_knowledge_question():
         "你的回答偏好是什么？",
         "可以记住什么？",
         "请解释什么是回答偏好。",
+        "以后回答我时使用英文吗？",
+        "我更关注什么?",
     ],
 )
 def test_does_not_propose_candidate_for_preference_questions_or_explanations(message):
