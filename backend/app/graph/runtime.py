@@ -3,8 +3,10 @@ import re
 from typing import Any
 
 from langgraph.graph import END, StateGraph
+from langgraph.store.base import BaseStore
 from langgraph.types import Checkpointer, Command, RetryPolicy
 
+from app.core.config import settings
 from app.graph.nodes.analysis_agent import analysis_agent_node
 from app.graph.nodes.attachment_analyzer import (
     AttachmentContextResolver,
@@ -13,15 +15,12 @@ from app.graph.nodes.attachment_analyzer import (
 from app.graph.nodes.approval_gate import build_approval_gate_node
 from app.graph.nodes.approval_coordinator import approval_coordinator_node
 from app.graph.nodes.intent_router import build_llm_intent_router_node
-from app.graph.nodes.memory_manager import MemoryRetriever
-from app.graph.nodes.memory_manager import MemoryManager
-from app.graph.nodes.memory_manager import build_memory_manager_node
-from app.graph.nodes.memory_manager import memory_manager_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.nodes.retriever_agent import build_default_rag_retriever_node
 from app.graph.nodes.skill_agent import (
+    build_default_skill_registry,
+    build_skill_agent_node,
     guard_skill_agent_node,
-    skill_agent_node as default_skill_agent_node,
 )
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
@@ -144,13 +143,22 @@ def _append_assistant_message(state: AgentState) -> None:
 
 def _with_harness(
     node_name: str,
-    node: Callable[[AgentState], AgentState],
+    node: Callable[..., AgentState],
     runner: NodeRunner,
-) -> Callable[[AgentState], AgentState]:
-    def wrapped(state: AgentState) -> AgentState:
+    *,
+    runtime_aware: bool = False,
+) -> Callable[..., AgentState]:
+    def execute(state: AgentState, runtime: Any | None = None) -> AgentState:
         previous_error_count = len(state["errors"])
         try:
-            result = runner.run(node_name, node, state, handle_recoverable_errors=False)
+            result = runner.run(
+                node_name,
+                node,
+                state,
+                runtime=runtime,
+                runtime_aware=runtime_aware,
+                handle_recoverable_errors=False,
+            )
             for error in result["errors"][previous_error_count:]:
                 if is_terminal_recoverable_code(error.get("code")):
                     raise AgentGraphExecutionError(
@@ -187,6 +195,15 @@ def _with_harness(
             graph_error.trace_recorded = True
             raise graph_error from exc
 
+    if runtime_aware:
+        def wrapped(state: AgentState, runtime: Any) -> AgentState:
+            return execute(state, runtime)
+
+        return wrapped
+
+    def wrapped(state: AgentState) -> AgentState:
+        return execute(state)
+
     return wrapped
 
 
@@ -216,13 +233,15 @@ def _node_retry_policy(node_name: str) -> RetryPolicy | None:
 def _add_harnessed_node(
     graph: StateGraph,
     node_name: str,
-    node: Callable[[AgentState], AgentState],
+    node: Callable[..., AgentState],
     runner: NodeRunner,
+    *,
+    runtime_aware: bool = False,
 ) -> None:
     handled_goto = None if node_name in {"synthesizer", "final_response"} else "synthesizer"
     graph.add_node(
         node_name,
-        _with_harness(node_name, node, runner),
+        _with_harness(node_name, node, runner, runtime_aware=runtime_aware),
         error_handler=build_node_error_handler(
             node_name,
             observer=runner.observer,
@@ -330,7 +349,7 @@ def build_question_answer_graph(
     retriever_node: Callable[[AgentState], AgentState],
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
-    memory_retriever: MemoryRetriever | None = None,
+    store: BaseStore | None = None,
     trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
@@ -349,8 +368,12 @@ def build_question_answer_graph(
         retriever_node=retriever_node,
     )
     tool_specs_snapshot = tuple(tool_registry_snapshot.specs())
+    selected_skill_registry = (
+        build_default_skill_registry() if skill_agent_node is None else None
+    )
     selected_skill_agent_node = guard_skill_agent_node(
-        skill_agent_node or default_skill_agent_node,
+        skill_agent_node
+        or build_skill_agent_node(registry=selected_skill_registry),
         tool_specs=tool_specs_snapshot,
     )
     if tool_agent_node is not None and not getattr(
@@ -363,11 +386,6 @@ def build_question_answer_graph(
         selected_tool_agent_node = build_tool_agent_node(
             registry_factory=lambda: tool_registry_snapshot,
             llm_client=llm_client,
-        )
-    selected_memory_manager_node = memory_manager_node
-    if memory_retriever is not None:
-        selected_memory_manager_node = build_memory_manager_node(
-            manager=MemoryManager(retrieve_memory=memory_retriever)
         )
     graph = StateGraph(AgentState)
     _add_harnessed_node(
@@ -386,16 +404,15 @@ def build_question_answer_graph(
     )
     _add_harnessed_node(
         graph,
-        "memory_manager",
-        selected_memory_manager_node,
-        runner,
-    )
-    _add_harnessed_node(
-        graph,
         "intent_router",
         build_llm_intent_router_node(
             llm_client=llm_client,
             available_tools=list(tool_specs_snapshot),
+            available_skills_provider=(
+                lambda tenant_id: selected_skill_registry.discover(tenant_id=tenant_id)
+                if selected_skill_registry is not None
+                else None
+            ),
         ),
         runner,
     )
@@ -447,8 +464,7 @@ def build_question_answer_graph(
 
     graph.set_entry_point("catalog_guard")
     graph.add_edge("catalog_guard", "attachment_analyzer")
-    graph.add_edge("attachment_analyzer", "memory_manager")
-    graph.add_edge("memory_manager", "intent_router")
+    graph.add_edge("attachment_analyzer", "intent_router")
     graph.add_edge("intent_router", "planner_agent")
     graph.add_conditional_edges(
         "planner_agent",
@@ -498,7 +514,7 @@ def build_question_answer_graph(
     graph.add_edge("verifier", "approval_coordinator")
     graph.add_edge("approval_coordinator", "final_response")
     graph.add_edge("final_response", END)
-    return graph.compile(checkpointer=checkpointer)
+    return graph.compile(checkpointer=checkpointer, store=store)
 
 
 def run_question_answer_graph(
@@ -517,7 +533,7 @@ def run_question_answer_graph(
     retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
-    memory_retriever: MemoryRetriever | None = None,
+    store: BaseStore | None = None,
     trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
@@ -543,7 +559,7 @@ def run_question_answer_graph(
         retriever_node=retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
-        memory_retriever=memory_retriever,
+        store=store,
         trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
@@ -573,7 +589,7 @@ def stream_question_answer_graph(
     retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
-    memory_retriever: MemoryRetriever | None = None,
+    store: BaseStore | None = None,
     trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer = None,
@@ -599,7 +615,7 @@ def stream_question_answer_graph(
         retriever_node=retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
-        memory_retriever=memory_retriever,
+        store=store,
         trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
@@ -634,7 +650,7 @@ def _prepare_question_answer_run(
     retriever_node: Callable[[AgentState], AgentState] | None,
     skill_agent_node: Callable[[AgentState], AgentState] | None,
     tool_agent_node: Callable[[AgentState], AgentState] | None,
-    memory_retriever: MemoryRetriever | None,
+    store: BaseStore | None,
     trace_buffer: TraceBuffer | None,
     trace_store: InMemoryTraceStore | None,
     checkpointer: Checkpointer,
@@ -674,7 +690,7 @@ def _prepare_question_answer_run(
         retriever_node=selected_retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
-        memory_retriever=memory_retriever,
+        store=store,
         trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,
@@ -688,19 +704,19 @@ def _prepare_question_answer_run(
     return state, graph, config
 
 
-def _checkpoint_config(state: AgentState | dict, *, enabled: bool) -> dict | None:
+def _checkpoint_config(state: AgentState | dict, *, enabled: bool) -> dict:
+    config: dict[str, Any] = {"recursion_limit": settings.graph_recursion_limit}
     if not enabled:
-        return None
-    return {
-        "configurable": {
-            "thread_id": build_checkpoint_thread_id(
-                tenant_id=state["tenant_id"],
-                session_key=state["session_key"],
-                request_id=state["request_id"],
-            ),
-            "checkpoint_ns": "",
-        }
+        return config
+    config["configurable"] = {
+        "thread_id": build_checkpoint_thread_id(
+            tenant_id=state["tenant_id"],
+            session_key=state["session_key"],
+            request_id=state["request_id"],
+        ),
+        "checkpoint_ns": "",
     }
+    return config
 
 
 def _state_from_stream_update(
@@ -728,7 +744,7 @@ def resume_question_answer_graph(
     retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
-    memory_retriever: MemoryRetriever | None = None,
+    store: BaseStore | None = None,
     trace_buffer: TraceBuffer | None = None,
     trace_store: InMemoryTraceStore | None = None,
     checkpointer: Checkpointer,
@@ -755,7 +771,7 @@ def resume_question_answer_graph(
         retriever_node=selected_retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
-        memory_retriever=memory_retriever,
+        store=store,
         trace_buffer=trace_buffer,
         trace_store=trace_store,
         checkpointer=checkpointer,

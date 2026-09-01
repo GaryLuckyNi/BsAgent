@@ -1,4 +1,5 @@
 import json
+import inspect
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
@@ -11,7 +12,6 @@ from pydantic import BaseModel, Field
 from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.retriever_agent import build_rag_retriever_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
-from app.graph.checkpoints import build_graph_checkpointer
 from app.graph import runtime
 from app.graph.runtime import (
     AgentGraphExecutionError,
@@ -21,6 +21,7 @@ from app.graph.runtime import (
     stream_question_answer_graph,
 )
 from app.graph.state import create_initial_state
+from app.tests.support.postgres_store import LivePostgresStore
 from app.schemas.approvals import ReadyToolCall
 from app.harness.tracing import InMemoryTraceStore
 from app.harness.trace_buffer import TraceBuffer
@@ -35,6 +36,10 @@ from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchTool
 from app.tools.registry import ToolRegistry
 from app.tools.registry import ExecutionBinding
+
+
+pytest_plugins = ("app.tests.support.postgres_store",)
+
 
 
 @pytest.fixture(autouse=True)
@@ -150,7 +155,8 @@ def test_graph_routes_validated_image_context_without_rag_or_tools():
     )
 
     node_names = [event.node_name for event in trace_store.list_events(state["trace_id"])]
-    assert node_names.index("attachment_analyzer") < node_names.index("memory_manager")
+    assert node_names.index("attachment_analyzer") < node_names.index("intent_router")
+    assert "memory_manager" not in node_names
     assert "analysis_agent" in node_names
     assert "retriever_agent" not in node_names
     assert "skill_agent" not in node_names
@@ -608,23 +614,30 @@ def test_question_answer_graph_can_use_injected_retriever_without_mock_evidence(
     assert result["verification"]["verdict"] == "pass"
 
 
-def test_question_answer_graph_runs_memory_manager_before_intent_router():
-    trace_store = InMemoryTraceStore()
-
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="记住我的语言偏好，所有的文档用中文",
-        mock_evidence=True,
-        trace_store=trace_store,
-        llm_client=ConversationRoutingLlmClient(),
+def test_question_answer_graph_compiles_with_native_postgres_store(
+    live_postgres_store: LivePostgresStore,
+):
+    graph = build_question_answer_graph(
+        retriever_node=lambda state: state,
+        store=live_postgres_store.store,
     )
 
-    assert result["memory_candidates"][0].memory_type == "user_preference"
-    node_names = [event.node_name for event in trace_store.events]
-    assert node_names.index("attachment_analyzer") < node_names.index("memory_manager")
-    assert node_names.index("memory_manager") < node_names.index("intent_router")
+    assert graph.store is live_postgres_store.store
+
+
+def test_graph_runtime_has_no_memory_manager_or_legacy_retriever_parameters():
+    graph = build_question_answer_graph(retriever_node=lambda state: state)
+
+    assert "memory_manager" not in graph.nodes
+    assert ("attachment_analyzer", "intent_router") in graph.builder.edges
+    for function in (
+        build_question_answer_graph,
+        run_question_answer_graph,
+        stream_question_answer_graph,
+        resume_question_answer_graph,
+        runtime._prepare_question_answer_run,
+    ):
+        assert "memory_retriever" not in inspect.signature(function).parameters
 
 
 def test_question_answer_graph_runs_planner_between_intent_and_skill():
@@ -1976,12 +1989,9 @@ def test_graph_rejects_schema_sensitive_arguments_before_approval():
     ]
 
 
-@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
 @pytest.mark.parametrize("request_version", ["1.0.0", "forged-version"])
 def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
-    checkpoint_backend,
     request_version,
-    tmp_path,
 ):
     class RuntimeInput(BaseModel):
         runtime_handle: str
@@ -1998,13 +2008,7 @@ def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
 
     registry = ToolRegistry()
     registry.register(RuntimeInjectedTool())
-    if checkpoint_backend == "memory":
-        checkpointer = InMemorySaver()
-    else:
-        checkpointer = build_graph_checkpointer(
-            backend="sqlite",
-            sqlite_path=str(tmp_path / "skill-guard.sqlite"),
-        )
+    checkpointer = InMemorySaver()
 
     def unsafe_skill(state):
         state["selected_skill"] = {
@@ -2053,23 +2057,9 @@ def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
         "checkpoint-secret" not in repr(checkpoint.checkpoint)
         for checkpoint in checkpointer.list(config)
     )
-    if checkpoint_backend == "sqlite":
-        checkpointer.conn.close()
-        build_graph_checkpointer.cache_clear()
 
-
-@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
-def test_skill_url_query_credentials_never_enter_checkpoint(
-    checkpoint_backend,
-    tmp_path,
-):
-    if checkpoint_backend == "memory":
-        checkpointer = InMemorySaver()
-    else:
-        checkpointer = build_graph_checkpointer(
-            backend="sqlite",
-            sqlite_path=str(tmp_path / "query-credential.sqlite"),
-        )
+def test_skill_url_query_credentials_never_enter_checkpoint():
+    checkpointer = InMemorySaver()
 
     def unsafe_skill(state):
         state["plan"] = (state["plan"] or {}) | {
@@ -2108,16 +2098,8 @@ def test_skill_url_query_credentials_never_enter_checkpoint(
         "query-checkpoint-secret" not in repr(checkpoint.checkpoint)
         for checkpoint in checkpointer.list(config)
     )
-    if checkpoint_backend == "sqlite":
-        checkpointer.conn.close()
-        build_graph_checkpointer.cache_clear()
 
-
-@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
-def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final(
-    checkpoint_backend,
-    tmp_path,
-):
+def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final():
     class FailureInput(BaseModel):
         value: str
 
@@ -2134,13 +2116,7 @@ def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final(
 
     registry = ToolRegistry()
     registry.register(FailingTool())
-    if checkpoint_backend == "memory":
-        checkpointer = InMemorySaver()
-    else:
-        checkpointer = build_graph_checkpointer(
-            backend="sqlite",
-            sqlite_path=str(tmp_path / "tool-failure.sqlite"),
-        )
+    checkpointer = InMemorySaver()
     trace_store = InMemoryTraceStore()
 
     def failing_skill(state):
@@ -2190,16 +2166,8 @@ def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final(
     )
     assert "tool-checkpoint-secret" not in serialized
     assert "dXNlcjpwYXNz" not in serialized
-    if checkpoint_backend == "sqlite":
-        checkpointer.conn.close()
-        build_graph_checkpointer.cache_clear()
 
-
-@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
-def test_malformed_result_after_approved_side_effect_is_checkpointed_without_replay(
-    checkpoint_backend,
-    tmp_path,
-):
+def test_malformed_result_after_approved_side_effect_is_checkpointed_without_replay():
     class WriteInput(BaseModel):
         value: str
 
@@ -2222,13 +2190,7 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
 
     registry = ToolRegistry(build_revision="build-1")
     registry.register(MalformedWriteTool())
-    if checkpoint_backend == "memory":
-        checkpointer = InMemorySaver()
-    else:
-        checkpointer = build_graph_checkpointer(
-            backend="sqlite",
-            sqlite_path=str(tmp_path / "malformed-side-effect.sqlite"),
-        )
+    checkpointer = InMemorySaver()
     trace_store = InMemoryTraceStore()
 
     def write_skill(state):
@@ -2324,16 +2286,8 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
     )
     assert replayed["final_response"]["response_type"] == "execution_error_response"
     assert provider_calls == ["write-once"]
-    if checkpoint_backend == "sqlite":
-        checkpointer.conn.close()
-        build_graph_checkpointer.cache_clear()
 
-
-@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
-def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts(
-    checkpoint_backend,
-    tmp_path,
-):
+def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts():
     class FailureInput(BaseModel):
         value: str
 
@@ -2358,13 +2312,7 @@ def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts(
 
     registry = ToolRegistry(build_revision="build-1")
     registry.register(MaliciousFailureTool())
-    if checkpoint_backend == "memory":
-        checkpointer = InMemorySaver()
-    else:
-        checkpointer = build_graph_checkpointer(
-            backend="sqlite",
-            sqlite_path=str(tmp_path / "malicious-result.sqlite"),
-        )
+    checkpointer = InMemorySaver()
     trace_store = InMemoryTraceStore()
 
     def failure_skill(state):
@@ -2420,16 +2368,8 @@ def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts(
         "runtime-trace-secret",
     ):
         assert secret not in serialized
-    if checkpoint_backend == "sqlite":
-        checkpointer.conn.close()
-        build_graph_checkpointer.cache_clear()
 
-
-@pytest.mark.parametrize("checkpoint_backend", ["memory", "sqlite"])
-def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
-    checkpoint_backend,
-    tmp_path,
-):
+def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay():
     provider_calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -2453,13 +2393,7 @@ def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
             config_revision="test",
         ),
     )
-    if checkpoint_backend == "memory":
-        checkpointer = InMemorySaver()
-    else:
-        checkpointer = build_graph_checkpointer(
-            backend="sqlite",
-            sqlite_path=str(tmp_path / "retriever-failure.sqlite"),
-        )
+    checkpointer = InMemorySaver()
 
     def rag_skill(state):
         state["selected_skill"] = {
@@ -2528,11 +2462,6 @@ def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
 
     assert replay_result["ready_tool_call"] is None
     assert len(provider_calls) == 1
-    if checkpoint_backend == "sqlite":
-        checkpointer.conn.close()
-        build_graph_checkpointer.cache_clear()
-
-
 def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     class FirstInput(BaseModel):
         value: str
@@ -3043,17 +2972,13 @@ def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
     assert provider_calls == []
 
 
-def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
-    build_graph_checkpointer.cache_clear()
-    checkpointer = build_graph_checkpointer(
-        backend="sqlite",
-        sqlite_path=str(tmp_path / "approval-checkpoints.sqlite"),
-    )
+def test_pending_descriptor_resumes_from_checkpointer():
+    checkpointer = InMemorySaver()
     calls = []
 
     def skill(state):
         state["selected_skill"] = {
-            "skill_name": "sqlite_resume",
+            "skill_name": "checkpoint_resume",
             "skill_version": "1.0.0",
             "status": "ready",
             "allowed_tools": ["rag_search"],
@@ -3064,7 +2989,7 @@ def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
                 ToolCallRequest(
                     tool_name="rag_search",
                     arguments={"query": "审批恢复"},
-                    purpose="验证 SQLite 恢复",
+                    purpose="验证 Checkpointer 恢复",
                     approval_required=True,
                 )
             ],
@@ -3074,7 +2999,7 @@ def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
     def retriever(state):
         calls.append(state["plan"]["requested_tools"][0].call_id)
         state["evidence"] = EvidencePackage(
-            evidence_package_id="evp_sqlite",
+            evidence_package_id="evp_checkpoint",
             query_set=["审批恢复"],
             coverage="none",
             items=[],
@@ -3110,39 +3035,3 @@ def test_pending_descriptor_resumes_from_sqlite_checkpoint(tmp_path):
     assert [item.call_id for item in completed["approved_tool_calls"]] == [
         approval["call_id"]
     ]
-    build_graph_checkpointer.cache_clear()
-
-
-def test_question_answer_graph_loads_injected_memory_retriever_context():
-    def retrieve_memory(query: str, *, tenant_id: str, user_id: str) -> EvidencePackage:
-        assert query == "你好"
-        assert tenant_id == "tenant_1"
-        assert user_id == "user_1"
-        return EvidencePackage(
-            evidence_package_id="evp_memory",
-            query_set=[query],
-            coverage="sufficient",
-            items=[
-                EvidenceItem(
-                    evidence_id="memory_1",
-                    chunk_id="experience/memcand_1",
-                    document_id="experience/user_1",
-                    title="用户偏好",
-                    content="用户偏好：所有回答用中文",
-                    score=1.0,
-                    metadata={"memory_type": "user_preference"},
-                )
-            ],
-        )
-
-    result = run_question_answer_graph(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="你好",
-        mock_evidence=True,
-        memory_retriever=retrieve_memory,
-    )
-
-    assert result["memory_context"].entries == ["用户偏好：所有回答用中文"]
-    assert result["memory_context"].sources == ["experience/memcand_1"]

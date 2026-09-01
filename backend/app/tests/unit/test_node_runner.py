@@ -62,6 +62,32 @@ def test_node_runner_records_success_event():
     assert trace_store.events[0].metadata["intent_decision"]["candidate_skill"] == "company_snapshot"
 
 
+def test_node_runner_executes_runtime_aware_node_without_owning_runtime():
+    runner = NodeRunner()
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="tenant_1",
+        user_id="user_1",
+        user_message="你好",
+    )
+    runtime = object()
+
+    def node(input_state, received_runtime):
+        assert received_runtime is runtime
+        input_state["intent"] = {"intent": "conversation"}
+        return input_state
+
+    result = runner.run(
+        "intent_router",
+        node,
+        state,
+        runtime=runtime,
+        runtime_aware=True,
+    )
+
+    assert result["intent"]["intent"] == "conversation"
+
+
 def test_node_runner_records_sanitized_input_and_output_artifacts():
     state = create_initial_state(
         session_id="s1",

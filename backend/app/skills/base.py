@@ -3,7 +3,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.evidence import EvidencePackage
-from app.schemas.memory import MemoryContext
 from app.schemas.tools import ToolCallRequest
 from app.tools.redaction import reject_inline_credentials
 
@@ -54,7 +53,6 @@ class Skill:
         user_message: str,
         context: dict[str, Any],
         evidence: EvidencePackage | None,
-        memory_context: MemoryContext | None,
     ) -> SkillOutput:
         output = self.run(
             run_id=run_id,
@@ -63,7 +61,6 @@ class Skill:
             user_message=user_message,
             context=context,
             evidence=evidence,
-            memory_context=memory_context,
         )
         for request in output.requested_tools:
             reject_inline_credentials(request.arguments)
@@ -86,6 +83,5 @@ class Skill:
         user_message: str,
         context: dict[str, Any],
         evidence: EvidencePackage | None,
-        memory_context: MemoryContext | None,
     ) -> SkillOutput:
         raise NotImplementedError

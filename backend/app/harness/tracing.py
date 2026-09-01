@@ -84,7 +84,6 @@ def measure_latency_ms(start: float) -> int:
 def summarize_state(state: AgentState) -> dict[str, Any]:
     evidence = state["evidence"]
     draft_answer = state["draft_answer"] or {}
-    memory_context = state["memory_context"]
     approval_status = state["approval_status"]
     return _redact(
         {
@@ -136,9 +135,6 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
             if draft_answer
             else None,
             "verification": _verification_summary(state),
-            "memory_context": {
-                "entry_count": len(memory_context.entries) if memory_context else 0,
-            },
             "memory_candidates": [
                 {
                     "candidate_id": candidate.candidate_id,

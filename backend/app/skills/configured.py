@@ -2,7 +2,6 @@ import re
 from typing import Any, Literal, cast
 
 from app.schemas.evidence import EvidencePackage
-from app.schemas.memory import MemoryContext
 from app.schemas.tools import ToolCallRequest
 from app.skills.base import ApprovalPolicy, Skill, SkillOutput, SkillSpec
 from app.skills.definitions import SkillDefinition, SkillExecutionGuide
@@ -85,7 +84,7 @@ class ConfiguredSkill(Skill):
             description=definition.description,
             supported_intents=definition.input_contract.get("supported_intents", []),
             required_inputs=["user_message"],
-            optional_inputs=["evidence", "memory_context"],
+            optional_inputs=["evidence"],
             output_schema=definition.output_contract,
             risk_level=cast(Literal["low", "medium", "high"], risk_level),
             approval_policy=ApprovalPolicy(require_human=risk_level == "high"),
@@ -101,7 +100,6 @@ class ConfiguredSkill(Skill):
         user_message: str,
         context: dict[str, Any],
         evidence: EvidencePackage | None,
-        memory_context: MemoryContext | None,
     ) -> SkillOutput:
         evidence_contract_failure = self._evidence_contract_failure()
         if evidence_contract_failure is not None:

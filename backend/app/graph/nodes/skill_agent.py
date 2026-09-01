@@ -24,7 +24,7 @@ class SkillToolRequestValidationError(ValueError):
 
 
 def build_skill_agent_node(*, registry: SkillRegistry | None = None):
-    selected_registry = registry or _default_skill_registry()
+    selected_registry = registry or build_default_skill_registry()
 
     def node(state: AgentState) -> AgentState:
         intent = state["intent"] or {}
@@ -47,7 +47,6 @@ def build_skill_agent_node(*, registry: SkillRegistry | None = None):
                 ),
             },
             evidence=state["evidence"],
-            memory_context=state["memory_context"],
         )
         state["selected_skill"] = {
             "skill_name": output.skill_name,
@@ -164,7 +163,7 @@ def _is_inline_credential_error(exc: ValidationError) -> bool:
     )
 
 
-def _default_skill_registry() -> SkillRegistry:
+def build_default_skill_registry() -> SkillRegistry:
     if settings.skill_registry_base_url:
         client = httpx.Client(
             base_url=settings.skill_registry_base_url,

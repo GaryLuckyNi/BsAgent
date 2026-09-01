@@ -3,10 +3,7 @@ import json
 import pytest
 from pydantic import BaseModel
 
-from app.graph.nodes.approval_coordinator import (
-    approval_coordinator_node,
-    build_approval_coordinator_node,
-)
+from app.graph.nodes.approval_coordinator import approval_coordinator_node
 from app.graph.nodes.analysis_agent import analysis_agent_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.nodes.skill_agent import build_skill_agent_node
@@ -20,9 +17,7 @@ from app.graph.nodes.synthesizer import (
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.nodes.verifier import verifier_node
 from app.graph.state import create_initial_state
-from app.schemas.approvals import ApprovalRequest
 from app.schemas.evidence import EvidenceItem, EvidencePackage
-from app.schemas.memory import MemoryCandidate, MemoryContext
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError
 from app.schemas.tools import ToolSpec
 from app.llm.schemas import LlmCompletionResult
@@ -78,14 +73,6 @@ def test_equity_deterministic_fallback_groups_facts_and_guides_next_research_ste
     assert "归母净利润" in financial_section
     assert "市盈率" in market_section
     assert "下一步" in rendered
-
-
-class RecordingExperienceStore:
-    def __init__(self) -> None:
-        self.payloads = []
-
-    def save(self, payload) -> None:
-        self.payloads.append(payload)
 
 
 class RecordingSkill(Skill):
@@ -885,7 +872,6 @@ def test_skill_agent_selects_and_runs_registered_skill_with_runtime_context():
         "reason_codes": ["policy_question"],
         "next_node": "skill_agent",
     }
-    state["memory_context"] = MemoryContext(entries=["用户偏好：所有回答用中文"])
     state["image_analyses"] = [
         {
             "asset_id": "asset-1",
@@ -919,7 +905,7 @@ def test_skill_agent_selects_and_runs_registered_skill_with_runtime_context():
     assert result["plan"]["execution_steps"] == ["select_skill", "retrieve_evidence"]
     assert result["plan"]["skill_output"]["skill_name"] == "recording_skill"
     assert result["plan"]["requested_tools"][0].tool_name == "rag_search"
-    assert skill.calls[0]["memory_context"].entries == ["用户偏好：所有回答用中文"]
+    assert "memory_context" not in skill.calls[0]
     assert skill.calls[0]["context"]["image_analyses"] == [
         {
             "analysis_id": "analysis-1",
@@ -1567,7 +1553,6 @@ def test_configured_skill_requests_admin_allowed_stock_tools_and_rag_search():
         user_message="分析一下贵州茅台",
         context={"intent": {"sub_intent": "company_snapshot"}},
         evidence=None,
-        memory_context=None,
     )
     request_names = [request.tool_name for request in output.requested_tools]
 
@@ -1606,7 +1591,6 @@ def test_configured_skill_extracts_company_query_from_technical_indicator_reques
         user_message="分析一下银之杰技术指标",
         context={"intent": {"sub_intent": "company_snapshot"}},
         evidence=None,
-        memory_context=None,
     )
 
     assert output.requested_tools[0].arguments["query"] == "银之杰"
@@ -1636,7 +1620,6 @@ def test_configured_skill_uses_image_entities_for_company_resolution():
             ],
         },
         evidence=None,
-        memory_context=None,
     )
 
     assert output.requested_tools[0].arguments["query"] == "600519"
@@ -1656,7 +1639,6 @@ def test_configured_skill_requires_approval_for_high_risk_definition():
         user_message="分析宁德时代最近有什么风险",
         context={"intent": {"sub_intent": "risk_scan"}},
         evidence=None,
-        memory_context=None,
     )
     assert output.requested_tools[0].approval_required is True
 
@@ -1676,7 +1658,6 @@ def test_configured_skill_parses_financial_report_periods():
         user_message="分析宁德时代 2024 年报",
         context={"intent": {"sub_intent": "financial_report_analysis"}},
         evidence=None,
-        memory_context=None,
     )
     half_year_output = skill.run_validated(
         run_id="run_1",
@@ -1685,7 +1666,6 @@ def test_configured_skill_parses_financial_report_periods():
         user_message="分析宁德时代 2024 半年报",
         context={"intent": {"sub_intent": "financial_report_analysis"}},
         evidence=None,
-        memory_context=None,
     )
 
     assert annual_output.requested_tools[1].arguments["period"] == "2024"
@@ -1721,7 +1701,6 @@ def test_configured_skill_matches_market_capability_with_arbitrary_mcp_server_na
         user_message="分析宁德时代 2024 年报",
         context={"intent": {"sub_intent": "financial_report_analysis"}},
         evidence=None,
-        memory_context=None,
     )
 
     resolver, financial = output.requested_tools
@@ -1776,7 +1755,6 @@ def test_configured_skill_refuses_all_tools_when_market_evidence_contract_is_mis
         user_message="分析贵州茅台",
         context={"intent": {"sub_intent": "company_snapshot"}},
         evidence=None,
-        memory_context=None,
     )
 
     assert output.status == "failed"
@@ -1798,7 +1776,6 @@ def test_configured_skill_refuses_invalid_admin_evidence_contract():
         user_message="分析贵州茅台",
         context={"intent": {"sub_intent": "company_snapshot"}},
         evidence=None,
-        memory_context=None,
     )
 
     assert output.status == "failed"
@@ -1832,7 +1809,6 @@ def test_configured_skill_rejects_contract_capability_not_present_in_allowed_too
         user_message="分析贵州茅台",
         context={"intent": {"sub_intent": "company_snapshot"}},
         evidence=None,
-        memory_context=None,
     )
 
     assert output.status == "failed"
@@ -3925,36 +3901,14 @@ def test_analysis_synthesizer_and_verifier_pass_with_cited_evidence():
     assert state["verification"]["verdict"] == "pass"
 
 
-def test_synthesizer_applies_chinese_response_preference_from_memory_context():
+def test_initial_state_has_no_memory_context():
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
         user_message="What documents are required for reimbursement?",
     )
-    state["memory_context"] = MemoryContext(
-        entries=["用户偏好：所有回答用中文"],
-        sources=["experience/memcand_1"],
-    )
-    state["evidence"] = EvidencePackage(
-        evidence_package_id="evp_1",
-        query_set=["reimbursement documents"],
-        coverage="sufficient",
-        items=[
-            EvidenceItem(
-                evidence_id="ev_1",
-                chunk_id="chunk_1",
-                document_id="doc_1",
-                title="Reimbursement Policy",
-                content="Submit invoices and approval forms.",
-                score=0.95,
-            )
-        ],
-    )
-
-    result = synthesizer_node(state)
-
-    assert result["draft_answer"]["content"].startswith("按你的中文偏好回答：")
+    assert "memory_context" not in state
 
 
 def test_synthesizer_renders_direct_response_plan_without_evidence():
@@ -4504,103 +4458,3 @@ def test_approval_coordinator_marks_uncited_draft_as_pending():
     assert state["verification"]["verdict"] == "needs_approval"
     assert state["approval_status"].required is True
     assert state["approval_status"].status == "pending"
-
-
-def test_approval_coordinator_commits_approved_memory_candidate_to_experience_store():
-    state = create_initial_state(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="记住我的语言偏好，所有的文档用中文",
-    )
-    state["memory_candidates"] = [
-        MemoryCandidate(
-            candidate_id="memcand_1",
-            memory_type="user_preference",
-            content="所有的文档用中文",
-            confidence=0.9,
-            approval_status="approved",
-            sensitivity="low",
-            source="user_explicit_preference",
-        )
-    ]
-    state["approval_requests"] = [
-        ApprovalRequest(
-            approval_id="approval_1",
-            run_id=state["request_id"],
-            approval_type="memory_write",
-            risk_level="low",
-            payload={"candidate_id": "memcand_1"},
-            status="approved",
-        )
-    ]
-    store = RecordingExperienceStore()
-
-    result = build_approval_coordinator_node(experience_store=store)(state)
-
-    assert result["memory_candidates"][0].approval_status == "approved"
-    assert store.payloads[0].candidate_id == "memcand_1"
-    assert store.payloads[0].content == "所有的文档用中文"
-    assert result["approval_requests"][0].payload["experience_committed"] is True
-
-
-def test_approval_coordinator_does_not_commit_memory_candidate_twice():
-    state = create_initial_state(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="记住我的语言偏好，所有的文档用中文",
-    )
-    state["memory_candidates"] = [
-        MemoryCandidate(
-            candidate_id="memcand_1",
-            memory_type="user_preference",
-            content="所有的文档用中文",
-            confidence=0.9,
-            approval_status="approved",
-            sensitivity="low",
-            source="user_explicit_preference",
-        )
-    ]
-    state["approval_requests"] = [
-        ApprovalRequest(
-            approval_id="approval_1",
-            run_id=state["request_id"],
-            approval_type="memory_write",
-            risk_level="low",
-            payload={"candidate_id": "memcand_1", "experience_committed": True},
-            status="approved",
-        )
-    ]
-    store = RecordingExperienceStore()
-
-    build_approval_coordinator_node(experience_store=store)(state)
-
-    assert store.payloads == []
-
-
-def test_approval_coordinator_commits_explicit_low_risk_memory_without_approval():
-    state = create_initial_state(
-        session_id="s1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="记住我的语言偏好：以后都用中文",
-    )
-    state["memory_candidates"] = [
-        MemoryCandidate(
-            candidate_id="memcand_1",
-            memory_type="user_preference",
-            memory_key="language",
-            content="以后都用中文",
-            confidence=0.9,
-            approval_status="not_required",
-            sensitivity="low",
-            source="user_explicit_preference",
-        )
-    ]
-    store = RecordingExperienceStore()
-
-    build_approval_coordinator_node(experience_store=store)(state)
-
-    assert len(store.payloads) == 1
-    assert store.payloads[0].memory_key == "language"

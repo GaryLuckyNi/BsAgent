@@ -11,7 +11,7 @@ from app.schemas.approvals import (
     ReadyToolCall,
 )
 from app.schemas.evidence import EvidencePackage
-from app.schemas.memory import MemoryCandidate, MemoryContext
+from app.schemas.memory import MemoryCandidate
 from app.schemas.messages import Message
 from app.schemas.tools import ToolCallRecord
 
@@ -219,7 +219,6 @@ class AgentState(TypedDict):
     analysis: AnalysisResult | None
     draft_answer: DraftAnswer | None
     verification: VerificationResult | None
-    memory_context: MemoryContext | None
     memory_candidates: list[MemoryCandidate]
     approval_requests: list[ApprovalRequest]
     approval_status: ApprovalStatus | None
@@ -289,7 +288,6 @@ def create_initial_state(
         "analysis": None,
         "draft_answer": None,
         "verification": None,
-        "memory_context": MemoryContext(),
         "memory_candidates": [],
         "approval_requests": [],
         "approval_status": None,

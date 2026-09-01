@@ -279,5 +279,4 @@ def test_skill_validates_requested_tools_against_allowlist():
             user_message="分析一下示例公司",
             context={},
             evidence=None,
-            memory_context=None,
         )

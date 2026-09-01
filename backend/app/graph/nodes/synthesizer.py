@@ -5,7 +5,6 @@ import re
 from app.graph.state import AgentState, AnswerClaim
 from app.llm.factory import LlmClient
 from app.schemas.evidence import EvidencePackage
-from app.schemas.memory import MemoryContext
 
 
 FORBIDDEN_BRAND_PATTERNS = (
@@ -289,7 +288,6 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
         missing_information = analysis.get("missing_information", [])
         response_policy = _build_response_policy(
             evidence=evidence,
-            memory_context=state["memory_context"],
             llm_client=llm_client,
         )
         response_policy.update(plan_response_policy)
@@ -302,10 +300,7 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
             response_policy["response_type"] = "execution_error_response"
             error_code = handled_error.get("code", "tool_execution_failed")
             state["draft_answer"] = {
-                "content": _finalize_response_content(
-                    _safe_handled_error_message(handled_error),
-                    state["memory_context"],
-                ),
+                "content": _finalize_response_content(_safe_handled_error_message(handled_error)),
                 "claims": [],
                 "cited_evidence_ids": [],
                 "missing_information": [error_code],
@@ -324,7 +319,7 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
                 llm_client=llm_client,
             )
             state["draft_answer"] = {
-                "content": _finalize_response_content(content, state["memory_context"]),
+                "content": _finalize_response_content(content),
                 "claims": [],
                 "cited_evidence_ids": [],
                 "missing_information": missing_information,
@@ -343,7 +338,7 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
                 llm_client=llm_client,
             )
             state["draft_answer"] = {
-                "content": _finalize_response_content(content, state["memory_context"]),
+                "content": _finalize_response_content(content),
                 "claims": [],
                 "cited_evidence_ids": [],
                 "missing_information": [] if state["tool_calls"] else ["没有工具调用结果"],
@@ -360,7 +355,7 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
                 llm_client=llm_client,
             )
             state["draft_answer"] = {
-                "content": _finalize_response_content(content, state["memory_context"]),
+                "content": _finalize_response_content(content),
                 "claims": [],
                 "cited_evidence_ids": [],
                 "missing_information": missing_information,
@@ -386,7 +381,7 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
                 llm_client=llm_client,
             )
             state["draft_answer"] = {
-                "content": _finalize_response_content(content, state["memory_context"]),
+                "content": _finalize_response_content(content),
                 "claims": claims,
                 "cited_evidence_ids": cited_evidence_ids,
                 "missing_information": missing_information,
@@ -399,7 +394,7 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
         if evidence is None or not evidence.items:
             content = "当前知识库没有检索到足够证据，无法给出可靠结论。"
             state["draft_answer"] = {
-                "content": _finalize_response_content(content, state["memory_context"]),
+                "content": _finalize_response_content(content),
                 "claims": [],
                 "cited_evidence_ids": [],
                 "missing_information": missing_information or ["没有可用证据"],
@@ -433,7 +428,7 @@ def build_synthesizer_node(*, llm_client: LlmClient | None = None):
             llm_client=llm_client,
         )
         state["draft_answer"] = {
-            "content": _finalize_response_content(rendered_content, state["memory_context"]),
+            "content": _finalize_response_content(rendered_content),
             "claims": claims,
             "cited_evidence_ids": cited_evidence_ids,
             "missing_information": missing_information,
@@ -1557,7 +1552,7 @@ def _render_direct_response_content(
                     "你是 BsAgent 的最终回答渲染器，不代表任何模型厂商。"
                     "不得提及 DeepSeek、模型名称、API provider。"
                     "不得说“我是 DeepSeek”“作为大语言模型”“我是 AI 助手”。"
-                    "你只能基于 user_message、intent、plan 和 memory_context 回答。"
+                    "你只能基于 user_message、intent 和 plan 回答。"
                     "没有执行工具或检索时，不得声称已经执行或查询外部知识库。"
                     "BsAgent 是投研优先的专业助手。投研相关问题应专业回答并引导下一步研究；"
                     "寒暄、产品帮助和简单金融通识可直接回答；明显与投研无关的专业任务"
@@ -1569,7 +1564,6 @@ def _render_direct_response_content(
                         "user_message": state["user_message"],
                         "intent": state["intent"],
                         "plan": state["plan"],
-                        "memory_context": _memory_context_payload(state["memory_context"]),
                         "response_policy": response_policy,
                     },
                     ensure_ascii=False,
@@ -1650,11 +1644,10 @@ def _render_content(
 def _build_response_policy(
     *,
     evidence: EvidencePackage | None,
-    memory_context: MemoryContext | None,
     llm_client: LlmClient | None = None,
 ) -> dict:
     return {
-        "language": _preferred_language(memory_context),
+        "language": "default",
         "format": "concise_answer",
         "citation_style": "inline_title",
         "coverage": evidence.coverage if evidence is not None else "none",
@@ -1708,25 +1701,8 @@ def _render_with_llm(
     return _normalize_brand_voice(result.content)
 
 
-def _preferred_language(memory_context: MemoryContext | None) -> str:
-    if memory_context is None:
-        return "default"
-    joined_entries = "\n".join(memory_context.entries)
-    if any(marker in joined_entries for marker in ("用中文", "中文回答", "中文文档")):
-        return "zh"
-    return "default"
-
-
-def _apply_memory_preferences(content: str, memory_context: MemoryContext | None) -> str:
-    if memory_context is None:
-        return content
-    if _preferred_language(memory_context) == "zh":
-        return f"按你的中文偏好回答：{content}"
-    return content
-
-
-def _finalize_response_content(content: str, memory_context: MemoryContext | None) -> str:
-    return _apply_memory_preferences(_normalize_brand_voice(content), memory_context)
+def _finalize_response_content(content: str) -> str:
+    return _normalize_brand_voice(content)
 
 
 def _normalize_brand_voice(content: str) -> str:
@@ -1737,12 +1713,3 @@ def _normalize_brand_voice(content: str) -> str:
     if not normalized:
         return "我已处理完成，但当前没有可展示的文本结果。"
     return normalized
-
-
-def _memory_context_payload(memory_context: MemoryContext | None) -> dict:
-    if memory_context is None:
-        return {"entries": [], "sources": []}
-    return {
-        "entries": memory_context.entries,
-        "sources": memory_context.sources,
-    }

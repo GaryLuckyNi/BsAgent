@@ -106,7 +106,6 @@ _SAFE_OBJECT_KEYS = {
     "evidence",
     "final_response",
     "intent_decision",
-    "memory_context",
     "plan",
     "planner_decision",
     "retrieval",

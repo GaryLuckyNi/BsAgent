@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Any
 
 from langgraph.errors import GraphInterrupt
 
@@ -28,14 +29,16 @@ class NodeRunner:
     def run(
         self,
         node_name: str,
-        node: Callable[[AgentState], AgentState],
+        node: Callable[..., AgentState],
         state: AgentState,
         *,
+        runtime: Any | None = None,
+        runtime_aware: bool = False,
         handle_recoverable_errors: bool = False,
     ) -> AgentState:
         observation = self.observer.observe_start(node_name, state)
         try:
-            result = node(state)
+            result = node(state, runtime) if runtime_aware else node(state)
             self.observer.record_success(observation=observation, state=result)
             return result
         except GraphInterrupt:
