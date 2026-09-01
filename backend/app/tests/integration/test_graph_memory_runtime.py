@@ -1,6 +1,7 @@
 from app.graph.runtime import run_question_answer_graph
 from app.memory.preferences import experience_namespace
 from app.tests.support.postgres_store import LivePostgresStore
+from app.tools.registry import ToolRegistry
 
 
 pytest_plugins = ("app.tests.support.postgres_store",)
@@ -33,6 +34,7 @@ def test_graph_reads_runtime_preferences_and_isolates_identities(
         user_id="user-a",
         user_message="你好",
         store=store,
+        tool_registry_factory=ToolRegistry,
     )
 
     assert state["plan"]["response_policy"]["language"] == "english"
