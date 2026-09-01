@@ -45,6 +45,7 @@ from app.harness.trace_buffer import TraceBuffer
 from app.llm.deepseek import LlmConfigurationError
 from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
+from app.memory.synchronizer import sync_committed_run
 from app.memory.short_term_factory import build_short_term_memory_store
 from app.memory.short_term_store import ShortTermMemoryStore
 from app.operations.rate_limit import RateLimitPolicy, require_rate_limit
@@ -486,6 +487,7 @@ def _run_and_persist_agent_message(
                 metadata=_assistant_response_metadata(final_response),
             )
         db.commit()
+        sync_committed_run(db=db, store=memory_store, run_id=handle.run_id)
         if not interrupt_payloads:
             _record_short_term_session_event(
                 store=build_short_term_memory_store(),
@@ -706,6 +708,7 @@ def _stream_agent_message(
                 run_id=handle.run_id,
             )
         db.commit()
+        sync_committed_run(db=db, store=memory_store, run_id=handle.run_id)
         if interrupt_payloads:
             finalized = True
             trace_lifecycle.failed = False

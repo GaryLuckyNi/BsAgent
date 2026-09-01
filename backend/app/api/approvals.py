@@ -35,6 +35,7 @@ from app.harness.persistence import (
 from app.harness.trace_buffer import TraceBuffer
 from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
+from app.memory.synchronizer import sync_committed_run
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
 from app.security.rbac import get_rbac_provider
@@ -344,6 +345,11 @@ def decide_approval(
                 )
         approval_payload = _approval_payload(record)
         db.commit()
+        sync_committed_run(
+            db=db,
+            store=memory_store,
+            run_id=resume_snapshot.run_id,
+        )
     except SQLAlchemyError as exc:
         try:
             _record_resume_failure(

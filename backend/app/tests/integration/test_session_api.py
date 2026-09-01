@@ -1165,7 +1165,14 @@ def test_post_session_message_uses_graph_checkpointer(monkeypatch):
     assert captured["checkpointer"] is checkpointer
 
 
-def test_post_session_message_persists_memory_candidate_without_store_write(monkeypatch):
+def test_post_session_message_syncs_committed_memory_candidate_to_store(monkeypatch):
+    class RecordingStore:
+        def __init__(self):
+            self.calls = []
+
+        def put(self, namespace, key, value):
+            self.calls.append((namespace, key, value))
+
     def fake_graph(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         state["memory_candidates"] = [
@@ -1199,6 +1206,8 @@ def test_post_session_message_persists_memory_candidate_without_store_write(monk
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
     app, testing_session_local = create_test_app_with_database()
+    store = RecordingStore()
+    app.dependency_overrides[get_memory_store] = lambda: store
     client = TestClient(app)
 
     response = client.post(
@@ -1216,6 +1225,8 @@ def test_post_session_message_persists_memory_candidate_without_store_write(monk
 
     assert saved.candidate_id == "memcand_1"
     assert saved.content == "所有的文档用中文"
+    assert saved.store_sync_status == "synced"
+    assert store.calls[0][1] == "memcand_1"
 
 
 def test_approval_api_uses_dependency_principal_for_tenant_scope():
