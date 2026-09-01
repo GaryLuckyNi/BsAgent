@@ -1,8 +1,11 @@
+from collections.abc import Callable
+
 from app.graph.state import AgentState
 from app.graph.image_context import summarize_image_analyses
 from app.intent.router import HybridIntentRouter
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolSpec
+from app.skills.definitions import SkillCard
 from app.tools.default_registry import list_default_tool_specs
 
 
@@ -10,10 +13,14 @@ def build_intent_router_node(
     *,
     router: HybridIntentRouter | None = None,
     available_tools: list[ToolSpec] | None = None,
+    available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
 ):
     selected_router = router or HybridIntentRouter()
     if router is None and available_tools is not None:
-        selected_router = HybridIntentRouter(available_tools=available_tools)
+        selected_router = HybridIntentRouter(
+            available_tools=available_tools,
+            available_skills_provider=available_skills_provider,
+        )
 
     def node(state: AgentState) -> AgentState:
         decision = selected_router.route(
@@ -36,6 +43,7 @@ def build_llm_intent_router_node(
     *,
     llm_client: LlmClient | None = None,
     available_tools: list[ToolSpec] | None = None,
+    available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
 ):
     return build_intent_router_node(
         router=HybridIntentRouter(
@@ -45,6 +53,7 @@ def build_llm_intent_router_node(
                 if available_tools is None
                 else available_tools
             ),
+            available_skills_provider=available_skills_provider,
         )
     )
 

@@ -6,6 +6,7 @@ from app.intent.catalog import BusinessIntentCatalog
 from app.intent.schemas import IntentDecisionModel, IntentSignal
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolSpec
+from app.skills.definitions import SkillCard
 
 
 class RuleOnlyIntentClassifier:
@@ -54,10 +55,12 @@ class LlmIntentClassifier:
         llm_client: LlmClient,
         catalog: BusinessIntentCatalog,
         available_tools: list[ToolSpec] | None = None,
+        available_skills: list[SkillCard] | None = None,
     ) -> None:
         self._llm_client = llm_client
         self._catalog = catalog
         self._available_tools = available_tools or []
+        self._available_skills = available_skills or []
 
     def classify(
         self,
@@ -77,7 +80,8 @@ class LlmIntentClassifier:
                     "明显与投研无关的专业任务应输出 intent=unsupported、domain=out_of_scope，"
                     "由回答层说明能力边界，不要伪装成对应领域专家。"
                     "如果 available_tools 中存在能完成用户目标的工具，优先输出 intent=tool_action "
-                    "并填写 candidate_tool。输出必须是单行紧凑 JSON，不要使用 Markdown。"
+                    "并填写 candidate_tool。candidate_skill 只能从 available_skills 的 name 中选择；"
+                    "没有匹配 Skill 时填写 null。输出必须是单行紧凑 JSON，不要使用 Markdown。"
                 ),
                 user_prompt=json.dumps(
                     {
@@ -107,6 +111,17 @@ class LlmIntentClassifier:
                                 "permission_scope": tool.permission_scope,
                             }
                             for tool in self._available_tools
+                        ],
+                        "available_skills": [
+                            {
+                                "name": skill.name,
+                                "version": skill.version,
+                                "summary": skill.summary,
+                                "supported_intents": skill.supported_intents,
+                                "tags": skill.tags,
+                                "risk_level": skill.risk_level,
+                            }
+                            for skill in self._available_skills
                         ],
                         "required_schema": {
                             "intent": "string",

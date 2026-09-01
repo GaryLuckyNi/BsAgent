@@ -4,6 +4,7 @@ from io import StringIO
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
 
 from app.operations.observability import (
     RequestContextMiddleware,
@@ -105,11 +106,13 @@ def test_safe_json_formatter_redacts_fields_and_inline_credentials():
     assert "abcdefghijklmnop" not in serialized
 
 
-def test_created_application_installs_request_context_middleware():
-    from app.main import create_app
+def test_created_application_installs_request_context_middleware(monkeypatch):
+    from app import main as main_module
     from app.operations.health import ReadinessService
 
-    app = create_app(readiness_service=ReadinessService(probes=[]))
+    monkeypatch.setattr(main_module, "build_graph_checkpointer", InMemorySaver)
+    monkeypatch.setattr(main_module, "close_graph_checkpointer", lambda: None)
+    app = main_module.create_app(readiness_service=ReadinessService(probes=[]))
     with TestClient(app) as client:
         response = client.get(
             "/health/live",

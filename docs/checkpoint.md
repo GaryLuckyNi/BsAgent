@@ -85,15 +85,9 @@ Graph 节点事件先写入每 Run 有界 `TraceBuffer`。业务 Message 与 Run
 
 ## 当前后端
 
-`BS_AGENT_GRAPH_CHECKPOINTER_BACKEND` 支持：
-
-- `sqlite`：默认值，使用官方 `langgraph-checkpoint-sqlite` 包，适合本地持久化和单机部署验证。
-- `postgres`：使用官方 `langgraph-checkpoint-postgres` 的 `PostgresSaver` 和
-  `psycopg_pool.ConnectionPool`，是多实例生产部署的唯一允许值。
-- `memory`：使用 LangGraph `InMemorySaver`，只适合单测、临时开发和不需要跨进程恢复的场景。
-- `none`：关闭 checkpoint，适合临时排查或不需要恢复能力的任务。
-
-SQLite 路径由 `BS_AGENT_GRAPH_CHECKPOINT_SQLITE_PATH` 控制，默认是 `./bs_agent_checkpoints.sqlite`。相对路径会按项目根目录解析，避免不同启动目录写到不同数据库文件。
+运行时仅支持官方 `langgraph-checkpoint-postgres` 的 `PostgresSaver`，并通过
+`psycopg_pool.ConnectionPool` 在每个服务进程内复用连接池。必须配置
+`BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL`；未配置时服务启动失败。
 
 ## 生产建议
 

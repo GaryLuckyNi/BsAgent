@@ -1,3 +1,5 @@
+import json
+
 from app.intent.catalog import BusinessIntentCatalog
 import pytest
 
@@ -6,6 +8,7 @@ from app.intent.schemas import IntentDecisionModel
 from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult
+from app.skills.definitions import SkillCard
 
 
 class FakeLlmClient:
@@ -136,6 +139,98 @@ def test_hybrid_intent_router_can_use_llm_classification_for_business_intent():
         next_node="planner_agent",
     )
     assert llm_client.calls
+
+
+def test_llm_intent_classifier_receives_tenant_skill_cards():
+    llm_client = FakeLlmClient(
+        """
+        {
+          "intent": "task_workflow",
+          "domain": "a_share_equity_research",
+          "sub_intent": "company_snapshot",
+          "candidate_skill": "company_snapshot",
+          "candidate_tool": null,
+          "risk_level": "medium",
+          "confidence": 0.91,
+          "needs_clarification": false,
+          "reason_codes": ["classifier_selected_skill"]
+        }
+        """
+    )
+    requested_tenants: list[str] = []
+    router = HybridIntentRouter(
+        catalog=BusinessIntentCatalog.load_default(),
+        llm_client=llm_client,
+        available_skills_provider=lambda tenant_id: (
+            requested_tenants.append(tenant_id)
+            or [
+                SkillCard(
+                    name="company_snapshot",
+                    version="2.0.0",
+                    summary="生成 A 股公司的基本面与市场数据速览",
+                    supported_intents=["task_workflow"],
+                    tags=["a_share_equity_research", "company_snapshot"],
+                    risk_level="medium",
+                    definition_hash="skill-company-snapshot-v2",
+                )
+            ]
+        ),
+    )
+
+    decision = router.route(
+        message="帮我梳理这家公司的竞争格局",
+        tenant_id="tenant_skill_cards",
+        user_id="user_1",
+    )
+
+    assert decision.candidate_skill == "company_snapshot"
+    assert requested_tenants == ["tenant_skill_cards"]
+    payload = json.loads(llm_client.calls[0]["user_prompt"])
+    assert payload["available_skills"] == [
+        {
+            "name": "company_snapshot",
+            "version": "2.0.0",
+            "summary": "生成 A 股公司的基本面与市场数据速览",
+            "supported_intents": ["task_workflow"],
+            "tags": ["a_share_equity_research", "company_snapshot"],
+            "risk_level": "medium",
+        }
+    ]
+
+
+def test_llm_intent_classifier_degrades_to_empty_skill_cards_when_registry_unavailable():
+    llm_client = FakeLlmClient(
+        """
+        {
+          "intent": "unsupported",
+          "domain": "out_of_scope",
+          "sub_intent": "software_development",
+          "candidate_skill": null,
+          "candidate_tool": null,
+          "risk_level": "low",
+          "confidence": 0.91,
+          "needs_clarification": false,
+          "reason_codes": ["classifier_selected_unsupported"]
+        }
+        """
+    )
+    router = HybridIntentRouter(
+        catalog=BusinessIntentCatalog.load_default(),
+        llm_client=llm_client,
+        available_skills_provider=lambda _tenant_id: (_ for _ in ()).throw(
+            RuntimeError("registry unavailable")
+        ),
+    )
+
+    decision = router.route(
+        message="帮我写一个 Vue 组件",
+        tenant_id="tenant_unavailable",
+        user_id="user_1",
+    )
+
+    assert decision.intent == "unsupported"
+    payload = json.loads(llm_client.calls[0]["user_prompt"])
+    assert payload["available_skills"] == []
 
 
 def test_llm_intent_classifier_receives_balanced_research_boundary_policy():

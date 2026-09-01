@@ -37,7 +37,6 @@ def test_live_postgres_saver_persists_and_reads_graph_state():
     builder.add_edge(START, "increment")
     builder.add_edge("increment", END)
     checkpointer = build_graph_checkpointer(
-        backend="postgres",
         postgres_url=postgres_url,
     )
     graph = builder.compile(checkpointer=checkpointer)
@@ -76,7 +75,6 @@ def test_live_postgres_isolates_same_external_session_across_tenants():
         hide_password=False
     )
     checkpointer = build_graph_checkpointer(
-        backend="postgres",
         postgres_url=checkpoint_url,
     )
 

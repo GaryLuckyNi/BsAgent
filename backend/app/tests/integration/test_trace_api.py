@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.memory import InMemorySaver
 import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -36,6 +37,7 @@ from app.tools.registry import ToolRegistry
 @pytest.fixture(autouse=True)
 def avoid_live_llm_provider(monkeypatch):
     monkeypatch.setattr(sessions, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(sessions, "build_graph_checkpointer", InMemorySaver)
     monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
 
 

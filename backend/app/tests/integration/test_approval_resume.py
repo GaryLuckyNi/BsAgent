@@ -2,6 +2,8 @@ import json
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
+import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Interrupt
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
@@ -22,6 +24,11 @@ from app.storage.models import (
     ApprovalRecord,
     Base,
 )
+
+
+@pytest.fixture(autouse=True)
+def _inject_test_checkpointer(monkeypatch):
+    monkeypatch.setattr(approvals, "build_graph_checkpointer", InMemorySaver)
 
 
 def _test_app():

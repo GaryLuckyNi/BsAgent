@@ -106,6 +106,8 @@ def test_experience_commit_failure_does_not_raise_and_is_observable():
 @pytest.fixture(autouse=True)
 def isolate_session_api_tests_from_external_mcp(monkeypatch):
     monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
+    monkeypatch.setattr(sessions, "build_graph_checkpointer", InMemorySaver)
+    monkeypatch.setattr(approvals, "build_graph_checkpointer", InMemorySaver)
 
 
 class PreferenceResponseLlmClient:

@@ -4,8 +4,6 @@ from types import ModuleType
 
 import pytest
 from fastapi.testclient import TestClient
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.graph import checkpoints, runtime
 from app.graph.checkpoints import (
@@ -15,35 +13,12 @@ from app.graph.checkpoints import (
 )
 
 
-def test_build_graph_checkpointer_returns_sqlite_saver_by_default(monkeypatch, tmp_path):
+def test_build_graph_checkpointer_requires_postgres_url_by_default(monkeypatch):
     build_graph_checkpointer.cache_clear()
-    monkeypatch.setattr(checkpoints.settings, "graph_checkpointer_backend", "sqlite")
-    monkeypatch.setattr(
-        checkpoints.settings,
-        "graph_checkpoint_sqlite_path",
-        str(tmp_path / "checkpoints.sqlite"),
-    )
+    monkeypatch.setattr(checkpoints.settings, "graph_checkpoint_postgres_url", None)
 
-    checkpointer = build_graph_checkpointer()
-
-    assert isinstance(checkpointer, SqliteSaver)
-    assert (tmp_path / "checkpoints.sqlite").exists()
-
-
-def test_build_graph_checkpointer_can_use_memory_backend():
-    build_graph_checkpointer.cache_clear()
-
-    checkpointer = build_graph_checkpointer(backend="memory")
-
-    assert isinstance(checkpointer, InMemorySaver)
-
-
-def test_build_graph_checkpointer_can_be_disabled():
-    build_graph_checkpointer.cache_clear()
-
-    checkpointer = build_graph_checkpointer(backend="none")
-
-    assert checkpointer is None
+    with pytest.raises(CheckpointBackendError, match="PostgreSQL"):
+        build_graph_checkpointer()
 
 
 def test_checkpoint_thread_id_is_stable_tenant_scoped_and_opaque():
@@ -80,7 +55,10 @@ def test_checkpoint_thread_id_is_stable_tenant_scoped_and_opaque():
     assert "internal-session-key" not in first
 
 
-def test_checkpoint_config_uses_derived_thread_id_and_root_namespace():
+def test_checkpoint_config_uses_derived_thread_id_root_namespace_and_recursion_limit(
+    monkeypatch,
+):
+    monkeypatch.setattr(runtime.settings, "graph_recursion_limit", 32, raising=False)
     state = {
         "session_id": "shared-external-session",
         "session_key": "internal-session-key",
@@ -89,6 +67,7 @@ def test_checkpoint_config_uses_derived_thread_id_and_root_namespace():
     }
 
     assert runtime._checkpoint_config(state, enabled=True) == {
+        "recursion_limit": 32,
         "configurable": {
             "thread_id": runtime.build_checkpoint_thread_id(
                 tenant_id="tenant-1",
@@ -98,54 +77,7 @@ def test_checkpoint_config_uses_derived_thread_id_and_root_namespace():
             "checkpoint_ns": "",
         }
     }
-    assert runtime._checkpoint_config(state, enabled=False) is None
-
-
-def test_build_graph_checkpointer_reuses_same_backend_instance():
-    build_graph_checkpointer.cache_clear()
-
-    first = build_graph_checkpointer(backend="memory")
-    second = build_graph_checkpointer(backend="memory")
-
-    assert first is second
-
-
-def test_build_graph_checkpointer_requires_official_sqlite_package(monkeypatch):
-    build_graph_checkpointer.cache_clear()
-    monkeypatch.delitem(sys.modules, "langgraph.checkpoint.sqlite", raising=False)
-
-    def fake_import_module(name):
-        if name == "langgraph.checkpoint.sqlite":
-            raise ModuleNotFoundError(name)
-        return __import__(name)
-
-    monkeypatch.setattr(checkpoints.importlib, "import_module", fake_import_module)
-
-    with pytest.raises(CheckpointBackendError) as exc_info:
-        build_graph_checkpointer(backend="sqlite", sqlite_path="checkpoints.sqlite")
-
-    assert "langgraph-checkpoint-sqlite" in str(exc_info.value)
-
-
-def test_build_graph_checkpointer_loads_sqlite_saver_lazily(monkeypatch):
-    build_graph_checkpointer.cache_clear()
-
-    class FakeSqliteSaver:
-        def __init__(self, conn) -> None:
-            self.conn = conn
-            self.setup_called = False
-
-        def setup(self) -> None:
-            self.setup_called = True
-
-    fake_module = ModuleType("langgraph.checkpoint.sqlite")
-    fake_module.SqliteSaver = FakeSqliteSaver
-    monkeypatch.setitem(sys.modules, "langgraph.checkpoint.sqlite", fake_module)
-
-    checkpointer = build_graph_checkpointer(backend="sqlite", sqlite_path=":memory:")
-
-    assert isinstance(checkpointer, FakeSqliteSaver)
-    assert checkpointer.setup_called is True
+    assert runtime._checkpoint_config(state, enabled=False) == {"recursion_limit": 32}
 
 
 def test_build_graph_checkpointer_builds_postgres_saver_with_managed_pool(monkeypatch):
@@ -181,7 +113,6 @@ def test_build_graph_checkpointer_builds_postgres_saver_with_managed_pool(monkey
     monkeypatch.setitem(sys.modules, "psycopg_pool", fake_pool_module)
 
     checkpointer = build_graph_checkpointer(
-        backend="postgres",
         postgres_url="postgresql://agent@postgres/agent",
     )
 
@@ -225,7 +156,6 @@ def test_graph_checkpointer_cache_clear_closes_previous_postgres_pool(monkeypatc
     monkeypatch.setitem(sys.modules, "psycopg_pool", fake_pool_module)
 
     build_graph_checkpointer(
-        backend="postgres",
         postgres_url="postgresql://agent@postgres/agent",
     )
     build_graph_checkpointer.cache_clear()
@@ -286,7 +216,6 @@ def test_postgres_setup_failure_closes_pool_immediately(monkeypatch):
 
     with pytest.raises(RuntimeError, match="migration failed"):
         build_graph_checkpointer(
-            backend="postgres",
             postgres_url="postgresql://agent@postgres/agent",
         )
 
