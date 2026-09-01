@@ -1,4 +1,6 @@
 import json
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from langgraph.runtime import Runtime
@@ -29,6 +31,22 @@ from app.tools.registry import ToolRegistry
 from app.tools.redaction import InlineCredentialsForbiddenError
 
 
+def _preference_runtime(*preferences: tuple[str, str]) -> Runtime:
+    store = Mock()
+    store.search.return_value = [
+        SimpleNamespace(
+            key=memory_key,
+            value={
+                "memory_type": "user_preference",
+                "memory_key": memory_key,
+                "content": content,
+            },
+        )
+        for memory_key, content in preferences
+    ]
+    return Runtime(store=store)
+
+
 def test_planner_node_accepts_langgraph_runtime_without_store():
     state = create_initial_state(
         session_id="runtime-planner",
@@ -56,6 +74,48 @@ def test_synthesizer_node_accepts_langgraph_runtime_without_store():
     result = build_synthesizer_node()(state, Runtime(store=None))
 
     assert result["draft_answer"] is not None
+
+
+def test_planner_keeps_focus_domain_as_planning_preference():
+    state = create_initial_state(
+        session_id="planning-preference",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析一下公司",
+    )
+    state["intent"] = {"intent": "conversation", "risk_level": "low"}
+
+    result = build_planner_agent_node(available_tools=[])(
+        state,
+        _preference_runtime(("focus_domain", "重点关注半导体行业")),
+    )
+
+    assert result["plan"]["preference_constraints"]["focus_domain"] == (
+        "重点关注半导体行业"
+    )
+    assert "focus_domain" not in result["plan"]["response_policy"]
+
+
+def test_synthesizer_excludes_focus_domain_from_presentation_policy():
+    state = create_initial_state(
+        session_id="presentation-preference",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="你好",
+    )
+    state["plan"] = {"execution_mode": "direct_response", "response_policy": {}}
+
+    result = build_synthesizer_node()(
+        state,
+        _preference_runtime(
+            ("focus_domain", "重点关注半导体行业"),
+            ("language", "使用英文回答"),
+        ),
+    )
+
+    response_policy = result["draft_answer"]["response_policy"]
+    assert response_policy["language"] == "english"
+    assert "focus_domain" not in response_policy
 
 
 def test_equity_deterministic_fallback_groups_facts_and_guides_next_research_step():

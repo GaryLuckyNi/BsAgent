@@ -59,7 +59,9 @@ def recall_user_preferences(
     return [preference for item in items if (preference := decode_user_preference(item))]
 
 
-def preference_constraints(preferences: list[UserPreference]) -> dict[str, str]:
+def planning_preference_constraints(
+    preferences: list[UserPreference],
+) -> dict[str, str]:
     constraints: dict[str, str] = {}
     for preference in preferences:
         content = preference.content.lower()
@@ -76,6 +78,17 @@ def preference_constraints(preferences: list[UserPreference]) -> dict[str, str]:
         elif preference.memory_key == "focus_domain":
             constraints["focus_domain"] = preference.content
     return constraints
+
+
+def presentation_preference_constraints(
+    preferences: list[UserPreference],
+) -> dict[str, str]:
+    constraints = planning_preference_constraints(preferences)
+    return {
+        key: value
+        for key, value in constraints.items()
+        if key in {"language", "detail"}
+    }
 
 
 def _record_recall_failure(

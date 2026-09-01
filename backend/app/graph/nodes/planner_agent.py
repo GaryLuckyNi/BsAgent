@@ -17,7 +17,10 @@ from app.graph.planning.tool_action import build_tool_action_plan
 from app.graph.state import AgentState
 from app.llm.factory import LlmClient
 from app.memory.candidates import propose_explicit_preference_candidates
-from app.memory.preferences import preference_constraints, recall_user_preferences
+from app.memory.preferences import (
+    planning_preference_constraints,
+    recall_user_preferences,
+)
 from app.schemas.tools import ToolSpec
 from app.tools.default_registry import list_default_tool_specs
 
@@ -39,7 +42,7 @@ def build_planner_agent_node(
             llm_client=llm_client,
             tool_specs=tool_specs,
         )
-        constraints = preference_constraints(
+        constraints = planning_preference_constraints(
             recall_user_preferences(runtime, state, on_failure=on_memory_recall_failure)
         )
         if constraints:

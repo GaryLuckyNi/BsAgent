@@ -7,7 +7,10 @@ from langgraph.runtime import Runtime
 
 from app.graph.state import AgentState, AnswerClaim
 from app.llm.factory import LlmClient
-from app.memory.preferences import preference_constraints, recall_user_preferences
+from app.memory.preferences import (
+    presentation_preference_constraints,
+    recall_user_preferences,
+)
 from app.schemas.evidence import EvidencePackage
 
 
@@ -300,7 +303,7 @@ def build_synthesizer_node(
         )
         response_policy.update(plan_response_policy)
         response_policy.update(
-            preference_constraints(
+            presentation_preference_constraints(
                 recall_user_preferences(runtime, state, on_failure=on_memory_recall_failure)
             )
         )
