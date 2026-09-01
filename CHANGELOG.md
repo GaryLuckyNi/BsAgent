@@ -34,7 +34,7 @@
 
 ### 测试
 
-- 新增真实 PostgreSQL `PostgresSaver` 审批中断生命周期测试，覆盖精确 checkpoint/Interrupt/digest 投影、恢复和错配拒绝。
+- 真实 PostgreSQL `PostgresSaver` 审批测试改为贯穿项目 Graph、会话投影、ApprovalRepository 与恢复入口，覆盖精确 checkpoint/Interrupt/digest 投影、恢复和错配拒绝；同时补齐工具与记忆 Interrupt 的最小业务投影字段。
 - 会话与审批 API 测试迁移为最小审批投影，并覆盖同步、流式中断的稳定身份和无敏感 payload 返回。
 - 新增 Planner 模块边界测试，防止后续将投研规划、工具校验和静态模板再次耦合回节点文件。
 - 补充意图分类 Skill 上下文、图递归上限与 PostgreSQL Checkpointer 的单元及集成测试。

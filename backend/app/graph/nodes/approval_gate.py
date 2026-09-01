@@ -120,6 +120,8 @@ def _memory_action(state: AgentState, candidate: MemoryCandidate) -> ApprovalAct
             "run_id": state["request_id"],
             "tenant_id": state["tenant_id"],
             "requested_by": state["user_id"],
+            "subject_name": subject_name,
+            "risk_level": candidate.sensitivity,
             "action_digest": action_digest,
             "checkpoint_thread_id": build_checkpoint_thread_id(
                 tenant_id=state["tenant_id"],
@@ -158,6 +160,7 @@ def _tool_action(state: AgentState, descriptor: PendingToolApproval) -> Approval
             "run_id": state["request_id"],
             "tenant_id": state["tenant_id"],
             "requested_by": state["user_id"],
+            "subject_name": descriptor.tool_name,
             "risk_level": descriptor.risk_level,
             "arguments_hash": arguments_hash,
             "action_digest": action_digest,

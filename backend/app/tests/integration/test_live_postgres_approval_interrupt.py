@@ -1,78 +1,141 @@
 import os
-from hashlib import sha256
-from typing import TypedDict
-from uuid import uuid4
 
 import pytest
 from langgraph.checkpoint.postgres import PostgresSaver
-from langgraph.graph import END, START, StateGraph
-from langgraph.types import Command, interrupt
+from sqlalchemy import create_engine, inspect, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.tests.support.postgres_store import _build_isolated_dsn
+from app.api import sessions
+from app.approvals.repository import ApprovalRepository
+from app.graph.nodes.approval_gate import ApprovalPayloadMismatchError
+from app.graph.runtime import resume_question_answer_graph, run_question_answer_graph
+from app.llm.schemas import LlmCompletionResult
+from app.storage.models import ApprovalRecord, Base
+from app.tests.support.postgres_store import (
+    LivePostgresStore,
+    open_isolated_postgres_store,
+)
+from app.tools.registry import ToolRegistry
 
 
-class ApprovalState(TypedDict):
-    approval_id: str
-    action_digest: str
-    decision: str | None
+class LocalPreferenceLlm:
+    async def complete(self, **kwargs):
+        if "最终回答渲染器" in kwargs.get("system_prompt", ""):
+            return LlmCompletionResult(
+                content="偏好审批已处理。",
+                model="local-test",
+                provider="local",
+            )
+        return LlmCompletionResult(
+            content=(
+                '{"intent":"conversation","domain":"preference_ack",'
+                '"sub_intent":"remember_user_preference","candidate_skill":null,'
+                '"candidate_tool":null,"risk_level":"low","confidence":0.99,'
+                '"needs_clarification":false,"reason_codes":["local_test"]}'
+            ),
+            model="local-test",
+            provider="local",
+        )
 
 
-def test_live_postgres_interrupt_approval_lifecycle():
+def test_live_postgres_application_approval_lifecycle(
+    monkeypatch,
+):
     postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL")
     if not postgres_url:
         pytest.skip("未配置真实 PostgreSQL 审批中断测试地址。")
-
-    import psycopg
-    from psycopg import sql
-
-    schema = f"approval_interrupt_{uuid4().hex}"
-    with psycopg.connect(postgres_url, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
-    try:
-        dsn = _build_isolated_dsn(postgres_url, schema)
-        with PostgresSaver.from_conn_string(dsn) as saver:
-            saver.setup()
-            graph = _approval_graph().compile(checkpointer=saver)
-            action_digest = sha256(b"trade:600519").hexdigest()
-            config = {"configurable": {"thread_id": f"cpr1_{uuid4().hex}"}}
-            state = graph.invoke(
-                {"approval_id": "approval_live", "action_digest": action_digest, "decision": None},
-                config=config,
-            )
-            snapshot = graph.get_state(config)
-            item = snapshot.tasks[0].interrupts[0]
-            checkpoint_id = snapshot.config["configurable"]["checkpoint_id"]
-            assert state["__interrupt__"][0].id == item.id
-            assert item.value["action_digest"] == action_digest
-
-            exact = {"configurable": {**snapshot.config["configurable"], "checkpoint_id": checkpoint_id}}
-            resumed = graph.invoke(
-                Command(resume={"approval_id": "approval_live", "action_digest": action_digest, "decision": "approved"}),
-                config=exact,
-            )
-            assert resumed["decision"] == "approved"
-            for field, value in (("checkpoint_id", "wrong"), ("interrupt_id", "wrong"), ("action_digest", "wrong")):
-                with pytest.raises(ValueError):
-                    _validate_resume_target(snapshot, checkpoint_id=checkpoint_id if field != "checkpoint_id" else value, interrupt_id=item.id if field != "interrupt_id" else value, action_digest=action_digest if field != "action_digest" else value)
-    finally:
-        with psycopg.connect(postgres_url, autocommit=True) as connection:
-            connection.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+    with open_isolated_postgres_store(postgres_url) as live_postgres_store:
+        _exercise_application_lifecycle(live_postgres_store, monkeypatch)
 
 
-def _approval_graph():
-    graph = StateGraph(ApprovalState)
-    def gate(state: ApprovalState):
-        decision = interrupt({"approval_id": state["approval_id"], "action_digest": state["action_digest"], "approval_type": "tool_call", "subject_name": "local.trade", "risk_level": "high", "arguments": {"symbol": "600519"}})
-        return {"decision": decision["decision"]}
-    graph.add_node("gate", gate)
-    graph.add_edge(START, "gate")
-    graph.add_edge("gate", END)
-    return graph
+def _exercise_application_lifecycle(
+    live_postgres_store: LivePostgresStore,
+    monkeypatch,
+):
+    business_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(business_engine)
+    business_sessions = sessionmaker(bind=business_engine, expire_on_commit=False)
+
+    with PostgresSaver.from_conn_string(live_postgres_store.dsn) as saver:
+        saver.setup()
+        monkeypatch.setattr(sessions, "build_graph_checkpointer", lambda: saver)
+        state = _run_interrupted_graph(saver)
+        projected = sessions._interrupt_payloads(state)
+
+        assert len(projected) == 1
+        payload = projected[0]
+        assert payload["checkpoint_id"]
+        assert payload["interrupt_id"] == state["__interrupt__"][0].id
+        assert payload["action_digest"] == state["__interrupt__"][0].value["action_digest"]
+
+        with business_sessions.begin() as db:
+            record = ApprovalRepository(db).create_pending_from_interrupt(payload)
+        with business_sessions() as db:
+            persisted = db.scalar(select(ApprovalRecord))
+            assert persisted.approval_id == record.approval_id
+            assert persisted.checkpoint_id == payload["checkpoint_id"]
+            assert persisted.interrupt_id == payload["interrupt_id"]
+            assert persisted.action_digest == payload["action_digest"]
+            columns = {column["name"] for column in inspect(db.bind).get_columns("approval_records")}
+            assert columns.isdisjoint({"payload_json", "arguments", "content"})
+
+        resumed = _resume(saver, payload)
+        candidate = next(
+            item for item in resumed["memory_candidates"]
+            if item.candidate_id == payload["candidate_id"]
+        )
+        assert candidate.approval_status == "approved"
+
+        mismatches = (
+            {"checkpoint_id": "wrong-checkpoint"},
+            {"interrupt_id": "wrong-interrupt"},
+            {"action_digest": "wrong-digest"},
+        )
+        for mismatch in mismatches:
+            with pytest.raises(ApprovalPayloadMismatchError):
+                _resume(saver, {**payload, **mismatch})
+
+    business_engine.dispose()
 
 
-def _validate_resume_target(snapshot, *, checkpoint_id: str, interrupt_id: str, action_digest: str) -> None:
-    if snapshot.config["configurable"]["checkpoint_id"] != checkpoint_id:
-        raise ValueError("checkpoint mismatch")
-    item = snapshot.tasks[0].interrupts[0]
-    if item.id != interrupt_id or item.value["action_digest"] != action_digest:
-        raise ValueError("interrupt mismatch")
+def _run_interrupted_graph(saver: PostgresSaver):
+    return run_question_answer_graph(
+        session_id="live-approval-session",
+        session_key="live-approval-session-key",
+        tenant_id="tenant-live",
+        user_id="user-live",
+        user_message="请记住我的联系电话：13800138000",
+        request_id="request-live-approval",
+        checkpointer=saver,
+        tool_registry_factory=ToolRegistry,
+        llm_client=LocalPreferenceLlm(),
+        skill_agent_node=_local_skill_node,
+    )
+
+
+def _resume(saver: PostgresSaver, payload: dict):
+    return resume_question_answer_graph(
+        checkpoint_thread_id=payload["checkpoint_thread_id"],
+        checkpoint_namespace=payload["checkpoint_namespace"],
+        checkpoint_id=payload["checkpoint_id"],
+        interrupt_id=payload["interrupt_id"],
+        action_digest=payload["action_digest"],
+        approval_decision={
+            "approval_id": payload["approval_id"],
+            "action_digest": payload["action_digest"],
+            "decision": "approved",
+        },
+        checkpointer=saver,
+        tool_registry_factory=ToolRegistry,
+        llm_client=LocalPreferenceLlm(),
+        skill_agent_node=_local_skill_node,
+    )
+
+
+def _local_skill_node(state):
+    return state
