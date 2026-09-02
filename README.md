@@ -13,7 +13,7 @@ BsAgent 是面向 A 股公司投研场景的多 Agent 底座。系统以 LangGra
 
 ## 本地开发
 
-后端使用本地配置时允许 SQLite、内存或 SQLite Checkpoint、mock 身份和本地对象存储。顶层提供一键启动脚本：
+顶层一键启动脚本会先通过 `compose.local-postgres.yml` 启动 PostgreSQL，等待健康检查通过，再执行业务迁移和启动各服务：
 
 ```bash
 npm run dev
@@ -37,6 +37,8 @@ npm run dev:admin:frontend
 npm run dev:check
 npm run dev:stop
 npm run dev:stop:dry-run
+npm run dev:postgres
+npm run dev:postgres:stop
 ```
 
 如需指定 Python 解释器：
@@ -52,7 +54,17 @@ npm run dev:stop:dry-run
 npm run dev:stop
 ```
 
-`dev:stop:dry-run` 只显示将要关闭的监听进程；`dev:stop` 会向默认开发端口对应的进程发送 `SIGTERM`。如启动时通过环境变量改过端口，关闭时也需要带上同样的端口变量。
+`dev:stop:dry-run` 只显示将要关闭的监听进程和本地 PostgreSQL；`dev:stop` 会向默认开发端口对应的进程发送 `SIGTERM`，并停止本项目的 PostgreSQL 容器。如启动时通过环境变量改过端口，关闭时也需要带上同样的端口变量。
+
+本地 Backend 默认显式注入三类 PostgreSQL DSN：
+
+```text
+BS_AGENT_DATABASE_URL=postgresql+psycopg://...@127.0.0.1:55432/bs_agent
+BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
+BS_AGENT_MEMORY_STORE_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
+```
+
+业务 ORM 保存 Message/Run/Candidate/Approval 投影，PostgresSaver 保存 Graph State/Interrupt，PostgresStore 保存长期跨会话偏好。Graph 没有固定 Memory 节点，Planner 和 Synthesizer 按需通过 `Runtime.store` 读取偏好。
 
 一键启动会自动将 Agent 后端连接到本地 Admin：
 
@@ -94,6 +106,8 @@ python -m ruff check backend ocr-service
 ## 生产部署
 
 生产模式会强制 JWT、PostgreSQL、PostgresSaver、Redis、S3、Celery、真实 OCR/Vision、JSON 日志和非开发版能力 revision。完整步骤见 [生产部署与运维手册](docs/production-deployment.md)。
+
+`BS_AGENT_DATABASE_URL`、`BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL` 和 `BS_AGENT_MEMORY_STORE_POSTGRES_URL` 必须由 Secret Manager、Kubernetes Secret 或其他受管环境变量注入；仓库样例不包含真实凭证。原生记忆/审批迁移会删除 `experience_entries` 历史数据，上线前必须排空所有在途审批。
 
 ```bash
 cp deploy/production.env.example deploy/production.env

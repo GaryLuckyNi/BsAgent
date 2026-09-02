@@ -6,9 +6,16 @@ import { promisify } from 'node:util'
 const execFileAsync = promisify(execFile)
 const python = process.env.PYTHON || '/opt/anaconda3/bin/python3'
 const host = process.env.BS_AGENT_DEV_HOST || '0.0.0.0'
-const projectRoot = process.cwd()
+const localPostgresComposeFile = 'compose.local-postgres.yml'
+const localPostgresUrl =
+  'postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent'
 const backendDatabaseUrl =
-  process.env.BS_AGENT_DATABASE_URL || `sqlite:///${projectRoot}/backend/bs_agent.db`
+  process.env.BS_AGENT_DATABASE_URL ||
+  'postgresql+psycopg://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent'
+const graphCheckpointPostgresUrl =
+  process.env.BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL || localPostgresUrl
+const memoryStorePostgresUrl =
+  process.env.BS_AGENT_MEMORY_STORE_POSTGRES_URL || localPostgresUrl
 const ports = {
   backend: Number(process.env.BS_AGENT_BACKEND_PORT || 8000),
   frontend: Number(process.env.BS_AGENT_FRONTEND_PORT || 5175),
@@ -34,6 +41,9 @@ const services = {
     cwd: 'backend',
     env: {
       BS_AGENT_DATABASE_URL: backendDatabaseUrl,
+      BS_AGENT_GRAPH_CHECKPOINTER_BACKEND: 'postgres',
+      BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL: graphCheckpointPostgresUrl,
+      BS_AGENT_MEMORY_STORE_POSTGRES_URL: memoryStorePostgresUrl,
       BS_AGENT_SKILL_REGISTRY_BASE_URL: `http://127.0.0.1:${ports['admin-backend']}`,
       BS_AGENT_SKILL_DEFINITION_CACHE_TTL_SECONDS: '5',
       BS_AGENT_MCP_SERVER_NAME: 'local',
@@ -41,6 +51,20 @@ const services = {
     },
     port: ports.backend,
     startupTasks: [
+      {
+        label: 'local-postgres',
+        command: 'docker',
+        args: [
+          'compose',
+          '-f',
+          localPostgresComposeFile,
+          'up',
+          '-d',
+          '--wait',
+          'postgres'
+        ],
+        cwd: '.'
+      },
       {
         label: 'backend-migration',
         command: python,
@@ -163,7 +187,13 @@ if (unknown.length > 0) {
 const selectedServices = selectedServiceNames.map((name) => services[name])
 
 if (stopOnly) {
-  const exitCode = await stopServices(selectedServices, { dryRun })
+  let exitCode = await stopServices(selectedServices, { dryRun })
+  if (
+    exitCode === 0 &&
+    selectedServices.some((service) => service.label === 'backend')
+  ) {
+    exitCode = await stopLocalPostgres({ dryRun })
+  }
   process.exit(exitCode)
 }
 
@@ -281,6 +311,32 @@ async function stopServices(selectedServices, { dryRun }) {
   }
   console.log(`关闭命令已发送，共 ${stoppedCount} 个进程。`)
   return 0
+}
+
+async function stopLocalPostgres({ dryRun }) {
+  if (dryRun) {
+    console.log('[local-postgres] 将停止 compose.local-postgres.yml 中的 postgres 服务')
+    return 0
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync('docker', [
+      'compose',
+      '-f',
+      localPostgresComposeFile,
+      'stop',
+      'postgres'
+    ])
+    if (stdout.trim()) {
+      console.log(`[local-postgres] ${stdout.trim()}`)
+    }
+    if (stderr.trim()) {
+      console.log(`[local-postgres] ${stderr.trim()}`)
+    }
+    return 0
+  } catch (error) {
+    console.error(`[local-postgres] 停止失败: ${error.message}`)
+    return 1
+  }
 }
 
 function validateRequiredEnvironment(selectedServices) {
@@ -410,8 +466,14 @@ BsAgent 本地开发启动器
   BS_AGENT_ADMIN_BACKEND_PORT
   BS_AGENT_ADMIN_FRONTEND_PORT
   BS_AGENT_DEEPSEEK_API_KEY
+  BS_AGENT_DATABASE_URL
+  BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL
+  BS_AGENT_MEMORY_STORE_POSTGRES_URL
 
 启动器会自动设置:
+  BS_AGENT_DATABASE_URL=postgresql+psycopg://...@127.0.0.1:55432/bs_agent
+  BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
+  BS_AGENT_MEMORY_STORE_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
   BS_AGENT_SKILL_REGISTRY_BASE_URL=http://127.0.0.1:<admin-backend-port>
   BS_AGENT_MCP_SERVER_URL=http://127.0.0.1:<mcp-port>/mcp
   MCP_MARKET_DATA_ADMIN_BASE_URL=http://127.0.0.1:<admin-backend-port>

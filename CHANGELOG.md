@@ -6,6 +6,11 @@
 
 ### 变更
 
+- 统一生产长期记忆配置为 `BS_AGENT_MEMORY_STORE_POSTGRES_URL`，业务 ORM、PostgresSaver 与 PostgresStore 的 DSN 均由受管 Secret/env 显式注入。
+- 本地 `npm run dev` 在启动 Backend 前自动拉起并等待 Compose PostgreSQL，然后注入业务 ORM、PostgresSaver 和 PostgresStore 的本地 DSN；一键停止同步关闭该容器。
+- 更新记忆、存储、Graph 与 Checkpoint 中文文档：Store 管理长期跨会话偏好，Checkpointer 管理 Graph State/Interrupt，Message/Run/Candidate/Approval 业务表仅作为事实或治理投影。
+- 文档明确 Graph 无固定 Memory 节点，长期偏好在业务提交后执行至少一次幂等同步，正常审批恢复只使用 `Command(resume=...)`，`as_node` 仅限 Time Travel 或受控运维。
+- 补充破坏性迁移说明：迁移会删除 `experience_entries` 全部数据，上线前必须排空在途审批。
 - Alembic 日志初始化保留进程中已有的应用 Logger，避免迁移命令在同进程执行时禁用后续运行日志。
 - 清理短期记忆测试中的失效 `memory_manager` 节点夹具，统一使用当前图节点；生产代码扫描仅保留迁移与历史模型中用于兼容清理的 `experience_entries` 表名。
 - 新增记忆候选提交后同步补偿器：以稳定 `memory_key` 写入官方 LangGraph Store，按本次 run 有界领取可生效偏好候选；失败脱敏记录并支持覆盖式补偿重试。
@@ -42,11 +47,14 @@
 
 ### 移除
 
+- 移除生产 Compose 中旧的长期记忆 backend/DSN 变量和现行文档中的固定 Memory 节点、自建长期记忆适配层及过期本地并发说明。
 - 移除 SQLAlchemy/自建 Experience Store 双后端配置和对应单元测试。
 - 移除 SQLite Checkpointer 配置、实现、依赖及相关运行时文档；测试需要 Checkpointer 时显式注入 `InMemorySaver`。
 
 ### 测试
 
+- 本地启动器 `--dry-run --check` 端口预检通过；本地与生产 Compose 配置均完成解析验证。
+- 静态检索确认现行配置/文档无旧长期记忆变量、过期本地存储描述和固定 Memory 节点；Graph 仍同时编译 `checkpointer` 与 `store`，审批生产路径无 `update_state/as_node`。
 - 旧 SQLite 迁移回归测试固定验收到其最后兼容版本 `20260802_0012`，PostgreSQL-only 的原生记忆审批迁移由真实 PostgreSQL 测试独立验收；生产门禁夹具同步到精简后的 Approval 投影。
 - Graph Runtime 审批测试按 `Interrupt ID + action_digest` 从 checkpoint 历史精确定位恢复坐标，并覆盖同一线程产生后续中断时旧恢复目标不漂移的回归场景。
 - 对齐 Graph Runtime 审批恢复断言：以 `approval_status`、最终响应和已批准调用作为决定事实源，并验证独立副作用步骤具有不同 digest、Interrupt 与 approval。
