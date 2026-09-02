@@ -46,10 +46,14 @@ def test_compose_forces_postgres_saver_and_externalized_secrets():
 
     assert api_environment["BS_AGENT_APP_ENV"] == "production"
     assert api_environment["BS_AGENT_GRAPH_CHECKPOINTER_BACKEND"] == "postgres"
-    assert api_environment["BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL"].startswith(
-        "postgresql://"
-    )
-    assert "postgresql+psycopg://" in api_environment["BS_AGENT_DATABASE_URL"]
+    for variable in (
+        "BS_AGENT_DATABASE_URL",
+        "BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL",
+        "BS_AGENT_MEMORY_STORE_POSTGRES_URL",
+    ):
+        assert api_environment[variable] == (
+            f"${{{variable}:?{variable} is required}}"
+        )
     assert "BS_AGENT_DEEPSEEK_API_KEY: test" not in compose_text
     assert "DEEPSEEK_API_KEY:?" in compose_text
     assert "VISION_API_KEY:?" in compose_text
@@ -194,7 +198,10 @@ def test_production_environment_template_contains_no_live_credentials():
         encoding="utf-8"
     )
 
-    assert "POSTGRES_PASSWORD_URLENCODED=" in template
+    assert "BS_AGENT_DATABASE_URL=postgresql+psycopg://" in template
+    assert "BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL=postgresql://" in template
+    assert "BS_AGENT_MEMORY_STORE_POSTGRES_URL=postgresql://" in template
+    assert "POSTGRES_PASSWORD_URLENCODED=" not in template
     assert "OCR_API_KEY=" in template
     assert "sk-" not in template
     assert "replace-with" in template
