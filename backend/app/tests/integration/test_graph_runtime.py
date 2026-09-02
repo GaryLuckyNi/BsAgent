@@ -44,15 +44,29 @@ pytest_plugins = ("app.tests.support.postgres_store",)
 def _resume_kwargs(initial_state, checkpointer, *, decision):
     interrupt = initial_state["__interrupt__"][0]
     payload = interrupt.value
-    tuple_config = checkpointer.get_tuple(
-        {
-            "configurable": {
-                "thread_id": payload["checkpoint_thread_id"],
-                "checkpoint_ns": payload["checkpoint_namespace"],
-            }
+    checkpoint_config = {
+        "configurable": {
+            "thread_id": payload["checkpoint_thread_id"],
+            "checkpoint_ns": payload["checkpoint_namespace"],
         }
-    )
-    assert tuple_config is not None
+    }
+    matching_checkpoints = []
+    for checkpoint_tuple in checkpointer.list(checkpoint_config):
+        pending_writes = checkpoint_tuple.pending_writes or []
+        for _, channel, value in pending_writes:
+            if channel != "__interrupt__":
+                continue
+            interrupts = value if isinstance(value, list) else [value]
+            if any(
+                getattr(item, "id", None) == interrupt.id
+                and isinstance(getattr(item, "value", None), dict)
+                and item.value.get("action_digest") == payload["action_digest"]
+                for item in interrupts
+            ):
+                matching_checkpoints.append(checkpoint_tuple)
+                break
+    assert len(matching_checkpoints) == 1
+    tuple_config = matching_checkpoints[0]
     checkpoint_id = tuple_config.config["configurable"]["checkpoint_id"]
     return {
         "checkpoint_thread_id": payload["checkpoint_thread_id"],
@@ -2559,8 +2573,18 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     assert second_approval["arguments"] == {"resource_id": "RESOURCE-9"}
     assert second_approval["call_id"] != first_approval["call_id"]
 
+    first_resume_target = _resume_kwargs(initial, checkpointer, decision="approved")
+    second_resume_target = _resume_kwargs(
+        after_first,
+        checkpointer,
+        decision="approved",
+    )
+    assert first_resume_target["checkpoint_id"] != second_resume_target["checkpoint_id"]
+    assert first_resume_target["interrupt_id"] == initial["__interrupt__"][0].id
+    assert second_resume_target["interrupt_id"] == after_first["__interrupt__"][0].id
+
     completed = resume_question_answer_graph(
-        **_resume_kwargs(after_first, checkpointer, decision="approved"),
+        **second_resume_target,
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
         checkpointer=checkpointer,
