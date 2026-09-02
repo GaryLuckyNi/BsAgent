@@ -7,6 +7,9 @@ from sqlalchemy import create_engine, inspect as inspect_database
 from app.core.config import settings
 
 
+LEGACY_SQLITE_HEAD = "20260802_0012"
+
+
 def test_asset_migration_round_trip_creates_contract_indexes_and_constraint(
     tmp_path,
     monkeypatch,
@@ -21,7 +24,7 @@ def test_asset_migration_round_trip_creates_contract_indexes_and_constraint(
     engine = create_engine(database_url)
     assert "asset_records" not in inspect_database(engine).get_table_names()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, LEGACY_SQLITE_HEAD)
     inspector = inspect_database(engine)
     assert {
         "asset_id",
@@ -100,7 +103,7 @@ def test_asset_migration_round_trip_creates_contract_indexes_and_constraint(
     assert "asset_analysis_results" not in inspect_database(engine).get_table_names()
     assert "tenant_image_policies" not in inspect_database(engine).get_table_names()
 
-    command.upgrade(config, "head")
+    command.upgrade(config, LEGACY_SQLITE_HEAD)
     assert "asset_records" in inspect_database(engine).get_table_names()
     assert "asset_analysis_results" in inspect_database(engine).get_table_names()
     assert "tenant_image_policies" in inspect_database(engine).get_table_names()

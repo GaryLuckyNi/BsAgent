@@ -7,6 +7,9 @@ from sqlalchemy import create_engine, inspect as inspect_database, text
 from app.core.config import settings
 
 
+LEGACY_SQLITE_HEAD = "20260802_0012"
+
+
 def test_approval_migration_uses_set_based_trace_backfill():
     project_root = Path(__file__).resolve().parents[4]
     source = (
@@ -39,7 +42,7 @@ def test_approval_migration_round_trip_with_legacy_trace(tmp_path, monkeypatch):
             )
         )
 
-    command.upgrade(config, "head")
+    command.upgrade(config, LEGACY_SQLITE_HEAD)
     with engine.connect() as connection:
         event_id = connection.scalar(
             text("SELECT event_id FROM agent_trace_events WHERE id = 1")
@@ -54,7 +57,7 @@ def test_approval_migration_round_trip_with_legacy_trace(tmp_path, monkeypatch):
         column["name"] for column in inspect_database(engine).get_columns("agent_trace_events")
     }
 
-    command.upgrade(config, "head")
+    command.upgrade(config, LEGACY_SQLITE_HEAD)
     with engine.connect() as connection:
         restored_event_id = connection.scalar(
             text("SELECT event_id FROM agent_trace_events WHERE id = 1")

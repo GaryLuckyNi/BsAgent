@@ -30,15 +30,16 @@ def _approval(
     return ApprovalRecord(
         approval_id=approval_id,
         run_id=f"run_{approval_id}",
-        session_id="shared-session",
-        session_key=f"sess_{approval_id}",
         tenant_id="tenant_1",
-        request_user_id="user_1",
-        approval_type="tool_execution",
-        tool_name="mcp.mock.read",
-        arguments_hash="a" * 64,
-        payload_json="{}",
+        approval_type="tool_call",
+        subject_name="mcp.mock.read",
+        risk_level="medium",
+        action_digest="a" * 64,
         checkpoint_thread_id=checkpoint_thread_id,
+        checkpoint_namespace="",
+        checkpoint_id=f"checkpoint_{approval_id}",
+        interrupt_id=f"interrupt_{approval_id}",
+        requested_by="user_1",
         status=status,
     )
 

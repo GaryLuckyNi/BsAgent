@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from unittest.mock import Mock
 
@@ -59,6 +60,7 @@ def test_recall_user_preferences_keeps_valid_items_among_malformed_values():
 
 
 def test_recall_user_preferences_safely_handles_search_failure(caplog):
+    caplog.set_level(logging.WARNING, logger="app.memory.preferences")
     store = Mock()
     store.search.side_effect = RuntimeError("postgresql://secret@internal/db")
     failures = []
@@ -91,6 +93,7 @@ class _FailingItems:
 
 @pytest.mark.parametrize("node_name", ["planner", "synthesizer"])
 def test_nodes_continue_when_preference_iteration_fails(node_name, caplog):
+    caplog.set_level(logging.WARNING, logger="app.memory.preferences")
     store = Mock()
     store.search.return_value = _FailingItems()
     state = _state()

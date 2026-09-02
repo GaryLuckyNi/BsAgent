@@ -18,6 +18,9 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 
 
+LEGACY_SQLITE_HEAD = "20260802_0012"
+
+
 _SESSION_KEY_NAMESPACE = UUID("5d1f4f7a-b6c3-5e22-9a3d-58a676d13f91")
 
 
@@ -157,7 +160,7 @@ def test_message_migration_creates_contract_and_backfills_session_key(
     with engine.begin() as connection:
         _insert_legacy_records(connection)
 
-    command.upgrade(config, "head")
+    command.upgrade(config, LEGACY_SQLITE_HEAD)
     inspector = inspect_database(engine)
 
     session_pk = inspector.get_pk_constraint("agent_sessions")
@@ -291,7 +294,7 @@ def test_message_constraints_and_tenant_scoped_external_session_id(
         monkeypatch,
         "message-constraints.sqlite",
     )
-    command.upgrade(config, "head")
+    command.upgrade(config, LEGACY_SQLITE_HEAD)
     engine = create_engine(database_url)
 
     with engine.begin() as connection:
@@ -446,7 +449,7 @@ def test_message_migration_rejects_orphan_session_records(
         connection.execute(text(statements[table_name]))
 
     with pytest.raises(RuntimeError, match=table_name):
-        command.upgrade(config, "head")
+        command.upgrade(config, LEGACY_SQLITE_HEAD)
 
 
 def test_message_migration_downgrade_rejects_duplicate_external_session_id(
@@ -458,7 +461,7 @@ def test_message_migration_downgrade_rejects_duplicate_external_session_id(
         monkeypatch,
         "message-downgrade.sqlite",
     )
-    command.upgrade(config, "head")
+    command.upgrade(config, LEGACY_SQLITE_HEAD)
     engine = create_engine(database_url)
     with engine.begin() as connection:
         connection.execute(
@@ -489,7 +492,7 @@ def test_message_migration_active_run_index_downgrades_safely(
         monkeypatch,
         "message-index-downgrade.sqlite",
     )
-    command.upgrade(config, "head")
+    command.upgrade(config, LEGACY_SQLITE_HEAD)
     engine = create_engine(database_url)
     upgraded_indexes = {
         index["name"]: index["column_names"]

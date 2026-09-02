@@ -1,3 +1,5 @@
+import logging
+
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 import pytest
@@ -342,6 +344,8 @@ def test_app_lifespan_continues_when_memory_reconciliation_fails(
 ):
     from app import main as main_module
 
+    caplog.set_level(logging.WARNING, logger=main_module.__name__)
+
     class Engine:
         def dispose(self):
             return None
@@ -384,6 +388,8 @@ def test_app_lifespan_continues_when_memory_store_open_fails(
     caplog,
 ):
     from app import main as main_module
+
+    caplog.set_level(logging.WARNING, logger=main_module.__name__)
 
     class Engine:
         def dispose(self):
