@@ -8,7 +8,7 @@
 
 LangGraph checkpointer 是 Run 级 Checkpoint 和中断恢复机制，保存 channel values、checkpoint 版本、父 checkpoint、pending writes 与 `interrupt()` 数据，回答“这次 Graph 执行停在哪里，如何使用 `Command(resume=...)` 继续”。根图 `checkpoint_ns` 固定为空字符串；Thread ID 使用 `cpr1_<sha256(tenant_id + NUL + session_key + NUL + request_id)>`。同一外部 `session_id` 的不同租户、同一 Session 的不同 Run 都不会共享恢复地址。
 
-`ApprovalRecord` 是可审计的业务审批记录。它保存审批发起人、租户、工具名称与版本、规范化参数哈希、业务决定人、业务决定时间、状态和 `checkpoint_thread_id`，回答“谁基于哪一组工具参数做了什么决定”。它不能替代 Graph 执行状态，也不保存恢复所需的节点 channel。
+`ApprovalRecord` 是最小可审计的业务审批投影。它保存租户、Run、审批类型、主体名称、风险等级、动作摘要、Checkpoint/Interrupt 坐标、发起人、决定人、状态和恢复 claim，回答“谁对哪个受治理动作做了什么决定”。完整工具参数和待恢复动作只保存在 Checkpoint 中；该表不能替代 Graph 执行状态，也不保存节点 channel。
 
 LangGraph `PostgresStore` 是另一个独立边界，只管理长期跨会话偏好。Graph 没有固定 Memory 节点，Planner 和 Synthesizer 按需通过 `Runtime.store` 读取偏好。Candidate 先作为业务投影提交，再执行至少一次的幂等 Store 同步；Store 不保存 Graph 断点。
 
@@ -51,7 +51,7 @@ pending
 
 - `pending`：等待审批决定，尚未有人取得恢复权。
 - `resuming`：某个请求已经通过数据库 CAS 取得 `resume_claim_token`，只有该 claimant 可以调用 `Command(resume=...)`。
-- `resume_failed`：checkpoint 缺失、参数哈希不匹配或恢复异常；保留 `decision`、`resume_attempts` 和 `last_resume_error` 供审计，相同决定可以重新 claim。
+- `resume_failed`：checkpoint 缺失、Interrupt/动作摘要不匹配或恢复异常；保留 `decision`、`resume_attempts` 和 `last_resume_error` 供审计，相同决定可以重新 claim。
 - `approved/rejected`：Graph 恢复与业务持久化完成后的终态；相同决定幂等返回，不再次恢复 checkpoint，相反决定返回冲突。
 
 API 不会在恢复前把审批直接写成终态。它先提交 `resuming` claim，使并发请求只能有一个 claimant；恢复失败时写入 `resume_failed` 并稳定返回 `409`，`AgentRun` 保持 `interrupted`；恢复成功后，`AgentRun` 更新和审批终态在同一次业务数据库提交中完成。未取得 claim 的请求不得调用 Graph resume。

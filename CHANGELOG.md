@@ -8,7 +8,7 @@
 
 - 统一生产长期记忆配置为 `BS_AGENT_MEMORY_STORE_POSTGRES_URL`，业务 ORM、PostgresSaver 与 PostgresStore 的 DSN 均由受管 Secret/env 显式注入。
 - 本地 `npm run dev` 在启动 Backend 前自动拉起并等待 Compose PostgreSQL，然后注入业务 ORM、PostgresSaver 和 PostgresStore 的本地 DSN；一键停止同步关闭该容器。
-- 更新记忆、存储、Graph 与 Checkpoint 中文文档：Store 管理长期跨会话偏好，Checkpointer 管理 Graph State/Interrupt，Message/Run/Candidate/Approval 业务表仅作为事实或治理投影。
+- 更新记忆、存储、Graph 与 Checkpoint 中文文档：Store 管理长期跨会话偏好，Checkpointer 管理 Graph State/Interrupt，Message/Run/Candidate/Approval 业务表仅作为事实或最小治理投影；Approval 文档字段与精简后的模型保持一致。
 - 文档明确 Graph 无固定 Memory 节点，长期偏好在业务提交后执行至少一次幂等同步，正常审批恢复只使用 `Command(resume=...)`，`as_node` 仅限 Time Travel 或受控运维。
 - 补充破坏性迁移说明：迁移会删除 `experience_entries` 全部数据，上线前必须排空在途审批。
 - Alembic 日志初始化保留进程中已有的应用 Logger，避免迁移命令在同进程执行时禁用后续运行日志。
