@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 候选治理持久化收敛为 `MemoryCandidateRepository`，不再使用易与 LangGraph Store 混淆的 `SqlAlchemyMemoryStore` 命名；长期偏好的生效与召回仍由 `PostgresStore` 负责。
 - 统一生产长期记忆配置为 `BS_AGENT_MEMORY_STORE_POSTGRES_URL`，业务 ORM、PostgresSaver 与 PostgresStore 的 DSN 均由受管 Secret/env 显式注入。
 - 本地 `npm run dev` 在启动 Backend 前自动拉起并等待 Compose PostgreSQL，然后注入业务 ORM、PostgresSaver 和 PostgresStore 的本地 DSN；一键停止同步关闭该容器。
 - 更新记忆、存储、Graph 与 Checkpoint 中文文档：Store 管理长期跨会话偏好，Checkpointer 管理 Graph State/Interrupt，Message/Run/Candidate/Approval 业务表仅作为事实或最小治理投影；Approval 文档字段与精简后的模型保持一致。
@@ -47,6 +48,7 @@
 
 ### 移除
 
+- 移除 Redis `ShortTermMemoryStore`、会话完成事件写入、专用配置与测试；Agent 短期记忆统一由 LangGraph `PostgresSaver` 管理。
 - 移除生产 Compose 中旧的长期记忆 backend/DSN 变量和现行文档中的固定 Memory 节点、自建长期记忆适配层及过期本地并发说明。
 - 移除 SQLAlchemy/自建 Experience Store 双后端配置和对应单元测试。
 - 移除 SQLite Checkpointer 配置、实现、依赖及相关运行时文档；测试需要 Checkpointer 时显式注入 `InMemorySaver`。

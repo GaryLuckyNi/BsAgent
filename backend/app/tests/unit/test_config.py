@@ -20,7 +20,6 @@ def _production_settings(**overrides):
         "auth_provider": "jwt",
         "rbac_backend": "principal",
         "database_url": "postgresql+psycopg://agent@postgres/agent",
-        "short_term_memory_backend": "redis",
         "graph_checkpoint_postgres_url": "postgresql://agent@postgres/agent",
         "asset_store_backend": "s3",
         "asset_s3_bucket": "agent-private-assets",
@@ -60,7 +59,6 @@ def _production_settings(**overrides):
         ({"rbac_backend": "mock"}, "rbac_backend"),
         ({"asset_store_backend": "local"}, "asset_store_backend"),
         ({"database_url": "sqlite:///agent.db"}, "database_url"),
-        ({"short_term_memory_backend": "none"}, "short_term_memory_backend"),
         ({"image_analysis_dispatcher_backend": "noop"}, "image_analysis_dispatcher_backend"),
         ({"rate_limit_backend": "none"}, "rate_limit_backend"),
         ({"log_format": "console"}, "log_format"),
@@ -122,6 +120,14 @@ def test_production_accepts_complete_externalized_configuration():
     assert settings.graph_checkpoint_postgres_url == "postgresql://agent@postgres/agent"
     assert settings.rate_limit_backend == "redis"
     assert settings.log_format == "json"
+
+
+def test_settings_do_not_expose_a_separate_short_term_memory_backend():
+    runtime = Settings(_env_file=None)
+
+    assert not hasattr(runtime, "short_term_memory_backend")
+    assert not hasattr(runtime, "short_term_memory_ttl_seconds")
+    assert not hasattr(runtime, "short_term_memory_max_events")
 
 
 def test_local_defaults_remain_offline_friendly():

@@ -46,8 +46,6 @@ from app.llm.deepseek import LlmConfigurationError
 from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
 from app.memory.synchronizer import sync_committed_run
-from app.memory.short_term_factory import build_short_term_memory_store
-from app.memory.short_term_store import ShortTermMemoryStore
 from app.operations.rate_limit import RateLimitPolicy, require_rate_limit
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
@@ -488,11 +486,6 @@ def _run_and_persist_agent_message(
             )
         db.commit()
         sync_committed_run(db=db, store=memory_store, run_id=handle.run_id)
-        if not interrupt_payloads:
-            _record_short_term_session_event(
-                store=build_short_term_memory_store(),
-                state=state,
-            )
     except SQLAlchemyError as exc:
         db.rollback()
         try:
@@ -896,10 +889,6 @@ def _emit_stream_result(
         metadata=_assistant_response_metadata(final_response),
     )
     db.commit()
-    _record_short_term_session_event(
-        store=build_short_term_memory_store(),
-        state=state,
-    )
     trace_lifecycle.failed = False
     yield _sse("final", {**final_response, **identity})
     yield _sse("done", {"ok": True, **identity})
@@ -1308,29 +1297,6 @@ def _trace_event_payload(event) -> dict:
         "error": event.error,
         "metadata": event.metadata,
     }
-
-
-def _record_short_term_session_event(
-    *,
-    store: ShortTermMemoryStore,
-    state: AgentState,
-) -> None:
-    try:
-        final_response = state["final_response"] or {}
-        intent = state["intent"] or {}
-        store.append_session_event(
-            tenant_id=state["tenant_id"],
-            session_id=state["session_id"],
-            event={
-                "request_id": state["request_id"],
-                "trace_id": state["trace_id"],
-                "intent": intent.get("intent"),
-                "approval_status": final_response.get("approval_status"),
-                "error_count": len(state["errors"]),
-            },
-        )
-    except Exception:
-        return None
 
 
 def _interrupt_payloads(state: AgentState) -> list[dict]:

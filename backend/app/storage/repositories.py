@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 
 from app.graph.state import AgentState
-from app.memory.store import SqlAlchemyMemoryStore
+from app.storage.memory_candidates import MemoryCandidateRepository
 from app.storage.models import AgentRun, AgentSession
 
 
@@ -61,9 +61,9 @@ def persist_agent_run(
             run.status = status
         run.intent = intent.get("intent")
         run.risk_level = intent.get("risk_level")
-    candidate_store = SqlAlchemyMemoryStore(session)
+    candidate_repository = MemoryCandidateRepository(session)
     for candidate in state["memory_candidates"]:
-        candidate_store.save_candidate(
+        candidate_repository.save_candidate(
             candidate,
             tenant_id=state["tenant_id"],
             user_id=state["user_id"],

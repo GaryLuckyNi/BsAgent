@@ -4,8 +4,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.memory.store import SqlAlchemyMemoryStore
 from app.schemas.memory import MemoryCandidate
+from app.storage.memory_candidates import MemoryCandidateRepository
 from app.storage.models import Base
 
 
@@ -28,7 +28,7 @@ def test_memory_candidate_defaults_store_key_and_pending_sync_state():
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        record = SqlAlchemyMemoryStore(session).save_candidate(
+        record = MemoryCandidateRepository(session).save_candidate(
             _candidate(memory_key=None),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -47,8 +47,8 @@ def test_memory_candidate_resets_store_sync_only_for_effective_changes():
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        store = SqlAlchemyMemoryStore(session)
-        record = store.save_candidate(
+        repository = MemoryCandidateRepository(session)
+        record = repository.save_candidate(
             _candidate(),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -59,7 +59,7 @@ def test_memory_candidate_resets_store_sync_only_for_effective_changes():
         record.store_sync_error = "old error"
         session.flush()
 
-        unchanged = store.save_candidate(
+        unchanged = repository.save_candidate(
             _candidate(),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -69,7 +69,7 @@ def test_memory_candidate_resets_store_sync_only_for_effective_changes():
         assert unchanged.store_synced_at is not None
         assert unchanged.store_sync_error == "old error"
 
-        changed = store.save_candidate(
+        changed = repository.save_candidate(
             _candidate(content="使用简体中文"),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -86,8 +86,8 @@ def test_memory_candidate_confidence_merge_keeps_synced_state():
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        store = SqlAlchemyMemoryStore(session)
-        record = store.save_candidate(
+        repository = MemoryCandidateRepository(session)
+        record = repository.save_candidate(
             _candidate(),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -99,7 +99,7 @@ def test_memory_candidate_confidence_merge_keeps_synced_state():
         record.store_sync_error = "old error"
         session.flush()
 
-        merged = store.save_candidate(
+        merged = repository.save_candidate(
             _candidate(confidence=0.95),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -124,8 +124,8 @@ def test_memory_candidate_store_value_change_resets_synced_state(updates):
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        store = SqlAlchemyMemoryStore(session)
-        record = store.save_candidate(
+        repository = MemoryCandidateRepository(session)
+        record = repository.save_candidate(
             _candidate(),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -136,7 +136,7 @@ def test_memory_candidate_store_value_change_resets_synced_state(updates):
         record.store_sync_error = "old error"
         session.flush()
 
-        changed = store.save_candidate(
+        changed = repository.save_candidate(
             _candidate(**updates),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -153,8 +153,8 @@ def test_memory_candidate_lower_sensitivity_keeps_synced_state():
     Base.metadata.create_all(engine)
 
     with Session(engine) as session:
-        store = SqlAlchemyMemoryStore(session)
-        record = store.save_candidate(
+        repository = MemoryCandidateRepository(session)
+        record = repository.save_candidate(
             _candidate(sensitivity="high"),
             tenant_id="tenant_1",
             user_id="user_1",
@@ -165,7 +165,7 @@ def test_memory_candidate_lower_sensitivity_keeps_synced_state():
         record.store_synced_at = synced_at
         session.flush()
 
-        merged = store.save_candidate(
+        merged = repository.save_candidate(
             _candidate(sensitivity="low"),
             tenant_id="tenant_1",
             user_id="user_1",

@@ -5,7 +5,8 @@
 BsAgent 按数据生命周期、权威性和恢复语义划分存储，不按“都在 PostgreSQL”就混为同一类数据。
 
 ```text
-短期热数据          -> Redis
+短期会话状态      -> LangGraph PostgresSaver
+可重建热数据    -> Redis
 长期跨会话偏好    -> LangGraph PostgresStore
 Graph State / Interrupt -> LangGraph PostgresSaver
 业务事实与治理投影  -> PostgreSQL 业务表
@@ -17,12 +18,13 @@ Trace / Span          -> PostgreSQL Trace 投影 + OpenTelemetry 后端
 
 | 数据类型 | 主要内容 | 权威存储 | 一致性边界 |
 | --- | --- | --- | --- |
-| 短期记忆/热数据 | 会话临时状态、工具结果缓存、限流计数 | Redis | 可 TTL 过期，不能作为长期事实源 |
+| 短期会话状态 | `messages`、channel values、pending writes、Interrupt | `PostgresSaver` | 由 LangGraph 按 thread 管理 |
+| 可重建热数据 | 工具结果缓存、限流计数 | Redis | 可 TTL 过期，不是 Agent 记忆 |
 | 长期跨会话偏好 | 语言、呈现风格、稳定关注领域 | `PostgresStore` | 按租户/用户 namespace 隔离，稳定 key 幂等覆盖 |
 | Graph 恢复状态 | channel values、pending writes、Interrupt、Checkpoint 父子关系 | `PostgresSaver` | 由 LangGraph 管理，仅用于执行恢复 |
 | Message 投影 | 用户可见消息与顺序 | `agent_messages` | 跨 Run 会话历史的业务事实源 |
 | Run 投影 | 单次执行状态与 Message/Trace 关联 | `agent_runs` | 支持业务查询和幂等，不代替 Checkpoint |
-| Candidate 投影 | 偏好候选、敏感级别、同步状态 | `memory_candidates` | 用于治理、审批与补偿，不是召回源 |
+| Candidate 投影 | 记忆写入候选、敏感级别、同步状态 | `memory_candidates` | 用于治理、审批与补偿，不是偏好召回源 |
 | Approval 投影 | 审批决定、Checkpoint/Interrupt 坐标、claim | `approval_records` | 最小可审计投影，不复制完整 Graph State |
 | 长期 Knowledge | 文档、政策、业务知识 | 外部 RAG 服务 | BsAgent 只检索，不索引、不持久化 |
 
@@ -51,12 +53,11 @@ Trace / Span          -> PostgreSQL Trace 投影 + OpenTelemetry 后端
 
 Redis 可以承载：
 
-- 当前会话的短 TTL 事件窗口。
 - 可重建的工具结果缓存。
 - 租户、用户和工具级限流计数。
 - 不需要长期审计的短 TTL 幂等键。
 
-Redis 不保存长期偏好的权威副本，也不承担 Graph 中断恢复。
+Redis 不承担 Agent 短期记忆，不保存长期偏好的权威副本，也不承担 Graph 中断恢复。
 
 ## RAG 边界
 

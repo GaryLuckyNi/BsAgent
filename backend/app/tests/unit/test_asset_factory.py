@@ -20,7 +20,6 @@ def _production_settings(**overrides):
         "auth_provider": "jwt",
         "rbac_backend": "principal",
         "database_url": "postgresql+psycopg://agent@postgres/agent",
-        "short_term_memory_backend": "redis",
         "memory_store_postgres_url": "postgresql://agent@postgres/agent",
         "graph_checkpoint_postgres_url": "postgresql://agent@postgres/agent",
         "asset_store_backend": "s3",

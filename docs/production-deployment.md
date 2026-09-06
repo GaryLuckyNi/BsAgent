@@ -10,7 +10,7 @@ flowchart LR
     U -->|"JWT + SSE / HTTPS"| FE["Nginx + Frontend"]
     FE --> API["FastAPI Agent API"]
     API --> PG["PostgreSQL\n业务数据 + PostgresSaver"]
-    API --> REDIS["Redis\n短期记忆 + 限流 + Celery"]
+    API --> REDIS["Redis\n限流 + 缓存 + Celery"]
     API --> S3["S3 / MinIO\n原图 + 分析 artifact"]
     API --> RAG["外部 RAG 检索服务"]
     API --> SKILL["Skill Registry"]

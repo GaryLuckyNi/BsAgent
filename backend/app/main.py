@@ -126,11 +126,7 @@ def create_app(
 
 
 def _build_redis_client(runtime: Settings) -> Redis | None:
-    if (
-        runtime.app_env != "production"
-        and runtime.short_term_memory_backend != "redis"
-        and runtime.rate_limit_backend != "redis"
-    ):
+    if runtime.app_env != "production" and runtime.rate_limit_backend != "redis":
         return None
     return Redis.from_url(
         runtime.redis_url,

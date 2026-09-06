@@ -4,7 +4,9 @@ from app.schemas.memory import MemoryCandidate
 from app.storage.models import MemoryCandidateRecord
 
 
-class SqlAlchemyMemoryStore:
+class MemoryCandidateRepository:
+    """持久化待治理的记忆写入候选，不作为长期记忆召回源。"""
+
     def __init__(self, session: Session) -> None:
         self._session = session
 
@@ -64,6 +66,7 @@ class SqlAlchemyMemoryStore:
         self._session.add(record)
         self._session.flush([record])
         return record
+
 
 def _higher_sensitivity(left: str, right: str) -> str:
     ranks = {

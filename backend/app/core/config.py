@@ -16,9 +16,6 @@ class Settings(BaseSettings):
     use_mock_rag: bool = False
     database_url: str = "sqlite:///./bs_agent.db"
     redis_url: str = "redis://localhost:6379/0"
-    short_term_memory_backend: Literal["none", "redis"] = "none"
-    short_term_memory_ttl_seconds: int = 3600
-    short_term_memory_max_events: int = 100
     memory_store_postgres_url: str = (
         "postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent"
     )
@@ -141,8 +138,6 @@ class Settings(BaseSettings):
             invalid.append("rbac_backend")
         if not self.database_url.strip().lower().startswith("postgresql"):
             invalid.append("database_url")
-        if self.short_term_memory_backend != "redis":
-            invalid.append("short_term_memory_backend")
         if self.rate_limit_backend != "redis":
             invalid.append("rate_limit_backend")
         if self.log_format != "json":
