@@ -1,3 +1,4 @@
+from threading import Lock
 from typing import Protocol
 
 from app.schemas.tools import ToolCallResult
@@ -17,6 +18,33 @@ class ToolSearchProvider(Protocol):
         *,
         context: ToolSearchContext,
     ) -> ToolSearchResponse: ...
+
+
+class DeferredToolSearchService:
+    def __init__(self) -> None:
+        self._service: ToolSearchProvider | None = None
+        self._lock = Lock()
+
+    def bind(self, service: ToolSearchProvider) -> None:
+        with self._lock:
+            if self._service is not None:
+                raise RuntimeError("Tool search service is already bound.")
+            self._service = service
+
+    def search(
+        self,
+        request: ToolSearchInput,
+        *,
+        context: ToolSearchContext,
+    ) -> ToolSearchResponse:
+        service = self._service
+        if service is None:
+            raise RuntimeError("tool_search_unavailable")
+        return service.search(request, context=context)
+
+    def close(self) -> None:
+        with self._lock:
+            self._service = None
 
 
 class SearchTool(Tool[ToolSearchInput]):

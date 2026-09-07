@@ -4,6 +4,13 @@ from app.schemas.tools import ToolSpec
 from app.tools.catalog_runtime import ToolCatalogRuntime
 from app.tools.mcp_gateway import McpGateway, McpServerConfig
 from app.tools.registry import ToolRegistry
+from app.tools.search import (
+    CachingToolTextEmbedder,
+    FastEmbedToolTextEmbedder,
+    SearchTool,
+    ToolSearchIndex,
+    ToolSearchService,
+)
 from app.tools.web_search import WebSearchTool
 
 
@@ -28,8 +35,31 @@ def _discover_default_tool_registry() -> ToolRegistry:
     return registry
 
 
+def _build_default_tool_search_service(registry: ToolRegistry) -> ToolSearchService:
+    embedder = CachingToolTextEmbedder(
+        FastEmbedToolTextEmbedder(
+            model_name=settings.tool_search_embedding_model,
+            cache_dir=settings.tool_search_embedding_cache_dir,
+            local_files_only=settings.tool_search_local_files_only,
+        ),
+        catalog_digest=registry.catalog_digest,
+        max_entries=settings.tool_search_query_cache_size,
+    )
+    index = ToolSearchIndex.build(
+        specs=[spec for spec in registry.specs() if spec.name != SearchTool.name],
+        catalog_digest=registry.catalog_digest,
+        embedder=embedder,
+    )
+    return ToolSearchService(
+        registry=registry,
+        index=index,
+        candidate_k=settings.tool_search_candidate_k,
+    )
+
+
 _default_tool_catalog = ToolCatalogRuntime(
     registry_factory=_discover_default_tool_registry,
+    search_service_factory=lambda registry: _build_default_tool_search_service(registry),
 )
 
 

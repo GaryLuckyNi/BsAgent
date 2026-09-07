@@ -1,4 +1,33 @@
+import numpy as np
+import pytest
+
 from app.tools import default_registry
+from app.tools.search import ToolSearchIndex, ToolSearchService
+
+
+class _ZeroEmbedder:
+    def embed_documents(self, texts):
+        return np.zeros((len(texts), 2), dtype=np.float32)
+
+    def embed_query(self, text):
+        return np.zeros(2, dtype=np.float32)
+
+
+@pytest.fixture(autouse=True)
+def use_fast_test_search_service(monkeypatch):
+    def build(registry):
+        specs = [spec for spec in registry.specs() if spec.name != "search_tool"]
+        index = ToolSearchIndex.build(
+            specs=specs,
+            catalog_digest=registry.catalog_digest,
+            embedder=_ZeroEmbedder(),
+        )
+        return ToolSearchService(registry=registry, index=index, candidate_k=20)
+
+    monkeypatch.setattr(default_registry, "_build_default_tool_search_service", build)
+    default_registry.get_default_tool_registry.cache_clear()
+    yield
+    default_registry.get_default_tool_registry.cache_clear()
 
 
 def test_default_registry_discovers_mcp_tools_from_configured_http_url(monkeypatch):
@@ -19,7 +48,6 @@ def test_default_registry_discovers_mcp_tools_from_configured_http_url(monkeypat
     assert config.url == "http://mcp:8011/mcp"
     assert not hasattr(config, "command")
     assert not hasattr(config, "env")
-    default_registry.get_default_tool_registry.cache_clear()
 
 
 def test_default_registry_registers_deepseek_web_search_as_platform_tool(monkeypatch):
@@ -39,7 +67,7 @@ def test_default_registry_registers_deepseek_web_search_as_platform_tool(monkeyp
     spec = registry.get("web_search").spec
     assert spec.permission_scope == ["web:search"]
     assert spec.risk_level == "low"
-    default_registry.get_default_tool_registry.cache_clear()
+    assert registry.has("search_tool")
 
 
 def test_default_registry_omits_web_search_when_disabled(monkeypatch):
@@ -54,4 +82,4 @@ def test_default_registry_omits_web_search_when_disabled(monkeypatch):
     registry = default_registry.get_default_tool_registry()
 
     assert not registry.has("web_search")
-    default_registry.get_default_tool_registry.cache_clear()
+    assert registry.has("search_tool")

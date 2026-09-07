@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 工具目录运行时现以最终 `catalog_digest` 原子构建并发布检索索引与 `search_tool`，复用有界 Query Embedding LRU，构建失败时 readiness 保持不可用且不暴露半成品快照。
 - 新增受 RBAC 与 Skill 工具白名单约束的 `ToolSearchService` 和本地 `search_tool`；Gateway 仅向可信本地执行器注入工具执行上下文，MCP 工具调用接口保持不变。
 - 新增工具检索文档、中英文词元化、FastEmbed 向量封装与 BM25S/Dense RRF 混合索引，支持精确工具名快速路径、权限集合预过滤和 Dense 故障降级。
 - 新增渐进式工具检索的配置、依赖与冻结权限上下文契约，约束查询输入、命中结果、检索模式及生产环境本地模型加载策略。

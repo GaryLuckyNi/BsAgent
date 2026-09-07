@@ -11,19 +11,29 @@ from app.tools.search.documents import (
     build_tool_search_document,
     tokenize_tool_text,
 )
-from app.tools.search.embedding import FastEmbedToolTextEmbedder, ToolTextEmbedder
+from app.tools.search.embedding import (
+    CachingToolTextEmbedder,
+    FastEmbedToolTextEmbedder,
+    ToolTextEmbedder,
+)
 from app.tools.search.index import (
     ToolSearchIndex,
     ToolSearchUnavailableError,
     reciprocal_rank_fusion,
 )
 from app.tools.search.service import ToolSearchService
-from app.tools.search.tool import SearchTool, ToolSearchProvider
+from app.tools.search.tool import (
+    DeferredToolSearchService,
+    SearchTool,
+    ToolSearchProvider,
+)
 
 __all__ = [
     "SearchMode",
     "SearchTool",
     "SearchSource",
+    "CachingToolTextEmbedder",
+    "DeferredToolSearchService",
     "FastEmbedToolTextEmbedder",
     "ToolSearchContext",
     "ToolSearchDocument",
