@@ -17,9 +17,12 @@ from app.tools.search.index import (
     ToolSearchUnavailableError,
     reciprocal_rank_fusion,
 )
+from app.tools.search.service import ToolSearchService
+from app.tools.search.tool import SearchTool, ToolSearchProvider
 
 __all__ = [
     "SearchMode",
+    "SearchTool",
     "SearchSource",
     "FastEmbedToolTextEmbedder",
     "ToolSearchContext",
@@ -28,7 +31,9 @@ __all__ = [
     "ToolSearchInput",
     "ToolSearchIndex",
     "ToolSearchResponse",
+    "ToolSearchService",
     "ToolSearchUnavailableError",
+    "ToolSearchProvider",
     "ToolTextEmbedder",
     "build_tool_search_document",
     "reciprocal_rank_fusion",

@@ -58,6 +58,7 @@ SAFE_TOOL_ERROR_MESSAGES = {
     "web_search_unavailable": "联网搜索服务暂不可用。",
     "web_search_response_invalid": "联网搜索服务返回了无效响应。",
     "web_search_no_results": "联网搜索未返回可验证来源。",
+    "tool_search_unavailable": "工具检索暂不可用。",
 }
 
 
@@ -165,7 +166,14 @@ class ToolExecutionGateway:
             )
 
         try:
-            raw_result = await entry.executor.run(input_data)
+            if entry.execution_binding.provider != "local":
+                raw_result = await entry.executor.run(input_data)
+            else:
+                contextual_runner = getattr(entry.executor, "run_with_context", None)
+                if callable(contextual_runner):
+                    raw_result = await contextual_runner(input_data, context=context)
+                else:
+                    raw_result = await entry.executor.run(input_data)
         except Exception as exc:
             code = _exception_error_code(exc)
             return self._failure(
@@ -259,12 +267,12 @@ def _policy_error(
     required_permission_scopes: list[str],
     context: ToolExecutionContext,
 ) -> tuple[str, str] | None:
-    if not _matches_any(request.tool_name, context.allowed_tools):
+    if not matches_tool_name(request.tool_name, context.allowed_tools):
         return (
             "tool_not_allowed_by_plan",
             f"Tool is not allowed by the execution plan: {request.tool_name}",
         )
-    if context.skill_allowed_tools is not None and not _matches_any(
+    if context.skill_allowed_tools is not None and not matches_tool_name(
         request.tool_name,
         context.skill_allowed_tools,
     ):
@@ -272,7 +280,7 @@ def _policy_error(
             "tool_not_allowed_by_skill",
             f"Tool is not allowed by skill {context.skill_name}: {request.tool_name}",
         )
-    if not _has_required_scopes(
+    if not has_required_scopes(
         granted=context.permission_scopes,
         required=required_permission_scopes,
     ):
@@ -355,9 +363,9 @@ def _safe_error_message(code: str) -> str:
     return SAFE_TOOL_ERROR_MESSAGES.get(code, SAFE_TOOL_ERROR_MESSAGES["tool_execution_failed"])
 
 
-def _matches_any(tool_name: str, patterns: tuple[str, ...]) -> bool:
+def matches_tool_name(tool_name: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatchcase(tool_name, pattern) for pattern in patterns)
 
 
-def _has_required_scopes(*, granted: tuple[str, ...], required: list[str]) -> bool:
+def has_required_scopes(*, granted: tuple[str, ...], required: list[str]) -> bool:
     return not required or "*" in granted or set(required).issubset(granted)
