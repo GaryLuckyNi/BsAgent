@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 新增低延迟渐进式工具披露设计：以内置 `search_tool`、BM25 与中文稠密向量混合检索替代向 Intent/Planner 注入全量工具 Schema，并保留现有 Registry、RBAC、审批和 MCP Gateway 执行边界。
 - 候选治理持久化收敛为 `MemoryCandidateRepository`，不再使用易与 LangGraph Store 混淆的 `SqlAlchemyMemoryStore` 命名；长期偏好的生效与召回仍由 `PostgresStore` 负责。
 - 统一生产长期记忆配置为 `BS_AGENT_MEMORY_STORE_POSTGRES_URL`，业务 ORM、PostgresSaver 与 PostgresStore 的 DSN 均由受管 Secret/env 显式注入。
 - 本地 `npm run dev` 在启动 Backend 前自动拉起并等待 Compose PostgreSQL，然后注入业务 ORM、PostgresSaver 和 PostgresStore 的本地 DSN；一键停止同步关闭该容器。
