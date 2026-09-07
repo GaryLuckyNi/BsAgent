@@ -452,7 +452,6 @@ def build_question_answer_graph(
         "intent_router",
         build_llm_intent_router_node(
             llm_client=llm_client,
-            available_tools=list(tool_specs_snapshot),
             available_skills_provider=(
                 lambda tenant_id: selected_skill_registry.discover(tenant_id=tenant_id)
                 if selected_skill_registry is not None

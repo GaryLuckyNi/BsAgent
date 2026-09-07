@@ -6,7 +6,6 @@ from app.intent.classifiers import LlmIntentClassifier, RuleOnlyIntentClassifier
 from app.intent.rules import RulePreRouter
 from app.intent.schemas import IntentDecisionModel, IntentSignal, RiskLevel
 from app.llm.factory import LlmClient
-from app.schemas.tools import ToolSpec
 from app.skills.definitions import SkillCard
 
 
@@ -33,13 +32,11 @@ class HybridIntentRouter:
         *,
         catalog: BusinessIntentCatalog | None = None,
         llm_client: LlmClient | None = None,
-        available_tools: list[ToolSpec] | None = None,
         available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
         rule_pre_router: RulePreRouter | None = None,
     ) -> None:
         self._catalog = catalog or BusinessIntentCatalog.load_default()
         self._llm_client = llm_client
-        self._available_tools = available_tools or []
         self._available_skills_provider = available_skills_provider
         self._rule_pre_router = rule_pre_router or RulePreRouter()
         self._rule_classifier = RuleOnlyIntentClassifier(catalog=self._catalog)
@@ -66,7 +63,6 @@ class HybridIntentRouter:
                 decision = LlmIntentClassifier(
                     llm_client=self._llm_client,
                     catalog=self._catalog,
-                    available_tools=self._available_tools,
                     available_skills=available_skills,
                 ).classify(message=message, signal=signal, context=context)
                 return self._evaluate(decision, signal)

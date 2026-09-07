@@ -198,6 +198,52 @@ def test_llm_intent_classifier_receives_tenant_skill_cards():
     ]
 
 
+def test_llm_intent_classifier_does_not_receive_tool_catalog():
+    llm_client = FakeLlmClient(
+        """
+        {
+          "intent": "task_workflow",
+          "domain": "a_share_equity_research",
+          "sub_intent": "company_snapshot",
+          "candidate_skill": "company_snapshot",
+          "candidate_tool": null,
+          "risk_level": "medium",
+          "confidence": 0.91,
+          "needs_clarification": false,
+          "reason_codes": ["classifier_selected_skill"]
+        }
+        """
+    )
+    router = HybridIntentRouter(
+        catalog=BusinessIntentCatalog.load_default(),
+        llm_client=llm_client,
+        available_skills_provider=lambda _tenant_id: [
+            SkillCard(
+                name="company_snapshot",
+                version="2.0.0",
+                summary="生成 A 股公司快照",
+                supported_intents=["task_workflow"],
+                tags=["a_share_equity_research"],
+                risk_level="medium",
+                definition_hash="skill-company-snapshot-v2",
+            )
+        ],
+    )
+
+    router.route(
+        message="帮我梳理这家公司的竞争格局",
+        tenant_id="tenant_1",
+        user_id="user_1",
+    )
+
+    payload = json.loads(llm_client.calls[0]["user_prompt"])
+    assert "available_tools" not in payload
+    assert "tool_schema" not in llm_client.calls[0]["user_prompt"]
+    assert payload["available_skills"][0]["name"] == "company_snapshot"
+    assert payload["required_schema"]["candidate_tool"] == "null"
+    assert "candidate_tool 必须输出 null" in llm_client.calls[0]["system_prompt"]
+
+
 def test_llm_intent_classifier_degrades_to_empty_skill_cards_when_registry_unavailable():
     llm_client = FakeLlmClient(
         """

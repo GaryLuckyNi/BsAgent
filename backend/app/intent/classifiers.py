@@ -5,7 +5,6 @@ import re
 from app.intent.catalog import BusinessIntentCatalog
 from app.intent.schemas import IntentDecisionModel, IntentSignal
 from app.llm.factory import LlmClient
-from app.schemas.tools import ToolSpec
 from app.skills.definitions import SkillCard
 
 
@@ -54,12 +53,10 @@ class LlmIntentClassifier:
         *,
         llm_client: LlmClient,
         catalog: BusinessIntentCatalog,
-        available_tools: list[ToolSpec] | None = None,
         available_skills: list[SkillCard] | None = None,
     ) -> None:
         self._llm_client = llm_client
         self._catalog = catalog
-        self._available_tools = available_tools or []
         self._available_skills = available_skills or []
 
     def classify(
@@ -79,8 +76,9 @@ class LlmIntentClassifier:
                     "寒暄、产品帮助和简单金融通识可以归入 conversation。"
                     "明显与投研无关的专业任务应输出 intent=unsupported、domain=out_of_scope，"
                     "由回答层说明能力边界，不要伪装成对应领域专家。"
-                    "如果 available_tools 中存在能完成用户目标的工具，优先输出 intent=tool_action "
-                    "并填写 candidate_tool。candidate_skill 只能从 available_skills 的 name 中选择；"
+                    "Intent 层只判断用户目标、业务领域、子意图和候选 Skill，"
+                    "不负责选择工具，candidate_tool 必须输出 null。"
+                    "candidate_skill 只能从 available_skills 的 name 中选择；"
                     "没有匹配 Skill 时填写 null。输出必须是单行紧凑 JSON，不要使用 Markdown。"
                 ),
                 user_prompt=json.dumps(
@@ -101,17 +99,6 @@ class LlmIntentClassifier:
                             profile.model_dump()
                             for profile in self._catalog.all_profiles()
                         ],
-                        "available_tools": [
-                            {
-                                "name": tool.name,
-                                "version": tool.version,
-                                "description": tool.description,
-                                "input_schema": tool.input_schema,
-                                "risk_level": tool.risk_level,
-                                "permission_scope": tool.permission_scope,
-                            }
-                            for tool in self._available_tools
-                        ],
                         "available_skills": [
                             {
                                 "name": skill.name,
@@ -128,7 +115,7 @@ class LlmIntentClassifier:
                             "domain": "string|null",
                             "sub_intent": "string|null",
                             "candidate_skill": "string|null",
-                            "candidate_tool": "string|null",
+                            "candidate_tool": "null",
                             "risk_level": "low|medium|high",
                             "confidence": "number between 0 and 1",
                             "needs_clarification": "boolean",
