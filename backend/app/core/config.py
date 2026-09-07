@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     mcp_timeout_seconds: float = 30.0
     mcp_server_revision: str = "local-dev"
     mcp_config_revision: str = "default"
+    tool_search_top_k: int = Field(default=5, ge=1, le=8)
+    tool_search_candidate_k: int = Field(default=20, ge=5, le=128)
+    tool_search_max_calls: int = Field(default=4, ge=1, le=16)
+    tool_search_max_disclosed_tools: int = Field(default=16, ge=1, le=64)
+    tool_search_query_cache_size: int = Field(default=1024, ge=0, le=10_000)
+    tool_search_embedding_model: str = "BAAI/bge-small-zh-v1.5"
+    tool_search_embedding_cache_dir: str = "./data/models/fastembed"
+    tool_search_local_files_only: bool = False
     llm_provider: Literal["deepseek"] = "deepseek"
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -128,6 +136,14 @@ class Settings(BaseSettings):
             )
         if not _is_postgres_url(self.memory_store_postgres_url):
             raise ValueError("memory_store_postgres_url 必须是 PostgreSQL URL")
+        if self.tool_search_top_k > self.tool_search_candidate_k:
+            raise ValueError(
+                "tool_search_top_k 不能大于 tool_search_candidate_k"
+            )
+        if self.tool_search_top_k > self.tool_search_max_disclosed_tools:
+            raise ValueError(
+                "tool_search_top_k 不能大于 tool_search_max_disclosed_tools"
+            )
         if self.app_env != "production":
             return self
 
@@ -164,6 +180,8 @@ class Settings(BaseSettings):
             invalid.append("mcp_server_url")
         if not self.redis_url.strip():
             invalid.append("redis_url")
+        if not self.tool_search_local_files_only:
+            invalid.append("tool_search_local_files_only")
         if not _is_postgres_url(self.graph_checkpoint_postgres_url):
             invalid.append("graph_checkpoint_postgres_url")
         if self.asset_store_backend != "s3":

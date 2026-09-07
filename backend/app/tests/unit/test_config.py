@@ -47,6 +47,7 @@ def _production_settings(**overrides):
         "trace_backend": "database",
         "otel_enabled": True,
         "otel_exporter_otlp_traces_endpoint": "http://otel-collector:4318/v1/traces",
+        "tool_search_local_files_only": True,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -155,6 +156,56 @@ def test_local_defaults_remain_offline_friendly():
     assert settings.memory_store_postgres_url == (
         "postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent"
     )
+
+
+def test_tool_search_settings_have_safe_defaults():
+    settings = Settings(_env_file=None)
+
+    assert settings.tool_search_top_k == 5
+    assert settings.tool_search_candidate_k == 20
+    assert settings.tool_search_max_calls == 4
+    assert settings.tool_search_max_disclosed_tools == 16
+    assert settings.tool_search_query_cache_size == 1024
+    assert settings.tool_search_embedding_model == "BAAI/bge-small-zh-v1.5"
+    assert settings.tool_search_embedding_cache_dir == "./data/models/fastembed"
+    assert settings.tool_search_local_files_only is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("tool_search_top_k", 0),
+        ("tool_search_top_k", 9),
+        ("tool_search_candidate_k", 4),
+        ("tool_search_candidate_k", 129),
+        ("tool_search_max_calls", 0),
+        ("tool_search_max_calls", 17),
+        ("tool_search_max_disclosed_tools", 0),
+        ("tool_search_max_disclosed_tools", 65),
+        ("tool_search_query_cache_size", -1),
+        ("tool_search_query_cache_size", 10_001),
+    ],
+)
+def test_tool_search_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"tool_search_top_k": 6, "tool_search_candidate_k": 5},
+        {"tool_search_top_k": 5, "tool_search_max_disclosed_tools": 4},
+    ],
+)
+def test_tool_search_top_k_cannot_exceed_disclosure_limits(overrides):
+    with pytest.raises(ValidationError, match="tool_search_top_k"):
+        Settings(_env_file=None, **overrides)
+
+
+def test_production_requires_local_tool_search_embeddings():
+    with pytest.raises(ValidationError, match="tool_search_local_files_only"):
+        _production_settings(tool_search_local_files_only=False)
 
 
 @pytest.mark.parametrize("app_env", ["local", "test", "production"])

@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 新增渐进式工具检索的配置、依赖与冻结权限上下文契约，约束查询输入、命中结果、检索模式及生产环境本地模型加载策略。
 - 新增低延迟渐进式工具披露实施计划，明确混合检索、权限过滤、目录原子绑定、Planner 结构化决策、受控重规划、生产预热与质量门槛的分步实现路径。
 - 新增低延迟渐进式工具披露设计：以内置 `search_tool`、BM25 与中文稠密向量混合检索替代向 Intent/Planner 注入全量工具 Schema，并保留现有 Registry、RBAC、审批和 MCP Gateway 执行边界。
 - 候选治理持久化收敛为 `MemoryCandidateRepository`，不再使用易与 LangGraph Store 混淆的 `SqlAlchemyMemoryStore` 命名；长期偏好的生效与召回仍由 `PostgresStore` 负责。
