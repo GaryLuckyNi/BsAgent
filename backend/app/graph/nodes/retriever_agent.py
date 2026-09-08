@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import Callable
 from uuid import uuid4
 
-from app.core.config import settings
 from app.graph.state import AgentState
 from app.graph.tool_context import (
     DEFAULT_RETRIEVAL_ALLOWED_TOOLS,

@@ -220,6 +220,37 @@ BS_AGENT_MCP_TIMEOUT_SECONDS=30
 
 `tools/mcp_http.py` 使用官方 `MultiServerMCPClient` 获取 LangChain Tool，并包装为内部 `DynamicMcpHttpTool`。运行时调用官方 LangChain Tool 的 `ainvoke(...)`；结构化结果从 `ToolMessage.artifact.structured_content` 读取，再进入现有 Tool Agent 治理边界。
 
+## 渐进式工具披露
+
+启动期仍会完整发现工具，但不再把完整 Tool Schema 注入 Intent 或 Planner。`ToolCatalogRuntime.open()` 先完成 RAG、本地工具与 MCP `list_tools` 动态发现，再注册内置 `search_tool`、冻结 `ToolRegistry`，并基于同一个 `catalog_digest` 构建 BM25S 与 FastEmbed 中文向量索引。目录或索引任一构建失败时不会发布半成品快照，readiness 保持失败。
+
+运行链路如下：
+
+```text
+Intent：只接收业务意图与轻量 SkillCard
+-> Planner：用用户问题、Intent 和 SkillCard 摘要预取 Top-K 工具
+-> LLM：只看到已披露 ToolSpec 与 search_tool
+-> execute：调用已披露工具
+-> search：执行 search_tool 扩充披露集合并回到 Planner
+-> ToolExecutionGateway：再次执行目录、版本、RBAC、Skill 白名单、风险与审批校验
+```
+
+该机制保留两层权限控制。`ToolSearchService` 在检索前按可信 Principal Scope 与 Skill 工具白名单过滤，避免模型看到无权使用的工具；真正执行时 `ToolExecutionGateway` 再按冻结目录独立校验，搜索命中不等于执行授权。模型猜测的未披露工具不会从 Registry 隐式补查，也不能直接调用。
+
+同一次 Run 将 `tool_catalog_digest`、`disclosed_tool_names` 与 `tool_search_count` 写入 Graph State。目录变化时恢复请求按既有 digest fail closed，不能把旧计划绑定到新工具实现。默认首轮披露 5 个工具，单次搜索候选 20 个，最多主动搜索 4 次、累计披露 16 个业务工具；达到预算后返回稳定错误 `tool_search_budget_exhausted`，防止 Planner 搜索回边无限循环。Graph 自身仍受 `BS_AGENT_GRAPH_RECURSION_LIMIT` 总超步上限约束。
+
+Dense 检索异常时会降级为 BM25，二者同时不可用才返回 `tool_search_unavailable`。Query Embedding 仅在进程内按 `catalog_digest + normalized_query` 做有界 LRU，不使用 Redis，也不跨目录版本复用。Trace 只记录检索模式、命中数量、工具名、目录摘要、搜索次数和降级状态，不记录查询原文、参数或完整 Schema。
+
+生产镜像在构建阶段下载 `BAAI/bge-small-zh-v1.5` 到 `/opt/fastembed-cache`，最终镜像设置 `BS_AGENT_TOOL_SEARCH_LOCAL_FILES_ONLY=true`，启动和请求热路径不访问模型仓库。每次变更工具描述、参数语义、分词或模型后，执行以下显式评测：
+
+```bash
+BS_AGENT_RUN_TOOL_SEARCH_EVAL=true \
+python -m pytest backend/app/tests/evals/test_tool_search_quality.py \
+  -m tool_search_eval -q
+```
+
+门禁使用 100 条中文投研查询，要求 `Recall@5 >= 95%` 且缓存预热后的单次搜索 `p95 <= 150ms`。普通单元测试只检查评测集契约，不受模型下载和机器性能波动影响。
+
 ## 金融 MCP 工具
 
 A 股结构化数据通过 MCP Streamable HTTP 动态发现为内部 `ToolSpec`。Agent 不直接访问财经 API，也不在 Agent 代码中内置数据源 SDK；结构化行情、公司资料、财务指标等能力都必须经过 MCP Server 和 Tool Agent 边界。
@@ -307,6 +338,11 @@ Trace Artifact 使用固定白名单摘要，只记录数量、状态、证据 I
 ## 测试覆盖
 
 当前测试覆盖：
+
+- 100 条中文投研工具检索集的 `Recall@5` 与 warm p95 显式评测。
+- 启动期工具目录、搜索索引、`search_tool` 和 `catalog_digest` 的原子生命周期。
+- Planner 首轮 Top-K 披露、按需二次搜索、总披露上限与搜索预算终止。
+- 搜索阶段 RBAC/Skill 白名单过滤及执行阶段 Gateway 二次授权。
 
 - 注册工具成功执行。
 - 未知工具拒绝。

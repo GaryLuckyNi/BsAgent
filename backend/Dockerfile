@@ -1,5 +1,7 @@
 FROM python:3.11-slim-bookworm AS builder
 
+ARG TOOL_SEARCH_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5
+
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -16,6 +18,7 @@ RUN pip install --upgrade pip==26.1.2 setuptools==83.0.0 wheel==0.47.0 \
     && pip install --requirement requirements.lock \
     && pip install --no-deps --no-build-isolation . \
     && pip check
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='${TOOL_SEARCH_EMBEDDING_MODEL}', cache_dir='/opt/fastembed-cache')"
 
 
 FROM python:3.11-slim-bookworm AS runtime
@@ -23,7 +26,9 @@ FROM python:3.11-slim-bookworm AS runtime
 ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/backend
+    PYTHONPATH=/app/backend \
+    BS_AGENT_TOOL_SEARCH_EMBEDDING_CACHE_DIR=/opt/fastembed-cache \
+    BS_AGENT_TOOL_SEARCH_LOCAL_FILES_ONLY=true
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends ca-certificates curl \
@@ -32,6 +37,7 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin bsagent
 
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/fastembed-cache /opt/fastembed-cache
 WORKDIR /app
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic

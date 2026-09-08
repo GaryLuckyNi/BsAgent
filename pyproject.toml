@@ -61,6 +61,9 @@ app = ["intent/*.json"]
 [tool.pytest.ini_options]
 pythonpath = ["backend", "ocr-service"]
 testpaths = ["backend/app/tests", "ocr-service/tests"]
+markers = [
+  "tool_search_eval: 运行需要本地向量模型的工具检索质量与延迟评测",
+]
 
 [tool.ruff]
 line-length = 100
