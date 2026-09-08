@@ -6,6 +6,9 @@
 
 ### 变更
 
+- `search_tool` 执行后会将受权限约束的命中工具合并到 Graph State 并回到 Planner 重新规划；每次搜索使用独立可重放 call ID，失败尝试也计入预算。
+- 工具发现回路最多执行 `BS_AGENT_TOOL_SEARCH_MAX_CALLS` 次；预算耗尽后以 `tool_search_budget_exhausted` 可解释错误结束，中途搜索失败只进入观测事实，不污染后续成功回答。
+- Tool Agent Trace 新增脱敏工具发现摘要，仅保存检索模式、命中数、工具名、目录 digest、计数与降级状态。
 - Planner 改为基于用户问题、Intent 与可信 `SkillCard` 摘要执行首轮工具检索，仅向 LLM 披露 Top-K 业务工具 Schema 与固定 `search_tool`，单次 Run 最多累计披露 16 个业务工具。
 - 通用工具规划改为 `execute/search/respond` 结构化决策，工具版本、风险等级与参数 Schema 继续由 Harness 校验；模型猜测的未披露工具不会从完整 Registry 补查或执行。
 - 默认 `rag_search` 现在与 MCP、Web Search 和 `search_tool` 一同在 Tool Catalog 启动期冻结，Planner 搜索索引与 Tool Agent Registry 共用同一 `catalog_digest`。
@@ -65,6 +68,7 @@
 
 ### 测试
 
+- 新增 `search_tool -> Planner` 端到端回路测试，覆盖二次规划、调用 ID 去重、失败后成功、预算终止与 Trace 查询脱敏。
 - 新增 Planner 渐进式披露回归测试，覆盖 Top-K Prompt 隔离、总量上限、未披露工具拒绝与默认 RAG 目录同源。
 - 本地启动器 `--dry-run --check` 端口预检通过；本地与生产 Compose 配置均完成解析验证。
 - 静态检索确认现行配置/文档无旧长期记忆变量、过期本地存储描述和固定 Memory 节点；部署测试验证三类 PostgreSQL DSN 均为必填外部变量；Graph 仍同时编译 `checkpointer` 与 `store`，审批生产路径无 `update_state/as_node`。

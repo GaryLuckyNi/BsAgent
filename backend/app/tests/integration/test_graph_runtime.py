@@ -36,9 +36,160 @@ from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.rag_search import RagSearchTool
 from app.tools.registry import ToolRegistry
 from app.tools.registry import ExecutionBinding
+from app.tools.search import SearchTool, ToolSearchHit, ToolSearchResponse
 
 
 pytest_plugins = ("app.tests.support.postgres_store",)
+
+
+class _DiscoveryInput(BaseModel):
+    pass
+
+
+class _DiscoveryDecoyTool(Tool[_DiscoveryInput]):
+    name = "mcp.test.company_profile"
+    version = "1.0.0"
+    description = "查询公司基本资料"
+    input_model = _DiscoveryInput
+
+    async def run(self, input_data):
+        del input_data
+        return ToolCallResult(
+            tool_call_id="",
+            tool_name=self.name,
+            status="success",
+            result={"profile": "ok"},
+            trace_id="",
+        )
+
+
+class _DiscoveryIncomeTool(Tool[_DiscoveryInput]):
+    name = "mcp.test.income"
+    version = "1.0.0"
+    description = "查询公司利润表与盈利能力"
+    input_model = _DiscoveryInput
+
+    async def run(self, input_data):
+        del input_data
+        return ToolCallResult(
+            tool_call_id="",
+            tool_name=self.name,
+            status="success",
+            result={"net_profit": 100},
+            trace_id="",
+        )
+
+
+class _GraphToolSearchService:
+    def __init__(self, *, failures_before_success: int = 0) -> None:
+        self.catalog_digest = ""
+        self._specs = {}
+        self._failures_before_success = failures_before_success
+
+    def bind_registry(self, registry: ToolRegistry) -> None:
+        self.catalog_digest = registry.catalog_digest
+        self._specs = {spec.name: spec for spec in registry.specs()}
+
+    def search(self, request, *, context):
+        del context
+        if (
+            _DiscoveryIncomeTool.name in request.query
+            and self._failures_before_success > 0
+        ):
+            self._failures_before_success -= 1
+            raise RuntimeError("temporary tool search failure")
+        selected = (
+            _DiscoveryIncomeTool.name
+            if _DiscoveryIncomeTool.name in request.query
+            else _DiscoveryDecoyTool.name
+        )
+        spec = self._specs[selected]
+        return ToolSearchResponse(
+            catalog_digest=self.catalog_digest,
+            mode="exact" if selected in request.query else "hybrid",
+            hits=[
+                ToolSearchHit(
+                    tool_name=selected,
+                    tool_version=spec.version,
+                    description=spec.description,
+                    rank=1,
+                    sources=["exact"] if selected in request.query else ["bm25"],
+                )
+            ],
+        )
+
+    def resolve_specs(self, tool_names):
+        return [self._specs[name] for name in tool_names]
+
+
+def _discovery_runtime(*, failures_before_success: int = 0):
+    service = _GraphToolSearchService(
+        failures_before_success=failures_before_success
+    )
+    registry = ToolRegistry()
+    registry.register(_DiscoveryDecoyTool())
+    registry.register(_DiscoveryIncomeTool())
+    registry.register(SearchTool(service))
+    snapshot = registry.snapshot()
+    service.bind_registry(snapshot)
+    return snapshot, service
+
+
+class _SearchThenExecutePlanner:
+    def __init__(self, *, always_search: bool = False) -> None:
+        self.always_search = always_search
+        self.search_decisions = 0
+
+    async def complete(self, **kwargs):
+        system_prompt = kwargs.get("system_prompt", "")
+        if "意图分类器" in system_prompt:
+            content = json.dumps(
+                {
+                    "intent": "tool_action",
+                    "domain": "a_share_equity_research",
+                    "sub_intent": "profitability_analysis",
+                    "candidate_skill": None,
+                    "candidate_tool": None,
+                    "risk_level": "low",
+                    "confidence": 0.95,
+                    "needs_clarification": False,
+                    "reason_codes": ["test_tool_discovery"],
+                }
+            )
+        elif "工具规划器" in system_prompt:
+            payload = json.loads(kwargs["user_prompt"])
+            visible_names = {
+                item["name"] for item in payload["available_tools"]
+            }
+            should_search = self.always_search or _DiscoveryIncomeTool.name not in visible_names
+            if should_search:
+                self.search_decisions += 1
+                content = json.dumps(
+                    {
+                        "action": "search",
+                        "tool_name": None,
+                        "arguments": {},
+                        "purpose": "寻找盈利能力工具",
+                        "search_query": _DiscoveryIncomeTool.name,
+                    }
+                )
+            else:
+                content = json.dumps(
+                    {
+                        "action": "execute",
+                        "tool_name": _DiscoveryIncomeTool.name,
+                        "arguments": {},
+                        "purpose": "查询盈利能力",
+                        "search_query": None,
+                    }
+                )
+        else:
+            content = "已完成盈利能力分析。"
+        return LlmCompletionResult(
+            content=content,
+            model="test-model",
+            provider="test",
+        )
 
 
 def _resume_kwargs(initial_state, checkpointer, *, decision):
@@ -3024,4 +3175,69 @@ def test_pending_descriptor_resumes_from_checkpointer():
     assert completed["pending_tool_approval"] is None
     assert [item.call_id for item in completed["approved_tool_calls"]] == [
         approval["call_id"]
+    ]
+
+
+def test_search_tool_result_routes_back_to_planner_and_executes_discovered_tool():
+    registry, service = _discovery_runtime()
+    result = run_question_answer_graph(
+        session_id="tool-discovery",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="请完成本次盈利能力研究",
+        llm_client=_SearchThenExecutePlanner(),
+        skill_agent_node=lambda state: state,
+        retriever_node=lambda state: state,
+        tool_registry_factory=lambda: registry,
+        tool_search_service=service,
+    )
+
+    assert result["tool_search_count"] == 1
+    assert _DiscoveryIncomeTool.name in result["disclosed_tool_names"]
+    assert [record.request.tool_name for record in result["tool_calls"]] == [
+        "search_tool",
+        _DiscoveryIncomeTool.name,
+    ]
+
+
+def test_search_tool_budget_stops_replanning_loop():
+    registry, service = _discovery_runtime()
+    result = run_question_answer_graph(
+        session_id="tool-discovery-budget",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="请完成本次盈利能力研究",
+        llm_client=_SearchThenExecutePlanner(always_search=True),
+        skill_agent_node=lambda state: state,
+        retriever_node=lambda state: state,
+        tool_registry_factory=lambda: registry,
+        tool_search_service=service,
+    )
+
+    assert result["tool_search_count"] == runtime.settings.tool_search_max_calls
+    assert result["final_response"]["business_error_code"] == (
+        "tool_search_budget_exhausted"
+    )
+
+
+def test_transient_search_failure_does_not_poison_later_successful_answer():
+    registry, service = _discovery_runtime(failures_before_success=1)
+    result = run_question_answer_graph(
+        session_id="tool-discovery-retry",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="请完成本次盈利能力研究",
+        llm_client=_SearchThenExecutePlanner(),
+        skill_agent_node=lambda state: state,
+        retriever_node=lambda state: state,
+        tool_registry_factory=lambda: registry,
+        tool_search_service=service,
+    )
+
+    assert result["tool_search_count"] == 2
+    assert result["errors"] == []
+    assert [record.request.tool_name for record in result["tool_calls"]] == [
+        "search_tool",
+        "search_tool",
+        _DiscoveryIncomeTool.name,
     ]

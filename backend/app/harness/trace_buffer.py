@@ -25,6 +25,7 @@ _TRANSITION_SECTION_KEYS = {
     "retrieval",
     "skill_decision",
     "synthesis",
+    "tool_search",
     "tool_execution",
     "verification",
 }
@@ -35,6 +36,7 @@ _SAFE_STRING_KEYS = {
     "candidate_id",
     "candidate_skill",
     "candidate_tool",
+    "catalog_digest",
     "capability",
     "code",
     "coverage",
@@ -97,9 +99,15 @@ _SAFE_NUMBER_KEYS = {
     "risk_flag_count",
     "structured_tool_result_count",
     "tool_fact_count",
+    "search_count",
     "warning_count",
 }
-_SAFE_BOOL_KEYS = {"approval_required", "needs_clarification", "required"}
+_SAFE_BOOL_KEYS = {
+    "approval_required",
+    "degraded",
+    "needs_clarification",
+    "required",
+}
 _SAFE_OBJECT_KEYS = {
     "analysis",
     "draft_answer",
@@ -111,6 +119,7 @@ _SAFE_OBJECT_KEYS = {
     "retrieval",
     "skill_decision",
     "synthesis",
+    "tool_search",
     "tool_execution",
     "user_message",
     "verification",

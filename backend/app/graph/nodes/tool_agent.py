@@ -4,7 +4,8 @@ from collections.abc import Callable
 from hashlib import sha256
 from urllib.parse import urlsplit, urlunsplit
 
-from app.graph.state import AgentState
+from app.core.config import settings
+from app.graph.state import AgentState, merge_disclosed_tool_names
 from app.graph.tool_context import build_tool_execution_context
 from app.llm.factory import LlmClient
 from app.schemas.approvals import PendingToolApproval, ReadyToolCall
@@ -25,6 +26,7 @@ from app.tools.redaction import (
 )
 from app.tools.registry import ToolRegistry
 from app.tools.registry import ToolCatalogChangedError
+from app.tools.search import SearchTool, ToolSearchResponse
 
 
 RESOLVED_VALUE_PREFIX = "$resolved_"
@@ -73,6 +75,7 @@ def build_tool_agent_node(
                 context=context,
                 existing_records=state["tool_calls"],
                 run_id=state["request_id"],
+                planning_revision=state["tool_search_count"],
                 user_message=state["user_message"],
                 llm_client=llm_client,
                 plan=state["plan"] or {},
@@ -87,6 +90,7 @@ def build_tool_agent_node(
             "requested_tools": _merge_staged_requests(staged_requests),
         }
         state["tool_calls"].extend(new_records)
+        _apply_search_results(state, new_records)
         _record_tool_execution_error(state, new_records)
         _record_tool_business_error(state, new_records)
         state["pending_tool_approval"] = pending_approval
@@ -112,6 +116,8 @@ def _record_tool_execution_error(
     )
     if failed_record is None or failed_record.result is None:
         return
+    if failed_record.request.tool_name == SearchTool.name:
+        return
     failed = failed_record.result
     if failed.error is None or _is_optional_market_data_failure(failed_record):
         return
@@ -128,6 +134,31 @@ def _record_tool_execution_error(
     )
 
 
+def _apply_search_results(
+    state: AgentState,
+    records: list[ToolCallRecord],
+) -> None:
+    for record in records:
+        if record.request.tool_name != SearchTool.name or record.result is None:
+            continue
+        state["tool_search_count"] += 1
+        if record.result.status == "success" and record.result.result is not None:
+            response = ToolSearchResponse.model_validate(record.result.result)
+            state["disclosed_tool_names"] = merge_disclosed_tool_names(
+                state["disclosed_tool_names"],
+                [hit.tool_name for hit in response.hits],
+                limit=settings.tool_search_max_disclosed_tools,
+            )
+        if state["tool_search_count"] >= settings.tool_search_max_calls:
+            state["errors"].append(
+                {
+                    "node": "tool_agent",
+                    "message": "工具搜索已达本次运行上限，无法继续发现新工具。",
+                    "code": "tool_search_budget_exhausted",
+                    "http_status": 422,
+                    "handled": True,
+                }
+            )
 def _is_optional_market_data_failure(record: ToolCallRecord) -> bool:
     if ".stock." not in record.request.tool_name:
         return False
@@ -169,6 +200,7 @@ async def _advance_requests(
     context: ToolExecutionContext,
     existing_records: list[ToolCallRecord],
     run_id: str,
+    planning_revision: int,
     user_message: str,
     llm_client: LlmClient | None,
     plan: dict,
@@ -195,7 +227,13 @@ async def _advance_requests(
     for index, request in enumerate(requests):
         reject_inline_credentials(request.arguments)
         request = request.model_copy(
-            update={"call_id": _trusted_call_id(run_id=run_id, step_index=index)}
+            update={
+                "call_id": _trusted_call_id(
+                    run_id=run_id,
+                    step_index=index,
+                    planning_revision=planning_revision,
+                )
+            }
         )
         resolved_request = _resolve_request_placeholders(request, resolution_values)
         resolved_request = _normalize_request_risk(resolved_request, registry)
@@ -911,9 +949,13 @@ def _trusted_call_id(
     run_id: str,
     step_index: int,
     repair_attempt: int | None = None,
+    planning_revision: int = 0,
 ) -> str:
     repair_key = "" if repair_attempt is None else f":repair:{repair_attempt}"
-    digest = sha256(f"{run_id}:{step_index}{repair_key}".encode()).hexdigest()
+    revision_key = "" if planning_revision == 0 else f":plan:{planning_revision}:"
+    digest = sha256(
+        f"{run_id}:{revision_key}{step_index}{repair_key}".encode()
+    ).hexdigest()
     return f"call_{digest[:24]}"
 
 

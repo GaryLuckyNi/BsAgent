@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from app.graph.state import AgentState
 from app.tools.redaction import redact_sensitive_data, sanitize_trace_error
+from app.tools.search import ToolSearchResponse
 
 TraceEventStatus = Literal["success", "error", "handled_error"]
 
@@ -187,6 +188,12 @@ def summarize_node_transition(
             input_state=input_state,
             output_state=output_state,
         )
+        tool_search = _tool_search_summary(
+            input_state=input_state,
+            output_state=output_state,
+        )
+        if tool_search is not None:
+            metadata["tool_search"] = tool_search
         tool_repair = (output_state["plan"] or {}).get("tool_repair")
         if isinstance(tool_repair, dict):
             metadata["tool_repair"] = tool_repair
@@ -349,6 +356,46 @@ def _tool_execution_summary(
             }
             for record in new_records
         ],
+    }
+
+
+def _tool_search_summary(
+    *,
+    input_state: AgentState,
+    output_state: AgentState,
+) -> dict[str, Any] | None:
+    before_count = len(input_state["tool_calls"])
+    search_record = next(
+        (
+            record
+            for record in reversed(output_state["tool_calls"][before_count:])
+            if record.request.tool_name == "search_tool" and record.result is not None
+        ),
+        None,
+    )
+    if search_record is None or search_record.result is None:
+        return None
+    result = search_record.result
+    if result.status != "success" or result.result is None:
+        return {
+            "status": result.status,
+            "item_count": 0,
+            "structured_tools": [],
+            "catalog_digest": output_state["tool_catalog_digest"],
+            "search_count": output_state["tool_search_count"],
+            "degraded": False,
+        }
+    try:
+        response = ToolSearchResponse.model_validate(result.result)
+    except ValueError:
+        return None
+    return {
+        "status": response.mode,
+        "item_count": len(response.hits),
+        "structured_tools": [hit.tool_name for hit in response.hits],
+        "catalog_digest": response.catalog_digest,
+        "search_count": output_state["tool_search_count"],
+        "degraded": response.degraded,
     }
 
 

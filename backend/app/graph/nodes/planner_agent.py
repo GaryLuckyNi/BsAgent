@@ -15,7 +15,7 @@ from app.graph.planning.templates import (
     build_skill_workflow_plan,
 )
 from app.graph.planning.tool_action import build_tool_action_plan
-from app.graph.state import AgentState
+from app.graph.state import AgentState, merge_disclosed_tool_names
 from app.llm.factory import LlmClient
 from app.memory.candidates import propose_explicit_preference_candidates
 from app.memory.preferences import (
@@ -86,7 +86,7 @@ def _disclosed_tool_specs(
                 permission_scopes=tuple(state["permission_scopes"]),
             ),
         )
-        state["disclosed_tool_names"] = _merge_disclosed_names(
+        state["disclosed_tool_names"] = merge_disclosed_tool_names(
             state["disclosed_tool_names"],
             [hit.tool_name for hit in response.hits],
             limit=settings.tool_search_max_disclosed_tools,
@@ -141,17 +141,6 @@ def _build_initial_tool_query(
         if skill is not None:
             parts.append(skill.summary)
     return " ".join(part for part in parts if part)
-
-
-def _merge_disclosed_names(
-    existing: list[str],
-    incoming: list[str],
-    *,
-    limit: int,
-) -> list[str]:
-    return list(dict.fromkeys([*existing, *incoming]))[:limit]
-
-
 def planner_agent_node(state: AgentState, runtime: Runtime | None = None) -> AgentState:
     return build_planner_agent_node()(state, runtime)
 

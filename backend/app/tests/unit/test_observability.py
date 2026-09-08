@@ -6,6 +6,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 
+from app.graph.state import create_initial_state
+from app.harness.trace_buffer import TraceArtifactPayload
+from app.harness.tracing import summarize_node_transition
 from app.operations.observability import (
     RequestContextMiddleware,
     SafeJsonFormatter,
@@ -16,6 +19,74 @@ from app.operations.observability import (
     configure_worker_telemetry,
 )
 from app.security.principal import Principal
+from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
+
+
+def test_tool_search_trace_contains_only_safe_discovery_summary():
+    input_state = create_initial_state(
+        session_id="trace-search",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="查询秘密盈利任务",
+    )
+    output_state = create_initial_state(
+        session_id="trace-search",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="查询秘密盈利任务",
+    )
+    output_state["tool_search_count"] = 1
+    output_state["disclosed_tool_names"] = ["mcp.test.income"]
+    output_state["tool_calls"] = [
+        ToolCallRecord(
+            call_id="call-search-1",
+            request=ToolCallRequest(
+                call_id="call-search-1",
+                tool_name="search_tool",
+                arguments={"query": "secret-query", "top_k": 5},
+                purpose="发现工具",
+            ),
+            result=ToolCallResult(
+                tool_call_id="call-search-1",
+                tool_name="search_tool",
+                status="success",
+                result={
+                    "catalog_digest": "catalog-1",
+                    "mode": "hybrid",
+                    "hits": [
+                        {
+                            "tool_name": "mcp.test.income",
+                            "tool_version": "1.0.0",
+                            "description": "利润表",
+                            "rank": 1,
+                            "sources": ["bm25", "dense"],
+                        }
+                    ],
+                    "degraded": False,
+                },
+                trace_id="trace-search",
+            ),
+        )
+    ]
+
+    summary = summarize_node_transition(
+        node_name="tool_agent",
+        input_state=input_state,
+        output_state=output_state,
+    )
+
+    assert summary["tool_search"] == {
+        "status": "hybrid",
+        "item_count": 1,
+        "structured_tools": ["mcp.test.income"],
+        "catalog_digest": "catalog-1",
+        "search_count": 1,
+        "degraded": False,
+    }
+    serialized = str(summary)
+    assert "secret-query" not in serialized
+    assert "input_schema" not in serialized
+    assert TraceArtifactPayload.from_summary(summary) is not None
 
 
 def test_request_context_uses_route_template_and_never_logs_query():

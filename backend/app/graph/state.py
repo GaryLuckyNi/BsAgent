@@ -197,6 +197,15 @@ def add_state_messages(
     return merged
 
 
+def merge_disclosed_tool_names(
+    existing: list[str],
+    incoming: list[str],
+    *,
+    limit: int,
+) -> list[str]:
+    return list(dict.fromkeys([*existing, *incoming]))[:limit]
+
+
 class AgentState(TypedDict):
     session_id: str
     session_key: str

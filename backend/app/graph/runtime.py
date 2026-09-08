@@ -316,6 +316,10 @@ def _route_after_tool_agent(state: AgentState) -> str:
         return "approval_gate"
     if _has_pending_tool_approval(state):
         return "approval_gate"
+    if _latest_executed_tool_name(state) == "search_tool":
+        if state["tool_search_count"] < settings.tool_search_max_calls:
+            return "planner_agent"
+        return "synthesizer"
     if _has_ready_rag_call(state):
         return "retriever_agent"
     plan = state["plan"] or {}
@@ -326,6 +330,17 @@ def _route_after_tool_agent(state: AgentState) -> str:
     ):
         return "analysis_agent"
     return "synthesizer"
+
+
+def _latest_executed_tool_name(state: AgentState) -> str | None:
+    return next(
+        (
+            record.request.tool_name
+            for record in reversed(state["tool_calls"])
+            if record.result is not None
+        ),
+        None,
+    )
 
 
 def _route_after_approval_gate(state: AgentState) -> str:
@@ -580,6 +595,7 @@ def build_question_answer_graph(
         "tool_agent",
         _route_after_tool_agent,
         {
+            "planner_agent": "planner_agent",
             "approval_gate": "approval_gate",
             "retriever_agent": "retriever_agent",
             "analysis_agent": "analysis_agent",
