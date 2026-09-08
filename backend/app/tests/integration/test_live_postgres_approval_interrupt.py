@@ -40,18 +40,24 @@ class LocalPreferenceLlm:
 
 
 def test_live_postgres_application_approval_lifecycle(
+    business_intent_catalog,
     monkeypatch,
 ):
     postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL")
     if not postgres_url:
         pytest.skip("未配置真实 PostgreSQL 审批中断测试地址。")
     with open_isolated_postgres_store(postgres_url) as live_postgres_store:
-        _exercise_application_lifecycle(live_postgres_store, monkeypatch)
+        _exercise_application_lifecycle(
+            live_postgres_store,
+            monkeypatch,
+            business_intent_catalog,
+        )
 
 
 def _exercise_application_lifecycle(
     live_postgres_store: LivePostgresStore,
     monkeypatch,
+    business_intent_catalog,
 ):
     business_engine = create_engine(
         make_url(live_postgres_store.dsn).set(drivername="postgresql+psycopg")
@@ -62,7 +68,7 @@ def _exercise_application_lifecycle(
     with PostgresSaver.from_conn_string(live_postgres_store.dsn) as saver:
         saver.setup()
         monkeypatch.setattr(sessions, "build_graph_checkpointer", lambda: saver)
-        state = _run_interrupted_graph(saver)
+        state = _run_interrupted_graph(saver, business_intent_catalog)
         projected = sessions._interrupt_payloads(state)
 
         assert len(projected) == 1
@@ -106,8 +112,7 @@ def _exercise_application_lifecycle(
                 "status": "pending",
             }
             database_columns = {
-                column["name"]
-                for column in inspect(db.bind).get_columns("approval_records")
+                column["name"] for column in inspect(db.bind).get_columns("approval_records")
             }
             orm_columns = set(ApprovalRecord.__table__.columns.keys())
             forbidden_columns = {
@@ -127,9 +132,10 @@ def _exercise_application_lifecycle(
             assert database_columns == orm_columns
             assert database_columns.isdisjoint(forbidden_columns)
 
-        resumed = _resume(saver, payload)
+        resumed = _resume(saver, payload, business_intent_catalog)
         candidate = next(
-            item for item in resumed["memory_candidates"]
+            item
+            for item in resumed["memory_candidates"]
             if item.candidate_id == payload["candidate_id"]
         )
         assert candidate.approval_status == "approved"
@@ -141,13 +147,18 @@ def _exercise_application_lifecycle(
         )
         for mismatch in mismatches:
             with pytest.raises(ApprovalPayloadMismatchError):
-                _resume(saver, {**payload, **mismatch})
+                _resume(
+                    saver,
+                    {**payload, **mismatch},
+                    business_intent_catalog,
+                )
 
     business_engine.dispose()
 
 
-def _run_interrupted_graph(saver: PostgresSaver):
+def _run_interrupted_graph(saver: PostgresSaver, business_intent_catalog):
     return run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="live-approval-session",
         session_key="live-approval-session-key",
         tenant_id="tenant-live",
@@ -161,8 +172,9 @@ def _run_interrupted_graph(saver: PostgresSaver):
     )
 
 
-def _resume(saver: PostgresSaver, payload: dict):
+def _resume(saver: PostgresSaver, payload: dict, business_intent_catalog):
     return resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         checkpoint_thread_id=payload["checkpoint_thread_id"],
         checkpoint_namespace=payload["checkpoint_namespace"],
         checkpoint_id=payload["checkpoint_id"],

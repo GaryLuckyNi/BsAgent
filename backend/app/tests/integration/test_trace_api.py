@@ -45,7 +45,11 @@ def avoid_live_llm_provider(monkeypatch):
     monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
 
 
-def create_test_app_with_database(*, override_principal=True):
+def create_test_app_with_database(
+    fake_business_intent_catalog_runtime,
+    *,
+    override_principal=True,
+):
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -58,7 +62,7 @@ def create_test_app_with_database(*, override_principal=True):
         with testing_session_local() as session:
             yield session
 
-    app = create_app()
+    app = create_app(business_intent_catalog_runtime=fake_business_intent_catalog_runtime)
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_memory_store] = lambda: TEST_MEMORY_STORE
     app.state.testing_engine = engine
@@ -94,9 +98,7 @@ def seed_persisted_trace(
                 trace_id=trace_id,
                 status="completed",
                 trace_capture_status=capture_status,
-                trace_capture_level=(
-                    capture_level if capture_status == "captured" else None
-                ),
+                trace_capture_level=(capture_level if capture_status == "captured" else None),
             )
         )
         for index in range(event_count):
@@ -138,7 +140,7 @@ def seed_persisted_trace(
     return trace_id
 
 
-def test_get_trace_requires_authenticated_principal():
+def test_get_trace_requires_authenticated_principal(fake_business_intent_catalog_runtime):
     store = get_trace_store()
     store.clear()
     trace_id = "trace_requires_auth"
@@ -152,20 +154,22 @@ def test_get_trace_requires_authenticated_principal():
     )
 
     response = TestClient(
-        create_test_app_with_database(override_principal=False)
+        create_test_app_with_database(
+            fake_business_intent_catalog_runtime, override_principal=False
+        )
     ).get(f"/api/traces/{trace_id}")
 
     assert response.status_code == 401
 
 
-def test_trace_api_reads_database_after_memory_store_is_cleared():
-    app = create_test_app_with_database()
+def test_trace_api_reads_database_after_memory_store_is_cleared(
+    fake_business_intent_catalog_runtime,
+):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(app)
     get_trace_store().clear()
 
-    response = TestClient(app).get(
-        f"/api/traces/{trace_id}?include_artifacts=true"
-    )
+    response = TestClient(app).get(f"/api/traces/{trace_id}?include_artifacts=true")
 
     assert response.status_code == 200
     assert response.json()["capture_status"] == "captured"
@@ -173,8 +177,10 @@ def test_trace_api_reads_database_after_memory_store_is_cleared():
     assert "artifact_run_db_1_0000" in response.json()["artifacts"]
 
 
-def test_trace_api_never_reads_postgres_checkpointer(monkeypatch):
-    app = create_test_app_with_database()
+def test_trace_api_never_reads_postgres_checkpointer(
+    monkeypatch, fake_business_intent_catalog_runtime
+):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(app)
 
     def forbidden(*_args, **_kwargs):
@@ -183,17 +189,17 @@ def test_trace_api_never_reads_postgres_checkpointer(monkeypatch):
     monkeypatch.setattr(PostgresSaver, "get_tuple", forbidden)
     monkeypatch.setattr(PostgresSaver, "list", forbidden)
 
-    response = TestClient(app).get(
-        f"/api/traces/{trace_id}?include_artifacts=true"
-    )
+    response = TestClient(app).get(f"/api/traces/{trace_id}?include_artifacts=true")
 
     assert response.status_code == 200
     assert response.json()["trace_id"] == trace_id
 
 
 @pytest.mark.parametrize("capture_status", ["not_sampled", "persist_failed"])
-def test_trace_api_returns_empty_data_for_uncaptured_status(capture_status):
-    app = create_test_app_with_database()
+def test_trace_api_returns_empty_data_for_uncaptured_status(
+    capture_status, fake_business_intent_catalog_runtime
+):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(
         app,
         trace_id=f"trace_{capture_status}",
@@ -215,8 +221,8 @@ def test_trace_api_returns_empty_data_for_uncaptured_status(capture_status):
     }
 
 
-def test_trace_api_does_not_query_artifacts_unless_requested():
-    app = create_test_app_with_database()
+def test_trace_api_does_not_query_artifacts_unless_requested(fake_business_intent_catalog_runtime):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(app)
     statements = []
 
@@ -238,8 +244,8 @@ def test_trace_api_does_not_query_artifacts_unless_requested():
     assert not any("agent_trace_artifacts" in statement for statement in statements)
 
 
-def test_trace_api_enforces_stable_pagination_limits():
-    app = create_test_app_with_database()
+def test_trace_api_enforces_stable_pagination_limits(fake_business_intent_catalog_runtime):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(
         app,
         event_count=505,
@@ -247,8 +253,7 @@ def test_trace_api_enforces_stable_pagination_limits():
     )
 
     response = TestClient(app).get(
-        f"/api/traces/{trace_id}?include_artifacts=true"
-        "&event_limit=500&artifact_limit=100"
+        f"/api/traces/{trace_id}?include_artifacts=true&event_limit=500&artifact_limit=100"
     )
 
     assert response.status_code == 200
@@ -257,14 +262,8 @@ def test_trace_api_enforces_stable_pagination_limits():
     assert body["events"][0]["event_id"] == "event_run_db_1_0000"
     assert body["events"][-1]["event_id"] == "event_run_db_1_0499"
     assert len(body["artifacts"]) == 100
-    assert (
-        TestClient(app).get(f"/api/traces/{trace_id}?event_limit=501").status_code
-        == 422
-    )
-    assert (
-        TestClient(app).get(f"/api/traces/{trace_id}?artifact_limit=101").status_code
-        == 422
-    )
+    assert TestClient(app).get(f"/api/traces/{trace_id}?event_limit=501").status_code == 422
+    assert TestClient(app).get(f"/api/traces/{trace_id}?artifact_limit=101").status_code == 422
 
     with app.state.testing_session_local() as session:
         view = TraceQueryRepository(session).get_trace(
@@ -279,8 +278,10 @@ def test_trace_api_enforces_stable_pagination_limits():
     assert len(view.artifacts) == 100
 
 
-def test_trace_api_isolates_duplicate_trace_ids_by_tenant_and_run():
-    app = create_test_app_with_database()
+def test_trace_api_isolates_duplicate_trace_ids_by_tenant_and_run(
+    fake_business_intent_catalog_runtime,
+):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(
         app,
         trace_id="trace_shared",
@@ -298,30 +299,26 @@ def test_trace_api_isolates_duplicate_trace_ids_by_tenant_and_run():
     own_response = client.get(f"/api/traces/{trace_id}")
 
     assert own_response.status_code == 200
-    assert {item["run_id"] for item in own_response.json()["events"]} == {
-        "run_tenant_1"
-    }
+    assert {item["run_id"] for item in own_response.json()["events"]} == {"run_tenant_1"}
 
     app.dependency_overrides[get_current_principal] = lambda: Principal(
         tenant_id="tenant_1",
         user_id="operator_1",
         scopes=("trace:read", "trace:read:any"),
     )
-    cross_tenant = client.get(
-        f"/api/traces/{trace_id}?tenant_id=tenant_2&include_artifacts=true"
-    )
+    cross_tenant = client.get(f"/api/traces/{trace_id}?tenant_id=tenant_2&include_artifacts=true")
 
     assert cross_tenant.status_code == 200
-    assert {item["run_id"] for item in cross_tenant.json()["events"]} == {
+    assert {item["run_id"] for item in cross_tenant.json()["events"]} == {"run_tenant_2"}
+    assert {item["run_id"] for item in cross_tenant.json()["artifacts"].values()} == {
         "run_tenant_2"
     }
-    assert {
-        item["run_id"] for item in cross_tenant.json()["artifacts"].values()
-    } == {"run_tenant_2"}
 
 
-def test_trace_api_hides_cross_tenant_target_and_restricts_tenant_parameter():
-    app = create_test_app_with_database()
+def test_trace_api_hides_cross_tenant_target_and_restricts_tenant_parameter(
+    fake_business_intent_catalog_runtime,
+):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(
         app,
         trace_id="trace_tenant_2",
@@ -331,9 +328,7 @@ def test_trace_api_hides_cross_tenant_target_and_restricts_tenant_parameter():
     client = TestClient(app)
 
     hidden = client.get(f"/api/traces/{trace_id}?tenant_id=tenant_2")
-    own_parameter = client.get(
-        "/api/traces/missing_trace?tenant_id=tenant_1"
-    )
+    own_parameter = client.get("/api/traces/missing_trace?tenant_id=tenant_1")
 
     assert hidden.status_code == 404
     assert hidden.json()["detail"]["code"] == "trace_not_found"
@@ -344,18 +339,15 @@ def test_trace_api_hides_cross_tenant_target_and_restricts_tenant_parameter():
     }
 
 
-def test_trace_api_rejects_unsafe_identifiers():
-    client = TestClient(create_test_app_with_database())
+def test_trace_api_rejects_unsafe_identifiers(fake_business_intent_catalog_runtime):
+    client = TestClient(create_test_app_with_database(fake_business_intent_catalog_runtime))
 
     assert client.get("/api/traces/trace%20unsafe").status_code == 422
-    assert (
-        client.get("/api/traces/trace_safe?tenant_id=tenant%20unsafe").status_code
-        == 422
-    )
+    assert client.get("/api/traces/trace_safe?tenant_id=tenant%20unsafe").status_code == 422
 
 
-def test_get_trace_returns_events_and_artifacts():
-    app = create_test_app_with_database()
+def test_get_trace_returns_events_and_artifacts(fake_business_intent_catalog_runtime):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(
         app,
         trace_id="trace_debug_1",
@@ -377,17 +369,17 @@ def test_get_trace_returns_events_and_artifacts():
     }
 
 
-def test_get_trace_redacts_database_events_and_artifacts_again():
-    app = create_test_app_with_database()
+def test_get_trace_redacts_database_events_and_artifacts_again(
+    fake_business_intent_catalog_runtime,
+):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(
         app,
         trace_id="trace_sensitive_1",
         run_id="run_sensitive_1",
     )
 
-    response = TestClient(app).get(
-        f"/api/traces/{trace_id}?include_artifacts=true"
-    )
+    response = TestClient(app).get(f"/api/traces/{trace_id}?include_artifacts=true")
 
     assert response.status_code == 200
     serialized = response.text
@@ -427,9 +419,7 @@ def test_trace_summaries_keep_only_whitelisted_metadata_without_body_content():
         "execution_mode": "tool_execution",
         "requested_tools": [request],
     }
-    state["tool_calls"] = [
-        ToolCallRecord(call_id="call_trace_1", request=request, result=result)
-    ]
+    state["tool_calls"] = [ToolCallRecord(call_id="call_trace_1", request=request, result=result)]
     state["analysis"] = {
         "findings": ["analysis-secret"],
         "missing_information": ["missing-secret"],
@@ -491,14 +481,9 @@ def test_trace_summaries_keep_only_whitelisted_metadata_without_body_content():
     ):
         assert secret not in serialized
     assert state["final_response"]["content"] == "final-answer-secret"
-    assert state_summary["final_response"]["content_length"] == len(
-        "final-answer-secret"
-    )
+    assert state_summary["final_response"]["content_length"] == len("final-answer-secret")
     assert state_summary["draft_answer"]["llm_rendering"] == "safe_fallback"
-    assert (
-        state_summary["draft_answer"]["llm_validation_error"]
-        == "unsupported_numbers"
-    )
+    assert state_summary["draft_answer"]["llm_validation_error"] == "unsupported_numbers"
     assert "system_prompt" not in serialized
     assert "user_prompt" not in serialized
     assert "raw_response" not in serialized
@@ -533,10 +518,7 @@ def test_synthesizer_transition_summary_exposes_only_safe_llm_status():
     )
 
     assert summary["synthesis"]["llm_rendering"] == "safe_fallback"
-    assert (
-        summary["synthesis"]["llm_validation_error"]
-        == "prohibited_financial_advice"
-    )
+    assert summary["synthesis"]["llm_validation_error"] == "prohibited_financial_advice"
     serialized = json.dumps(summary, ensure_ascii=False)
     assert "system_prompt" not in serialized
     assert "user_prompt" not in serialized
@@ -581,8 +563,10 @@ def test_trace_exposes_market_data_coverage_without_credentials():
     assert "token" not in payload.lower()
 
 
-def test_trace_event_error_is_sanitized_when_recorded_and_returned_by_api():
-    app = create_test_app_with_database()
+def test_trace_event_error_is_sanitized_when_recorded_and_returned_by_api(
+    fake_business_intent_catalog_runtime,
+):
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     trace_id = seed_persisted_trace(
         app,
         trace_id="trace_error_sanitization",
@@ -656,13 +640,13 @@ def test_node_runner_trace_never_records_arbitrary_exception_text():
         assert secret not in serialized
 
 
-def test_session_message_trace_can_be_queried(monkeypatch):
+def test_session_message_trace_can_be_queried(monkeypatch, fake_business_intent_catalog_runtime):
     monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
     monkeypatch.setattr(sessions.settings, "trace_success_sample_ratio", 1)
     monkeypatch.setattr(sessions.settings, "trace_detailed_sample_ratio", 1)
     store = get_trace_store()
     store.clear()
-    client = TestClient(create_test_app_with_database())
+    client = TestClient(create_test_app_with_database(fake_business_intent_catalog_runtime))
 
     session_response = client.post(
         "/api/sessions/debug_s1/messages",
@@ -671,18 +655,12 @@ def test_session_message_trace_can_be_queried(monkeypatch):
     )
 
     trace_id = session_response.json()["trace_id"]
-    trace_response = client.get(
-        f"/api/traces/{trace_id}?include_artifacts=true"
-    )
+    trace_response = client.get(f"/api/traces/{trace_id}?include_artifacts=true")
 
     assert trace_response.status_code == 200
     body = trace_response.json()
     event_node_names = [event["node_name"] for event in body["events"]]
-    assert [
-        node_name
-        for node_name in event_node_names
-        if node_name != "experience_memory"
-    ] == [
+    assert [node_name for node_name in event_node_names if node_name != "experience_memory"] == [
         "catalog_guard",
         "attachment_analyzer",
         "intent_router",
@@ -710,11 +688,11 @@ def test_session_message_trace_can_be_queried(monkeypatch):
     assert isinstance(output_payload["draft_answer"]["cited_evidence_ids"], list)
 
 
-def test_trace_cannot_be_read_across_tenants(monkeypatch):
+def test_trace_cannot_be_read_across_tenants(monkeypatch, fake_business_intent_catalog_runtime):
     monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
     store = get_trace_store()
     store.clear()
-    app = create_test_app_with_database()
+    app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     client = TestClient(app)
     session_response = client.post(
         "/api/sessions/tenant_trace/messages",

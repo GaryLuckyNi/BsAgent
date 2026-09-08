@@ -56,8 +56,13 @@ class RecordingAssetService:
         return True
 
 
-def _client(service, *, scopes=("asset:write", "asset:read", "asset:delete")):
-    app = create_app()
+def _client(
+    service,
+    fake_business_intent_catalog_runtime,
+    *,
+    scopes=("asset:write", "asset:read", "asset:delete"),
+):
+    app = create_app(business_intent_catalog_runtime=fake_business_intent_catalog_runtime)
     app.dependency_overrides[get_current_principal] = lambda: Principal(
         tenant_id="tenant-1",
         user_id="user-1",
@@ -67,9 +72,11 @@ def _client(service, *, scopes=("asset:write", "asset:read", "asset:delete")):
     return TestClient(app)
 
 
-def test_upload_image_uses_principal_and_does_not_expose_storage_coordinates():
+def test_upload_image_uses_principal_and_does_not_expose_storage_coordinates(
+    fake_business_intent_catalog_runtime,
+):
     service = RecordingAssetService()
-    client = _client(service)
+    client = _client(service, fake_business_intent_catalog_runtime)
 
     response = client.post(
         "/api/assets/images",
@@ -86,13 +93,15 @@ def test_upload_image_uses_principal_and_does_not_expose_storage_coordinates():
     assert "sha256" not in response.json()
 
 
-def test_upload_image_maps_validation_code_to_stable_http_status():
+def test_upload_image_maps_validation_code_to_stable_http_status(
+    fake_business_intent_catalog_runtime,
+):
     service = RecordingAssetService()
     service.upload_error = AssetValidationError(
         code="unsupported_image_type",
         message="unsupported",
     )
-    client = _client(service)
+    client = _client(service, fake_business_intent_catalog_runtime)
 
     response = client.post(
         "/api/assets/images",
@@ -103,9 +112,15 @@ def test_upload_image_maps_validation_code_to_stable_http_status():
     assert response.json()["detail"]["code"] == "unsupported_image_type"
 
 
-def test_asset_routes_stop_before_service_when_permission_is_missing():
+def test_asset_routes_stop_before_service_when_permission_is_missing(
+    fake_business_intent_catalog_runtime,
+):
     service = RecordingAssetService()
-    client = _client(service, scopes=("asset:read",))
+    client = _client(
+        service,
+        fake_business_intent_catalog_runtime,
+        scopes=("asset:read",),
+    )
 
     response = client.post(
         "/api/assets/images",
@@ -116,10 +131,12 @@ def test_asset_routes_stop_before_service_when_permission_is_missing():
     assert service.uploads == []
 
 
-def test_get_asset_is_tenant_scoped_and_maps_not_found():
+def test_get_asset_is_tenant_scoped_and_maps_not_found(
+    fake_business_intent_catalog_runtime,
+):
     service = RecordingAssetService()
     service.get_error = AssetNotFoundError("missing")
-    client = _client(service)
+    client = _client(service, fake_business_intent_catalog_runtime)
 
     response = client.get("/api/assets/asset-missing")
 
@@ -127,9 +144,11 @@ def test_get_asset_is_tenant_scoped_and_maps_not_found():
     assert response.json()["detail"]["code"] == "asset_not_found"
 
 
-def test_delete_asset_is_idempotent_at_http_boundary():
+def test_delete_asset_is_idempotent_at_http_boundary(
+    fake_business_intent_catalog_runtime,
+):
     service = RecordingAssetService()
-    client = _client(service)
+    client = _client(service, fake_business_intent_catalog_runtime)
 
     response = client.delete("/api/assets/asset-1")
 
@@ -137,7 +156,9 @@ def test_delete_asset_is_idempotent_at_http_boundary():
     assert service.deleted == [("asset-1", "tenant-1")]
 
 
-def test_get_asset_analysis_returns_structured_result_without_raw_provider_payload():
+def test_get_asset_analysis_returns_structured_result_without_raw_provider_payload(
+    fake_business_intent_catalog_runtime,
+):
     service = RecordingAssetService()
     analysis_record = SimpleNamespace(
         analysis_id="analysis-1",
@@ -154,16 +175,14 @@ def test_get_asset_analysis_returns_structured_result_without_raw_provider_paylo
         created_at=datetime.now(UTC),
     )
     repository = SimpleNamespace(get_latest=lambda **_: analysis_record)
-    app = create_app()
+    app = create_app(business_intent_catalog_runtime=fake_business_intent_catalog_runtime)
     app.dependency_overrides[get_current_principal] = lambda: Principal(
         tenant_id="tenant-1",
         user_id="user-1",
         scopes=("asset:read",),
     )
     app.dependency_overrides[assets.get_asset_service] = lambda: service
-    app.dependency_overrides[assets.get_vision_analysis_repository] = (
-        lambda: repository
-    )
+    app.dependency_overrides[assets.get_vision_analysis_repository] = lambda: repository
     client = TestClient(app)
 
     response = client.get("/api/assets/asset-1/analysis")

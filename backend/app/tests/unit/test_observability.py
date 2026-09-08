@@ -177,13 +177,19 @@ def test_safe_json_formatter_redacts_fields_and_inline_credentials():
     assert "abcdefghijklmnop" not in serialized
 
 
-def test_created_application_installs_request_context_middleware(monkeypatch):
+def test_created_application_installs_request_context_middleware(
+    fake_business_intent_catalog_runtime,
+    monkeypatch,
+):
     from app import main as main_module
     from app.operations.health import ReadinessService
 
     monkeypatch.setattr(main_module, "build_graph_checkpointer", InMemorySaver)
     monkeypatch.setattr(main_module, "close_graph_checkpointer", lambda: None)
-    app = main_module.create_app(readiness_service=ReadinessService(probes=[]))
+    app = main_module.create_app(
+        readiness_service=ReadinessService(probes=[]),
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
+    )
     with TestClient(app) as client:
         response = client.get(
             "/health/live",

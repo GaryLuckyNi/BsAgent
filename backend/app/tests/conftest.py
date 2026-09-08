@@ -1,19 +1,9 @@
-from collections.abc import Callable
-from functools import wraps
-from typing import Any
+from types import SimpleNamespace
 
 import pytest
 
 from app.intent.catalog import BusinessIntentCatalog
 from app.intent.schemas import BusinessIntentProfile
-
-
-_GRAPH_RUNTIME_ENTRYPOINTS = (
-    "build_question_answer_graph",
-    "run_question_answer_graph",
-    "stream_question_answer_graph",
-    "resume_question_answer_graph",
-)
 
 
 @pytest.fixture(scope="session")
@@ -104,33 +94,30 @@ def business_intent_catalog() -> BusinessIntentCatalog:
     )
 
 
-def _with_default_business_intent_catalog(
-    entrypoint: Callable[..., Any],
+class _FakeBusinessIntentCatalogRuntime:
+    refresh_seconds = 3600
+
+    def __init__(self, catalog: BusinessIntentCatalog) -> None:
+        self._snapshot = SimpleNamespace(catalog=catalog)
+
+    def open(self):
+        return self._snapshot
+
+    def snapshot(self):
+        return self._snapshot
+
+    def refresh(self):
+        return self._snapshot
+
+    def check_health(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+
+@pytest.fixture
+def fake_business_intent_catalog_runtime(
     business_intent_catalog: BusinessIntentCatalog,
-) -> Callable[..., Any]:
-    @wraps(entrypoint)
-    def wrapped(*args: Any, **kwargs: Any) -> Any:
-        kwargs.setdefault("business_intent_catalog", business_intent_catalog)
-        return entrypoint(*args, **kwargs)
-
-    return wrapped
-
-
-@pytest.fixture(autouse=True)
-def bind_test_business_intent_catalog(
-    request,
-    monkeypatch,
-    business_intent_catalog: BusinessIntentCatalog,
-) -> None:
-    for name in _GRAPH_RUNTIME_ENTRYPOINTS:
-        entrypoint = getattr(request.module, name, None)
-        if entrypoint is None or getattr(entrypoint, "__module__", None) != ("app.graph.runtime"):
-            continue
-        monkeypatch.setattr(
-            request.module,
-            name,
-            _with_default_business_intent_catalog(
-                entrypoint,
-                business_intent_catalog,
-            ),
-        )
+) -> _FakeBusinessIntentCatalogRuntime:
+    return _FakeBusinessIntentCatalogRuntime(business_intent_catalog)

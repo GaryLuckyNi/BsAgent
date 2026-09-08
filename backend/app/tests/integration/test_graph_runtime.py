@@ -92,10 +92,7 @@ class _GraphToolSearchService:
 
     def search(self, request, *, context):
         del context
-        if (
-            _DiscoveryIncomeTool.name in request.query
-            and self._failures_before_success > 0
-        ):
+        if _DiscoveryIncomeTool.name in request.query and self._failures_before_success > 0:
             self._failures_before_success -= 1
             raise RuntimeError("temporary tool search failure")
         selected = (
@@ -123,9 +120,7 @@ class _GraphToolSearchService:
 
 
 def _discovery_runtime(*, failures_before_success: int = 0):
-    service = _GraphToolSearchService(
-        failures_before_success=failures_before_success
-    )
+    service = _GraphToolSearchService(failures_before_success=failures_before_success)
     registry = ToolRegistry()
     registry.register(_DiscoveryDecoyTool())
     registry.register(_DiscoveryIncomeTool())
@@ -158,9 +153,7 @@ class _SearchThenExecutePlanner:
             )
         elif "工具规划器" in system_prompt:
             payload = json.loads(kwargs["user_prompt"])
-            visible_names = {
-                item["name"] for item in payload["available_tools"]
-            }
+            visible_names = {item["name"] for item in payload["available_tools"]}
             should_search = self.always_search or _DiscoveryIncomeTool.name not in visible_names
             if should_search:
                 self.search_decisions += 1
@@ -233,18 +226,18 @@ def _resume_kwargs(initial_state, checkpointer, *, decision):
     }
 
 
-
 @pytest.fixture(autouse=True)
 def isolate_graph_tests_from_external_mcp(monkeypatch):
     monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
 
 
-def test_runtime_records_each_run_only_in_its_explicit_trace_buffer():
+def test_runtime_records_each_run_only_in_its_explicit_trace_buffer(business_intent_catalog):
     first_buffer = TraceBuffer(max_events=128, max_artifacts=0)
     second_buffer = TraceBuffer(max_events=128, max_artifacts=0)
 
-    def run(session_id, trace_id, buffer):
+    def run(session_id, trace_id, buffer, business_intent_catalog):
         return run_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             session_id=session_id,
             tenant_id="tenant-1",
             user_id="user-1",
@@ -259,12 +252,14 @@ def test_runtime_records_each_run_only_in_its_explicit_trace_buffer():
             "session-first",
             "trace-first",
             first_buffer,
+            business_intent_catalog,
         )
         second_future = executor.submit(
             run,
             "session-second",
             "trace-second",
             second_buffer,
+            business_intent_catalog,
         )
         first = first_future.result()
         second = second_future.result()
@@ -280,7 +275,7 @@ def test_runtime_records_each_run_only_in_its_explicit_trace_buffer():
     )
 
 
-def test_graph_routes_validated_image_context_without_rag_or_tools():
+def test_graph_routes_validated_image_context_without_rag_or_tools(business_intent_catalog):
     trace_store = InMemoryTraceStore()
 
     class ImageOnlyLlm:
@@ -335,6 +330,7 @@ def test_graph_routes_validated_image_context_without_rag_or_tools():
             ]
 
     state = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="session-image",
         tenant_id="tenant-1",
         user_id="user-1",
@@ -356,8 +352,9 @@ def test_graph_routes_validated_image_context_without_rag_or_tools():
     assert "营业收入同比增长" in state["final_response"]["content"]
 
 
-def test_graph_returns_structured_not_ready_error_from_attachment_analyzer():
+def test_graph_returns_structured_not_ready_error_from_attachment_analyzer(business_intent_catalog):
     from app.assets.errors import AssetNotReadyError
+
     trace_store = InMemoryTraceStore()
 
     class NotReadyResolver:
@@ -365,6 +362,7 @@ def test_graph_returns_structured_not_ready_error_from_attachment_analyzer():
             raise AssetNotReadyError("provider internal detail")
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="session-image",
         tenant_id="tenant-1",
         user_id="user-1",
@@ -380,17 +378,13 @@ def test_graph_returns_structured_not_ready_error_from_attachment_analyzer():
     assert result["errors"][-1]["handled"] is True
     assert result["final_response"]["business_error_code"] == "asset_not_ready"
     assert "图片资产尚未完成分析" in result["final_response"]["content"]
-    events = [
-        event
-        for event in trace_store.events
-        if event.node_name == "attachment_analyzer"
-    ]
+    events = [event for event in trace_store.events if event.node_name == "attachment_analyzer"]
     assert [(event.status, event.error) for event in events] == [
         ("handled_error", "asset_not_ready:AssetNotReadyError")
     ]
 
 
-def test_financial_image_skill_without_tools_still_runs_analysis_agent():
+def test_financial_image_skill_without_tools_still_runs_analysis_agent(business_intent_catalog):
     class AttachmentResolver:
         def resolve(self, *_args, **_kwargs):
             return [
@@ -425,6 +419,7 @@ def test_financial_image_skill_without_tools_still_runs_analysis_agent():
 
     trace_store = InMemoryTraceStore()
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="session-image-skill",
         tenant_id="tenant-1",
         user_id="user-1",
@@ -668,11 +663,14 @@ def _acceptance_market_registry(
     return factory
 
 
-def test_question_answer_graph_writes_checkpoint_by_derived_tenant_thread_id():
+def test_question_answer_graph_writes_checkpoint_by_derived_tenant_thread_id(
+    business_intent_catalog,
+):
     checkpointer = InMemorySaver()
     session_key = "internal-checkpoint-key"
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="checkpoint_s1",
         session_key=session_key,
         tenant_id="t1",
@@ -692,20 +690,22 @@ def test_question_answer_graph_writes_checkpoint_by_derived_tenant_thread_id():
     )
 
     assert checkpoint is not None
-    assert checkpoint.checkpoint["channel_values"]["final_response"]["trace_id"] == result[
-        "trace_id"
-    ]
-    assert checkpointer.get(
-        {"configurable": {"thread_id": session_key, "checkpoint_ns": ""}}
-    ) is None
-    assert checkpointer.get(
-        {"configurable": {"thread_id": result["session_id"], "checkpoint_ns": ""}}
-    ) is None
+    assert (
+        checkpoint.checkpoint["channel_values"]["final_response"]["trace_id"] == result["trace_id"]
+    )
+    assert (
+        checkpointer.get({"configurable": {"thread_id": session_key, "checkpoint_ns": ""}}) is None
+    )
+    assert (
+        checkpointer.get({"configurable": {"thread_id": result["session_id"], "checkpoint_ns": ""}})
+        is None
+    )
 
 
-def test_catalog_guard_records_trace_before_rejecting_changed_catalog():
+def test_catalog_guard_records_trace_before_rejecting_changed_catalog(business_intent_catalog):
     trace_store = InMemoryTraceStore()
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=lambda state: state,
         trace_store=trace_store,
     )
@@ -728,12 +728,13 @@ def test_catalog_guard_records_trace_before_rejecting_changed_catalog():
     assert len(trace_store.events) == 1
 
 
-def test_question_answer_graph_stops_when_node_records_error():
+def test_question_answer_graph_stops_when_node_records_error(business_intent_catalog):
     def failing_retriever(state):
         raise RuntimeError("rag unavailable")
 
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         run_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             session_id="s1",
             tenant_id="t1",
             user_id="u1",
@@ -748,7 +749,7 @@ def test_question_answer_graph_stops_when_node_records_error():
     assert str(exc_info.value) == "retriever_agent: 节点执行失败。"
 
 
-def test_question_answer_graph_preserves_structured_node_error_metadata():
+def test_question_answer_graph_preserves_structured_node_error_metadata(business_intent_catalog):
     class ControlledError(RuntimeError):
         code = "rag_index_unavailable"
         http_status = 503
@@ -757,6 +758,7 @@ def test_question_answer_graph_preserves_structured_node_error_metadata():
         raise ControlledError("No Chroma index found.")
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
@@ -772,7 +774,9 @@ def test_question_answer_graph_preserves_structured_node_error_metadata():
     assert result["final_response"]["business_error_code"] == "rag_index_unavailable"
 
 
-def test_question_answer_graph_can_use_injected_retriever_without_mock_evidence():
+def test_question_answer_graph_can_use_injected_retriever_without_mock_evidence(
+    business_intent_catalog,
+):
     def injected_retriever(state):
         state["evidence"] = EvidencePackage.model_validate(
             {
@@ -794,6 +798,7 @@ def test_question_answer_graph_can_use_injected_retriever_without_mock_evidence(
         return state
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
@@ -807,9 +812,11 @@ def test_question_answer_graph_can_use_injected_retriever_without_mock_evidence(
 
 
 def test_question_answer_graph_compiles_with_native_postgres_store(
+    business_intent_catalog,
     live_postgres_store: LivePostgresStore,
 ):
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=lambda state: state,
         store=live_postgres_store.store,
     )
@@ -817,8 +824,13 @@ def test_question_answer_graph_compiles_with_native_postgres_store(
     assert graph.store is live_postgres_store.store
 
 
-def test_graph_runtime_has_no_memory_manager_or_legacy_retriever_parameters():
-    graph = build_question_answer_graph(retriever_node=lambda state: state)
+def test_graph_runtime_has_no_memory_manager_or_legacy_retriever_parameters(
+    business_intent_catalog,
+):
+    graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
+        retriever_node=lambda state: state,
+    )
 
     assert "memory_manager" not in graph.nodes
     assert ("attachment_analyzer", "intent_router") in graph.builder.edges
@@ -832,10 +844,11 @@ def test_graph_runtime_has_no_memory_manager_or_legacy_retriever_parameters():
         assert "memory_retriever" not in inspect.signature(function).parameters
 
 
-def test_question_answer_graph_runs_planner_between_intent_and_skill():
+def test_question_answer_graph_runs_planner_between_intent_and_skill(business_intent_catalog):
     trace_store = InMemoryTraceStore()
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -852,13 +865,16 @@ def test_question_answer_graph_runs_planner_between_intent_and_skill():
     assert result["plan"]["objective"] == "规划并执行用户请求的任务流程"
 
 
-def test_question_answer_graph_skips_skill_and_retrieval_for_conversation_intent():
+def test_question_answer_graph_skips_skill_and_retrieval_for_conversation_intent(
+    business_intent_catalog,
+):
     trace_store = InMemoryTraceStore()
 
     def failing_retriever(_):
         raise AssertionError("conversation intent should not call retriever")
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -878,10 +894,13 @@ def test_question_answer_graph_skips_skill_and_retrieval_for_conversation_intent
     assert "analysis_agent" not in node_names
 
 
-def test_question_answer_graph_scopes_checkpoint_to_run_and_uses_explicit_history():
+def test_question_answer_graph_scopes_checkpoint_to_run_and_uses_explicit_history(
+    business_intent_catalog,
+):
     checkpointer = InMemorySaver()
 
     first = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="session_multi_turn",
         session_key="session-key-multi-turn",
         tenant_id="tenant_1",
@@ -896,6 +915,7 @@ def test_question_answer_graph_scopes_checkpoint_to_run_and_uses_explicit_histor
         llm_client=ConversationRoutingLlmClient(),
     )
     without_history = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="session_multi_turn",
         session_key="session-key-multi-turn",
         tenant_id="tenant_1",
@@ -911,6 +931,7 @@ def test_question_answer_graph_scopes_checkpoint_to_run_and_uses_explicit_histor
     )
 
     with_history = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="session_multi_turn",
         session_key="session-key-multi-turn",
         tenant_id="tenant_1",
@@ -930,12 +951,9 @@ def test_question_answer_graph_scopes_checkpoint_to_run_and_uses_explicit_histor
         "user",
         "assistant",
     ]
-    assert [message.content for message in without_history["messages"]][0] == (
-        "继续使用中文"
-    )
+    assert [message.content for message in without_history["messages"]][0] == ("继续使用中文")
     assert all(
-        "不应从旧 Checkpoint 回流" not in message.content
-        for message in without_history["messages"]
+        "不应从旧 Checkpoint 回流" not in message.content for message in without_history["messages"]
     )
     assert [message.role for message in with_history["messages"]] == [
         "user",
@@ -949,11 +967,14 @@ def test_question_answer_graph_scopes_checkpoint_to_run_and_uses_explicit_histor
     ]
 
 
-def test_question_answer_graph_isolates_same_external_session_by_tenant_session_key():
+def test_question_answer_graph_isolates_same_external_session_by_tenant_session_key(
+    business_intent_catalog,
+):
     checkpointer = InMemorySaver()
     shared_session_key = "shared-internal-key"
 
     first = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="shared-session",
         session_key=shared_session_key,
         tenant_id="tenant-a",
@@ -968,6 +989,7 @@ def test_question_answer_graph_isolates_same_external_session_by_tenant_session_
         llm_client=ConversationRoutingLlmClient(),
     )
     second = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="shared-session",
         session_key=shared_session_key,
         tenant_id="tenant-b",
@@ -996,35 +1018,42 @@ def test_question_answer_graph_isolates_same_external_session_by_tenant_session_
         request_id=second["request_id"],
     )
     assert tenant_a_thread_id != tenant_b_thread_id
-    assert checkpointer.get(
-        {"configurable": {"thread_id": tenant_a_thread_id, "checkpoint_ns": ""}}
-    ) is not None
-    assert checkpointer.get(
-        {"configurable": {"thread_id": tenant_b_thread_id, "checkpoint_ns": ""}}
-    ) is not None
-    assert checkpointer.get(
-        {"configurable": {"thread_id": shared_session_key, "checkpoint_ns": ""}}
-    ) is None
-    assert checkpointer.get(
-        {
-            "configurable": {
-                "thread_id": runtime.build_checkpoint_thread_id(
-                    tenant_id="tenant-c",
-                    session_key=shared_session_key,
-                    request_id=first["request_id"],
-                ),
-                "checkpoint_ns": "",
+    assert (
+        checkpointer.get({"configurable": {"thread_id": tenant_a_thread_id, "checkpoint_ns": ""}})
+        is not None
+    )
+    assert (
+        checkpointer.get({"configurable": {"thread_id": tenant_b_thread_id, "checkpoint_ns": ""}})
+        is not None
+    )
+    assert (
+        checkpointer.get({"configurable": {"thread_id": shared_session_key, "checkpoint_ns": ""}})
+        is None
+    )
+    assert (
+        checkpointer.get(
+            {
+                "configurable": {
+                    "thread_id": runtime.build_checkpoint_thread_id(
+                        tenant_id="tenant-c",
+                        session_key=shared_session_key,
+                        request_id=first["request_id"],
+                    ),
+                    "checkpoint_ns": "",
+                }
             }
-        }
-    ) is None
+        )
+        is None
+    )
 
 
-def test_question_answer_graph_streams_node_updates_with_final_state():
+def test_question_answer_graph_streams_node_updates_with_final_state(business_intent_catalog):
     checkpointer = InMemorySaver()
     trace_store = InMemoryTraceStore()
 
     updates = list(
         stream_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             session_id="session_stream",
             tenant_id="tenant_1",
             user_id="user_1",
@@ -1048,7 +1077,9 @@ def test_question_answer_graph_streams_node_updates_with_final_state():
     }
 
 
-def test_question_answer_graph_executes_structured_skill_tools_before_retrieval():
+def test_question_answer_graph_executes_structured_skill_tools_before_retrieval(
+    business_intent_catalog,
+):
     trace_store = InMemoryTraceStore()
 
     def fake_skill_agent(state):
@@ -1101,9 +1132,7 @@ def test_question_answer_graph_executes_structured_skill_tools_before_retrieval(
             )
         )
         rag_request = next(
-            item
-            for item in state["plan"]["requested_tools"]
-            if item.tool_name == "rag_search"
+            item for item in state["plan"]["requested_tools"] if item.tool_name == "rag_search"
         ).model_copy(update={"call_id": "call_ready_rag"})
         state["plan"] = {
             **state["plan"],
@@ -1140,6 +1169,7 @@ def test_question_answer_graph_executes_structured_skill_tools_before_retrieval(
         return state
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1161,7 +1191,7 @@ def test_question_answer_graph_executes_structured_skill_tools_before_retrieval(
     assert result["verification"]["verdict"] == "pass"
 
 
-def test_question_answer_graph_completes_a_share_company_snapshot():
+def test_question_answer_graph_completes_a_share_company_snapshot(business_intent_catalog):
     trace_store = InMemoryTraceStore()
     received_arguments: dict[str, dict] = {}
 
@@ -1270,6 +1300,7 @@ def test_question_answer_graph_completes_a_share_company_snapshot():
         return state
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1290,8 +1321,7 @@ def test_question_answer_graph_completes_a_share_company_snapshot():
     assert result["intent"]["domain"] == "a_share_equity_research"
     assert result["selected_skill"]["skill_name"] == "company_snapshot"
     assert any(
-        call.request.tool_name == "mcp.mock.stock.resolve_company"
-        for call in result["tool_calls"]
+        call.request.tool_name == "mcp.mock.stock.resolve_company" for call in result["tool_calls"]
     )
     assert "tool_agent" in node_names
     assert "retriever_agent" in node_names
@@ -1315,8 +1345,11 @@ def test_question_answer_graph_completes_a_share_company_snapshot():
     assert "不构成投资建议" in content
 
 
-def test_equity_graph_reports_unconfigured_market_data_without_fixture_values():
+def test_equity_graph_reports_unconfigured_market_data_without_fixture_values(
+    business_intent_catalog,
+):
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="market-unconfigured",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1337,8 +1370,11 @@ def test_equity_graph_reports_unconfigured_market_data_without_fixture_values():
     assert result["verification"]["verdict"] == "execution_error"
 
 
-def test_equity_graph_reports_required_pe_field_permission_gap_without_value():
+def test_equity_graph_reports_required_pe_field_permission_gap_without_value(
+    business_intent_catalog,
+):
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="market-pe-permission-gap",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1361,12 +1397,10 @@ def test_equity_graph_reports_required_pe_field_permission_gap_without_value():
     assert "当前数据源权限不足" in content
     assert "pe_ttm" in content
     assert "42.1" not in content
-    assert result["draft_answer"]["business_error_code"] == (
-        "required_api_permission_missing"
-    )
+    assert result["draft_answer"]["business_error_code"] == ("required_api_permission_missing")
 
 
-def test_equity_graph_uses_daily_only_and_keeps_answer_bound_to_price_fact():
+def test_equity_graph_uses_daily_only_and_keeps_answer_bound_to_price_fact(business_intent_catalog):
     payload = _market_data_envelope(
         status="complete",
         data={
@@ -1380,6 +1414,7 @@ def test_equity_graph_uses_daily_only_and_keeps_answer_bound_to_price_fact():
         source_apis=["daily"],
     )
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="market-price-daily-only",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1402,7 +1437,7 @@ def test_equity_graph_uses_daily_only_and_keeps_answer_bound_to_price_fact():
     assert result["verification"]["verdict"] == "pass"
 
 
-def test_question_answer_graph_resumes_high_risk_rag_after_approval():
+def test_question_answer_graph_resumes_high_risk_rag_after_approval(business_intent_catalog):
     trace_store = InMemoryTraceStore()
     checkpointer = InMemorySaver()
 
@@ -1456,6 +1491,7 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
         return state
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1488,6 +1524,7 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     assert "retriever_agent" not in node_names
 
     resumed = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(result, checkpointer, decision="approved"),
         retriever_node=fake_retriever,
         skill_agent_node=fake_skill_agent,
@@ -1505,6 +1542,7 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     assert resumed["final_response"] is not None
     rejected_checkpointer = InMemorySaver()
     rejected_initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s2",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1516,6 +1554,7 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
         permission_scopes=["rag:retrieve"],
     )
     rejected = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(rejected_initial, rejected_checkpointer, decision="rejected"),
         retriever_node=fake_retriever,
         skill_agent_node=fake_skill_agent,
@@ -1528,9 +1567,12 @@ def test_question_answer_graph_resumes_high_risk_rag_after_approval():
     assert "未执行任何外部操作" in rejected["final_response"]["content"]
 
 
-def test_question_answer_graph_rejects_non_root_checkpoint_namespace_on_resume():
+def test_question_answer_graph_rejects_non_root_checkpoint_namespace_on_resume(
+    business_intent_catalog,
+):
     with pytest.raises(ValueError, match="checkpoint_namespace must be empty"):
         resume_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             checkpoint_thread_id="cp_invalid",
             checkpoint_namespace="tenant_1",
             checkpoint_id="checkpoint-placeholder",
@@ -1552,6 +1594,7 @@ def test_question_answer_graph_rejects_non_root_checkpoint_namespace_on_resume()
     ],
 )
 def test_question_answer_graph_rejects_legacy_checkpoint_before_reading_saver(
+    business_intent_catalog,
     monkeypatch,
     checkpoint_thread_id,
 ):
@@ -1576,6 +1619,7 @@ def test_question_answer_graph_rejects_legacy_checkpoint_before_reading_saver(
 
     with pytest.raises(runtime.LegacyCheckpointIncompatibleError) as exc_info:
         resume_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             checkpoint_thread_id=checkpoint_thread_id,
             checkpoint_namespace="",
             checkpoint_id="checkpoint-placeholder",
@@ -1590,7 +1634,9 @@ def test_question_answer_graph_rejects_legacy_checkpoint_before_reading_saver(
     assert "旧 Checkpoint 不可安全恢复" in str(exc_info.value)
 
 
-def test_question_answer_graph_rejects_old_digest_after_tool_arguments_change():
+def test_question_answer_graph_rejects_old_digest_after_tool_arguments_change(
+    business_intent_catalog,
+):
     checkpointer = InMemorySaver()
 
     def fake_skill_agent(state):
@@ -1608,6 +1654,7 @@ def test_question_answer_graph_rejects_old_digest_after_tool_arguments_change():
         return state
 
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=lambda state: state,
         skill_agent_node=fake_skill_agent,
         checkpointer=checkpointer,
@@ -1657,7 +1704,7 @@ def test_question_answer_graph_rejects_old_digest_after_tool_arguments_change():
     assert snapshot.values["approved_tool_calls"] == []
 
 
-def test_registered_high_risk_tool_is_normalized_into_approval_gate():
+def test_registered_high_risk_tool_is_normalized_into_approval_gate(business_intent_catalog):
     class WriteInput(BaseModel):
         value: str
 
@@ -1707,6 +1754,7 @@ def test_registered_high_risk_tool_is_normalized_into_approval_gate():
         return state
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1725,7 +1773,9 @@ def test_registered_high_risk_tool_is_normalized_into_approval_gate():
     assert result["tool_calls"] == []
 
 
-def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
+def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version(
+    business_intent_catalog,
+):
     class WriteInput(BaseModel):
         value: str
 
@@ -1772,6 +1822,7 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
 
     checkpointer = InMemorySaver()
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1793,6 +1844,7 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
 
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         resume_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             **_resume_kwargs(initial, checkpointer, decision="approved"),
             skill_agent_node=catalog_skill,
             trace_store=resume_trace_store,
@@ -1821,7 +1873,7 @@ def test_approval_resume_rejects_changed_tool_catalog_for_same_tool_version():
     assert initial["tool_catalog_digest"] in repr(snapshot.checkpoint)
 
 
-def test_approval_resume_rejects_changed_executor_binding():
+def test_approval_resume_rejects_changed_executor_binding(business_intent_catalog):
     class WriteInput(BaseModel):
         value: str
 
@@ -1866,6 +1918,7 @@ def test_approval_resume_rejects_changed_executor_binding():
 
     checkpointer = InMemorySaver()
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1877,6 +1930,7 @@ def test_approval_resume_rejects_changed_executor_binding():
     )
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         resume_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             **_resume_kwargs(initial, checkpointer, decision="approved"),
             skill_agent_node=binding_skill,
             checkpointer=checkpointer,
@@ -1887,7 +1941,7 @@ def test_approval_resume_rejects_changed_executor_binding():
     assert exc_info.value.code == "tool_catalog_changed"
 
 
-def test_approval_resume_rejects_changed_actual_rag_provider_binding():
+def test_approval_resume_rejects_changed_actual_rag_provider_binding(business_intent_catalog):
     def provider_response(_: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"contexts": [], "query": {}, "metadata": {}})
 
@@ -1935,6 +1989,7 @@ def test_approval_resume_rejects_changed_actual_rag_provider_binding():
 
     checkpointer = InMemorySaver()
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -1947,6 +2002,7 @@ def test_approval_resume_rejects_changed_actual_rag_provider_binding():
     )
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         resume_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             **_resume_kwargs(initial, checkpointer, decision="approved"),
             retriever_node=rag_retriever("rag-b"),
             skill_agent_node=rag_skill,
@@ -1958,7 +2014,7 @@ def test_approval_resume_rejects_changed_actual_rag_provider_binding():
     assert exc_info.value.code == "tool_catalog_changed"
 
 
-def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
+def test_multi_tool_placeholder_is_resolved_before_high_risk_approval(business_intent_catalog):
     class LookupInput(BaseModel):
         query: str
 
@@ -2038,6 +2094,7 @@ def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
     checkpointer = InMemorySaver()
     tool_agent = build_tool_agent_node(registry_factory=registry_factory)
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -2060,6 +2117,7 @@ def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
     assert interrupt_payload["action_digest"]
 
     resumed = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=staged_skill,
         tool_agent_node=tool_agent,
@@ -2075,7 +2133,7 @@ def test_multi_tool_placeholder_is_resolved_before_high_risk_approval():
     ]
 
 
-def test_graph_rejects_schema_sensitive_arguments_before_approval():
+def test_graph_rejects_schema_sensitive_arguments_before_approval(business_intent_catalog):
     class NestedInput(BaseModel):
         internal_note: str = Field(json_schema_extra={"writeOnly": True})
         visible_nested: str
@@ -2135,6 +2193,7 @@ def test_graph_rejects_schema_sensitive_arguments_before_approval():
 
     with pytest.raises(AgentGraphExecutionError) as exc_info:
         run_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             session_id="s1",
             tenant_id="tenant_1",
             user_id="user_1",
@@ -2156,6 +2215,7 @@ def test_graph_rejects_schema_sensitive_arguments_before_approval():
 
 @pytest.mark.parametrize("request_version", ["1.0.0", "forged-version"])
 def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
+    business_intent_catalog,
     request_version,
 ):
     class RuntimeInput(BaseModel):
@@ -2205,6 +2265,7 @@ def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
         user_message="分析一下银之杰",
     )
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=lambda current: current,
         skill_agent_node=unsafe_skill,
         checkpointer=checkpointer,
@@ -2223,7 +2284,8 @@ def test_skill_outbound_guard_rejects_server_injected_fields_before_checkpoint(
         for checkpoint in checkpointer.list(config)
     )
 
-def test_skill_url_query_credentials_never_enter_checkpoint():
+
+def test_skill_url_query_credentials_never_enter_checkpoint(business_intent_catalog):
     checkpointer = InMemorySaver()
 
     def unsafe_skill(state):
@@ -2248,6 +2310,7 @@ def test_skill_url_query_credentials_never_enter_checkpoint():
         user_message="分析一下银之杰",
     )
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=lambda current: current,
         skill_agent_node=unsafe_skill,
         checkpointer=checkpointer,
@@ -2264,7 +2327,8 @@ def test_skill_url_query_credentials_never_enter_checkpoint():
         for checkpoint in checkpointer.list(config)
     )
 
-def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final():
+
+def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final(business_intent_catalog):
     class FailureInput(BaseModel):
         value: str
 
@@ -2311,6 +2375,7 @@ def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final():
         user_message="分析一下银之杰",
     )
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=lambda current: current,
         skill_agent_node=failing_skill,
         checkpointer=checkpointer,
@@ -2326,13 +2391,14 @@ def test_tool_provider_exception_is_safe_in_checkpoint_trace_and_final():
     serialized = repr(result)
     serialized += repr(trace_store.list_events(result["trace_id"]))
     serialized += repr(trace_store.list_artifacts(result["trace_id"]))
-    serialized += "".join(
-        repr(checkpoint.checkpoint) for checkpoint in checkpointer.list(config)
-    )
+    serialized += "".join(repr(checkpoint.checkpoint) for checkpoint in checkpointer.list(config))
     assert "tool-checkpoint-secret" not in serialized
     assert "dXNlcjpwYXNz" not in serialized
 
-def test_malformed_result_after_approved_side_effect_is_checkpointed_without_replay():
+
+def test_malformed_result_after_approved_side_effect_is_checkpointed_without_replay(
+    business_intent_catalog,
+):
     class WriteInput(BaseModel):
         value: str
 
@@ -2348,9 +2414,7 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
             provider_calls.append(input_data.value)
             return {
                 "status": "success",
-                "result": {
-                    "database_password": "post-side-effect-checkpoint-secret"
-                },
+                "result": {"database_password": "post-side-effect-checkpoint-secret"},
             }
 
     registry = ToolRegistry(build_revision="build-1")
@@ -2379,6 +2443,7 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
         return state
 
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s_malformed_write",
         tenant_id="tenant_1",
         user_id="user_1",
@@ -2389,6 +2454,7 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
         tool_registry_factory=lambda: registry,
     )
     resumed = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=write_skill,
         checkpointer=checkpointer,
@@ -2398,9 +2464,7 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
 
     assert provider_calls == ["write-once"]
     assert resumed["final_response"]["response_type"] == "execution_error_response"
-    assert resumed["final_response"]["business_error_code"] == (
-        "tool_result_validation_failed"
-    )
+    assert resumed["final_response"]["business_error_code"] == ("tool_result_validation_failed")
     assert resumed["ready_tool_call"] is None
     serialized = repr(resumed)
     serialized += repr(trace_store.list_events(resumed["trace_id"]))
@@ -2423,6 +2487,7 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
     assert "post-side-effect-checkpoint-secret" not in serialized
 
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=lambda state: state,
         skill_agent_node=write_skill,
         checkpointer=checkpointer,
@@ -2445,7 +2510,8 @@ def test_malformed_result_after_approved_side_effect_is_checkpointed_without_rep
     assert replayed["final_response"]["response_type"] == "execution_error_response"
     assert provider_calls == ["write-once"]
 
-def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts():
+
+def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts(business_intent_catalog):
     class FailureInput(BaseModel):
         value: str
 
@@ -2499,6 +2565,7 @@ def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts():
         user_message="分析一下银之杰",
     )
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=lambda current: current,
         skill_agent_node=failure_skill,
         checkpointer=checkpointer,
@@ -2515,9 +2582,7 @@ def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts():
     serialized = repr(result)
     serialized += repr(trace_store.list_events(result["trace_id"]))
     serialized += repr(trace_store.list_artifacts(result["trace_id"]))
-    serialized += "".join(
-        repr(checkpoint.checkpoint) for checkpoint in checkpointer.list(config)
-    )
+    serialized += "".join(repr(checkpoint.checkpoint) for checkpoint in checkpointer.list(config))
     for secret in (
         "runtime-call-secret",
         "runtime-name-secret",
@@ -2527,7 +2592,10 @@ def test_malicious_failed_result_identifiers_never_enter_runtime_artifacts():
     ):
         assert secret not in serialized
 
-def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay():
+
+def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay(
+    business_intent_catalog,
+):
     provider_calls = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -2587,6 +2655,7 @@ def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay():
         permission_scopes=["rag:retrieve"],
     )
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=retriever,
         skill_agent_node=rag_skill,
         checkpointer=checkpointer,
@@ -2620,7 +2689,9 @@ def test_retriever_failure_consumes_ready_call_and_checkpoint_prevents_replay():
 
     assert replay_result["ready_tool_call"] is None
     assert len(provider_calls) == 1
-def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
+
+
+def test_consecutive_high_risk_steps_are_approved_one_at_a_time(business_intent_catalog):
     class FirstInput(BaseModel):
         value: str
 
@@ -2696,6 +2767,7 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     checkpointer = InMemorySaver()
     tool_agent = build_tool_agent_node(registry_factory=registry_factory)
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
@@ -2711,6 +2783,7 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     assert second_calls == []
 
     after_first = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
@@ -2735,6 +2808,7 @@ def test_consecutive_high_risk_steps_are_approved_one_at_a_time():
     assert second_resume_target["interrupt_id"] == after_first["__interrupt__"][0].id
 
     completed = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **second_resume_target,
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
@@ -2802,7 +2876,9 @@ def test_identical_tool_steps_execute_as_distinct_call_instances():
     assert result["tool_calls"][0].call_id != result["tool_calls"][1].call_id
 
 
-def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice():
+def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice(
+    business_intent_catalog,
+):
     class WriteInput(BaseModel):
         value: str
 
@@ -2857,6 +2933,7 @@ def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice(
     checkpointer = InMemorySaver()
     tool_agent = build_tool_agent_node(registry_factory=registry_factory)
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
@@ -2868,6 +2945,7 @@ def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice(
     first_interrupt = initial["__interrupt__"][0]
     first = first_interrupt.value
     after_first = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
@@ -2883,6 +2961,7 @@ def test_identical_high_risk_steps_receive_distinct_approvals_and_execute_twice(
     assert calls == ["same"]
 
     completed = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(after_first, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
@@ -2963,7 +3042,7 @@ def test_failed_prerequisite_does_not_create_later_approval():
     assert write_calls == []
 
 
-def test_failed_prerequisite_does_not_route_later_rag_request():
+def test_failed_prerequisite_does_not_route_later_rag_request(business_intent_catalog):
     class LookupInput(BaseModel):
         value: str
 
@@ -3018,6 +3097,7 @@ def test_failed_prerequisite_does_not_route_later_rag_request():
         return state
 
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
@@ -3032,7 +3112,7 @@ def test_failed_prerequisite_does_not_route_later_rag_request():
     assert retriever_calls == []
 
 
-def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
+def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval(business_intent_catalog):
     class SearchInput(BaseModel):
         query: str
 
@@ -3087,6 +3167,7 @@ def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
     checkpointer = InMemorySaver()
     tool_agent = build_tool_agent_node(registry_factory=registry_factory)
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
@@ -3105,6 +3186,7 @@ def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
     assert provider_calls == []
 
     completed = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         tool_agent_node=tool_agent,
@@ -3118,7 +3200,7 @@ def test_high_risk_rag_request_is_prepared_by_tool_agent_before_retrieval():
     assert provider_calls == []
 
 
-def test_pending_descriptor_resumes_from_checkpointer():
+def test_pending_descriptor_resumes_from_checkpointer(business_intent_catalog):
     checkpointer = InMemorySaver()
     calls = []
 
@@ -3153,6 +3235,7 @@ def test_pending_descriptor_resumes_from_checkpointer():
         return state
 
     initial = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
@@ -3164,6 +3247,7 @@ def test_pending_descriptor_resumes_from_checkpointer():
     approval = initial["__interrupt__"][0].value
 
     completed = resume_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         **_resume_kwargs(initial, checkpointer, decision="approved"),
         skill_agent_node=skill,
         retriever_node=retriever,
@@ -3173,14 +3257,15 @@ def test_pending_descriptor_resumes_from_checkpointer():
     assert completed["final_response"] is not None
     assert calls == [approval["call_id"]]
     assert completed["pending_tool_approval"] is None
-    assert [item.call_id for item in completed["approved_tool_calls"]] == [
-        approval["call_id"]
-    ]
+    assert [item.call_id for item in completed["approved_tool_calls"]] == [approval["call_id"]]
 
 
-def test_search_tool_result_routes_back_to_planner_and_executes_discovered_tool():
+def test_search_tool_result_routes_back_to_planner_and_executes_discovered_tool(
+    business_intent_catalog,
+):
     registry, service = _discovery_runtime()
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="tool-discovery",
         tenant_id="tenant-1",
         user_id="user-1",
@@ -3200,9 +3285,10 @@ def test_search_tool_result_routes_back_to_planner_and_executes_discovered_tool(
     ]
 
 
-def test_search_tool_budget_stops_replanning_loop():
+def test_search_tool_budget_stops_replanning_loop(business_intent_catalog):
     registry, service = _discovery_runtime()
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="tool-discovery-budget",
         tenant_id="tenant-1",
         user_id="user-1",
@@ -3215,14 +3301,13 @@ def test_search_tool_budget_stops_replanning_loop():
     )
 
     assert result["tool_search_count"] == runtime.settings.tool_search_max_calls
-    assert result["final_response"]["business_error_code"] == (
-        "tool_search_budget_exhausted"
-    )
+    assert result["final_response"]["business_error_code"] == ("tool_search_budget_exhausted")
 
 
-def test_transient_search_failure_does_not_poison_later_successful_answer():
+def test_transient_search_failure_does_not_poison_later_successful_answer(business_intent_catalog):
     registry, service = _discovery_runtime(failures_before_success=1)
     result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="tool-discovery-retry",
         tenant_id="tenant-1",
         user_id="user-1",

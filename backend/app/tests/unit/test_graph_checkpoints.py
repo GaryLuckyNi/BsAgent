@@ -91,11 +91,12 @@ def test_checkpoint_config_uses_derived_thread_id_root_namespace_and_recursion_l
     ],
 )
 def test_graph_runtime_requires_explicit_business_intent_catalog(function_name):
-    parameter = inspect.signature(getattr(runtime, function_name)).parameters[
-        "business_intent_catalog"
-    ]
+    entrypoint = getattr(runtime, function_name)
+    parameter = inspect.signature(entrypoint).parameters["business_intent_catalog"]
 
     assert parameter.default is inspect.Parameter.empty
+    with pytest.raises(TypeError, match="business_intent_catalog"):
+        entrypoint()
 
 
 def test_build_graph_checkpointer_builds_postgres_saver_with_managed_pool(monkeypatch):
@@ -181,7 +182,10 @@ def test_graph_checkpointer_cache_clear_closes_previous_postgres_pool(monkeypatc
     assert captured["closed"] == 1
 
 
-def test_application_lifespan_initializes_and_closes_checkpointer(monkeypatch):
+def test_application_lifespan_initializes_and_closes_checkpointer(
+    fake_business_intent_catalog_runtime,
+    monkeypatch,
+):
     import app.main as main_module
     from app.operations.health import ReadinessService
 
@@ -199,7 +203,10 @@ def test_application_lifespan_initializes_and_closes_checkpointer(monkeypatch):
         raising=False,
     )
 
-    app = main_module.create_app(readiness_service=ReadinessService(probes=[]))
+    app = main_module.create_app(
+        readiness_service=ReadinessService(probes=[]),
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
+    )
     with TestClient(app) as client:
         assert calls == ["build"]
         assert client.get("/health/live").status_code == 200

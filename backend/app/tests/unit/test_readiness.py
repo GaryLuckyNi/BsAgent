@@ -97,7 +97,10 @@ def test_readiness_service_reports_each_dependency_without_leaking_error_details
     assert "redis.internal" not in str(report)
 
 
-def test_liveness_does_not_execute_readiness_probes(inject_test_checkpointer):
+def test_liveness_does_not_execute_readiness_probes(
+    fake_business_intent_catalog_runtime,
+    inject_test_checkpointer,
+):
     calls: list[str] = []
     service = ReadinessService(
         probes=[DependencyProbe(name="database", check=lambda: calls.append("database"))]
@@ -105,7 +108,10 @@ def test_liveness_does_not_execute_readiness_probes(inject_test_checkpointer):
 
     from app.main import create_app
 
-    app = create_app(readiness_service=service)
+    app = create_app(
+        readiness_service=service,
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
+    )
     with TestClient(app) as client:
         response = client.get("/health/live")
 
@@ -115,6 +121,7 @@ def test_liveness_does_not_execute_readiness_probes(inject_test_checkpointer):
 
 
 def test_create_app_does_not_discover_tools_during_app_creation(
+    fake_business_intent_catalog_runtime,
     monkeypatch,
     inject_test_checkpointer,
 ):
@@ -130,12 +137,16 @@ def test_create_app_does_not_discover_tools_during_app_creation(
         raising=False,
     )
 
-    app = main_module.create_app(readiness_service=ReadinessService(probes=[]))
+    app = main_module.create_app(
+        readiness_service=ReadinessService(probes=[]),
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
+    )
 
     assert app.title == "bs-agent-service"
 
 
 def test_readiness_returns_503_when_a_required_dependency_is_unavailable(
+    fake_business_intent_catalog_runtime,
     inject_test_checkpointer,
 ):
     service = ReadinessService(
@@ -149,7 +160,10 @@ def test_readiness_returns_503_when_a_required_dependency_is_unavailable(
 
     from app.main import create_app
 
-    app = create_app(readiness_service=service)
+    app = create_app(
+        readiness_service=service,
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
+    )
     with TestClient(app) as client:
         response = client.get("/health/ready")
 
@@ -162,15 +176,17 @@ def test_readiness_returns_503_when_a_required_dependency_is_unavailable(
 
 
 def test_readiness_returns_200_when_required_dependencies_are_available(
+    fake_business_intent_catalog_runtime,
     inject_test_checkpointer,
 ):
-    service = ReadinessService(
-        probes=[DependencyProbe(name="database", check=lambda: None)]
-    )
+    service = ReadinessService(probes=[DependencyProbe(name="database", check=lambda: None)])
 
     from app.main import create_app
 
-    app = create_app(readiness_service=service)
+    app = create_app(
+        readiness_service=service,
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
+    )
     with TestClient(app) as client:
         response = client.get("/health/ready")
 
@@ -472,7 +488,10 @@ def test_readiness_is_not_ready_when_memory_store_is_unavailable():
     assert report.components["memory_store"] == "unavailable"
 
 
-def test_app_lifespan_reuses_and_closes_runtime_resources(inject_test_checkpointer):
+def test_app_lifespan_reuses_and_closes_runtime_resources(
+    fake_business_intent_catalog_runtime,
+    inject_test_checkpointer,
+):
     calls: list[str] = []
 
     class Connection:
@@ -526,6 +545,7 @@ def test_app_lifespan_reuses_and_closes_runtime_resources(inject_test_checkpoint
         redis_client=redis,
         object_store=object_store,
         memory_store_runtime=MemoryStoreRuntime(),
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
     )
 
     with TestClient(app) as client:
@@ -546,6 +566,7 @@ def test_app_lifespan_reuses_and_closes_runtime_resources(inject_test_checkpoint
 
 
 def test_app_lifespan_opens_store_before_bounded_memory_reconciliation(
+    fake_business_intent_catalog_runtime,
     inject_test_checkpointer,
     monkeypatch,
 ):
@@ -581,6 +602,7 @@ def test_app_lifespan_opens_store_before_bounded_memory_reconciliation(
         object_store=ObjectStore(),
         memory_store_runtime=MemoryStoreRuntime(),
         readiness_service=ReadinessService(probes=[]),
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
     )
 
     with TestClient(app):
@@ -593,6 +615,7 @@ def test_app_lifespan_opens_store_before_bounded_memory_reconciliation(
 
 
 def test_app_lifespan_continues_when_memory_reconciliation_fails(
+    fake_business_intent_catalog_runtime,
     inject_test_checkpointer,
     monkeypatch,
     caplog,
@@ -629,6 +652,7 @@ def test_app_lifespan_continues_when_memory_reconciliation_fails(
         object_store=ObjectStore(),
         memory_store_runtime=MemoryStoreRuntime(),
         readiness_service=ReadinessService(probes=[]),
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
     )
 
     with TestClient(app) as client:
@@ -639,6 +663,7 @@ def test_app_lifespan_continues_when_memory_reconciliation_fails(
 
 
 def test_app_lifespan_continues_when_memory_store_open_fails(
+    fake_business_intent_catalog_runtime,
     inject_test_checkpointer,
     caplog,
 ):
@@ -666,6 +691,7 @@ def test_app_lifespan_continues_when_memory_store_open_fails(
         object_store=ObjectStore(),
         memory_store_runtime=MemoryStoreRuntime(),
         readiness_service=ReadinessService(probes=[]),
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
     )
 
     with TestClient(app) as client:

@@ -20,6 +20,7 @@ def _put_preference(store, tenant_id: str, user_id: str, key: str, content: str)
 
 
 def test_graph_reads_runtime_preferences_and_isolates_identities(
+    business_intent_catalog,
     live_postgres_store: LivePostgresStore,
 ):
     store = live_postgres_store.store
@@ -29,6 +30,7 @@ def test_graph_reads_runtime_preferences_and_isolates_identities(
     _put_preference(store, "tenant-a", "user-b", "language", "使用法文回答")
 
     state = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         session_id="memory-runtime",
         tenant_id="tenant-a",
         user_id="user-a",
