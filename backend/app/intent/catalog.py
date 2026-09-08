@@ -1,12 +1,13 @@
 import json
+from collections.abc import Iterable
 from pathlib import Path
 
 from app.intent.schemas import BusinessIntentProfile
 
 
 class BusinessIntentCatalog:
-    def __init__(self, profiles: list[BusinessIntentProfile]) -> None:
-        self._profiles = profiles
+    def __init__(self, profiles: Iterable[BusinessIntentProfile]) -> None:
+        self._profiles = tuple(profiles)
 
     @classmethod
     def load_default(cls) -> "BusinessIntentCatalog":
@@ -22,8 +23,8 @@ class BusinessIntentCatalog:
             ]
         )
 
-    def all_profiles(self) -> list[BusinessIntentProfile]:
-        return list(self._profiles)
+    def all_profiles(self) -> tuple[BusinessIntentProfile, ...]:
+        return self._profiles
 
     def match_by_keywords(self, message: str) -> BusinessIntentProfile | None:
         normalized = message.lower()
