@@ -99,7 +99,7 @@ def test_nodes_continue_when_preference_iteration_fails(node_name, caplog):
     state = _state()
     if node_name == "planner":
         state["intent"] = {"intent": "conversation", "risk_level": "low"}
-        result = build_planner_agent_node(available_tools=[])(state, Runtime(store=store))
+        result = build_planner_agent_node()(state, Runtime(store=store))
         assert result["plan"] is not None
     else:
         state["plan"] = {"execution_mode": "direct_response", "response_policy": {}}

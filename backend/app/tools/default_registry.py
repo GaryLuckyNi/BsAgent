@@ -4,6 +4,7 @@ from app.schemas.tools import ToolSpec
 from app.tools.catalog_runtime import ToolCatalogRuntime
 from app.tools.mcp_gateway import McpGateway, McpServerConfig
 from app.tools.registry import ToolRegistry
+from app.tools.rag_search import build_default_rag_search_registration
 from app.tools.search import (
     CachingToolTextEmbedder,
     FastEmbedToolTextEmbedder,
@@ -16,6 +17,8 @@ from app.tools.web_search import WebSearchTool
 
 def _discover_default_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
+    rag_tool, rag_binding = build_default_rag_search_registration()
+    registry.register(rag_tool, execution_binding=rag_binding)
     gateway = McpGateway()
     server_config = McpServerConfig(
         name=settings.mcp_server_name,

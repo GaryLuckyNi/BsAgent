@@ -82,4 +82,5 @@ def test_default_registry_omits_web_search_when_disabled(monkeypatch):
     registry = default_registry.get_default_tool_registry()
 
     assert not registry.has("web_search")
+    assert registry.has("rag_search")
     assert registry.has("search_tool")

@@ -205,6 +205,8 @@ class AgentState(TypedDict):
     request_id: str
     trace_id: str
     tool_catalog_digest: str
+    disclosed_tool_names: list[str]
+    tool_search_count: int
     user_message: str
     assistant_message_id: str
     messages: Annotated[list[Message], add_state_messages]
@@ -272,6 +274,8 @@ def create_initial_state(
         "request_id": request_id,
         "trace_id": trace_id,
         "tool_catalog_digest": tool_catalog_digest,
+        "disclosed_tool_names": [],
+        "tool_search_count": 0,
         "user_message": user_message,
         "assistant_message_id": assistant_message_id,
         "messages": messages,

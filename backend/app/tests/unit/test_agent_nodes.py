@@ -31,6 +31,37 @@ from app.skills.registry import SkillRegistry
 from app.tools.base import Tool
 from app.tools.registry import ToolRegistry
 from app.tools.redaction import InlineCredentialsForbiddenError
+from app.tools.search import ToolSearchHit, ToolSearchResponse
+
+
+class StubToolSearchService:
+    def __init__(self, *, specs: list[ToolSpec], hit_names: list[str]) -> None:
+        self._specs = {spec.name: spec for spec in specs}
+        self._hit_names = hit_names
+        self.requests = []
+
+    def search(self, request, *, context):
+        self.requests.append((request, context))
+        return ToolSearchResponse(
+            catalog_digest="test-catalog",
+            mode="hybrid",
+            hits=[
+                ToolSearchHit(
+                    tool_name=name,
+                    tool_version=self._specs[name].version,
+                    description=self._specs[name].description,
+                    required_arguments=list(
+                        self._specs[name].input_schema.get("required", [])
+                    ),
+                    rank=index,
+                    sources=["bm25", "dense"],
+                )
+                for index, name in enumerate(self._hit_names, start=1)
+            ],
+        )
+
+    def resolve_specs(self, tool_names):
+        return [self._specs[name] for name in tool_names]
 
 
 def _preference_runtime(*preferences: tuple[str, str]) -> Runtime:
@@ -58,7 +89,7 @@ def test_planner_node_accepts_langgraph_runtime_without_store():
     )
     state["intent"] = {"intent": "conversation", "risk_level": "low"}
 
-    result = build_planner_agent_node(available_tools=[])(state, Runtime(store=None))
+    result = build_planner_agent_node()(state, Runtime(store=None))
 
     assert result["plan"]["execution_mode"] == "direct_response"
     assert result["memory_candidates"][0].memory_key == "response_detail"
@@ -152,7 +183,7 @@ def test_planner_keeps_focus_domain_as_planning_preference():
     )
     state["intent"] = {"intent": "conversation", "risk_level": "low"}
 
-    result = build_planner_agent_node(available_tools=[])(
+    result = build_planner_agent_node()(
         state,
         _preference_runtime(("focus_domain", "重点关注半导体行业")),
     )
@@ -339,11 +370,11 @@ class InvalidSchemaToolPlanningLlmClient(RecordingLlmClient):
         super().__init__(
             """
             {
+              "action": "execute",
               "tool_name": "mcp.mock.invalid_tool",
-              "tool_version": "1.0.0",
               "arguments": {"value": "test"},
               "purpose": "验证无效工具 Schema",
-              "approval_required": false
+              "search_query": null
             }
             """
         )
@@ -354,8 +385,11 @@ class InlineCredentialPlanningLlmClient(RecordingLlmClient):
         super().__init__(
             """
             {
+              "action": "execute",
+              "tool_name": "mcp.mock.secure_write",
               "arguments": {"client_secret": "plaintext-secret"},
-              "purpose": "尝试把凭证写入计划"
+              "purpose": "尝试把凭证写入计划",
+              "search_query": null
             }
             """
         )
@@ -366,8 +400,11 @@ class ServerInjectedPlanningLlmClient(RecordingLlmClient):
         super().__init__(
             """
             {
+              "action": "execute",
+              "tool_name": "mcp.mock.server_injected",
               "arguments": {"runtime_handle": "model-supplied-value"},
-              "purpose": "尝试写入服务端注入参数"
+              "purpose": "尝试写入服务端注入参数",
+              "search_query": null
             }
             """
         )
@@ -378,15 +415,61 @@ class PePlanningLlmClient(RecordingLlmClient):
         super().__init__(
             """
             {
+              "action": "execute",
+              "tool_name": "mcp.market.stock.market_snapshot",
               "arguments": {
                 "symbol": "300085.SZ",
                 "required_fields": ["pe_ttm"],
                 "optional_fields": ["price"]
               },
-              "purpose": "查询银之杰的 PE"
+              "purpose": "查询银之杰的 PE",
+              "search_query": null
             }
             """
         )
+
+
+class ProgressivePePlanningLlmClient(RecordingLlmClient):
+    def __init__(self) -> None:
+        super().__init__(
+            """
+            {
+              "action": "execute",
+              "tool_name": "mcp.market.stock.market_snapshot",
+              "arguments": {
+                "symbol": "300085.SZ",
+                "required_fields": ["pe_ttm"],
+                "optional_fields": ["price"]
+              },
+              "purpose": "查询银之杰的 PE",
+              "search_query": null
+            }
+            """
+        )
+
+
+def _search_tool_spec() -> ToolSpec:
+    return ToolSpec(
+        name="search_tool",
+        version="1.0.0",
+        description="搜索当前任务可用的工具",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "top_k": {"type": "integer"},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+    )
+
+
+def _tool_search_service(*specs: ToolSpec) -> StubToolSearchService:
+    return StubToolSearchService(
+        specs=[*specs, _search_tool_spec()],
+        hit_names=[spec.name for spec in specs],
+    )
 
 
 class InvalidFieldPlanningLlmClient(RecordingLlmClient):
@@ -394,12 +477,15 @@ class InvalidFieldPlanningLlmClient(RecordingLlmClient):
         super().__init__(
             json.dumps(
                 {
+                    "action": "execute",
+                    "tool_name": "mcp.market.stock.market_snapshot",
                     "arguments": {
                         "symbol": "300085.SZ",
                         "required_fields": required_fields,
                         "optional_fields": optional_fields,
                     },
                     "purpose": "验证字段选择约束",
+                    "search_query": None,
                 },
                 ensure_ascii=False,
             )
@@ -497,7 +583,7 @@ def test_planner_prioritizes_validated_image_context_over_knowledge_rag():
         "confidence": 0.8,
     }
 
-    result = build_planner_agent_node(available_tools=[])(state)
+    result = build_planner_agent_node()(state)
 
     assert result["plan"]["execution_mode"] == "image_analysis"
     assert result["plan"]["retrieval"]["required"] is False
@@ -539,7 +625,7 @@ def test_planner_routes_financial_image_workflow_through_selected_skill():
         "confidence": 0.9,
     }
 
-    result = build_planner_agent_node(available_tools=[])(state)
+    result = build_planner_agent_node()(state)
 
     assert result["plan"]["execution_mode"] == "skill_execution"
     assert result["plan"]["selected_skill"]["name"] == "financial_report_analysis"
@@ -564,7 +650,7 @@ def test_planner_agent_builds_direct_response_plan_for_conversation_intent():
         "next_node": "planner_agent",
     }
 
-    result = build_planner_agent_node(available_tools=[])(state)
+    result = build_planner_agent_node()(state)
 
     assert result["plan"]["execution_mode"] == "direct_response"
     assert result["plan"]["selected_skill"] is None
@@ -616,12 +702,124 @@ def test_planner_marks_user_requested_pe_as_required_field():
 
     result = build_planner_agent_node(
         llm_client=PePlanningLlmClient(),
-        available_tools=[_market_snapshot_tool_spec()],
+        tool_search_service=StubToolSearchService(
+            specs=[_market_snapshot_tool_spec(), _search_tool_spec()],
+            hit_names=["mcp.market.stock.market_snapshot"],
+        ),
     )(state)
 
     request = result["plan"]["requested_tools"][0]
     assert request.arguments["required_fields"] == ["pe_ttm"]
     assert request.arguments["optional_fields"] == ["price"]
+
+
+def test_planner_prefetches_and_exposes_only_ranked_tool_specs():
+    market = _market_snapshot_tool_spec()
+    undisclosed = _stock_tool_spec("mcp.market.stock.financial_metrics")
+    service = StubToolSearchService(
+        specs=[market, undisclosed, _search_tool_spec()],
+        hit_names=[market.name],
+    )
+    llm_client = ProgressivePePlanningLlmClient()
+    state = create_initial_state(
+        session_id="progressive-planner",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="查一下银之杰的 PE",
+        permission_scopes=["mcp:market"],
+    )
+    state["intent"] = {
+        "intent": "tool_action",
+        "domain": "a_share_equity_research",
+        "sub_intent": "valuation_query",
+        "candidate_tool": None,
+        "risk_level": "low",
+    }
+
+    result = build_planner_agent_node(
+        llm_client=llm_client,
+        tool_search_service=service,
+    )(state)
+
+    assert result["disclosed_tool_names"] == [market.name]
+    prompt = llm_client.calls[-1]["user_prompt"]
+    assert market.name in prompt
+    assert "search_tool" in prompt
+    assert undisclosed.name not in prompt
+    assert result["plan"]["requested_tools"][0].tool_name == market.name
+
+
+def test_planner_disclosure_never_exceeds_run_budget():
+    specs = [
+        ToolSpec(
+            name=f"mcp.test.tool_{index}",
+            version="1.0.0",
+            description=f"测试工具 {index}",
+            input_schema={"type": "object"},
+        )
+        for index in range(20)
+    ]
+    service = StubToolSearchService(
+        specs=[*specs, _search_tool_spec()],
+        hit_names=[spec.name for spec in specs],
+    )
+    state = create_initial_state(
+        session_id="bounded-disclosure",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="完成这个工具任务",
+    )
+    state["intent"] = {"intent": "tool_action", "risk_level": "low"}
+    llm_client = RecordingLlmClient(
+        '{"action":"respond","tool_name":null,"arguments":{},'
+        '"purpose":null,"search_query":null}'
+    )
+
+    result = build_planner_agent_node(
+        llm_client=llm_client,
+        tool_search_service=service,
+    )(state)
+
+    assert len(result["disclosed_tool_names"]) == 16
+
+
+def test_planner_rejects_tool_name_that_was_not_disclosed():
+    disclosed = _market_snapshot_tool_spec()
+    hidden = _stock_tool_spec("mcp.market.stock.financial_metrics")
+    service = StubToolSearchService(
+        specs=[disclosed, hidden, _search_tool_spec()],
+        hit_names=[disclosed.name],
+    )
+    state = create_initial_state(
+        session_id="undisclosed-tool",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="查询公司财务",
+    )
+    state["intent"] = {"intent": "tool_action", "risk_level": "low"}
+    llm_client = RecordingLlmClient(
+        json.dumps(
+            {
+                "action": "execute",
+                "tool_name": hidden.name,
+                "arguments": {},
+                "purpose": "查询财务",
+                "search_query": None,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    result = build_planner_agent_node(
+        llm_client=llm_client,
+        tool_search_service=service,
+    )(state)
+
+    assert result["plan"]["execution_mode"] == "direct_response"
+    assert result["plan"]["requested_tools"] == []
+    assert "planner_selected_undisclosed_tool" in result["plan"]["risk_controls"][
+        "reason_codes"
+    ]
 
 
 @pytest.mark.parametrize(
@@ -654,7 +852,10 @@ def test_planner_falls_back_without_tool_request_for_invalid_field_selection(
             required_fields=required_fields,
             optional_fields=optional_fields,
         ),
-        available_tools=[_market_snapshot_tool_spec()],
+        tool_search_service=StubToolSearchService(
+            specs=[_market_snapshot_tool_spec(), _search_tool_spec()],
+            hit_names=["mcp.market.stock.market_snapshot"],
+        ),
     )(state)
 
     assert result["plan"]["execution_mode"] == "direct_response"
@@ -677,7 +878,7 @@ def test_planner_turns_tool_call_request_validation_error_into_clarification():
     }
     planner = build_planner_agent_node(
         llm_client=InlineCredentialPlanningLlmClient(),
-        available_tools=[
+        tool_search_service=_tool_search_service(
             ToolSpec(
                 name="mcp.mock.secure_write",
                 version="1.0.0",
@@ -685,7 +886,7 @@ def test_planner_turns_tool_call_request_validation_error_into_clarification():
                 input_schema={"type": "object"},
                 risk_level="high",
             )
-        ],
+        ),
     )
 
     result = planner(state)
@@ -710,14 +911,14 @@ def test_planner_turns_invalid_tool_json_schema_into_clarification():
     }
     planner = build_planner_agent_node(
         llm_client=InvalidSchemaToolPlanningLlmClient(),
-        available_tools=[
+        tool_search_service=_tool_search_service(
             ToolSpec(
                 name="mcp.mock.invalid_tool",
                 version="1.0.0",
                 description="测试无效 schema",
                 input_schema={"type": "invalid-json-schema-type"},
             )
-        ],
+        ),
     )
 
     result = planner(state)
@@ -742,7 +943,7 @@ def test_planner_rejects_server_injected_tool_fields_before_plan_enters_state():
     }
     planner = build_planner_agent_node(
         llm_client=ServerInjectedPlanningLlmClient(),
-        available_tools=[
+        tool_search_service=_tool_search_service(
             ToolSpec(
                 name="mcp.mock.server_injected",
                 version="1.0.0",
@@ -753,7 +954,7 @@ def test_planner_rejects_server_injected_tool_fields_before_plan_enters_state():
                 },
                 server_injected_fields=["runtime_handle"],
             )
-        ],
+        ),
     )
 
     with pytest.raises(InlineCredentialsForbiddenError) as exc_info:
@@ -782,7 +983,7 @@ def test_planner_agent_builds_skill_execution_plan_for_a_share_task_workflow():
         "next_node": "planner_agent",
     }
 
-    result = build_planner_agent_node(available_tools=[])(state)
+    result = build_planner_agent_node()(state)
 
     assert result["plan"]["execution_mode"] == "skill_execution"
     assert result["plan"]["selected_skill"]["name"] == "company_snapshot"
@@ -825,7 +1026,7 @@ def test_planner_builds_dynamic_equity_research_evidence_plan_with_mcp_and_rag()
 
     result = build_planner_agent_node(
         llm_client=EquityResearchPlanningLlmClient(),
-        available_tools=tools,
+        tool_search_service=_tool_search_service(*tools),
     )(state)
 
     plan = result["plan"]
@@ -896,7 +1097,7 @@ def test_planner_uses_fast_standard_plan_for_broad_company_snapshot():
 
     result = build_planner_agent_node(
         llm_client=llm_client,
-        available_tools=tools,
+        tool_search_service=_tool_search_service(*tools),
     )(state)
 
     assert llm_client.calls == []
@@ -932,7 +1133,7 @@ def test_planner_uses_requested_financial_year_instead_of_latest():
 
     result = build_planner_agent_node(
         llm_client=EquityResearchPlanningLlmClient(),
-        available_tools=tools,
+        tool_search_service=_tool_search_service(*tools),
     )(state)
 
     financial_request = next(
@@ -975,7 +1176,7 @@ def test_planner_does_not_force_rag_for_plain_company_analysis_when_decompositio
 
     result = build_planner_agent_node(
         llm_client=FailingPlanningClient(),
-        available_tools=tools,
+        tool_search_service=_tool_search_service(*tools),
     )(state)
 
     assert result["plan"]["retrieval"]["required"] is False
@@ -1004,7 +1205,7 @@ def test_planner_agent_does_not_apply_equity_plan_to_non_financial_candidate_ski
         "next_node": "planner_agent",
     }
 
-    result = build_planner_agent_node(available_tools=[])(state)
+    result = build_planner_agent_node()(state)
 
     assert result["plan"]["execution_mode"] == "direct_response"
     assert result["plan"]["response_policy"]["response_type"] == "workflow_not_ready_response"
@@ -3730,7 +3931,7 @@ def test_image_analysis_nodes_use_attachment_context_without_rag_evidence():
         "risk_level": "medium",
         "confidence": 0.8,
     }
-    state = build_planner_agent_node(available_tools=[])(state)
+    state = build_planner_agent_node()(state)
 
     state = analysis_agent_node(state)
     state = synthesizer_node(state)

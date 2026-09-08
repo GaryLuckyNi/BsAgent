@@ -48,8 +48,15 @@ from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolCallRequest
-from app.tools.default_registry import get_default_tool_registry
+from app.tools.default_registry import (
+    get_default_tool_catalog_runtime,
+    get_default_tool_registry,
+)
 from app.tools.registry import ToolCatalogChangedError, ToolRegistry
+from app.tools.search import ToolSearchService
+
+
+_DEFAULT_TOOL_REGISTRY_FACTORY = get_default_tool_registry
 
 
 class AgentGraphExecutionError(RuntimeError):
@@ -381,8 +388,30 @@ def _runtime_registry_snapshot(
         "tool_registry_contributions",
         (),
     ):
+        if registry.has(tool.name):
+            existing = registry.get(tool.name)
+            if (
+                existing.spec != tool.spec
+                or existing.execution_binding != execution_binding
+            ):
+                raise ValueError(f"工具目录中存在冲突的工具定义: {tool.name}")
+            continue
         registry.register(tool, execution_binding=execution_binding)
     return registry.snapshot()
+
+
+def _resolve_tool_search_service(
+    *,
+    explicit_service: ToolSearchService | None,
+    registry_factory: Callable[[], ToolRegistry],
+    registry_snapshot: ToolRegistry,
+) -> ToolSearchService | None:
+    service = explicit_service
+    if service is None and registry_factory is _DEFAULT_TOOL_REGISTRY_FACTORY:
+        service = get_default_tool_catalog_runtime().search_service
+    if service is not None and service.catalog_digest != registry_snapshot.catalog_digest:
+        raise ValueError("工具搜索服务与 Graph 工具目录 digest 不一致。")
+    return service
 
 
 def build_question_answer_graph(
@@ -397,6 +426,7 @@ def build_question_answer_graph(
     llm_client: LlmClient | None = None,
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
     tool_registry_snapshot: ToolRegistry | None = None,
+    tool_search_service: ToolSearchService | None = None,
     allow_test_tool_agent_override: bool = False,
     attachment_resolver: AttachmentContextResolver | None = None,
 ):
@@ -409,9 +439,20 @@ def build_question_answer_graph(
         retriever_node=retriever_node,
     )
     tool_specs_snapshot = tuple(tool_registry_snapshot.specs())
+    selected_tool_search_service = _resolve_tool_search_service(
+        explicit_service=tool_search_service,
+        registry_factory=selected_registry_factory,
+        registry_snapshot=tool_registry_snapshot,
+    )
     selected_skill_registry = (
         build_default_skill_registry() if skill_agent_node is None else None
     )
+    available_skills_provider = None
+    if selected_skill_registry is not None:
+
+        def available_skills_provider(tenant_id: str):
+            return selected_skill_registry.discover(tenant_id=tenant_id)
+
     selected_skill_agent_node = guard_skill_agent_node(
         skill_agent_node
         or build_skill_agent_node(registry=selected_skill_registry),
@@ -452,11 +493,7 @@ def build_question_answer_graph(
         "intent_router",
         build_llm_intent_router_node(
             llm_client=llm_client,
-            available_skills_provider=(
-                lambda tenant_id: selected_skill_registry.discover(tenant_id=tenant_id)
-                if selected_skill_registry is not None
-                else None
-            ),
+            available_skills_provider=available_skills_provider,
         ),
         runner,
     )
@@ -465,7 +502,8 @@ def build_question_answer_graph(
         "planner_agent",
         build_planner_agent_node(
             llm_client=llm_client,
-            available_tools=list(tool_specs_snapshot),
+            tool_search_service=selected_tool_search_service,
+            available_skills_provider=available_skills_provider,
             on_memory_recall_failure=memory_recall_failure_trace,
         ),
         runner,
@@ -590,6 +628,7 @@ def run_question_answer_graph(
     llm_client: LlmClient | None = None,
     permission_scopes: list[str] | None = None,
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
+    tool_search_service: ToolSearchService | None = None,
     allow_test_tool_agent_override: bool = False,
     attachment_ids: list[str] | None = None,
     attachment_resolver: AttachmentContextResolver | None = None,
@@ -616,6 +655,7 @@ def run_question_answer_graph(
         llm_client=llm_client,
         permission_scopes=permission_scopes,
         tool_registry_factory=tool_registry_factory,
+        tool_search_service=tool_search_service,
         allow_test_tool_agent_override=allow_test_tool_agent_override,
         attachment_ids=attachment_ids,
         attachment_resolver=attachment_resolver,
@@ -646,6 +686,7 @@ def stream_question_answer_graph(
     llm_client: LlmClient | None = None,
     permission_scopes: list[str] | None = None,
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
+    tool_search_service: ToolSearchService | None = None,
     allow_test_tool_agent_override: bool = False,
     attachment_ids: list[str] | None = None,
     attachment_resolver: AttachmentContextResolver | None = None,
@@ -672,6 +713,7 @@ def stream_question_answer_graph(
         llm_client=llm_client,
         permission_scopes=permission_scopes,
         tool_registry_factory=tool_registry_factory,
+        tool_search_service=tool_search_service,
         allow_test_tool_agent_override=allow_test_tool_agent_override,
         attachment_ids=attachment_ids,
         attachment_resolver=attachment_resolver,
@@ -707,6 +749,7 @@ def _prepare_question_answer_run(
     llm_client: LlmClient | None,
     permission_scopes: list[str] | None,
     tool_registry_factory: Callable[[], ToolRegistry] | None,
+    tool_search_service: ToolSearchService | None,
     allow_test_tool_agent_override: bool,
     attachment_ids: list[str] | None,
     attachment_resolver: AttachmentContextResolver | None,
@@ -747,6 +790,7 @@ def _prepare_question_answer_run(
         llm_client=llm_client,
         tool_registry_factory=tool_registry_factory,
         tool_registry_snapshot=tool_registry_snapshot,
+        tool_search_service=tool_search_service,
         allow_test_tool_agent_override=allow_test_tool_agent_override,
         attachment_resolver=attachment_resolver,
     )
@@ -804,6 +848,7 @@ def resume_question_answer_graph(
     llm_client: LlmClient | None = None,
     permission_scopes: list[str] | None = None,
     tool_registry_factory: Callable[[], ToolRegistry] | None = None,
+    tool_search_service: ToolSearchService | None = None,
     allow_test_tool_agent_override: bool = False,
 ) -> AgentState:
     if checkpoint_namespace != "":
@@ -831,6 +876,7 @@ def resume_question_answer_graph(
         llm_client=llm_client,
         tool_registry_factory=tool_registry_factory,
         tool_registry_snapshot=tool_registry_snapshot,
+        tool_search_service=tool_search_service,
         allow_test_tool_agent_override=allow_test_tool_agent_override,
     )
     config = {

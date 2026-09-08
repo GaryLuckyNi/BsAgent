@@ -13,7 +13,11 @@ from app.schemas.tools import ToolCallResult, ToolError
 from app.schemas.tools import ToolCallRecord, ToolCallRequest
 from app.tools.agent import ToolAgentExecutor
 from app.tools.execution_gateway import ToolExecutionContext
-from app.tools.rag_search import RagSearchError, RagSearchTool
+from app.tools.rag_search import (
+    RagSearchError,
+    RagSearchTool,
+    build_default_rag_search_registration,
+)
 from app.tools.registry import ExecutionBinding, ToolRegistry
 from app.tools.fingerprints import tool_call_fingerprint
 
@@ -69,20 +73,13 @@ def build_default_rag_retriever_node(
     top_k: int = 8,
     timeout_seconds: float | None = None,
 ) -> Callable[[AgentState], AgentState]:
-    resolved_base_url = base_url or settings.rag_base_url
-    resolved_timeout_seconds = timeout_seconds or settings.rag_timeout_seconds
+    tool, execution_binding = build_default_rag_search_registration(
+        base_url=base_url,
+        timeout_seconds=timeout_seconds,
+    )
     return build_rag_retriever_node(
-        tool=RagSearchTool(
-            base_url=resolved_base_url,
-            timeout_seconds=resolved_timeout_seconds,
-        ),
-        execution_binding=ExecutionBinding(
-            provider="rag",
-            implementation_id="rag.http.retrieve",
-            server_id=resolved_base_url,
-            deployment_revision=settings.rag_provider_revision,
-            config_revision=settings.rag_config_revision,
-        ),
+        tool=tool,
+        execution_binding=execution_binding,
         top_k=top_k,
     )
 

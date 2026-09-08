@@ -6,6 +6,9 @@
 
 ### 变更
 
+- Planner 改为基于用户问题、Intent 与可信 `SkillCard` 摘要执行首轮工具检索，仅向 LLM 披露 Top-K 业务工具 Schema 与固定 `search_tool`，单次 Run 最多累计披露 16 个业务工具。
+- 通用工具规划改为 `execute/search/respond` 结构化决策，工具版本、风险等级与参数 Schema 继续由 Harness 校验；模型猜测的未披露工具不会从完整 Registry 补查或执行。
+- 默认 `rag_search` 现在与 MCP、Web Search 和 `search_tool` 一同在 Tool Catalog 启动期冻结，Planner 搜索索引与 Tool Agent Registry 共用同一 `catalog_digest`。
 - Intent Classifier 不再接收或序列化完整工具目录，仅基于用户目标、业务意图与租户 `SkillCard` 分类；工具选择留给 Planner 的渐进式披露流程。
 - 工具目录运行时现以最终 `catalog_digest` 原子构建并发布检索索引与 `search_tool`，复用有界 Query Embedding LRU，构建失败时 readiness 保持不可用且不暴露半成品快照。
 - 新增受 RBAC 与 Skill 工具白名单约束的 `ToolSearchService` 和本地 `search_tool`；Gateway 仅向可信本地执行器注入工具执行上下文，MCP 工具调用接口保持不变。
@@ -62,6 +65,7 @@
 
 ### 测试
 
+- 新增 Planner 渐进式披露回归测试，覆盖 Top-K Prompt 隔离、总量上限、未披露工具拒绝与默认 RAG 目录同源。
 - 本地启动器 `--dry-run --check` 端口预检通过；本地与生产 Compose 配置均完成解析验证。
 - 静态检索确认现行配置/文档无旧长期记忆变量、过期本地存储描述和固定 Memory 节点；部署测试验证三类 PostgreSQL DSN 均为必填外部变量；Graph 仍同时编译 `checkpointer` 与 `store`，审批生产路径无 `update_state/as_node`。
 - 旧 SQLite 迁移回归测试固定验收到其最后兼容版本 `20260802_0012`，PostgreSQL-only 的原生记忆审批迁移由真实 PostgreSQL 测试独立验收；生产门禁夹具同步到精简后的 Approval 投影。

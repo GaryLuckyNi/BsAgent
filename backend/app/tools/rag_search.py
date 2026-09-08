@@ -4,8 +4,10 @@ from uuid import uuid4
 import httpx
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.schemas.tools import ToolCallResult, ToolError
 from app.tools.base import Tool
+from app.tools.registry import ExecutionBinding
 
 
 class RagSearchError(RuntimeError):
@@ -80,7 +82,6 @@ class RagSearchTool(Tool[RagSearchInput]):
             timeout=self._timeout_seconds,
         ) as client:
             return await self._run_with_client(client, input_data)
-
     async def _run_with_client(
         self,
         client: httpx.AsyncClient,
@@ -138,6 +139,27 @@ class RagSearchTool(Tool[RagSearchInput]):
             latency_ms=output.latency_ms,
             trace_id=f"trace_{uuid4().hex}",
         )
+
+
+def build_default_rag_search_registration(
+    *,
+    base_url: str | None = None,
+    timeout_seconds: float | None = None,
+) -> tuple[RagSearchTool, ExecutionBinding]:
+    resolved_base_url = base_url or settings.rag_base_url
+    return (
+        RagSearchTool(
+            base_url=resolved_base_url,
+            timeout_seconds=timeout_seconds or settings.rag_timeout_seconds,
+        ),
+        ExecutionBinding(
+            provider="rag",
+            implementation_id="rag.http.retrieve",
+            server_id=resolved_base_url,
+            deployment_revision=settings.rag_provider_revision,
+            config_revision=settings.rag_config_revision,
+        ),
+    )
 
 
 def _rag_retrieve_payload(input_data: RagSearchInput) -> dict[str, Any]:

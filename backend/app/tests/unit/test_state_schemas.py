@@ -34,6 +34,8 @@ def test_create_initial_state_contains_trace_and_empty_collections():
     assert state["conversation_history"] == state["messages"]
     assert state["tool_calls"] == []
     assert state["errors"] == []
+    assert state["disclosed_tool_names"] == []
+    assert state["tool_search_count"] == 0
 
 
 def test_compat_session_key_uses_unambiguous_stable_identity_encoding():
