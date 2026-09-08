@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from app.graph.state import AgentState
 from app.graph.image_context import summarize_image_analyses
+from app.intent.catalog import BusinessIntentCatalog
 from app.intent.router import HybridIntentRouter
 from app.llm.factory import LlmClient
 from app.skills.definitions import SkillCard
@@ -10,11 +11,17 @@ from app.skills.definitions import SkillCard
 def build_intent_router_node(
     *,
     router: HybridIntentRouter | None = None,
+    catalog: BusinessIntentCatalog | None = None,
     available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
 ):
-    selected_router = router or HybridIntentRouter(
-        available_skills_provider=available_skills_provider,
-    )
+    selected_router = router
+    if selected_router is None:
+        if catalog is None:
+            raise TypeError("catalog is required when constructing the intent router")
+        selected_router = HybridIntentRouter(
+            catalog=catalog,
+            available_skills_provider=available_skills_provider,
+        )
 
     def node(state: AgentState) -> AgentState:
         decision = selected_router.route(
@@ -35,16 +42,14 @@ def build_intent_router_node(
 
 def build_llm_intent_router_node(
     *,
+    catalog: BusinessIntentCatalog,
     llm_client: LlmClient | None = None,
     available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
 ):
     return build_intent_router_node(
         router=HybridIntentRouter(
+            catalog=catalog,
             llm_client=llm_client,
             available_skills_provider=available_skills_provider,
         )
     )
-
-
-def intent_router_node(state: AgentState) -> AgentState:
-    return build_intent_router_node()(state)

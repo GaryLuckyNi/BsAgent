@@ -54,8 +54,8 @@ TEST_MEMORY_STORE = object()
 class _TestBusinessIntentCatalogRuntime:
     refresh_seconds = 3600
 
-    def __init__(self):
-        self.catalog = BusinessIntentCatalog.load_default()
+    def __init__(self, catalog: BusinessIntentCatalog | None = None):
+        self.catalog = catalog if catalog is not None else BusinessIntentCatalog([])
         self.snapshot_calls = 0
         self.refresh_calls = 0
 
@@ -1024,9 +1024,16 @@ def test_session_api_rejects_unauthenticated_request_before_graph(monkeypatch):
     assert graph_calls == []
 
 
-def test_post_session_message_flushes_trace_after_persisting_run(monkeypatch):
+def test_post_session_message_flushes_trace_after_persisting_run(
+    monkeypatch,
+    business_intent_catalog,
+):
     monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
-    app, testing_session_local = create_test_app_with_database()
+    app, testing_session_local = create_test_app_with_database(
+        business_intent_catalog_runtime=_TestBusinessIntentCatalogRuntime(
+            business_intent_catalog
+        )
+    )
     client = TestClient(app)
 
     response = client.post(

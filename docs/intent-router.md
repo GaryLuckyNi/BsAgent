@@ -40,17 +40,13 @@ trigger_examples
 required_capabilities
 ```
 
-这样新增业务能力时，优先更新业务意图配置或后续 registry server，而不是修改 Intent Router 代码。
+这样新增业务能力时，优先更新 Admin 业务意图配置，而不是修改 Intent Router 代码。
 
 ## 当前配置来源
 
-第一版使用本地 JSON 文件模拟配置中心：
+Admin 是业务意图 Profile 的唯一事实源。应用生命周期通过 Admin Provider 加载并刷新目录，形成不可变的 `BusinessIntentCatalog` 快照；每次 Run 开始时读取一次快照，并显式注入 Graph 和 `HybridIntentRouter`。
 
-```text
-backend/app/intent/business_intents.json
-```
-
-示例：
+Admin Profile 示例：
 
 ```json
 {
@@ -65,7 +61,7 @@ backend/app/intent/business_intents.json
 }
 ```
 
-后续接配置中心时，应替换 `BusinessIntentCatalog` 的 provider，不改变图节点主逻辑。
+本地不再保存业务意图配置，也不提供默认目录或文件路径回退。Admin 快照不可用时，运行入口应显式报告配置不可用，不能以空目录继续执行。
 
 ## sub_intent 的定位
 
@@ -149,7 +145,7 @@ planner_agent
 
 ## 当前限制
 
-- 业务意图配置仍是本地 JSON，尚未接 registry/config center。
+- 业务意图目录依赖 Admin 快照可用性，刷新失败时由运行时保留最近一次有效快照。
 - 可执行 Skill 由 Admin Registry 提供，Agent 本地不再内置业务 Skill 兜底。
 - `sub_intent` 暂不做强路由条件，避免在早期变成新的无限枚举。
 
@@ -161,4 +157,4 @@ planner_agent
 - `financial_report_analysis`
 - `risk_scan`
 
-这些意图通常输出 `task_workflow`，并通过 `candidate_skill` 进入 Skill Agent。Skill 定义优先来自 Admin Skill Registry；本地 JSON 只承担 intent fallback 和测试配置角色。
+这些意图通常输出 `task_workflow`，并通过 `candidate_skill` 进入 Skill Agent。业务意图 Profile 与 Skill 定义均来自 Admin 管理面，Agent 本地不提供业务配置兜底。

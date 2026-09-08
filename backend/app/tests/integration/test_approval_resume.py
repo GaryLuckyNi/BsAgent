@@ -35,7 +35,7 @@ class _TestBusinessIntentCatalogRuntime:
     refresh_seconds = 3600
 
     def __init__(self):
-        self.catalog = BusinessIntentCatalog.load_default()
+        self.catalog = BusinessIntentCatalog([])
 
     def open(self):
         return SimpleNamespace(catalog=self.catalog)

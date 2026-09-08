@@ -30,12 +30,12 @@ class HybridIntentRouter:
     def __init__(
         self,
         *,
-        catalog: BusinessIntentCatalog | None = None,
+        catalog: BusinessIntentCatalog,
         llm_client: LlmClient | None = None,
         available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
         rule_pre_router: RulePreRouter | None = None,
     ) -> None:
-        self._catalog = catalog or BusinessIntentCatalog.load_default()
+        self._catalog = catalog
         self._llm_client = llm_client
         self._available_skills_provider = available_skills_provider
         self._rule_pre_router = rule_pre_router or RulePreRouter()

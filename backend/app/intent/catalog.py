@@ -1,6 +1,4 @@
-import json
 from collections.abc import Iterable
-from pathlib import Path
 
 from app.intent.schemas import BusinessIntentProfile
 
@@ -8,20 +6,6 @@ from app.intent.schemas import BusinessIntentProfile
 class BusinessIntentCatalog:
     def __init__(self, profiles: Iterable[BusinessIntentProfile]) -> None:
         self._profiles = tuple(profile.model_copy(deep=True) for profile in profiles)
-
-    @classmethod
-    def load_default(cls) -> "BusinessIntentCatalog":
-        return cls.load_from_path(Path(__file__).with_name("business_intents.json"))
-
-    @classmethod
-    def load_from_path(cls, path: Path) -> "BusinessIntentCatalog":
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        return cls(
-            profiles=[
-                BusinessIntentProfile.model_validate(item)
-                for item in payload.get("profiles", [])
-            ]
-        )
 
     def all_profiles(self) -> list[BusinessIntentProfile]:
         return [profile.model_copy(deep=True) for profile in self._profiles]

@@ -1,11 +1,14 @@
 import json
 
-from app.intent.catalog import BusinessIntentCatalog
 import pytest
 
 from app.intent.router import HybridIntentRouter, IntentClassificationError
 from app.intent.schemas import IntentDecisionModel
-from app.graph.nodes.intent_router import build_intent_router_node
+from app.graph.nodes import intent_router as intent_router_module
+from app.graph.nodes.intent_router import (
+    build_intent_router_node,
+    build_llm_intent_router_node,
+)
 from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult
 from app.skills.definitions import SkillCard
@@ -23,6 +26,34 @@ class FakeLlmClient:
             model="fake-intent-model",
             provider="fake",
         )
+
+
+def test_business_intent_catalog_has_no_local_file_loaders(
+    business_intent_catalog,
+):
+    removed_loader_names = ("load_" + "default", "load_from_" + "path")
+
+    assert all(
+        not hasattr(type(business_intent_catalog), name)
+        for name in removed_loader_names
+    )
+
+
+def test_hybrid_intent_router_requires_explicit_catalog():
+    with pytest.raises(TypeError, match="catalog"):
+        HybridIntentRouter()
+
+
+def test_intent_router_builders_require_catalog_when_constructing_router():
+    with pytest.raises(TypeError, match="catalog"):
+        build_intent_router_node()
+
+    with pytest.raises(TypeError, match="catalog"):
+        build_llm_intent_router_node()
+
+
+def test_intent_router_module_has_no_implicit_compatibility_node():
+    assert not hasattr(intent_router_module, "intent_router_node")
 
 
 def test_intent_router_node_passes_safe_image_summaries_to_classifier():
@@ -85,8 +116,10 @@ def test_intent_router_node_passes_safe_image_summaries_to_classifier():
     assert "OCR 原文" not in str(router.context)
 
 
-def test_hybrid_intent_router_applies_high_risk_floor_from_rules():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_hybrid_intent_router_applies_high_risk_floor_from_rules(
+    business_intent_catalog,
+):
+    router = HybridIntentRouter(catalog=business_intent_catalog)
 
     decision = router.route(
         message="帮我删除这条客户记录",
@@ -99,7 +132,9 @@ def test_hybrid_intent_router_applies_high_risk_floor_from_rules():
     assert "rule_high_risk_action" in decision.reason_codes
 
 
-def test_hybrid_intent_router_can_use_llm_classification_for_business_intent():
+def test_hybrid_intent_router_can_use_llm_classification_for_business_intent(
+    business_intent_catalog,
+):
     llm_client = FakeLlmClient(
         """
         {
@@ -116,7 +151,7 @@ def test_hybrid_intent_router_can_use_llm_classification_for_business_intent():
         """
     )
     router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
+        catalog=business_intent_catalog,
         llm_client=llm_client,
     )
 
@@ -141,7 +176,9 @@ def test_hybrid_intent_router_can_use_llm_classification_for_business_intent():
     assert llm_client.calls
 
 
-def test_llm_intent_classifier_receives_tenant_skill_cards():
+def test_llm_intent_classifier_receives_tenant_skill_cards(
+    business_intent_catalog,
+):
     llm_client = FakeLlmClient(
         """
         {
@@ -159,7 +196,7 @@ def test_llm_intent_classifier_receives_tenant_skill_cards():
     )
     requested_tenants: list[str] = []
     router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
+        catalog=business_intent_catalog,
         llm_client=llm_client,
         available_skills_provider=lambda tenant_id: (
             requested_tenants.append(tenant_id)
@@ -198,7 +235,9 @@ def test_llm_intent_classifier_receives_tenant_skill_cards():
     ]
 
 
-def test_llm_intent_classifier_does_not_receive_tool_catalog():
+def test_llm_intent_classifier_does_not_receive_tool_catalog(
+    business_intent_catalog,
+):
     llm_client = FakeLlmClient(
         """
         {
@@ -215,7 +254,7 @@ def test_llm_intent_classifier_does_not_receive_tool_catalog():
         """
     )
     router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
+        catalog=business_intent_catalog,
         llm_client=llm_client,
         available_skills_provider=lambda _tenant_id: [
             SkillCard(
@@ -244,7 +283,9 @@ def test_llm_intent_classifier_does_not_receive_tool_catalog():
     assert "candidate_tool 必须输出 null" in llm_client.calls[0]["system_prompt"]
 
 
-def test_llm_intent_classifier_degrades_to_empty_skill_cards_when_registry_unavailable():
+def test_llm_intent_classifier_degrades_to_empty_skill_cards_when_registry_unavailable(
+    business_intent_catalog,
+):
     llm_client = FakeLlmClient(
         """
         {
@@ -261,7 +302,7 @@ def test_llm_intent_classifier_degrades_to_empty_skill_cards_when_registry_unava
         """
     )
     router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
+        catalog=business_intent_catalog,
         llm_client=llm_client,
         available_skills_provider=lambda _tenant_id: (_ for _ in ()).throw(
             RuntimeError("registry unavailable")
@@ -279,7 +320,9 @@ def test_llm_intent_classifier_degrades_to_empty_skill_cards_when_registry_unava
     assert payload["available_skills"] == []
 
 
-def test_llm_intent_classifier_receives_balanced_research_boundary_policy():
+def test_llm_intent_classifier_receives_balanced_research_boundary_policy(
+    business_intent_catalog,
+):
     llm_client = FakeLlmClient(
         """
         {
@@ -296,7 +339,7 @@ def test_llm_intent_classifier_receives_balanced_research_boundary_policy():
         """
     )
     router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
+        catalog=business_intent_catalog,
         llm_client=llm_client,
     )
 
@@ -313,8 +356,10 @@ def test_llm_intent_classifier_receives_balanced_research_boundary_policy():
     assert "投研无关" in system_prompt
 
 
-def test_hybrid_intent_router_rejects_unknown_intent_without_llm_classifier():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_hybrid_intent_router_rejects_unknown_intent_without_llm_classifier(
+    business_intent_catalog,
+):
+    router = HybridIntentRouter(catalog=business_intent_catalog)
 
     with pytest.raises(IntentClassificationError) as exc_info:
         router.route(
@@ -327,8 +372,10 @@ def test_hybrid_intent_router_rejects_unknown_intent_without_llm_classifier():
     assert exc_info.value.http_status == 503
 
 
-def test_hybrid_intent_router_detects_a_share_company_snapshot():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_hybrid_intent_router_detects_a_share_company_snapshot(
+    business_intent_catalog,
+):
+    router = HybridIntentRouter(catalog=business_intent_catalog)
 
     decision = router.route(
         message="分析一下贵州茅台",
@@ -343,8 +390,10 @@ def test_hybrid_intent_router_detects_a_share_company_snapshot():
     assert decision.risk_level == "medium"
 
 
-def test_hybrid_intent_router_detects_a_share_financial_report_analysis():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_hybrid_intent_router_detects_a_share_financial_report_analysis(
+    business_intent_catalog,
+):
+    router = HybridIntentRouter(catalog=business_intent_catalog)
 
     decision = router.route(
         message="分析宁德时代 2024 年报",
@@ -358,8 +407,10 @@ def test_hybrid_intent_router_detects_a_share_financial_report_analysis():
     assert decision.candidate_skill == "financial_report_analysis"
 
 
-def test_hybrid_intent_router_prefers_financial_report_over_company_snapshot_when_question_mentions_report():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_hybrid_intent_router_prefers_financial_report_over_company_snapshot_when_question_mentions_report(
+    business_intent_catalog,
+):
+    router = HybridIntentRouter(catalog=business_intent_catalog)
 
     decision = router.route(
         message="分析一下宁德时代 2024 年报",
@@ -371,8 +422,10 @@ def test_hybrid_intent_router_prefers_financial_report_over_company_snapshot_whe
     assert decision.candidate_skill == "financial_report_analysis"
 
 
-def test_hybrid_intent_router_detects_a_share_risk_scan():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_hybrid_intent_router_detects_a_share_risk_scan(
+    business_intent_catalog,
+):
+    router = HybridIntentRouter(catalog=business_intent_catalog)
 
     decision = router.route(
         message="看看隆基绿能最近有什么风险",
@@ -386,8 +439,10 @@ def test_hybrid_intent_router_detects_a_share_risk_scan():
     assert decision.candidate_skill == "risk_scan"
 
 
-def test_hybrid_intent_router_prefers_risk_scan_over_company_snapshot_when_question_mentions_risk():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_hybrid_intent_router_prefers_risk_scan_over_company_snapshot_when_question_mentions_risk(
+    business_intent_catalog,
+):
+    router = HybridIntentRouter(catalog=business_intent_catalog)
 
     decision = router.route(
         message="分析一下宁德时代最近有什么风险",
