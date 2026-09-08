@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 应用生命周期统一从 Admin 加载并定时刷新业务意图目录，readiness 报告快照可用性；会话、SSE 与审批恢复在每次 Run 开始时只读取一次不可变 catalog 快照，刷新失败保留旧快照并执行脱敏日志记录。
 - 新增 Admin 业务意图 Provider 与不可变运行时快照，通过深度防御性副本隔离查询结果，支持严格校验、稳定 digest 和失败保留旧目录。
 - 新增开放式任务理解与动态规划实施计划，按 Admin Intent 快照、`TaskBrief`、动态证据通道、Planner 有界重规划和 Markdown 层级分步交付。
 - 新增开放式任务理解与动态规划设计：Admin 成为业务意图 Profile 唯一事实源，本地 `business_intents.json` 将被删除；未命中的投研问题由开放式 `TaskBrief` 表达目标、实体、关键词与时效需求，Planner 动态选择 MCP、Web Search 或 RAG 并生成多步计划，Tool Agent 不再内置专用实体二次探测。

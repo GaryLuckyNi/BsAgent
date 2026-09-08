@@ -1,4 +1,5 @@
 import logging
+from threading import Event
 
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
@@ -15,8 +16,64 @@ from app.operations.health import (
 def inject_test_checkpointer(monkeypatch):
     from app import main as main_module
 
+    class IntentCatalogRuntime:
+        refresh_seconds = 3600
+
+        def open(self):
+            return object()
+
+        def refresh(self):
+            return object()
+
+        def check_health(self):
+            return None
+
+        def close(self):
+            return None
+
     monkeypatch.setattr(main_module, "build_graph_checkpointer", InMemorySaver)
     monkeypatch.setattr(main_module, "close_graph_checkpointer", lambda: None)
+    monkeypatch.setattr(
+        main_module,
+        "build_business_intent_catalog_runtime",
+        lambda *, config: IntentCatalogRuntime(),
+    )
+
+
+class _HealthyEngine:
+    def connect(self):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        return None
+
+    def execute(self, _statement):
+        return None
+
+    def dispose(self):
+        return None
+
+
+class _HealthyObjectStore:
+    def check_health(self):
+        return None
+
+    def close(self):
+        return None
+
+
+class _HealthyMemoryStoreRuntime:
+    def open(self):
+        return None
+
+    def check_health(self):
+        return None
+
+    def close(self):
+        return None
 
 
 def test_readiness_service_reports_each_dependency_without_leaking_error_details():
@@ -169,6 +226,204 @@ def test_default_readiness_probes_database_redis_object_store_and_memory_store()
         "memory_store": "ok",
     }
     assert calls == ["database", "redis", "object_store", "memory_store"]
+
+
+def test_default_readiness_includes_optional_business_intent_catalog_probe():
+    calls: list[str] = []
+
+    class IntentCatalogRuntime:
+        def check_health(self):
+            calls.append("business_intent_catalog")
+
+    report = build_readiness_service(
+        engine=_HealthyEngine(),
+        redis_client=None,
+        object_store=_HealthyObjectStore(),
+        memory_store=_HealthyMemoryStoreRuntime(),
+        business_intent_catalog=IntentCatalogRuntime(),
+    ).check()
+
+    assert report.ready is True
+    assert report.components["business_intent_catalog"] == "ok"
+    assert calls == ["business_intent_catalog"]
+
+
+def test_default_intent_catalog_runtime_reuses_admin_base_url_and_bounded_timeout(
+    monkeypatch,
+):
+    from app.core.config import Settings
+    from app.intent import dependencies
+
+    captured = {}
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"items": [], "total": 0}
+
+    class Client:
+        def __init__(self, *, base_url, timeout):
+            captured["base_url"] = base_url
+            captured["timeout"] = timeout
+            captured["closed"] = False
+
+        def get(self, path, *, params):
+            captured["request"] = (path, params)
+            return Response()
+
+        def close(self):
+            captured["closed"] = True
+
+    monkeypatch.setattr(dependencies.httpx, "Client", Client)
+    config = Settings(
+        _env_file=None,
+        skill_registry_base_url="https://admin.example.test",
+        intent_catalog_refresh_seconds=45,
+    )
+
+    runtime = dependencies.build_business_intent_catalog_runtime(config=config)
+    snapshot = runtime.open()
+    runtime.close()
+
+    assert snapshot is not None
+    assert snapshot.catalog.all_profiles() == []
+    assert runtime.refresh_seconds == 45
+    assert captured["base_url"] == "https://admin.example.test"
+    assert captured["timeout"].connect == 5
+    assert captured["timeout"].read == 5
+    assert captured["request"] == (
+        "/api/business-intents",
+        {"enabled": "true"},
+    )
+    assert captured["closed"] is True
+
+
+def test_initial_intent_catalog_failure_allows_startup_but_readiness_is_503(
+    inject_test_checkpointer,
+):
+    calls: list[str] = []
+
+    class IntentCatalogRuntime:
+        refresh_seconds = 3600
+
+        def open(self):
+            calls.append("open")
+            return None
+
+        def refresh(self):
+            calls.append("refresh")
+
+        def check_health(self):
+            raise RuntimeError("unavailable")
+
+        def close(self):
+            calls.append("close")
+
+    from app.main import create_app
+
+    intent_runtime = IntentCatalogRuntime()
+    app = create_app(
+        database_engine=_HealthyEngine(),
+        object_store=_HealthyObjectStore(),
+        memory_store_runtime=_HealthyMemoryStoreRuntime(),
+        business_intent_catalog_runtime=intent_runtime,
+    )
+
+    with TestClient(app) as client:
+        response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["components"]["business_intent_catalog"] == "unavailable"
+    assert calls == ["open", "close"]
+
+
+def test_valid_intent_catalog_snapshot_is_ready_and_runtime_is_stored_and_closed(
+    inject_test_checkpointer,
+):
+    calls: list[str] = []
+
+    class IntentCatalogRuntime:
+        refresh_seconds = 3600
+
+        def open(self):
+            calls.append("open")
+            return object()
+
+        def refresh(self):
+            calls.append("refresh")
+
+        def check_health(self):
+            calls.append("check_health")
+
+        def close(self):
+            calls.append("close")
+
+    from app.main import create_app
+
+    intent_runtime = IntentCatalogRuntime()
+    app = create_app(
+        database_engine=_HealthyEngine(),
+        object_store=_HealthyObjectStore(),
+        memory_store_runtime=_HealthyMemoryStoreRuntime(),
+        business_intent_catalog_runtime=intent_runtime,
+    )
+
+    with TestClient(app) as client:
+        assert app.state.business_intent_catalog_runtime is intent_runtime
+        response = client.get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json()["components"]["business_intent_catalog"] == "ok"
+    assert calls == ["open", "check_health", "close"]
+
+
+def test_background_intent_refresh_failure_preserves_readiness_and_is_safely_logged(
+    inject_test_checkpointer,
+    caplog,
+):
+    from app import main as main_module
+
+    caplog.set_level(logging.WARNING, logger=main_module.__name__)
+    refresh_attempted = Event()
+    calls: list[str] = []
+
+    class IntentCatalogRuntime:
+        refresh_seconds = 0.01
+
+        def open(self):
+            calls.append("open")
+            return object()
+
+        def refresh(self):
+            calls.append("refresh")
+            refresh_attempted.set()
+            raise RuntimeError("https://admin.test?token=secret")
+
+        def check_health(self):
+            calls.append("check_health")
+
+        def close(self):
+            calls.append("close")
+
+    app = main_module.create_app(
+        database_engine=_HealthyEngine(),
+        object_store=_HealthyObjectStore(),
+        memory_store_runtime=_HealthyMemoryStoreRuntime(),
+        business_intent_catalog_runtime=IntentCatalogRuntime(),
+    )
+
+    with TestClient(app) as client:
+        assert refresh_attempted.wait(timeout=1)
+        assert client.get("/health/ready").status_code == 200
+
+    assert calls[0] == "open"
+    assert "refresh" in calls
+    assert calls[-1] == "close"
+    assert "business_intent_catalog_refresh_failed type=RuntimeError" in caplog.text
+    assert "admin.test" not in caplog.text
+    assert "secret" not in caplog.text
 
 
 def test_build_readiness_service_requires_memory_store():

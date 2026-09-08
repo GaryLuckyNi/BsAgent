@@ -8,6 +8,16 @@ def test_approval_resume_claim_timeout_defaults_to_five_minutes():
     assert Settings(_env_file=None).approval_resume_claim_timeout_seconds == 300
 
 
+def test_intent_catalog_refresh_defaults_to_thirty_seconds():
+    assert Settings(_env_file=None).intent_catalog_refresh_seconds == 30
+
+
+@pytest.mark.parametrize("value", [4, 3601])
+def test_intent_catalog_refresh_enforces_bounds(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, intent_catalog_refresh_seconds=value)
+
+
 @pytest.mark.parametrize("value", [29, 3601])
 def test_approval_resume_claim_timeout_enforces_bounds(value):
     with pytest.raises(ValidationError):

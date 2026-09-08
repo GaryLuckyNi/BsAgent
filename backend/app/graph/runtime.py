@@ -17,7 +17,7 @@ from app.graph.nodes.approval_gate import (
     build_approval_gate_node,
 )
 from app.graph.nodes.approval_coordinator import approval_coordinator_node
-from app.graph.nodes.intent_router import build_llm_intent_router_node
+from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.nodes.retriever_agent import build_default_rag_retriever_node
 from app.graph.nodes.skill_agent import (
@@ -46,6 +46,8 @@ from app.harness.node_runner import NodeRunner
 from app.harness.observer import NodeObserver
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
+from app.intent.catalog import BusinessIntentCatalog
+from app.intent.router import HybridIntentRouter
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolCallRequest
 from app.tools.default_registry import (
@@ -431,6 +433,7 @@ def _resolve_tool_search_service(
 
 def build_question_answer_graph(
     *,
+    business_intent_catalog: BusinessIntentCatalog,
     retriever_node: Callable[[AgentState], AgentState],
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
@@ -506,9 +509,12 @@ def build_question_answer_graph(
     _add_harnessed_node(
         graph,
         "intent_router",
-        build_llm_intent_router_node(
-            llm_client=llm_client,
-            available_skills_provider=available_skills_provider,
+        build_intent_router_node(
+            router=HybridIntentRouter(
+                catalog=business_intent_catalog,
+                llm_client=llm_client,
+                available_skills_provider=available_skills_provider,
+            ),
         ),
         runner,
     )
@@ -623,6 +629,7 @@ def build_question_answer_graph(
 
 def run_question_answer_graph(
     *,
+    business_intent_catalog: BusinessIntentCatalog,
     session_id: str,
     session_key: str | None = None,
     tenant_id: str,
@@ -651,6 +658,7 @@ def run_question_answer_graph(
 ) -> AgentState:
     state, graph, config = _prepare_question_answer_run(
         session_id=session_id,
+        business_intent_catalog=business_intent_catalog,
         session_key=session_key,
         tenant_id=tenant_id,
         user_id=user_id,
@@ -681,6 +689,7 @@ def run_question_answer_graph(
 
 def stream_question_answer_graph(
     *,
+    business_intent_catalog: BusinessIntentCatalog,
     session_id: str,
     session_key: str | None = None,
     tenant_id: str,
@@ -709,6 +718,7 @@ def stream_question_answer_graph(
 ) -> Iterator[AgentState]:
     state, graph, config = _prepare_question_answer_run(
         session_id=session_id,
+        business_intent_catalog=business_intent_catalog,
         session_key=session_key,
         tenant_id=tenant_id,
         user_id=user_id,
@@ -744,6 +754,7 @@ def stream_question_answer_graph(
 
 def _prepare_question_answer_run(
     *,
+    business_intent_catalog: BusinessIntentCatalog,
     session_id: str,
     session_key: str | None,
     tenant_id: str,
@@ -796,6 +807,7 @@ def _prepare_question_answer_run(
         attachment_ids=attachment_ids,
     )
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=selected_retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
@@ -847,6 +859,7 @@ def _state_from_stream_update(
 
 def resume_question_answer_graph(
     *,
+    business_intent_catalog: BusinessIntentCatalog,
     checkpoint_thread_id: str,
     checkpoint_namespace: str = "",
     checkpoint_id: str,
@@ -882,6 +895,7 @@ def resume_question_answer_graph(
         retriever_node=selected_retriever_node,
     )
     graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
         retriever_node=selected_retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,

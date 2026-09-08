@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import json
 import re
+from types import SimpleNamespace
 from datetime import UTC, datetime
 
 from fastapi import Request
@@ -22,6 +23,8 @@ from app.graph import runtime
 from app.graph.runtime import AgentGraphExecutionError
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import TraceEvent
+from app.intent.catalog import BusinessIntentCatalog
+from app.intent.runtime import BusinessIntentCatalogUnavailableError
 from app.llm.deepseek import LlmConfigurationError
 from app.llm.schemas import LlmCompletionResult
 from app.main import create_app
@@ -46,6 +49,32 @@ from app.tools.registry import ToolRegistry
 
 
 TEST_MEMORY_STORE = object()
+
+
+class _TestBusinessIntentCatalogRuntime:
+    refresh_seconds = 3600
+
+    def __init__(self):
+        self.catalog = BusinessIntentCatalog.load_default()
+        self.snapshot_calls = 0
+        self.refresh_calls = 0
+
+    def open(self):
+        return SimpleNamespace(catalog=self.catalog)
+
+    def snapshot(self):
+        self.snapshot_calls += 1
+        return SimpleNamespace(catalog=self.catalog)
+
+    def refresh(self):
+        self.refresh_calls += 1
+        return SimpleNamespace(catalog=self.catalog)
+
+    def check_health(self):
+        return None
+
+    def close(self):
+        return None
 
 
 def test_api_modules_and_repository_expose_only_native_store_contract():
@@ -122,7 +151,12 @@ def avoid_live_llm_provider(monkeypatch):
     monkeypatch.setattr(sessions, "maybe_build_llm_client", lambda: None)
 
 
-def create_test_app_with_database(*, on_session=None, override_principal=True):
+def create_test_app_with_database(
+    *,
+    on_session=None,
+    override_principal=True,
+    business_intent_catalog_runtime=None,
+):
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -137,7 +171,12 @@ def create_test_app_with_database(*, on_session=None, override_principal=True):
                 on_session(session)
             yield session
 
-    app = create_app()
+    app = create_app(
+        business_intent_catalog_runtime=(
+            business_intent_catalog_runtime
+            or _TestBusinessIntentCatalogRuntime()
+        )
+    )
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_memory_store] = lambda: TEST_MEMORY_STORE
     if override_principal:
@@ -347,6 +386,62 @@ def test_post_message_persists_user_and_assistant_and_returns_stable_ids(monkeyp
     assert session_record.active_run_id is None
     assert captured["store"] is TEST_MEMORY_STORE
     assert "memory_retriever" not in captured
+
+
+def test_post_message_uses_one_run_scoped_intent_catalog_snapshot(monkeypatch):
+    captured = {}
+    intent_runtime = _TestBusinessIntentCatalogRuntime()
+
+    def fake_graph(**kwargs):
+        captured.update(kwargs)
+        return _completed_graph_state(kwargs)
+
+    monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
+    app, _ = create_test_app_with_database(
+        business_intent_catalog_runtime=intent_runtime
+    )
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages",
+        json={"message": "分析银之杰"},
+    )
+
+    assert response.status_code == 200
+    assert intent_runtime.snapshot_calls == 1
+    assert intent_runtime.refresh_calls == 0
+    assert captured["business_intent_catalog"] is intent_runtime.catalog
+
+
+def test_post_message_returns_safe_503_when_intent_catalog_is_unavailable(monkeypatch):
+    graph_calls = []
+
+    class UnavailableIntentRuntime(_TestBusinessIntentCatalogRuntime):
+        def snapshot(self):
+            self.snapshot_calls += 1
+            raise BusinessIntentCatalogUnavailableError()
+
+    intent_runtime = UnavailableIntentRuntime()
+    monkeypatch.setattr(
+        sessions,
+        "run_question_answer_graph",
+        lambda **kwargs: graph_calls.append(kwargs),
+    )
+    app, _ = create_test_app_with_database(
+        business_intent_catalog_runtime=intent_runtime
+    )
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/sessions/s1/messages",
+        json={"message": "分析银之杰"},
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": {"code": "business_intent_catalog_unavailable"}
+    }
+    assert intent_runtime.snapshot_calls == 1
+    assert intent_runtime.refresh_calls == 0
+    assert graph_calls == []
 
 
 def test_post_message_replays_idempotency_key_without_running_graph_twice(monkeypatch):
@@ -1285,6 +1380,7 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
 
 def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch):
     captured = {}
+    intent_runtime = _TestBusinessIntentCatalogRuntime()
 
     def fake_resume(**kwargs):
         captured.update(kwargs)
@@ -1309,7 +1405,9 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
 
     monkeypatch.setattr(approvals, "resume_question_answer_graph", fake_resume)
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
-    app, testing_session_local = create_test_app_with_database()
+    app, testing_session_local = create_test_app_with_database(
+        business_intent_catalog_runtime=intent_runtime
+    )
     with testing_session_local() as session:
         expected_checkpoint = add_approval_resume_fixture(session)
         session.commit()
@@ -1341,6 +1439,9 @@ def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch)
         "mcp:mock",
         "rag:retrieve",
     ]
+    assert intent_runtime.snapshot_calls == 1
+    assert intent_runtime.refresh_calls == 0
+    assert captured["business_intent_catalog"] is intent_runtime.catalog
     assert response.json()["run_id"] == "run_1"
     assert response.json()["run_status"] == "completed"
     with testing_session_local() as session:
@@ -1364,6 +1465,7 @@ def test_approval_resume_rejects_different_existing_checkpoint_before_graph(
     )
     checkpointer = InMemorySaver()
     sessions.run_question_answer_graph(
+        business_intent_catalog=BusinessIntentCatalog([]),
         session_id="session_1",
         session_key="session_key_1",
         tenant_id="tenant_1",
@@ -2339,6 +2441,30 @@ def test_post_session_message_stream_returns_answer_deltas_and_final(monkeypatch
     assert "event: done" in body
 
 
+def test_post_message_stream_uses_one_run_scoped_intent_catalog_snapshot(monkeypatch):
+    captured = {}
+    intent_runtime = _TestBusinessIntentCatalogRuntime()
+
+    def fake_stream(**kwargs):
+        captured.update(kwargs)
+        yield _completed_graph_state(kwargs)
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+    app, _ = create_test_app_with_database(
+        business_intent_catalog_runtime=intent_runtime
+    )
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/stream",
+        json={"message": "分析银之杰"},
+    )
+
+    assert response.status_code == 200
+    assert intent_runtime.snapshot_calls == 1
+    assert intent_runtime.refresh_calls == 0
+    assert captured["business_intent_catalog"] is intent_runtime.catalog
+
+
 def test_stream_persists_original_turn_and_passes_run_identity(monkeypatch):
     captured = {}
 
@@ -2515,6 +2641,7 @@ def test_closing_stream_generator_fails_started_turn(monkeypatch):
             db=db,
             attachment_resolver=None,
             memory_store=TEST_MEMORY_STORE,
+            business_intent_catalog=BusinessIntentCatalog([]),
             request_id="stream-disconnect-1",
         )
         next(generator)
@@ -2551,6 +2678,7 @@ def test_cancelled_stream_fails_started_turn(monkeypatch):
             db=db,
             attachment_resolver=None,
             memory_store=TEST_MEMORY_STORE,
+            business_intent_catalog=BusinessIntentCatalog([]),
             request_id="stream-cancelled-1",
         )
         with pytest.raises(asyncio.CancelledError):
@@ -2591,6 +2719,7 @@ def test_disconnect_after_business_completion_keeps_success_capture_outcome(
             db=db,
             attachment_resolver=None,
             memory_store=TEST_MEMORY_STORE,
+            business_intent_catalog=BusinessIntentCatalog([]),
             request_id="stream-completed-disconnect-1",
         )
         for event in generator:

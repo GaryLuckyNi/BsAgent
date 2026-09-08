@@ -1,4 +1,5 @@
 from hashlib import sha256
+import inspect
 import sys
 from types import ModuleType
 
@@ -78,6 +79,23 @@ def test_checkpoint_config_uses_derived_thread_id_root_namespace_and_recursion_l
         }
     }
     assert runtime._checkpoint_config(state, enabled=False) == {"recursion_limit": 32}
+
+
+@pytest.mark.parametrize(
+    "function_name",
+    [
+        "build_question_answer_graph",
+        "run_question_answer_graph",
+        "stream_question_answer_graph",
+        "resume_question_answer_graph",
+    ],
+)
+def test_graph_runtime_requires_explicit_business_intent_catalog(function_name):
+    parameter = inspect.signature(getattr(runtime, function_name)).parameters[
+        "business_intent_catalog"
+    ]
+
+    assert parameter.default is inspect.Parameter.empty
 
 
 def test_build_graph_checkpointer_builds_postgres_saver_with_managed_pool(monkeypatch):

@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     graph_checkpoint_postgres_url: str | None = None
     graph_recursion_limit: int = Field(default=32, ge=8, le=256)
     skill_registry_base_url: str = "http://localhost:8010"
+    intent_catalog_refresh_seconds: int = Field(default=30, ge=5, le=3600)
     skill_definition_cache_ttl_seconds: int = 300
     mcp_server_url: str = "http://127.0.0.1:8011/mcp"
     mcp_server_name: str = "local"

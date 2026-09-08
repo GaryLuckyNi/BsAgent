@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
@@ -14,6 +15,8 @@ from app.assets.factory import build_object_store
 from app.assets.object_store import ObjectStore
 from app.core.config import Settings, settings
 from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpointer
+from app.intent.dependencies import build_business_intent_catalog_runtime
+from app.intent.runtime import BusinessIntentCatalogRuntime
 from app.memory.runtime import PostgresStoreRuntime
 from app.memory.synchronizer import reconcile_memory_store
 from app.operations.health import ReadinessService, build_readiness_service
@@ -39,6 +42,7 @@ def create_app(
     object_store: ObjectStore | None = None,
     memory_store_runtime: PostgresStoreRuntime | None = None,
     tool_catalog_runtime: ToolCatalogRuntime | None = None,
+    business_intent_catalog_runtime: BusinessIntentCatalogRuntime | None = None,
     config: Settings | None = None,
 ) -> FastAPI:
     runtime = config or settings
@@ -49,11 +53,30 @@ def create_app(
         settings=runtime
     )
     selected_tool_catalog = tool_catalog_runtime or get_default_tool_catalog_runtime()
+    selected_business_intent_catalog = (
+        business_intent_catalog_runtime
+        or build_business_intent_catalog_runtime(config=runtime)
+    )
 
     telemetry_runtime: Any | None = None
+    intent_refresh_task: asyncio.Task[None] | None = None
+
+    async def refresh_business_intent_catalog() -> None:
+        while True:
+            await asyncio.sleep(selected_business_intent_catalog.refresh_seconds)
+            try:
+                await asyncio.to_thread(selected_business_intent_catalog.refresh)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 保留旧快照并继续定时刷新
+                logger.warning(
+                    "business_intent_catalog_refresh_failed type=%s",
+                    type(exc).__name__,
+                )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        nonlocal intent_refresh_task
         try:
             build_graph_checkpointer()
             memory_store = None
@@ -78,8 +101,31 @@ def create_app(
                     )
             if runtime.app_env == "production":
                 selected_tool_catalog.open()
+            try:
+                await asyncio.to_thread(selected_business_intent_catalog.open)
+            except Exception as exc:  # noqa: BLE001 - 首次加载失败交由 readiness 报告
+                logger.warning(
+                    "business_intent_catalog_startup_open_failed type=%s",
+                    type(exc).__name__,
+                )
+            intent_refresh_task = asyncio.create_task(
+                refresh_business_intent_catalog(),
+                name="business-intent-catalog-refresh",
+            )
             yield
         finally:
+            if intent_refresh_task is not None:
+                intent_refresh_task.cancel()
+                try:
+                    await intent_refresh_task
+                except asyncio.CancelledError:
+                    pass
+                intent_refresh_task = None
+            intent_close_error: Exception | None = None
+            try:
+                await asyncio.to_thread(selected_business_intent_catalog.close)
+            except Exception as exc:  # noqa: BLE001 - 其他资源仍需释放
+                intent_close_error = exc
             closers = [close_graph_checkpointer, selected_memory_runtime.close]
             if runtime.app_env == "production":
                 closers.append(selected_tool_catalog.close)
@@ -89,7 +135,13 @@ def create_app(
             if selected_redis is not None:
                 closers.append(selected_redis.close)
             closers.append(selected_engine.dispose)
-            close_resources(*closers)
+            try:
+                close_resources(*closers)
+            except Exception:
+                if intent_close_error is None:
+                    raise
+            if intent_close_error is not None:
+                raise intent_close_error
 
     app = FastAPI(title=runtime.service_name, lifespan=lifespan)
     app.add_middleware(RequestContextMiddleware)
@@ -103,6 +155,7 @@ def create_app(
     app.state.asset_object_store = selected_object_store
     app.state.memory_store_runtime = selected_memory_runtime
     app.state.tool_catalog_runtime = selected_tool_catalog
+    app.state.business_intent_catalog_runtime = selected_business_intent_catalog
     app.state.rate_limit_service = build_rate_limit_service(
         config=runtime,
         redis_client=selected_redis,
@@ -115,6 +168,7 @@ def create_app(
         tool_catalog=(
             selected_tool_catalog if runtime.app_env == "production" else None
         ),
+        business_intent_catalog=selected_business_intent_catalog,
     )
     configure_logging(log_format=runtime.log_format, level=runtime.log_level)
     app.include_router(health_router)

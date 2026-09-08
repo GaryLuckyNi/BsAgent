@@ -33,6 +33,8 @@ from app.harness.persistence import (
     finalize_trace_best_effort,
 )
 from app.harness.trace_buffer import TraceBuffer
+from app.intent.catalog import BusinessIntentCatalog
+from app.intent.dependencies import get_business_intent_catalog
 from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
 from app.memory.synchronizer import sync_committed_run
@@ -91,6 +93,9 @@ def list_pending_approvals(
 def decide_approval(
     approval_id: str,
     request: ApprovalDecisionRequest,
+    business_intent_catalog: BusinessIntentCatalog = Depends(
+        get_business_intent_catalog
+    ),
     principal: Principal = Depends(require_permission("approval:decide")),
     db: Session = Depends(get_db),
     memory_store: BaseStore = Depends(get_memory_store),
@@ -207,6 +212,7 @@ def decide_approval(
             timeout_seconds=settings.approval_resume_claim_timeout_seconds,
         ) as lease:
             state = resume_question_answer_graph(
+                business_intent_catalog=business_intent_catalog,
                 checkpoint_thread_id=resume_snapshot.checkpoint_thread_id,
                 checkpoint_namespace=resume_snapshot.checkpoint_namespace,
                 checkpoint_id=resume_snapshot.checkpoint_id,

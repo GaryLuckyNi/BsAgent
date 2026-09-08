@@ -42,6 +42,8 @@ from app.harness.persistence import (
     finalize_trace_best_effort,
 )
 from app.harness.trace_buffer import TraceBuffer
+from app.intent.catalog import BusinessIntentCatalog
+from app.intent.dependencies import get_business_intent_catalog
 from app.llm.deepseek import LlmConfigurationError
 from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
@@ -211,6 +213,9 @@ def list_sessions(
 def post_message(
     session_id: str,
     request: SessionMessageRequest,
+    business_intent_catalog: BusinessIntentCatalog = Depends(
+        get_business_intent_catalog
+    ),
     principal: Principal = Depends(require_permission("agent:invoke")),
     db: Session = Depends(get_db),
     attachment_resolver: VisionAttachmentContextResolver = Depends(
@@ -233,6 +238,7 @@ def post_message(
             db=db,
             attachment_resolver=attachment_resolver,
             memory_store=memory_store,
+            business_intent_catalog=business_intent_catalog,
             request_id=idempotency_key or f"req_{uuid4().hex}",
         )
     except AgentGraphExecutionError as exc:
@@ -303,6 +309,9 @@ def list_messages(
 def post_message_stream(
     session_id: str,
     request: SessionMessageRequest,
+    business_intent_catalog: BusinessIntentCatalog = Depends(
+        get_business_intent_catalog
+    ),
     principal: Principal = Depends(require_permission("agent:invoke")),
     db: Session = Depends(get_db),
     attachment_resolver: VisionAttachmentContextResolver = Depends(
@@ -325,6 +334,7 @@ def post_message_stream(
             db=db,
             attachment_resolver=attachment_resolver,
             memory_store=memory_store,
+            business_intent_catalog=business_intent_catalog,
             request_id=idempotency_key or f"req_{uuid4().hex}",
         ),
         media_type="text/event-stream",
@@ -392,6 +402,7 @@ def _run_and_persist_agent_message(
     db: Session,
     attachment_resolver: VisionAttachmentContextResolver,
     memory_store: BaseStore,
+    business_intent_catalog: BusinessIntentCatalog,
     request_id: str,
 ) -> SessionMessageResponse:
     conversation_service = ConversationService(db)
@@ -442,6 +453,7 @@ def _run_and_persist_agent_message(
         checkpointer = build_graph_checkpointer()
         llm_client = maybe_build_llm_client()
         state = run_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             session_id=session_id,
             session_key=handle.session_key,
             tenant_id=principal.tenant_id,
@@ -567,6 +579,7 @@ def _stream_agent_message(
     db: Session,
     attachment_resolver: VisionAttachmentContextResolver,
     memory_store: BaseStore,
+    business_intent_catalog: BusinessIntentCatalog,
     request_id: str,
 ) -> Iterator[str]:
     conversation_service = ConversationService(db)
@@ -641,6 +654,7 @@ def _stream_agent_message(
         emitted_thinking_stages: set[str] = set()
         emitted_progress_stages = {"planning"}
         for state in stream_question_answer_graph(
+            business_intent_catalog=business_intent_catalog,
             session_id=session_id,
             session_key=handle.session_key,
             tenant_id=principal.tenant_id,

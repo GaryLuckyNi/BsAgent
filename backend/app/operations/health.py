@@ -47,6 +47,7 @@ def build_readiness_service(
     object_store: HealthCheckable,
     memory_store: HealthCheckable,
     tool_catalog: HealthCheckable | None = None,
+    business_intent_catalog: HealthCheckable | None = None,
 ) -> ReadinessService:
     probes = [
         DependencyProbe(name="database", check=lambda: _check_database(engine)),
@@ -67,6 +68,13 @@ def build_readiness_service(
     if tool_catalog is not None:
         probes.append(
             DependencyProbe(name="tool_catalog", check=tool_catalog.check_health),
+        )
+    if business_intent_catalog is not None:
+        probes.append(
+            DependencyProbe(
+                name="business_intent_catalog",
+                check=business_intent_catalog.check_health,
+            )
         )
     return ReadinessService(probes=probes)
 

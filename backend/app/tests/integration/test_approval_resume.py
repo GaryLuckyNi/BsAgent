@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 import pytest
@@ -11,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.api import approvals
 from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.harness.tracing import TraceEvent
+from app.intent.catalog import BusinessIntentCatalog
 from app.main import create_app
 from app.memory.dependencies import get_memory_store
 from app.security.dependencies import get_current_principal
@@ -27,6 +29,28 @@ from app.storage.models import (
 
 
 TEST_MEMORY_STORE = object()
+
+
+class _TestBusinessIntentCatalogRuntime:
+    refresh_seconds = 3600
+
+    def __init__(self):
+        self.catalog = BusinessIntentCatalog.load_default()
+
+    def open(self):
+        return SimpleNamespace(catalog=self.catalog)
+
+    def snapshot(self):
+        return SimpleNamespace(catalog=self.catalog)
+
+    def refresh(self):
+        return SimpleNamespace(catalog=self.catalog)
+
+    def check_health(self):
+        return None
+
+    def close(self):
+        return None
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +78,9 @@ def _test_app():
             scopes=("approval:decide",),
         )
 
-    app = create_app()
+    app = create_app(
+        business_intent_catalog_runtime=_TestBusinessIntentCatalogRuntime()
+    )
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_memory_store] = lambda: TEST_MEMORY_STORE
     app.dependency_overrides[get_current_principal] = override_principal
