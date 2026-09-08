@@ -10,7 +10,7 @@
 
 - 保留可配置业务意图，仅用于高频场景加速、Skill 推荐和默认策略。
 - 未命中配置意图时，使用 LLM 理解用户真实目标，而不是新增枚举或默认转入 `knowledge_qa`。
-- 将“任务属于哪个领域”与“如何完成任务”明确分开。
+- 由现有 Intent Router 统一执行投研领域边界和粗粒度路由判断，与后续“如何完成任务”的规划职责分开。
 - Planner 根据开放式任务描述、Skill 提示、工具检索结果和治理约束动态生成多步计划。
 - 工具失败后只对可恢复错误执行有界反思和重规划。
 - 改善最终 Markdown 的阅读层级，本期不增加代码语法高亮。
@@ -79,6 +79,10 @@ Intent Router 不负责生成执行步骤、选择 MCP Tool 或扩充 Sub Intent
     "盈利和现金流质量是否改善",
     "存在哪些催化因素与下行风险"
   ],
+  "search_keywords": ["海能达", "最新公告", "近期经营动态"],
+  "freshness_required": true,
+  "web_search_required": true,
+  "web_search_reason": "需要近期公告、监管事件和产业动态",
   "time_horizon": null,
   "output_expectation": "平衡的投资决策辅助分析",
   "constraints": [
@@ -90,15 +94,13 @@ Intent Router 不负责生成执行步骤、选择 MCP Tool 或扩充 Sub Intent
 
 `analysis_questions`、`user_goal` 和 `output_expectation` 使用受长度限制的自然语言，不为“适合买入”、“值得持有”等表达建立枚举。`entities.type` 只表达稳定的业务对象类型，不表达用户意图。
 
+`freshness_required` 表达问题是否依赖近期信息，`web_search_required` 表达是否需要公开网页证据。两者不等价：最新股价、估值和财务指标应优先使用 MCP 结构化数据，最新公告、监管事件、新闻和产业动态才使用 Web Search。`search_keywords` 由任务理解同步提取，不再由 Tool Agent 在失败后拼接固定查询词。
+
 ## 组件边界
-
-### Scope Router
-
-负责判断请求是否属于投研领域，并识别寒暄、产品帮助、需要澄清和明显超出范围的任务。它不了解工具 Schema，不生成证据计划。
 
 ### Intent Router
 
-负责合并确定性规则、Admin Profile 快照和 LLM 分类结果。它只输出顶层路由、领域、可选 Profile/Skill 提示、风险和置信度。
+负责合并确定性规则、Admin Profile 快照和 LLM 分类结果。同一节点同时识别投研领域内任务、金融对话、寒暄、产品帮助、需要澄清和明显超出范围的任务，不新增 Scope Router。它只输出顶层路由、领域、可选 Profile/Skill 提示、风险和置信度。
 
 对未命中 Profile 的投研问题，LLM 分类请求同时产生 `TaskBrief`，避免再增加一次独立模型调用。对命中 Profile 的请求，Planner 仍需要从原始问题得到本次 `TaskBrief`；Profile 只用作默认值和 Skill 提示。
 
@@ -120,6 +122,13 @@ Planner 仅根据以下信息生成计划：
 - 可选的 Intent Profile 和 SkillCard 摘要。
 - 通过渐进式披露获得的少量 Tool Schema。
 - 租户 RBAC、风险、审批、延迟和循环预算。
+
+Planner 负责根据 `TaskBrief` 选择证据通道：
+
+- 行情、估值、财务等可结构化事实优先使用 MCP。
+- 近期公告、监管、新闻和产业动态使用 Web Search。
+- 内部文档和已索引研究资料使用 RAG。
+- 同一份 Web Search 证据可同时用于事件分析和实体校验，不因后续解析失败重复搜索。
 
 Planner 生成的是任务 DAG，而不是单个候选 Tool。每个子任务至少包含：
 
@@ -147,12 +156,10 @@ Skill 是经验证的标准作业流程，不是用户问法的一对一映射�
 ```text
 用户问题
 -> Agent 使用已验证的 Admin Intent Profile 快照
--> Scope Router 判断是否属于投研边界
--> Intent Router 尝试匹配可配置 Profile
--> LLM 形成本次 TaskBrief
--> Task Understanding 校验实体、目标和澄清条件
+-> Intent Router 判断业务边界并尝试匹配可配置 Profile
+-> 同一次 LLM 理解形成本次 TaskBrief，提取实体、目标、关键词和时效需求
 -> Harness 根据任务和 Skill 摘要预取工具
--> Planner 生成多子任务 DAG
+-> Planner 选择 MCP、Web Search 或 RAG 证据通道并生成多子任务 DAG
 -> Tool Agent 通过 MCP Gateway 执行
 -> Analysis 生成可验证判断
 -> 可恢复错误进入有界反思与重规划
@@ -162,7 +169,7 @@ Skill 是经验证的标准作业流程，不是用户问法的一对一映射�
 
 ## 失败反思与终止
 
-只有以下错误可进入反思与重规划：
+只有以下错误可进入 Planner 反思与重规划：
 
 - 实体未命中或参数形式错误。
 - 已披露工具不足，但目录中可能存在其他能力。
@@ -178,6 +185,12 @@ Skill 是经验证的标准作业流程，不是用户问法的一对一映射�
 - 任务明确超出产品边界。
 
 单次 Run 最多进行 2 次语义重规划。现有 `search_tool` 调用预算和 LangGraph recursion limit 继续作为工具搜索与图执行的最终上限。达到上限后必须明确说明证据或能力缺口，不得继续循环。
+
+Tool Agent 不再内置“实体失败后自动 Web Search + LLM 候选生成 + 再次校验”的专用流程。它只返回结构化成功结果或错误观测。如果实体解析失败：
+
+- 首轮已有 Web Search 证据时，Planner 复用该证据修正名称，然后仅执行一次市场数据源复验。
+- 首轮没有 Web Search 证据且别名或曾用名可能性较高时，Planner 可补充一次定向搜索。
+- 证据不能唯一确认时请求用户澄清，不得选择同行、供应商、客户或概念股代替用户所指实体。
 
 ## 投资决策辅助边界
 
@@ -226,6 +239,7 @@ Trace 需要区分以下事件：
 - 命中 Profile 和未命中 Profile 的投研问题都会生成 `TaskBrief`。
 - 未命中问题不会默认进入 `knowledge_qa`。
 - “海能达现在是否适合买入”的实体为“海能达”，用户目标保留为投资吸引力评估。
+- 同一请求同步产生受限关键词、时效性和 Web Search 需求，不增加独立 Scope Router 或第三次意图模型调用。
 - 对公司别名或可疑表达不猜测同行业上市公司。
 - 缺失核心实体或存在真实歧义时请求澄清。
 
@@ -236,6 +250,8 @@ Trace 需要区分以下事件：
 - 计划可以同时包含多个无依赖子任务，并保留实体解析等必要前置依赖。
 - 未命中 Skill 时仍能通过 `search_tool` 完成工具发现。
 - 实体参数错误最多触发 2 次语义重规划，权限不足不触发 LLM 重试。
+- 首轮已存在 Web Search 证据时，实体修正复用已有证据，不发起第二次联网搜索。
+- Tool Agent 不会因实体解析失败自行改写计划或追加 `web_search`。
 
 ### 回答与 Markdown
 
@@ -249,6 +265,8 @@ Trace 需要区分以下事件：
 - 删除 `BusinessIntentCatalog.load_default()` 和所有隐式本地文件回退；测试通过显式构造 Profile 快照或连接测试 Admin 数据源。
 - 直接删除 Planner 中“标准公司快照”提前返回逻辑。
 - `extract_company_query()` 不再作为正常链路的实体理解实现，仅允许作为 LLM 不可用时的受限降级；降级结果仍必须经过数据源校验。
+- 删除 Tool Agent 内部 `_repair_company_resolution()` 及其专用 Web Search 候选生成流程，实体失败统一交给 Planner 消费结构化错误后重规划。
 - 不增加投资决策类 Sub Intent，不扩展购买、持有、卖出等关键词列表。
+- 不新增 Scope Router 节点，投研边界判断保留在 Intent Router。
 - 保留现有 Tool Registry、`search_tool`、MCP Gateway、RBAC、审批和循环上限。
 - 通过 Agent State 中独立的 `task_brief` 字段传递任务理解，不将其塞入 Intent 字典或 Skill 配置。
