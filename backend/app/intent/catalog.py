@@ -7,7 +7,7 @@ from app.intent.schemas import BusinessIntentProfile
 
 class BusinessIntentCatalog:
     def __init__(self, profiles: Iterable[BusinessIntentProfile]) -> None:
-        self._profiles = tuple(profiles)
+        self._profiles = tuple(profile.model_copy(deep=True) for profile in profiles)
 
     @classmethod
     def load_default(cls) -> "BusinessIntentCatalog":
@@ -23,8 +23,8 @@ class BusinessIntentCatalog:
             ]
         )
 
-    def all_profiles(self) -> tuple[BusinessIntentProfile, ...]:
-        return self._profiles
+    def all_profiles(self) -> list[BusinessIntentProfile]:
+        return [profile.model_copy(deep=True) for profile in self._profiles]
 
     def match_by_keywords(self, message: str) -> BusinessIntentProfile | None:
         normalized = message.lower()
@@ -37,7 +37,8 @@ class BusinessIntentCatalog:
         ]
         if not scored_profiles:
             return None
-        return max(scored_profiles, key=lambda item: item[0])[1]
+        matched = max(scored_profiles, key=lambda item: item[0])[1]
+        return matched.model_copy(deep=True)
 
     def _score_profile(self, profile: BusinessIntentProfile, message: str) -> int:
         score = sum(1 for keyword in profile.trigger_keywords if keyword.lower() in message)

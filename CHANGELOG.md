@@ -6,7 +6,7 @@
 
 ### 变更
 
-- 新增 Admin 业务意图 Provider 与不可变运行时快照，支持严格校验、稳定 digest 和失败保留旧目录。
+- 新增 Admin 业务意图 Provider 与不可变运行时快照，通过深度防御性副本隔离查询结果，支持严格校验、稳定 digest 和失败保留旧目录。
 - 新增开放式任务理解与动态规划实施计划，按 Admin Intent 快照、`TaskBrief`、动态证据通道、Planner 有界重规划和 Markdown 层级分步交付。
 - 新增开放式任务理解与动态规划设计：Admin 成为业务意图 Profile 唯一事实源，本地 `business_intents.json` 将被删除；未命中的投研问题由开放式 `TaskBrief` 表达目标、实体、关键词与时效需求，Planner 动态选择 MCP、Web Search 或 RAG 并生成多步计划，Tool Agent 不再内置专用实体二次探测。
 - A 股投研任务的首轮渐进式工具披露若未命中实体解析能力，Planner 会在同一租户 RBAC 与披露上限内定向补充检索 `stock.resolve_company`，避免动态证据规划因 Top-K 偶然遗漏而退化为固定 Skill。

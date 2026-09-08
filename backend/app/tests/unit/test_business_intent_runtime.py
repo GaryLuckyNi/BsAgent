@@ -110,15 +110,25 @@ def test_admin_provider_normalizes_http_errors_without_leaking_response() -> Non
     assert "admin.test" not in str(exc_info.value)
 
 
-def test_catalog_keeps_an_immutable_profile_view_and_keyword_matching() -> None:
+def test_catalog_returns_deep_copied_profiles_in_a_list() -> None:
     profiles = [_profile()]
     catalog = BusinessIntentCatalog(profiles)
     profiles.append(_profile("another.profile"))
 
-    assert isinstance(catalog.all_profiles(), tuple)
-    assert [profile.id for profile in catalog.all_profiles()] == [
-        "company_research.company_snapshot"
-    ]
+    exposed = catalog.all_profiles()
+    assert isinstance(exposed, list)
+    exposed[0].trigger_keywords.clear()
+
+    assert catalog.all_profiles() == [_profile()]
+
+
+def test_catalog_returns_a_deep_copy_from_keyword_matching() -> None:
+    catalog = BusinessIntentCatalog([_profile()])
+
+    matched = catalog.match_by_keywords("请分析基本面")
+    assert matched is not None
+    matched.trigger_keywords.clear()
+
     assert catalog.match_by_keywords("请分析基本面") == _profile()
 
 
@@ -168,7 +178,7 @@ def test_runtime_accepts_empty_enabled_profile_list_as_valid_snapshot() -> None:
 
     assert opened is not None
     assert opened.loaded_at == 100.0
-    assert opened.catalog.all_profiles() == ()
+    assert opened.catalog.all_profiles() == []
     assert runtime.snapshot() is opened
     assert runtime.check_health() is None
 
@@ -187,8 +197,28 @@ def test_runtime_refresh_failure_preserves_previous_snapshot() -> None:
         runtime.refresh()
 
     assert runtime.snapshot() is first
-    assert runtime.snapshot().catalog.all_profiles() == (first_profile,)
+    assert runtime.snapshot().catalog.all_profiles() == [first_profile]
     assert runtime.check_health() is None
+
+
+def test_runtime_public_profiles_cannot_mutate_snapshot_content_or_digest() -> None:
+    runtime = BusinessIntentCatalogRuntime(
+        provider=_Provider([_profile()]),
+        refresh_seconds=60,
+        now=lambda: 100.0,
+    )
+    opened = runtime.open()
+    assert opened is not None
+    original_digest = opened.digest
+
+    opened.catalog.all_profiles()[0].trigger_keywords.append("被篡改")
+    matched = opened.catalog.match_by_keywords("请分析基本面")
+    assert matched is not None
+    matched.trigger_examples.clear()
+
+    current = runtime.snapshot()
+    assert current.digest == original_digest
+    assert current.catalog.all_profiles() == [_profile()]
 
 
 def test_runtime_readers_keep_the_old_snapshot_while_refresh_is_building() -> None:
