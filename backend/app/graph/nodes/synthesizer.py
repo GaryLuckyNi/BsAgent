@@ -46,6 +46,19 @@ EQUITY_RESEARCH_SECTION_ALIASES = {
     "主要风险": ("风险提示", "核心风险", "风险因素"),
     "数据边界": ("数据局限", "分析边界", "数据与分析边界"),
 }
+EQUITY_RESEARCH_MARKDOWN_HEADINGS = frozenset(
+    {
+        "免责声明",
+        "财务指标",
+        "财报与公告证据",
+        "分析边界",
+        "风险扫描",
+        "公告与知识证据",
+        "后续关注",
+        "公司概览",
+        "待核验事项",
+    }
+)
 EQUITY_RESEARCH_MAX_TOKENS = 2048
 DATA_INSUFFICIENCY_MARKERS = (
     "数据不足",
@@ -517,7 +530,7 @@ def _render_image_analysis_content(
     body = _ensure_image_conflict_disclosure(body=body, state=state)
     if FINANCIAL_DISCLAIMER not in body:
         body = f"{body}\n\n免责声明\n{FINANCIAL_DISCLAIMER}"
-    return body
+    return _format_equity_research_markdown(body)
 
 
 def _render_equity_research_content(
@@ -546,7 +559,7 @@ def _render_equity_research_content(
     body = _ensure_image_conflict_disclosure(body=body, state=state)
     if FINANCIAL_DISCLAIMER not in body:
         body = f"{body}\n\n免责声明\n{FINANCIAL_DISCLAIMER}"
-    return body
+    return _format_equity_research_markdown(body)
 
 
 def _render_equity_research_with_llm(
@@ -1087,6 +1100,37 @@ def _prepare_equity_content_for_user(content: str) -> str:
     without_references = CLAIM_REFERENCE_PATTERN.sub("", content)
     without_references = re.sub(r"[ \t]+([，。！？；：])", r"\1", without_references)
     return _normalize_brand_voice(without_references)
+
+
+def _format_equity_research_markdown(content: str) -> str:
+    lines: list[str] = []
+    for line in content.splitlines():
+        equity_heading = _equity_section_heading(line)
+        if equity_heading is not None:
+            _, inline_content = equity_heading
+            display_heading = line.strip().lstrip("#").strip().replace("**", "")
+            display_heading = re.sub(
+                r"^(?:\d+|[一二三四五六七八九十]+)[.、．]\s*",
+                "",
+                display_heading,
+            )
+            if inline_content:
+                for separator in (":", "："):
+                    suffix = f"{separator}{inline_content}"
+                    if display_heading.endswith(suffix):
+                        display_heading = display_heading[: -len(suffix)].strip()
+                        break
+            lines.append(f"## {display_heading}")
+            if inline_content:
+                lines.append(inline_content)
+            continue
+
+        normalized = line.strip().lstrip("#").strip().replace("**", "")
+        if normalized in EQUITY_RESEARCH_MARKDOWN_HEADINGS:
+            lines.append(f"## {normalized}")
+            continue
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _record_llm_rendering(*, response_policy: dict, result, rendering: str) -> None:

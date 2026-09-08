@@ -27,6 +27,12 @@ from app.skills.definitions import SkillCard
 from app.tools.search import ToolSearchContext, ToolSearchInput, ToolSearchService
 
 
+_EQUITY_RESOLVER_SUFFIX = ".stock.resolve_company"
+_EQUITY_RESOLVER_SEARCH_QUERY = (
+    "A 股公司名称、简称或代码标准化为证券代码 stock.resolve_company"
+)
+
+
 def build_planner_agent_node(
     *,
     llm_client: LlmClient | None = None,
@@ -71,6 +77,11 @@ def _disclosed_tool_specs(
 ) -> dict[str, ToolSpec]:
     if service is None or not _should_prefetch_tools(state):
         return {}
+    context = ToolSearchContext(
+        tenant_id=state["tenant_id"],
+        user_id=state["user_id"],
+        permission_scopes=tuple(state["permission_scopes"]),
+    )
     if not state["disclosed_tool_names"]:
         response = service.search(
             ToolSearchInput(
@@ -80,15 +91,26 @@ def _disclosed_tool_specs(
                 ),
                 top_k=settings.tool_search_top_k,
             ),
-            context=ToolSearchContext(
-                tenant_id=state["tenant_id"],
-                user_id=state["user_id"],
-                permission_scopes=tuple(state["permission_scopes"]),
-            ),
+            context=context,
         )
         state["disclosed_tool_names"] = merge_disclosed_tool_names(
             state["disclosed_tool_names"],
             [hit.tool_name for hit in response.hits],
+            limit=settings.tool_search_max_disclosed_tools,
+        )
+    if _needs_equity_resolver(state):
+        resolver_response = service.search(
+            ToolSearchInput(query=_EQUITY_RESOLVER_SEARCH_QUERY, top_k=1),
+            context=context,
+        )
+        resolver_names = [
+            hit.tool_name
+            for hit in resolver_response.hits
+            if hit.tool_name.endswith(_EQUITY_RESOLVER_SUFFIX)
+        ]
+        state["disclosed_tool_names"] = merge_disclosed_tool_names(
+            state["disclosed_tool_names"],
+            resolver_names,
             limit=settings.tool_search_max_disclosed_tools,
         )
     specs = {
@@ -101,6 +123,18 @@ def _disclosed_tool_specs(
         return specs
     specs[search_spec.name] = search_spec
     return specs
+
+
+def _needs_equity_resolver(state: AgentState) -> bool:
+    intent = state["intent"] or {}
+    return bool(
+        intent.get("candidate_skill")
+        and intent.get("domain") == "a_share_equity_research"
+        and not any(
+            name.endswith(_EQUITY_RESOLVER_SUFFIX)
+            for name in state["disclosed_tool_names"]
+        )
+    )
 
 
 def _should_prefetch_tools(state: AgentState) -> bool:

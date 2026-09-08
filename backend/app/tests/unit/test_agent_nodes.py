@@ -64,6 +64,27 @@ class StubToolSearchService:
         return [self._specs[name] for name in tool_names]
 
 
+class ResolverBootstrapToolSearchService(StubToolSearchService):
+    def __init__(
+        self,
+        *,
+        specs: list[ToolSpec],
+        initial_hit_names: list[str],
+        resolver_name: str,
+    ) -> None:
+        super().__init__(specs=specs, hit_names=initial_hit_names)
+        self._initial_hit_names = initial_hit_names
+        self._resolver_name = resolver_name
+
+    def search(self, request, *, context):
+        self._hit_names = (
+            [self._resolver_name]
+            if "stock.resolve_company" in request.query
+            else self._initial_hit_names
+        )
+        return super().search(request, context=context)
+
+
 def _preference_runtime(*preferences: tuple[str, str]) -> Runtime:
     store = Mock()
     store.search.return_value = [
@@ -747,6 +768,45 @@ def test_planner_prefetches_and_exposes_only_ranked_tool_specs():
     assert "search_tool" in prompt
     assert undisclosed.name not in prompt
     assert result["plan"]["requested_tools"][0].tool_name == market.name
+
+
+def test_planner_bootstraps_equity_resolver_before_dynamic_evidence_planning():
+    resolver = _stock_tool_spec("mcp.local.stock.resolve_company")
+    profile = _stock_tool_spec("mcp.local.stock.company_profile")
+    market = _stock_tool_spec("mcp.local.stock.market_snapshot")
+    financial = _stock_tool_spec("mcp.local.stock.financial_metrics")
+    service = ResolverBootstrapToolSearchService(
+        specs=[resolver, profile, market, financial, _search_tool_spec()],
+        initial_hit_names=[profile.name, market.name, financial.name],
+        resolver_name=resolver.name,
+    )
+    state = create_initial_state(
+        session_id="equity-resolver-bootstrap",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析一下海能达",
+        permission_scopes=["mcp:market"],
+    )
+    state["intent"] = {
+        "intent": "task_workflow",
+        "domain": "a_share_equity_research",
+        "sub_intent": "company_snapshot",
+        "candidate_skill": "company_snapshot",
+        "risk_level": "medium",
+    }
+
+    result = build_planner_agent_node(
+        llm_client=RecordingLlmClient("{}"),
+        tool_search_service=service,
+    )(state)
+
+    assert len(service.requests) == 2
+    assert "stock.resolve_company" in service.requests[1][0].query
+    assert resolver.name in result["disclosed_tool_names"]
+    assert result["plan"]["execution_mode"] == "tool_execution"
+    assert result["plan"]["tool_selection"]["source"] == (
+        "planner_dynamic_equity_research"
+    )
 
 
 def test_planner_disclosure_never_exceeds_run_budget():
@@ -2701,6 +2761,28 @@ def test_synthesizer_builds_equity_claims_from_tool_facts_without_raw_dict():
     assert "18.23" in draft["content"]
     assert "42.1" in draft["content"]
     assert "{'" not in draft["content"]
+
+
+def test_synthesizer_returns_equity_report_with_markdown_section_headings():
+    state = _equity_market_state(
+        data={"name": "银之杰", "price": 18.23},
+        requested_fields=["name", "price"],
+        provided_fields=["name", "price"],
+    )
+    state["plan"]["response_policy"]["response_type"] = "equity_research_report"
+
+    draft = synthesizer_node(state)["draft_answer"]
+
+    for heading in (
+        "核心判断",
+        "业务与行业",
+        "财务质量",
+        "行情与估值",
+        "主要风险",
+        "数据边界",
+        "免责声明",
+    ):
+        assert f"## {heading}\n" in draft["content"]
 
 
 def test_synthesizer_discloses_optional_market_tool_failure_without_discarding_facts():
