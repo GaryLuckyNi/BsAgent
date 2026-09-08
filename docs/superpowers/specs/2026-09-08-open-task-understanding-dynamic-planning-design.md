@@ -83,6 +83,7 @@ Intent Router 不负责生成执行步骤、选择 MCP Tool 或扩充 Sub Intent
   "freshness_required": true,
   "web_search_required": true,
   "web_search_reason": "需要近期公告、监管事件和产业动态",
+  "rag_required": false,
   "time_horizon": null,
   "output_expectation": "平衡的投资决策辅助分析",
   "constraints": [
@@ -94,7 +95,7 @@ Intent Router 不负责生成执行步骤、选择 MCP Tool 或扩充 Sub Intent
 
 `analysis_questions`、`user_goal` 和 `output_expectation` 使用受长度限制的自然语言，不为“适合买入”、“值得持有”等表达建立枚举。`entities.type` 只表达稳定的业务对象类型，不表达用户意图。
 
-`freshness_required` 表达问题是否依赖近期信息，`web_search_required` 表达是否需要公开网页证据。两者不等价：最新股价、估值和财务指标应优先使用 MCP 结构化数据，最新公告、监管事件、新闻和产业动态才使用 Web Search。`search_keywords` 由任务理解同步提取，不再由 Tool Agent 在失败后拼接固定查询词。
+`freshness_required` 表达问题是否依赖近期信息，`web_search_required` 表达是否需要公开网页证据，`rag_required` 表达是否明确需要已索引的内部文档或知识库。三者不等价：最新股价、估值和财务指标应优先使用 MCP 结构化数据，最新公告、监管事件、新闻和产业动态才使用 Web Search。`search_keywords` 由任务理解同步提取，不再由 Tool Agent 在失败后拼接固定查询词。
 
 ## 组件边界
 
