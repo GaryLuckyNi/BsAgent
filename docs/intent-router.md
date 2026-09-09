@@ -2,7 +2,7 @@
 
 ## 目标
 
-Intent Router 负责把用户输入转换成可审计的路由决策。它不直接执行 skill，也不直接调用 tool；它只输出结构化 `IntentDecision`，供 Planner 和后续节点使用。
+Intent Router 负责把用户输入转换成可审计的路由决策。它不直接执行 skill，也不直接调用 tool；它输出结构化 `IntentDecision`，并为投研任务同步生成独立的 `TaskBrief`，供 Planner 和后续节点使用。
 
 当前设计采用分层策略：
 
@@ -11,7 +11,7 @@ Intent Router 负责把用户输入转换成可审计的路由决策。它不直
 -> RulePreRouter
 -> LLM/规则分类器
 -> Confidence/Risk Evaluator
--> IntentDecision
+-> IntentDecision + TaskBrief
 ```
 
 ## 分层边界
@@ -89,14 +89,16 @@ update_customer_status
 
 ## LLM 分类器
 
-`HybridIntentRouter` 支持注入 `llm_client`。业务配置未命中时，系统会把用户输入、规则信号、允许的顶层 intent、业务意图 profile 和可用 tool 列表交给 LLM，要求输出 JSON。
+`HybridIntentRouter` 支持注入 `llm_client`。业务配置未命中，或命中 `task_workflow` Profile 时，系统会把用户输入、规则信号、允许的顶层 intent、匹配 Profile 提示和租户可用 `SkillCard` 交给 LLM，要求同一次输出 `decision + task_brief` JSON。分类器不接收工具列表或工具 Schema，工具发现与选择仍由 Planner 负责。
 
-LLM 分类结果可以输出：
+LLM 路由决策可以输出：
 
 ```text
 candidate_skill
-candidate_tool
+candidate_tool = null
 ```
+
+`task_workflow` 必须包含 `TaskBrief`，用于表达用户目标、实体、分析问题、检索关键词和时效要求；`conversation`、产品帮助和 `unsupported` 等非任务路由可以令其为 `null`。Profile 只提供提示，不代替本次任务理解，也不为“买入”“持有”等开放问法扩充 `sub_intent` 枚举。
 
 如果 LLM 不可用、输出非法 JSON 或 schema 校验失败，链路应显式失败并记录错误，不能回退成 `knowledge_qa`。这样可以避免类似“算术请求误进 RAG”的错误路由。
 

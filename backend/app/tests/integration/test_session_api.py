@@ -49,13 +49,14 @@ from app.tools.registry import ToolRegistry
 
 
 TEST_MEMORY_STORE = object()
+EMPTY_BUSINESS_INTENT_CATALOG = BusinessIntentCatalog([])
 
 
 class _TestBusinessIntentCatalogRuntime:
     refresh_seconds = 3600
 
-    def __init__(self, catalog: BusinessIntentCatalog | None = None):
-        self.catalog = catalog if catalog is not None else BusinessIntentCatalog([])
+    def __init__(self, catalog: BusinessIntentCatalog):
+        self.catalog = catalog
         self.snapshot_calls = 0
         self.refresh_calls = 0
 
@@ -174,7 +175,7 @@ def create_test_app_with_database(
     app = create_app(
         business_intent_catalog_runtime=(
             business_intent_catalog_runtime
-            or _TestBusinessIntentCatalogRuntime()
+            or _TestBusinessIntentCatalogRuntime(EMPTY_BUSINESS_INTENT_CATALOG)
         )
     )
     app.dependency_overrides[get_db] = override_get_db
@@ -390,7 +391,7 @@ def test_post_message_persists_user_and_assistant_and_returns_stable_ids(monkeyp
 
 def test_post_message_uses_one_run_scoped_intent_catalog_snapshot(monkeypatch):
     captured = {}
-    intent_runtime = _TestBusinessIntentCatalogRuntime()
+    intent_runtime = _TestBusinessIntentCatalogRuntime(EMPTY_BUSINESS_INTENT_CATALOG)
 
     def fake_graph(**kwargs):
         captured.update(kwargs)
@@ -420,7 +421,7 @@ def test_post_message_returns_safe_503_when_intent_catalog_is_unavailable(monkey
             self.snapshot_calls += 1
             raise BusinessIntentCatalogUnavailableError()
 
-    intent_runtime = UnavailableIntentRuntime()
+    intent_runtime = UnavailableIntentRuntime(EMPTY_BUSINESS_INTENT_CATALOG)
     monkeypatch.setattr(
         sessions,
         "run_question_answer_graph",
@@ -1026,12 +1027,12 @@ def test_session_api_rejects_unauthenticated_request_before_graph(monkeypatch):
 
 def test_post_session_message_flushes_trace_after_persisting_run(
     monkeypatch,
-    business_intent_catalog,
 ):
     monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
+    monkeypatch.setattr(sessions.settings, "trace_success_sample_ratio", 1.0)
     app, testing_session_local = create_test_app_with_database(
         business_intent_catalog_runtime=_TestBusinessIntentCatalogRuntime(
-            business_intent_catalog
+            EMPTY_BUSINESS_INTENT_CATALOG
         )
     )
     client = TestClient(app)
@@ -1041,7 +1042,7 @@ def test_post_session_message_flushes_trace_after_persisting_run(
         json={
             "tenant_id": "t1",
             "user_id": "u1",
-            "message": "分析一下银之杰",
+            "message": "你好",
         },
     )
 
@@ -1387,7 +1388,7 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
 
 def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch):
     captured = {}
-    intent_runtime = _TestBusinessIntentCatalogRuntime()
+    intent_runtime = _TestBusinessIntentCatalogRuntime(EMPTY_BUSINESS_INTENT_CATALOG)
 
     def fake_resume(**kwargs):
         captured.update(kwargs)
@@ -2450,7 +2451,7 @@ def test_post_session_message_stream_returns_answer_deltas_and_final(monkeypatch
 
 def test_post_message_stream_uses_one_run_scoped_intent_catalog_snapshot(monkeypatch):
     captured = {}
-    intent_runtime = _TestBusinessIntentCatalogRuntime()
+    intent_runtime = _TestBusinessIntentCatalogRuntime(EMPTY_BUSINESS_INTENT_CATALOG)
 
     def fake_stream(**kwargs):
         captured.update(kwargs)

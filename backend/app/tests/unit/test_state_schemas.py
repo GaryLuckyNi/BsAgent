@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.graph.state import add_state_messages, create_initial_state
+from app.intent.schemas import IntentRoutingResult, TaskBriefModel, TaskEntityModel
 from app.schemas.messages import Message
 from app.schemas.evidence import EvidenceItem, EvidencePackage
 from app.schemas.memory import MemoryCandidate
@@ -36,6 +37,34 @@ def test_create_initial_state_contains_trace_and_empty_collections():
     assert state["errors"] == []
     assert state["disclosed_tool_names"] == []
     assert state["tool_search_count"] == 0
+    assert state["task_brief"] is None
+    assert state["semantic_replan_count"] == 0
+
+
+def test_task_brief_and_routing_result_keep_open_task_contract():
+    brief = TaskBriefModel(
+        user_goal="评估海能达当前是否具备投资吸引力",
+        entities=[TaskEntityModel(type="company", mention="海能达")],
+        analysis_questions=["当前估值处于什么水平"],
+        search_keywords=["海能达", "最新公告"],
+        freshness_required=True,
+        web_search_required=True,
+        web_search_reason="需要近期公告和产业动态",
+        output_expectation="平衡的投资决策辅助分析",
+        constraints=["不生成个性化买卖指令"],
+    )
+    result = IntentRoutingResult(
+        decision={
+            "intent": "task_workflow",
+            "domain": "a_share_equity_research",
+            "sub_intent": None,
+            "confidence": 0.86,
+        },
+        task_brief=brief,
+    )
+
+    assert result.decision.sub_intent is None
+    assert result.task_brief == brief
 
 
 def test_compat_session_key_uses_unambiguous_stable_identity_encoding():

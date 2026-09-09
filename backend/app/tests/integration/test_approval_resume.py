@@ -29,13 +29,14 @@ from app.storage.models import (
 
 
 TEST_MEMORY_STORE = object()
+EMPTY_BUSINESS_INTENT_CATALOG = BusinessIntentCatalog([])
 
 
 class _TestBusinessIntentCatalogRuntime:
     refresh_seconds = 3600
 
-    def __init__(self):
-        self.catalog = BusinessIntentCatalog([])
+    def __init__(self, catalog: BusinessIntentCatalog):
+        self.catalog = catalog
 
     def open(self):
         return SimpleNamespace(catalog=self.catalog)
@@ -79,7 +80,9 @@ def _test_app():
         )
 
     app = create_app(
-        business_intent_catalog_runtime=_TestBusinessIntentCatalogRuntime()
+        business_intent_catalog_runtime=_TestBusinessIntentCatalogRuntime(
+            EMPTY_BUSINESS_INTENT_CATALOG
+        )
     )
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_memory_store] = lambda: TEST_MEMORY_STORE

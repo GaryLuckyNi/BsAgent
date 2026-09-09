@@ -4,7 +4,12 @@ import logging
 from app.intent.catalog import BusinessIntentCatalog
 from app.intent.classifiers import LlmIntentClassifier, RuleOnlyIntentClassifier
 from app.intent.rules import RulePreRouter
-from app.intent.schemas import IntentDecisionModel, IntentSignal, RiskLevel
+from app.intent.schemas import (
+    BusinessIntentProfile,
+    IntentRoutingResult,
+    IntentSignal,
+    RiskLevel,
+)
 from app.llm.factory import LlmClient
 from app.skills.definitions import SkillCard
 
@@ -35,6 +40,8 @@ class HybridIntentRouter:
         available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
         rule_pre_router: RulePreRouter | None = None,
     ) -> None:
+        if catalog is None:
+            raise TypeError("catalog must not be None")
         self._catalog = catalog
         self._llm_client = llm_client
         self._available_skills_provider = available_skills_provider
@@ -48,24 +55,46 @@ class HybridIntentRouter:
         tenant_id: str,
         user_id: str,
         context: dict | None = None,
-    ) -> IntentDecisionModel:
+    ) -> IntentRoutingResult:
         signal = self._rule_pre_router.analyze(message)
         if signal.hard_intent is not None:
-            return self._evaluate(self._rule_classifier.classify(message=message, signal=signal), signal)
+            return self._evaluate(
+                IntentRoutingResult(
+                    decision=self._rule_classifier.classify(
+                        message=message,
+                        signal=signal,
+                    )
+                ),
+                signal,
+            )
 
+        matched_profile = self._catalog.match_by_keywords(message)
         rule_decision = self._rule_classifier.classify(message=message, signal=signal)
-        if "rule_default_knowledge_qa" not in rule_decision.reason_codes:
-            return self._evaluate(rule_decision, signal)
+        if matched_profile is not None and matched_profile.intent != "task_workflow":
+            return self._evaluate(
+                IntentRoutingResult(decision=rule_decision),
+                signal,
+                matched_profile=matched_profile,
+            )
 
         if self._llm_client is not None:
             try:
                 available_skills = self._available_skills(tenant_id)
-                decision = LlmIntentClassifier(
+                result = LlmIntentClassifier(
                     llm_client=self._llm_client,
                     catalog=self._catalog,
                     available_skills=available_skills,
-                ).classify(message=message, signal=signal, context=context)
-                return self._evaluate(decision, signal)
+                ).classify(
+                    message=message,
+                    signal=signal,
+                    context=context,
+                    matched_profile=matched_profile,
+                )
+                return self._evaluate(
+                    result,
+                    signal,
+                    matched_profile=matched_profile,
+                )
             except Exception as exc:
                 raise IntentClassificationError(
                     code="intent_classifier_failed",
@@ -84,11 +113,19 @@ class HybridIntentRouter:
 
     def _evaluate(
         self,
-        decision: IntentDecisionModel,
+        result: IntentRoutingResult,
         signal: IntentSignal,
-    ) -> IntentDecisionModel:
-        if _risk_rank(signal.risk_floor) > _risk_rank(decision.risk_level):
-            decision.risk_level = signal.risk_floor
+        *,
+        matched_profile: BusinessIntentProfile | None = None,
+    ) -> IntentRoutingResult:
+        decision = result.decision
+        risk_floor = signal.risk_floor
+        if matched_profile is not None and _risk_rank(
+            matched_profile.risk_level
+        ) > _risk_rank(risk_floor):
+            risk_floor = matched_profile.risk_level
+        if _risk_rank(risk_floor) > _risk_rank(decision.risk_level):
+            decision.risk_level = risk_floor
             decision.reason_codes.append("risk_floor_applied")
 
         if decision.confidence < 0.55:
@@ -100,7 +137,7 @@ class HybridIntentRouter:
             decision.reason_codes.append("confidence_needs_clarification")
 
         decision.next_node = "planner_agent"
-        return decision
+        return result
 
     def _available_skills(self, tenant_id: str) -> list[SkillCard]:
         if self._available_skills_provider is None:

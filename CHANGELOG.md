@@ -6,6 +6,8 @@
 
 ### 变更
 
+- Intent Router 通过一次 LLM 结构化理解同步输出粗粒度路由与独立 `TaskBrief`；命中 `task_workflow` Profile 时仍理解本次目标、实体、关键词和时效需求，未命中的 A 股投研问法不再被迫扩充细碎 `sub_intent`。
+- Graph State 新增独立 `task_brief` 与初始值为 `0` 的 `semantic_replan_count`；Intent Router builder 收敛为显式注入 catalog、LLM 和可用 Skill Provider 的唯一入口。
 - 应用生命周期统一从 Admin 加载并定时刷新业务意图目录，readiness 报告快照可用性；会话、SSE 与审批恢复在每次 Run 开始时只读取一次不可变 catalog 快照，刷新失败保留旧快照并执行脱敏日志记录。
 - 新增 Admin 业务意图 Provider 与不可变运行时快照，通过深度防御性副本隔离查询结果，支持严格校验、稳定 digest 和失败保留旧目录。
 - 新增开放式任务理解与动态规划实施计划，按 Admin Intent 快照、`TaskBrief`、动态证据通道、Planner 有界重规划和 Markdown 层级分步交付。
@@ -70,6 +72,7 @@
 
 ### 移除
 
+- 移除冗余的 `build_llm_intent_router_node` 及可绕过显式 catalog 绑定的 Router builder 测试替身入口。
 - 移除本地业务意图 JSON 事实源及 `load_default()`、`load_from_path()` 文件加载入口；Intent Router 与节点构造链路统一显式接收 Admin catalog 快照，不再提供空目录、文件或全局单例回退。
 - 移除 Redis `ShortTermMemoryStore`、会话完成事件写入、专用配置与测试；Agent 短期记忆统一由 LangGraph `PostgresSaver` 管理。
 - 移除生产 Compose 中旧的长期记忆 backend/DSN 变量和现行文档中的固定 Memory 节点、自建长期记忆适配层及过期本地并发说明。

@@ -47,7 +47,6 @@ from app.harness.observer import NodeObserver
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
-from app.intent.router import HybridIntentRouter
 from app.llm.factory import LlmClient
 from app.schemas.tools import ToolCallRequest
 from app.tools.default_registry import (
@@ -511,11 +510,8 @@ def build_question_answer_graph(
         "intent_router",
         build_intent_router_node(
             catalog=business_intent_catalog,
-            router=HybridIntentRouter(
-                catalog=business_intent_catalog,
-                llm_client=llm_client,
-                available_skills_provider=available_skills_provider,
-            ),
+            llm_client=llm_client,
+            available_skills_provider=available_skills_provider,
         ),
         runner,
     )

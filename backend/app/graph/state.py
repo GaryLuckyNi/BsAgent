@@ -36,6 +36,26 @@ class IntentDecision(TypedDict, total=False):
     next_node: str
 
 
+class TaskEntity(TypedDict):
+    type: Literal["company", "industry", "security", "document"]
+    mention: str
+
+
+class TaskBrief(TypedDict, total=False):
+    user_goal: str
+    entities: list[TaskEntity]
+    analysis_questions: list[str]
+    search_keywords: list[str]
+    freshness_required: bool
+    web_search_required: bool
+    web_search_reason: str | None
+    rag_required: bool
+    time_horizon: str | None
+    output_expectation: str
+    constraints: list[str]
+    needs_clarification: bool
+
+
 class SkillSelection(TypedDict, total=False):
     skill_name: str
     skill_version: str
@@ -223,6 +243,8 @@ class AgentState(TypedDict):
     image_analyses: list[ImageAnalysisSummary]
     conversation_history: list[Message]
     intent: IntentDecision | None
+    task_brief: TaskBrief | None
+    semantic_replan_count: int
     plan: PlanDecision | None
     selected_skill: SkillSelection | None
     tool_calls: list[ToolCallRecord]
@@ -294,6 +316,8 @@ def create_initial_state(
         "image_analyses": [],
         "conversation_history": list(messages),
         "intent": None,
+        "task_brief": None,
+        "semantic_replan_count": 0,
         "plan": None,
         "selected_skill": None,
         "tool_calls": [],
