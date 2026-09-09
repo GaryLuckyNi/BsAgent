@@ -44,19 +44,30 @@ def test_hybrid_intent_router_requires_explicit_catalog():
         HybridIntentRouter()
 
 
-def test_intent_router_builders_require_catalog_when_constructing_router():
+def test_intent_router_builders_always_require_catalog():
     with pytest.raises(TypeError, match="catalog"):
         build_intent_router_node()
 
     with pytest.raises(TypeError, match="catalog"):
+        build_intent_router_node(router=object())
+
+    with pytest.raises(TypeError, match="catalog"):
+        build_intent_router_node(catalog=None, router=object())
+
+    with pytest.raises(TypeError, match="catalog"):
         build_llm_intent_router_node()
+
+    with pytest.raises(TypeError, match="catalog"):
+        build_llm_intent_router_node(catalog=None)
 
 
 def test_intent_router_module_has_no_implicit_compatibility_node():
     assert not hasattr(intent_router_module, "intent_router_node")
 
 
-def test_intent_router_node_passes_safe_image_summaries_to_classifier():
+def test_intent_router_node_passes_safe_image_summaries_to_classifier(
+    business_intent_catalog,
+):
     class RecordingRouter:
         def __init__(self):
             self.context = None
@@ -99,7 +110,10 @@ def test_intent_router_node_passes_safe_image_summaries_to_classifier():
         }
     ]
 
-    build_intent_router_node(router=router)(state)
+    build_intent_router_node(
+        catalog=business_intent_catalog,
+        router=router,
+    )(state)
 
     assert router.context == {
         "image_analyses": [

@@ -10,14 +10,15 @@ from app.skills.definitions import SkillCard
 
 def build_intent_router_node(
     *,
+    catalog: BusinessIntentCatalog,
     router: HybridIntentRouter | None = None,
-    catalog: BusinessIntentCatalog | None = None,
     available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
 ):
+    if catalog is None:
+        raise TypeError("catalog must not be None")
+
     selected_router = router
     if selected_router is None:
-        if catalog is None:
-            raise TypeError("catalog is required when constructing the intent router")
         selected_router = HybridIntentRouter(
             catalog=catalog,
             available_skills_provider=available_skills_provider,
@@ -46,7 +47,11 @@ def build_llm_intent_router_node(
     llm_client: LlmClient | None = None,
     available_skills_provider: Callable[[str], list[SkillCard]] | None = None,
 ):
+    if catalog is None:
+        raise TypeError("catalog must not be None")
+
     return build_intent_router_node(
+        catalog=catalog,
         router=HybridIntentRouter(
             catalog=catalog,
             llm_client=llm_client,
