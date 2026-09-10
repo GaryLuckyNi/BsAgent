@@ -24,22 +24,19 @@ def _profile(
 ) -> BusinessIntentProfile:
     return BusinessIntentProfile(
         id=profile_id,
-        intent="task_workflow",
+        intent_type="financial_research",
         domain="a_share_equity_research",
-        sub_intent="company_snapshot",
-        candidate_skill="company_snapshot",
-        risk_level="medium",
+        subdomain="company_snapshot",
         trigger_keywords=[keyword],
         trigger_examples=["分析一下贵州茅台"],
-        required_capabilities=["mcp_tool"],
+        description="runtime profile",
     )
 
 
 def _admin_item(profile: BusinessIntentProfile) -> dict[str, object]:
     return {
-        **profile.model_dump(exclude={"candidate_tool"}),
+        **profile.model_dump(),
         "enabled": True,
-        "description": "runtime profile",
         "created_at": "2026-09-08T00:00:00Z",
         "updated_at": "2026-09-08T00:00:00Z",
     }
@@ -70,7 +67,7 @@ def test_admin_provider_requests_enabled_profiles_and_parses_response() -> None:
     [
         {"items": [], "total": 0, "secret": "top-level-secret"},
         {
-            "items": [{**_admin_item(_profile()), "intent": "not-an-intent"}],
+            "items": [{**_admin_item(_profile()), "domain": ""}],
             "total": 1,
         },
     ],
@@ -122,14 +119,19 @@ def test_catalog_returns_deep_copied_profiles_in_a_list() -> None:
     assert catalog.all_profiles() == [_profile()]
 
 
-def test_catalog_returns_a_deep_copy_from_keyword_matching() -> None:
+def test_catalog_validates_exact_taxonomy_without_keyword_routing() -> None:
     catalog = BusinessIntentCatalog([_profile()])
 
-    matched = catalog.match_by_keywords("请分析基本面")
-    assert matched is not None
-    matched.trigger_keywords.clear()
-
-    assert catalog.match_by_keywords("请分析基本面") == _profile()
+    assert catalog.allows(
+        intent_type="financial_research",
+        domain="a_share_equity_research",
+        subdomain="company_snapshot",
+    )
+    assert not catalog.allows(
+        intent_type="financial_research",
+        domain="a_share_equity_research",
+        subdomain="unknown",
+    )
 
 
 class _Provider:
@@ -212,9 +214,8 @@ def test_runtime_public_profiles_cannot_mutate_snapshot_content_or_digest() -> N
     original_digest = opened.digest
 
     opened.catalog.all_profiles()[0].trigger_keywords.append("被篡改")
-    matched = opened.catalog.match_by_keywords("请分析基本面")
-    assert matched is not None
-    matched.trigger_examples.clear()
+    exposed = opened.catalog.all_profiles()[0]
+    exposed.trigger_examples.clear()
 
     current = runtime.snapshot()
     assert current.digest == original_digest
@@ -307,9 +308,9 @@ def test_runtime_refresh_validates_profiles_before_publishing() -> None:
     valid = _profile()
     malformed = valid.model_construct(
         id="broken.profile",
-        intent="invalid",
-        domain="domain",
-        sub_intent="sub",
+        intent_type="financial_research",
+        domain="",
+        subdomain="sub",
     )
     provider = _Provider([valid], [malformed])
     runtime = BusinessIntentCatalogRuntime(

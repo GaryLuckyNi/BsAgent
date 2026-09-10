@@ -33,7 +33,13 @@ class AdminBusinessIntentProvider:
             )
             response.raise_for_status()
             payload = _AdminBusinessIntentListPayload.model_validate(response.json())
-            return [BusinessIntentProfile.model_validate(item) for item in payload.items]
+            profile_fields = set(BusinessIntentProfile.model_fields)
+            return [
+                BusinessIntentProfile.model_validate(
+                    {key: value for key, value in item.items() if key in profile_fields}
+                )
+                for item in payload.items
+            ]
         except (httpx.HTTPError, ValueError, ValidationError):
             raise BusinessIntentProviderError() from None
 

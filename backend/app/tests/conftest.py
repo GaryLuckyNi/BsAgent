@@ -12,12 +12,9 @@ def business_intent_catalog() -> BusinessIntentCatalog:
         [
             BusinessIntentProfile(
                 id="company_research.financial_report_analysis",
-                intent="task_workflow",
+                intent_type="financial_research",
                 domain="a_share_equity_research",
-                sub_intent="financial_report_analysis",
-                candidate_skill="financial_report_analysis",
-                candidate_tool=None,
-                risk_level="medium",
+                subdomain="financial_report_analysis",
                 trigger_keywords=[
                     "年报",
                     "季报",
@@ -31,20 +28,12 @@ def business_intent_catalog() -> BusinessIntentCatalog:
                     "分析宁德时代 2024 年报",
                     "看看万华化学 2025Q1 财报有什么变化",
                 ],
-                required_capabilities=[
-                    "mcp_tool",
-                    "rag_retrieval",
-                    "financial_verifier",
-                ],
             ),
             BusinessIntentProfile(
                 id="company_research.risk_scan",
-                intent="task_workflow",
+                intent_type="financial_research",
                 domain="a_share_equity_research",
-                sub_intent="risk_scan",
-                candidate_skill="risk_scan",
-                candidate_tool=None,
-                risk_level="medium",
+                subdomain="risk_scan",
                 trigger_keywords=[
                     "风险",
                     "问询函",
@@ -58,20 +47,12 @@ def business_intent_catalog() -> BusinessIntentCatalog:
                     "看看隆基绿能最近有什么风险",
                     "这家公司有没有监管或诉讼风险",
                 ],
-                required_capabilities=[
-                    "mcp_tool",
-                    "rag_retrieval",
-                    "financial_verifier",
-                ],
             ),
             BusinessIntentProfile(
                 id="company_research.company_snapshot",
-                intent="task_workflow",
+                intent_type="financial_research",
                 domain="a_share_equity_research",
-                sub_intent="company_snapshot",
-                candidate_skill="company_snapshot",
-                candidate_tool=None,
-                risk_level="medium",
+                subdomain="company_snapshot",
                 trigger_keywords=[
                     "分析一下",
                     "基本面",
@@ -83,11 +64,6 @@ def business_intent_catalog() -> BusinessIntentCatalog:
                     "分析一下贵州茅台",
                     "帮我看一下 600519",
                     "宁德时代现在基本面怎么样",
-                ],
-                required_capabilities=[
-                    "mcp_tool",
-                    "rag_retrieval",
-                    "financial_verifier",
                 ],
             ),
         ]

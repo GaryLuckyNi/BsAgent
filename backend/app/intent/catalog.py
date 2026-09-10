@@ -10,21 +10,24 @@ class BusinessIntentCatalog:
     def all_profiles(self) -> list[BusinessIntentProfile]:
         return [profile.model_copy(deep=True) for profile in self._profiles]
 
-    def match_by_keywords(self, message: str) -> BusinessIntentProfile | None:
-        normalized = message.lower()
-        scored_profiles = [
-            (self._score_profile(profile, normalized), profile)
+    def allows(self, *, intent_type: str, domain: str, subdomain: str) -> bool:
+        return any(
+            profile.intent_type == intent_type
+            and profile.domain == domain
+            and profile.subdomain == subdomain
+            for profile in self._profiles
+        )
+
+    def prompt_taxonomy(self) -> list[dict]:
+        return [
+            {
+                "id": profile.id,
+                "intent_type": profile.intent_type,
+                "domain": profile.domain,
+                "subdomain": profile.subdomain,
+                "description": getattr(profile, "description", None),
+                "trigger_keywords": list(profile.trigger_keywords),
+                "trigger_examples": list(profile.trigger_examples),
+            }
             for profile in self._profiles
         ]
-        scored_profiles = [
-            (score, profile) for score, profile in scored_profiles if score > 0
-        ]
-        if not scored_profiles:
-            return None
-        matched = max(scored_profiles, key=lambda item: item[0])[1]
-        return matched.model_copy(deep=True)
-
-    def _score_profile(self, profile: BusinessIntentProfile, message: str) -> int:
-        score = sum(1 for keyword in profile.trigger_keywords if keyword.lower() in message)
-        score += sum(2 for example in profile.trigger_examples if example.lower() in message)
-        return score

@@ -3,9 +3,6 @@ from app.intent.router import HybridIntentRouter
 from app.intent.schemas import (
     BusinessIntentProfile,
     IntentDecisionModel,
-    IntentRoutingResult,
-    TaskBriefModel,
-    TaskEntityModel,
 )
 
 __all__ = [
@@ -13,7 +10,4 @@ __all__ = [
     "BusinessIntentProfile",
     "HybridIntentRouter",
     "IntentDecisionModel",
-    "IntentRoutingResult",
-    "TaskBriefModel",
-    "TaskEntityModel",
 ]

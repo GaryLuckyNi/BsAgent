@@ -6,6 +6,7 @@
 
 ### 变更
 
+- Intent Router 收敛为基于 Admin 目录的 LLM 范围分类与 `goal` 改写，删除本地规则预路由、Skill/Tool 候选、风险、澄清和 `TaskBrief` 字段；Graph State 新增独立 Planner 决策计数。
 - Admin 业务意图目录收敛为 `intent_type/domain/subdomain` 分类契约，删除候选 Skill、风险等级和所需能力等 Planner 职责字段；新增 Alembic 迁移并同步 CRUD 与管理界面。
 - 新增投研意图、动态规划与任务图重构实施计划，按 Admin/Intent 契约、双 Top-K 能力发现、LLM 任务 DAG、原生 ToolMessage、三类 Worker、受限 ReAct 和终稿校验分阶段迁移，并在全链路完成后统一复审。
 - 新增投研意图、动态规划与任务图重构设计：Intent Router 收敛为范围判断与 `goal` 改写，Planner 负责 Top-K Skill/Tool 检索和任务 DAG，现有 Analysis Agent 承担无 Skill/Tool 的任务级推理，Verifier 保持终稿质量闸门，不新增独立 Reasoning Agent。

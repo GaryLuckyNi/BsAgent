@@ -511,7 +511,6 @@ def build_question_answer_graph(
         build_intent_router_node(
             catalog=business_intent_catalog,
             llm_client=llm_client,
-            available_skills_provider=available_skills_provider,
         ),
         runner,
     )

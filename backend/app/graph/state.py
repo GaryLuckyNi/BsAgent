@@ -17,43 +17,11 @@ from app.schemas.tools import ToolCallRecord
 
 
 class IntentDecision(TypedDict, total=False):
-    intent: Literal[
-        "knowledge_qa",
-        "task_workflow",
-        "memory_query",
-        "tool_action",
-        "conversation",
-        "clarification_needed",
-        "unsupported",
-    ]
+    intent_type: str | None
     domain: str | None
-    sub_intent: str | None
-    risk_level: Literal["low", "medium", "high"]
-    needs_clarification: bool
-    candidate_skill: str | None
+    subdomain: str | None
+    goal: str | None
     confidence: float
-    reason_codes: list[str]
-    next_node: str
-
-
-class TaskEntity(TypedDict):
-    type: Literal["company", "industry", "security", "document"]
-    mention: str
-
-
-class TaskBrief(TypedDict, total=False):
-    user_goal: str
-    entities: list[TaskEntity]
-    analysis_questions: list[str]
-    search_keywords: list[str]
-    freshness_required: bool
-    web_search_required: bool
-    web_search_reason: str | None
-    rag_required: bool
-    time_horizon: str | None
-    output_expectation: str
-    constraints: list[str]
-    needs_clarification: bool
 
 
 class SkillSelection(TypedDict, total=False):
@@ -261,8 +229,7 @@ class AgentState(TypedDict):
     image_analyses: list[ImageAnalysisSummary]
     conversation_history: list[Message]
     intent: IntentDecision | None
-    task_brief: TaskBrief | None
-    semantic_replan_count: int
+    planner_iteration: int
     plan: PlanDecision | None
     selected_skill: SkillSelection | None
     tool_calls: list[ToolCallRecord]
@@ -334,8 +301,7 @@ def create_initial_state(
         "image_analyses": [],
         "conversation_history": list(messages),
         "intent": None,
-        "task_brief": None,
-        "semantic_replan_count": 0,
+        "planner_iteration": 0,
         "plan": None,
         "selected_skill": None,
         "tool_calls": [],
