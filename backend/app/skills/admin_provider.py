@@ -40,27 +40,22 @@ class AdminSkillDefinitionProvider:
     def __init__(self, *, client: httpx.Client) -> None:
         self._client = client
 
-    def list_cards(self, *, tenant_id: str) -> list[SkillCard]:
+    def list_cards(self) -> list[SkillCard]:
         response = self._client.get("/api/skills", params={"enabled": "true"})
         response.raise_for_status()
         payload = _validate_response_payload(response, _AdminSkillListPayload)
         return [
             SkillCard(
                 name=item.name,
-                version=item.version,
                 summary=item.summary,
-                supported_intents=item.supported_intents,
-                tags=[
-                    *item.supported_domains,
-                    *item.supported_sub_intents,
-                ],
-                risk_level=item.risk_level,
+                domains=item.supported_domains,
+                subdomains=item.supported_sub_intents,
                 definition_hash=_definition_hash(item),
             )
             for item in payload.items
         ]
 
-    def get_definition(self, *, name: str, version: str) -> SkillDefinition:
+    def get_definition(self, *, name: str) -> SkillDefinition:
         item = self._get_skill(name)
         evidence_contract, evidence_contract_error = _parse_evidence_contract(item)
         return SkillDefinition(
@@ -80,12 +75,13 @@ class AdminSkillDefinitionProvider:
                 "tool_execution_failed",
                 "insufficient_evidence",
             ],
+            risk_level=item.risk_level,
             evidence_contract=evidence_contract,
             evidence_contract_error=evidence_contract_error,
             definition_hash=_definition_hash(item),
         )
 
-    def get_execution_guide(self, *, name: str, version: str) -> SkillExecutionGuide:
+    def get_execution_guide(self, *, name: str) -> SkillExecutionGuide:
         item = self._get_skill(name)
         return SkillExecutionGuide(
             name=item.name,

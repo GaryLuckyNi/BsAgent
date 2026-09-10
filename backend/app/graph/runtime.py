@@ -468,7 +468,7 @@ def build_question_answer_graph(
     if selected_skill_registry is not None:
 
         def available_skills_provider(tenant_id: str):
-            return selected_skill_registry.discover(tenant_id=tenant_id)
+            return selected_skill_registry.discover()
 
     selected_skill_agent_node = guard_skill_agent_node(
         skill_agent_node

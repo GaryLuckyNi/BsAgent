@@ -5,11 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 class SkillCard(BaseModel):
     name: str
-    version: str
     summary: str
-    supported_intents: list[str] = Field(default_factory=list)
-    tags: list[str] = Field(default_factory=list)
-    risk_level: Literal["low", "medium", "high"]
+    domains: list[str] = Field(default_factory=list)
+    subdomains: list[str] = Field(default_factory=list)
     definition_hash: str
 
 
@@ -74,6 +72,7 @@ class SkillDefinition(BaseModel):
     allowed_tools: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     failure_modes: list[str] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] = "medium"
     evidence_contract: SkillEvidenceContract = Field(
         default_factory=SkillEvidenceContract
     )

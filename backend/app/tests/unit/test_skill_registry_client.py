@@ -12,24 +12,22 @@ from app.skills.registry_client import (
 def test_remote_skill_registry_client_fetches_progressive_definition_layers():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/skills/cards":
-            assert request.url.params["tenant_id"] == "tenant_1"
+            assert not request.url.params
             return httpx.Response(
                 200,
                 json={
                     "items": [
                         {
                             "name": "company_snapshot",
-                            "version": "1.0.0",
                             "summary": "回答企业制度问题",
-                            "supported_intents": ["knowledge_qa"],
-                            "tags": ["policy"],
-                            "risk_level": "medium",
+                            "domains": ["a_share_equity_research"],
+                            "subdomains": ["company_snapshot"],
                             "definition_hash": "hash_card",
                         }
                     ]
                 },
             )
-        if request.url.path == "/skills/company_snapshot/versions/1.0.0/definition":
+        if request.url.path == "/skills/company_snapshot/definition":
             return httpx.Response(
                 200,
                 json={
@@ -44,7 +42,7 @@ def test_remote_skill_registry_client_fetches_progressive_definition_layers():
                     "definition_hash": "hash_definition",
                 },
             )
-        if request.url.path == "/skills/company_snapshot/versions/1.0.0/execution-guide":
+        if request.url.path == "/skills/company_snapshot/execution-guide":
             return httpx.Response(
                 200,
                 json={
@@ -65,18 +63,16 @@ def test_remote_skill_registry_client_fetches_progressive_definition_layers():
     )
     registry_client = RemoteSkillRegistryClient(client=client)
 
-    cards = registry_client.list_cards(tenant_id="tenant_1")
-    definition = registry_client.get_definition(name="company_snapshot", version="1.0.0")
-    guide = registry_client.get_execution_guide(name="company_snapshot", version="1.0.0")
+    cards = registry_client.list_cards()
+    definition = registry_client.get_definition(name="company_snapshot")
+    guide = registry_client.get_execution_guide(name="company_snapshot")
 
     assert cards == [
         SkillCard(
             name="company_snapshot",
-            version="1.0.0",
             summary="回答企业制度问题",
-            supported_intents=["knowledge_qa"],
-            tags=["policy"],
-            risk_level="medium",
+            domains=["a_share_equity_research"],
+            subdomains=["company_snapshot"],
             definition_hash="hash_card",
         )
     ]
@@ -89,30 +85,29 @@ def test_cached_skill_definition_provider_reuses_cards_within_ttl():
         def __init__(self) -> None:
             self.calls = 0
 
-        def list_cards(self, *, tenant_id: str) -> list[SkillCard]:
+        def list_cards(self) -> list[SkillCard]:
             self.calls += 1
             return [
                 SkillCard(
                     name="company_snapshot",
-                    version="1.0.0",
                     summary=f"summary {self.calls}",
-                    supported_intents=["knowledge_qa"],
-                    risk_level="medium",
+                    domains=["a_share_equity_research"],
+                    subdomains=["company_snapshot"],
                     definition_hash=f"hash_{self.calls}",
                 )
             ]
 
-        def get_definition(self, *, name: str, version: str) -> SkillDefinition:
+        def get_definition(self, *, name: str) -> SkillDefinition:
             raise NotImplementedError
 
-        def get_execution_guide(self, *, name: str, version: str) -> SkillExecutionGuide:
+        def get_execution_guide(self, *, name: str) -> SkillExecutionGuide:
             raise NotImplementedError
 
     provider = Provider()
     cached = CachedSkillDefinitionProvider(provider, ttl_seconds=60, now=lambda: 100.0)
 
-    first = cached.list_cards(tenant_id="tenant_1")
-    second = cached.list_cards(tenant_id="tenant_1")
+    first = cached.list_cards()
+    second = cached.list_cards()
 
     assert first == second
     assert provider.calls == 1
@@ -172,12 +167,13 @@ def test_admin_skill_provider_maps_admin_crud_api_to_runtime_definitions():
     )
     provider = AdminSkillDefinitionProvider(client=client)
 
-    cards = provider.list_cards(tenant_id="tenant_1")
-    definition = provider.get_definition(name="company_snapshot", version="1.0.0")
-    guide = provider.get_execution_guide(name="company_snapshot", version="1.0.0")
+    cards = provider.list_cards()
+    definition = provider.get_definition(name="company_snapshot")
+    guide = provider.get_execution_guide(name="company_snapshot")
 
     assert cards[0].name == "company_snapshot"
-    assert cards[0].supported_intents == ["task_workflow"]
+    assert cards[0].domains == ["a_share_equity_research"]
+    assert cards[0].subdomains == ["company_snapshot"]
     assert definition.allowed_tools == ["mcp.mock.stock.resolve_company", "rag_search"]
     assert definition.evidence_contract.model_dump() == {"requirements": []}
     assert definition.evidence_contract_error is None
@@ -223,7 +219,7 @@ def test_admin_skill_provider_preserves_valid_evidence_contract():
         )
     )
 
-    definition = provider.get_definition(name="company_snapshot", version="1.0.0")
+    definition = provider.get_definition(name="company_snapshot")
 
     assert definition.evidence_contract.model_dump() == contract
     assert definition.evidence_contract_error is None
@@ -279,7 +275,7 @@ def test_admin_skill_provider_marks_invalid_evidence_contract_without_relaxing_i
         )
     )
 
-    definition = provider.get_definition(name="company_snapshot", version="1.0.0")
+    definition = provider.get_definition(name="company_snapshot")
 
     assert definition.evidence_contract.model_dump() == {"requirements": []}
     assert definition.evidence_contract_error == "skill_evidence_contract_invalid"
@@ -327,11 +323,11 @@ def test_admin_skill_provider_rejects_malformed_payload_without_echoing_it(
 
     with pytest.raises(SkillDefinitionProviderError) as exc_info:
         if operation == "list":
-            provider.list_cards(tenant_id="tenant_1")
+            provider.list_cards()
         elif operation == "get_definition":
-            provider.get_definition(name="company_snapshot", version="1.0.0")
+            provider.get_definition(name="company_snapshot")
         else:
-            provider.get_execution_guide(name="company_snapshot", version="1.0.0")
+            provider.get_execution_guide(name="company_snapshot")
 
     assert str(exc_info.value) == "Skill 注册中心返回无效响应。"
     assert "secret" not in str(exc_info.value)

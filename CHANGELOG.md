@@ -6,6 +6,7 @@
 
 ### 变更
 
+- Skill 渐进式披露新增基于 BM25S 的 Top-K 检索，候选先按 Admin 配置的 `domain/subdomain` 过滤；轻量卡片移除租户、版本、风险和工具白名单，完整定义仅在 Planner 选中 Skill 后按名称加载当前启用配置。
 - Intent Router 收敛为基于 Admin 目录的 LLM 范围分类与 `goal` 改写，删除本地规则预路由、Skill/Tool 候选、风险、澄清和 `TaskBrief` 字段；Graph State 新增独立 Planner 决策计数。
 - Admin 业务意图目录收敛为 `intent_type/domain/subdomain` 分类契约，删除候选 Skill、风险等级和所需能力等 Planner 职责字段；新增 Alembic 迁移并同步 CRUD 与管理界面。
 - 新增投研意图、动态规划与任务图重构实施计划，按 Admin/Intent 契约、双 Top-K 能力发现、LLM 任务 DAG、原生 ToolMessage、三类 Worker、受限 ReAct 和终稿校验分阶段迁移，并在全链路完成后统一复审。
@@ -88,6 +89,7 @@
 
 ### 测试
 
+- Skill Registry 与检索回归覆盖领域资格过滤、Top-K 相关性排序、当前定义分层加载、风险延迟披露和注册中心失败边界。
 - Planner 回归证明“海能达是否适合买入”与“只分析财务质量”产生不同分析问题、子任务和工具集合，并覆盖单次 Web Search、条件 RAG、12 条问题上限及未披露工具隔离。
 - Graph Runtime 测试夹具对齐 `decision + task_brief` 新契约，覆盖 run、stream 与直接 build 入口，同时保留生产环境缺少 Intent LLM 时的严格失败语义。
 - 真实 SSE 链路验证 A 股公司分析进入 `tool_execution`，动态生成 6 个执行步骤并调用 5 个 MCP 工具；单工具超时或数据源权限不足不中断 Run，最终回答以 Markdown 完成并持久化。

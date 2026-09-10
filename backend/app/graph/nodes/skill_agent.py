@@ -30,9 +30,11 @@ def build_skill_agent_node(*, registry: SkillRegistry | None = None):
         intent = state["intent"] or {}
         plan = state["plan"] or {}
         selected_skill_plan = plan.get("selected_skill", {})
+        candidate_skill = selected_skill_plan.get("name")
+        if not candidate_skill:
+            raise KeyError("Planner did not select a skill.")
         skill = selected_registry.select(
-            intent=intent.get("intent", "knowledge_qa"),
-            candidate_skill=selected_skill_plan.get("name") or intent.get("candidate_skill"),
+            candidate_skill=candidate_skill,
         )
         output = skill.run_validated(
             run_id=state["request_id"],
