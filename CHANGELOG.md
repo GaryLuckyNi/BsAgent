@@ -6,6 +6,8 @@
 
 ### 变更
 
+- 新增投研意图、动态规划与任务图重构实施计划，按 Admin/Intent 契约、双 Top-K 能力发现、LLM 任务 DAG、原生 ToolMessage、三类 Worker、受限 ReAct 和终稿校验分阶段迁移，并在全链路完成后统一复审。
+- 新增投研意图、动态规划与任务图重构设计：Intent Router 收敛为范围判断与 `goal` 改写，Planner 负责 Top-K Skill/Tool 检索和任务 DAG，现有 Analysis Agent 承担无 Skill/Tool 的任务级推理，Verifier 保持终稿质量闸门，不新增独立 Reasoning Agent。
 - Planner 依据独立 `TaskBrief` 生成最多 12 个分析问题和对应子任务，不再通过“标准公司快照”提前返回或无条件执行固定五维；未命中 Skill 的 A 股开放任务同样进入动态规划。
 - 投研证据通道新增 `evidence_channels` 契约：行情、估值与财务优先使用已披露 MCP 工具，Web Search 仅在 `web_search_required=true` 时按关键词合成恰好一个请求，RAG 仅在 `rag_required=true` 时启用；未披露或 RBAC 不可见工具不会进入 `requested_tools`。
 - Intent Classifier 在解析边界兼容非 `task_workflow` 的旧扁平 JSON 输出并规范化为 `decision + task_brief:null`；任务型输出仍必须显式提供有效 `TaskBrief`。
