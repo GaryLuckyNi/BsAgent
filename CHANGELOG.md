@@ -7,6 +7,8 @@
 ### 变更
 
 - 业务意图运行时不再将 Admin 返回的空启用目录当作有效快照；首次加载为空时 readiness 明确报不可用，避免所有投研请求被静默误判为范围外。
+- Tool Agent 生成参数时只传入用户会话、当前 `task_goal` 和该任务的依赖结果，隔离其他并行分支的 `AIMessage.tool_calls` 与 `ToolMessage`，避免重规划时复用错误工具名。
+- DeepSeek Function Calling 改用与同步 LangGraph 节点一致的 LangChain `invoke()`，并对参数生成显式关闭 thinking 模式，避免临时事件循环连接故障及历史 `reasoning_content` 契约冲突。
 - Graph 主链新增任务调度器，通过 LangGraph `Send` 并行分发无依赖 Skill、Tool 和 Analysis 子任务，有依赖任务按 DAG 自然串行。
 - 子任务执行结果统一为 `TaskResult`：业务失败作为 Observation 回到 Planner 有界重规划，网络与 Provider 短暂故障交给 LangGraph `RetryPolicy`，终止错误不盲目重试。
 - Skill Agent 改为按 Planner 选中名称加载完整定义与指南；Analysis Agent 只基于依赖结果执行任务级推理，两者均返回可并行合并的局部 State 更新。

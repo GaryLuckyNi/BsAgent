@@ -4,7 +4,7 @@ from collections.abc import Callable
 from hashlib import sha256
 from typing import Any
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
 
 from app.graph.planning.contracts import SubTaskModel, TaskResultModel
 from app.graph.state import AgentState
@@ -78,12 +78,10 @@ def build_tool_agent_node(
         request = _staged_request(state, task)
         new_messages = []
         if request is None:
-            ai_message = asyncio.run(
-                create_tool_call_message(
-                    llm_client=llm_client,
-                    messages=list(state["messages"]),
-                    tool_spec=entry.spec,
-                )
+            ai_message = create_tool_call_message(
+                llm_client=llm_client,
+                messages=_tool_call_messages(state, task),
+                tool_spec=entry.spec,
             )
             request, ai_message = _trusted_request(
                 state=state,
@@ -132,6 +130,44 @@ def build_tool_agent_node(
     node.tool_registry_factory = selected_registry_factory
     node.is_trusted_tool_agent = True
     return node
+
+
+def _tool_call_messages(
+    state: AgentState,
+    task: SubTaskModel,
+) -> list[AnyMessage]:
+    conversation_messages = [
+        message
+        for message in state["messages"]
+        if not isinstance(message, ToolMessage)
+        and not (
+            isinstance(message, AIMessage)
+            and (
+                bool(message.tool_calls)
+                or bool(message.additional_kwargs.get("task_role"))
+            )
+        )
+    ]
+    dependency_ids = set(task.depends_on)
+    dependencies = [
+        dict(result)
+        for result in state["task_results"]
+        if result.get("task_id") in dependency_ids
+    ]
+    instruction = HumanMessage(
+        content=json.dumps(
+            {
+                "instruction": (
+                    "只为当前子任务生成已绑定工具的一次调用参数，"
+                    "不回答最终问题，不调用其他工具。"
+                ),
+                "task_goal": task.task_goal,
+                "dependencies": dependencies,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return [*conversation_messages, instruction]
 
 
 def _active_tool_task(state: AgentState) -> SubTaskModel:

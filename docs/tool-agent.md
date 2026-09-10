@@ -42,6 +42,10 @@ MCP Streamable HTTP list_tools
 
 Tool Agent 对本任务工具执行 `bind_tools(..., tool_choice=<name>)`，接受且仅接受一个原生 `AIMessage.tool_calls`。模型给出的 call ID 不被信任，系统用 `request_id + planner_iteration + task_id + tool_name` 生成稳定可信 ID。
 
+参数生成上下文只包含持久化的用户会话、当前 `task_goal` 和该任务声明的依赖 `TaskResult`。其他并行分支产生的内部 `AIMessage.tool_calls`、`ToolMessage` 和 Skill/Analysis 过程消息会被过滤，防止不相关工具名与参数污染当前 Worker。
+
+DeepSeek 参数生成通过 LangChain 同步 `invoke()` 执行，并显式使用非 thinking 模式。该步只负责按已选 Schema 生成参数，不承担任务推理；任务推理属于 Planner 和 Analysis Agent。
+
 执行结果写为 `ToolMessage`：
 
 - `content` 只保留给后续 LLM 使用的脱敏紧凑 JSON。

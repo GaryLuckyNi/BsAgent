@@ -79,7 +79,7 @@ class ZeroEmbedder:
 
 
 class BoundMarketModel:
-    async def ainvoke(self, _messages):
+    def invoke(self, _messages):
         return AIMessage(
             content="",
             tool_calls=[

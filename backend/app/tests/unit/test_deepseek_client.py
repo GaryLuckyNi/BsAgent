@@ -4,6 +4,7 @@ import json
 import pytest
 import httpx
 
+from app.llm import deepseek as deepseek_module
 from app.llm.deepseek import DeepSeekClient, LlmConfigurationError
 
 
@@ -70,6 +71,23 @@ def test_deepseek_client_requires_api_key():
         DeepSeekClient(api_key="", model="deepseek-v4-flash")
 
     assert "api key" in str(exc_info.value).lower()
+
+
+def test_deepseek_tool_calling_explicitly_disables_thinking(monkeypatch):
+    captured = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def bind_tools(self, tools, *, tool_choice):
+            return tools, tool_choice
+
+    monkeypatch.setattr(deepseek_module, "ChatOpenAI", FakeChatOpenAI)
+
+    DeepSeekClient(api_key="test_key", model="deepseek-v4-flash")
+
+    assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 def test_deepseek_client_streams_openai_compatible_chat_completion_tokens():

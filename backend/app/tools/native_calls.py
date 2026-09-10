@@ -13,7 +13,15 @@ from app.tools.redaction import contains_inline_credentials, redact_sensitive_da
 _VALID_TOOL_NAME = re.compile(r"[^a-zA-Z0-9_-]+")
 
 
-async def create_tool_call_message(
+class ToolCallCountError(ValueError):
+    pass
+
+
+class UnexpectedToolCallError(ValueError):
+    pass
+
+
+def create_tool_call_message(
     *,
     llm_client: ToolCallingLlmClient,
     messages: list[AnyMessage],
@@ -24,14 +32,14 @@ async def create_tool_call_message(
         [_openai_tool_schema(tool_spec, api_name=api_name)],
         tool_choice=api_name,
     )
-    response = await bound_model.ainvoke(messages)
+    response = bound_model.invoke(messages)
     if not isinstance(response, AIMessage):
         raise TypeError("Tool calling model must return AIMessage.")
     if len(response.tool_calls) != 1:
-        raise ValueError("Tool task must produce exactly one tool call.")
+        raise ToolCallCountError("Tool task must produce exactly one tool call.")
     tool_call = response.tool_calls[0]
     if tool_call.get("name") != api_name:
-        raise ValueError("Tool calling model selected an unexpected tool.")
+        raise UnexpectedToolCallError("Tool calling model selected an unexpected tool.")
     restored = {**tool_call, "name": tool_spec.name}
     return response.model_copy(update={"tool_calls": [restored]})
 

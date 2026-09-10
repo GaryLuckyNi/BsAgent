@@ -1,5 +1,6 @@
-import asyncio
+import json
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
@@ -11,12 +12,17 @@ from app.schemas.messages import Message
 from app.schemas.tools import ToolCallResult, ToolSpec
 from app.tools.base import Tool
 from app.tools.native_calls import create_tool_call_message, create_tool_result_message
+from app.tools.native_calls import ToolCallCountError, UnexpectedToolCallError
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolRegistry
 
 
 class BoundModel:
-    async def ainvoke(self, messages):
+    def __init__(self, client):
+        self.client = client
+
+    def invoke(self, messages):
+        self.client.messages = messages
         assert isinstance(messages[-1], HumanMessage)
         return AIMessage(
             content="",
@@ -36,12 +42,43 @@ class ToolCallingClient:
         self.tools = None
         self.tool_choice = None
         self.bind_calls = 0
+        self.messages = []
 
     def bind_tools(self, tools, *, tool_choice):
         self.bind_calls += 1
         self.tools = tools
         self.tool_choice = tool_choice
-        return BoundModel()
+        return BoundModel(self)
+
+
+class EmptyBoundModel:
+    def invoke(self, messages):
+        return AIMessage(content="未调用工具")
+
+
+class EmptyToolCallingClient(ToolCallingClient):
+    def bind_tools(self, tools, *, tool_choice):
+        return EmptyBoundModel()
+
+
+class WrongToolBoundModel:
+    def invoke(self, messages):
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call-1",
+                    "name": "another_tool",
+                    "args": {},
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+
+class WrongToolCallingClient(ToolCallingClient):
+    def bind_tools(self, tools, *, tool_choice):
+        return WrongToolBoundModel()
 
 
 def _spec() -> ToolSpec:
@@ -61,12 +98,10 @@ def _spec() -> ToolSpec:
 def test_native_tool_call_uses_bound_schema_and_restores_registry_name():
     client = ToolCallingClient()
 
-    message = asyncio.run(
-        create_tool_call_message(
-            llm_client=client,
-            messages=[HumanMessage(content="查询海能达行情")],
-            tool_spec=_spec(),
-        )
+    message = create_tool_call_message(
+        llm_client=client,
+        messages=[HumanMessage(content="查询海能达行情")],
+        tool_spec=_spec(),
     )
 
     assert client.tool_choice == "mcp_tushare_stock_daily"
@@ -80,6 +115,22 @@ def test_native_tool_call_uses_bound_schema_and_restores_registry_name():
             "type": "tool_call",
         }
     ]
+
+
+def test_native_tool_call_distinguishes_missing_call_from_wrong_tool():
+    with pytest.raises(ToolCallCountError):
+        create_tool_call_message(
+            llm_client=EmptyToolCallingClient(),
+            messages=[HumanMessage(content="查询海能达行情")],
+            tool_spec=_spec(),
+        )
+
+    with pytest.raises(UnexpectedToolCallError):
+        create_tool_call_message(
+            llm_client=WrongToolCallingClient(),
+            messages=[HumanMessage(content="查询海能达行情")],
+            tool_spec=_spec(),
+        )
 
 
 def test_tool_result_message_matches_call_id_and_keeps_raw_payload_in_artifact():
@@ -172,16 +223,56 @@ def test_tool_worker_appends_native_messages_and_task_result():
     state["active_task"] = {
         "id": "market",
         "task_goal": "查询海能达行情",
-        "depends_on": [],
+        "depends_on": ["resolve_symbol"],
         "skill_name": None,
         "tool_name": DailyTool.name,
     }
+    state["task_results"] = [
+        {
+            "task_id": "resolve_symbol",
+            "status": "success",
+            "content": '{"symbol":"002583.SZ"}',
+            "error_code": None,
+        }
+    ]
+    state["messages"] = add_messages(
+        state["messages"],
+        [
+            AIMessage(
+                id="internal-call",
+                content="",
+                tool_calls=[
+                    {
+                        "id": "old-call",
+                        "name": "web_search",
+                        "args": {"query": "海能达"},
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            ToolMessage(
+                id="internal-result",
+                content='{"symbol":"002583.SZ"}',
+                tool_call_id="old-call",
+                name="web_search",
+            ),
+        ],
+    )
 
+    llm = ToolCallingClient()
     update = build_tool_agent_node(
         registry_factory=lambda: registry,
-        llm_client=ToolCallingClient(),
+        llm_client=llm,
     )(state)
 
+    instruction = json.loads(llm.messages[-1].content)
+    assert instruction["task_goal"] == "查询海能达行情"
+    assert instruction["dependencies"][0]["task_id"] == "resolve_symbol"
+    assert not any(isinstance(message, ToolMessage) for message in llm.messages)
+    assert not any(
+        isinstance(message, AIMessage) and message.tool_calls
+        for message in llm.messages
+    )
     assert [message.type for message in update["messages"][-2:]] == ["ai", "tool"]
     ai_message, tool_message = update["messages"][-2:]
     assert tool_message.tool_call_id == ai_message.tool_calls[0]["id"]

@@ -46,6 +46,7 @@ class DeepSeekClient:
             timeout=timeout_seconds,
             max_retries=0,
             http_async_client=http_client,
+            extra_body={"thinking": {"type": "disabled"}},
         )
 
     def bind_tools(self, tools: list[dict[str, Any]], *, tool_choice: str):
