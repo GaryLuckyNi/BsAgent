@@ -277,7 +277,21 @@ def test_default_intent_catalog_runtime_reuses_admin_base_url_and_bounded_timeou
             return None
 
         def json(self):
-            return {"items": [], "total": 0}
+            return {
+                "items": [
+                    {
+                        "id": "financial_research.general",
+                        "intent_type": "financial_research",
+                        "domain": "a_share_equity_research",
+                        "subdomain": "general_research",
+                        "trigger_keywords": ["股票"],
+                        "trigger_examples": ["分析一家 A 股公司"],
+                        "description": "A 股开放式投研",
+                        "enabled": True,
+                    }
+                ],
+                "total": 1,
+            }
 
     class Client:
         def __init__(self, *, base_url, timeout):
@@ -304,7 +318,9 @@ def test_default_intent_catalog_runtime_reuses_admin_base_url_and_bounded_timeou
     runtime.close()
 
     assert snapshot is not None
-    assert snapshot.catalog.all_profiles() == []
+    assert [profile.id for profile in snapshot.catalog.all_profiles()] == [
+        "financial_research.general"
+    ]
     assert runtime.refresh_seconds == 45
     assert captured["base_url"] == "https://admin.example.test"
     assert captured["timeout"].connect == 5

@@ -169,7 +169,7 @@ def test_runtime_initial_failure_does_not_escape_open_but_remains_unavailable() 
         runtime.check_health()
 
 
-def test_runtime_accepts_empty_enabled_profile_list_as_valid_snapshot() -> None:
+def test_runtime_rejects_empty_enabled_profile_list_as_unavailable() -> None:
     runtime = BusinessIntentCatalogRuntime(
         provider=_Provider([]),
         refresh_seconds=60,
@@ -178,11 +178,11 @@ def test_runtime_accepts_empty_enabled_profile_list_as_valid_snapshot() -> None:
 
     opened = runtime.open()
 
-    assert opened is not None
-    assert opened.loaded_at == 100.0
-    assert opened.catalog.all_profiles() == []
-    assert runtime.snapshot() is opened
-    assert runtime.check_health() is None
+    assert opened is None
+    with pytest.raises(BusinessIntentCatalogUnavailableError):
+        runtime.snapshot()
+    with pytest.raises(BusinessIntentCatalogUnavailableError):
+        runtime.check_health()
 
 
 def test_runtime_refresh_failure_preserves_previous_snapshot() -> None:

@@ -6,6 +6,7 @@
 
 ### 变更
 
+- 业务意图运行时不再将 Admin 返回的空启用目录当作有效快照；首次加载为空时 readiness 明确报不可用，避免所有投研请求被静默误判为范围外。
 - Graph 主链新增任务调度器，通过 LangGraph `Send` 并行分发无依赖 Skill、Tool 和 Analysis 子任务，有依赖任务按 DAG 自然串行。
 - 子任务执行结果统一为 `TaskResult`：业务失败作为 Observation 回到 Planner 有界重规划，网络与 Provider 短暂故障交给 LangGraph `RetryPolicy`，终止错误不盲目重试。
 - Skill Agent 改为按 Planner 选中名称加载完整定义与指南；Analysis Agent 只基于依赖结果执行任务级推理，两者均返回可并行合并的局部 State 更新。

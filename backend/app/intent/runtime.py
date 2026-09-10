@@ -102,6 +102,8 @@ class BusinessIntentCatalogRuntime:
             )
             for profile in self._provider.list_profiles()
         ]
+        if not profiles:
+            raise BusinessIntentCatalogUnavailableError()
         profiles.sort(key=lambda profile: profile.id)
         snapshot = BusinessIntentCatalogSnapshot(
             catalog=BusinessIntentCatalog(profiles),
