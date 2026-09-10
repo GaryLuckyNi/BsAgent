@@ -64,6 +64,21 @@ class SkillSelection(TypedDict, total=False):
     allowed_tools: list[str]
 
 
+class EvidenceChannels(TypedDict):
+    mcp: bool
+    web_search: bool
+    rag: bool
+
+
+class AnalysisSubtask(TypedDict):
+    id: str
+    objective: str
+    depends_on: list[str]
+    capability_query: str
+    evidence_requirements: list[str]
+    success_criteria: str
+
+
 class PlanDecision(TypedDict, total=False):
     objective: str
     execution_mode: Literal[
@@ -80,6 +95,9 @@ class PlanDecision(TypedDict, total=False):
     risk_controls: dict
     skill_output: dict
     requested_tools: list
+    analysis_questions: list[str]
+    evidence_channels: EvidenceChannels
+    subtasks: list[AnalysisSubtask]
 
 
 class ToolEvidenceRef(TypedDict):

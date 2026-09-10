@@ -42,6 +42,92 @@ from app.tools.search import SearchTool, ToolSearchHit, ToolSearchResponse
 pytest_plugins = ("app.tests.support.postgres_store",)
 
 
+class _GraphTaskRoutingLlmClient:
+    async def complete(self, **kwargs):
+        if "意图分类器" not in kwargs.get("system_prompt", ""):
+            prompt = json.loads(kwargs.get("user_prompt", "{}"))
+            return LlmCompletionResult(
+                content=prompt.get("deterministic_fallback")
+                or prompt.get("draft_content")
+                or "测试回答",
+                model="test-render-model",
+                provider="test",
+            )
+        prompt = json.loads(kwargs["user_prompt"])
+        message = prompt["message"]
+        profile = prompt.get("matched_profile") or {}
+        freshness_required = any(
+            marker in message for marker in ("现在", "当前", "近期", "最新")
+        )
+        rag_required = any(
+            marker in message for marker in ("知识库", "研报", "原文", "制度")
+        )
+        return LlmCompletionResult(
+            content=json.dumps(
+                {
+                    "decision": {
+                        "intent": profile.get("intent", "task_workflow"),
+                        "domain": profile.get(
+                            "domain", "a_share_equity_research"
+                        ),
+                        "sub_intent": profile.get(
+                            "sub_intent", "company_snapshot"
+                        ),
+                        "candidate_skill": profile.get(
+                            "candidate_skill", "company_snapshot"
+                        ),
+                        "candidate_tool": None,
+                        "risk_level": profile.get("risk_level", "medium"),
+                        "confidence": 0.9,
+                        "needs_clarification": False,
+                        "reason_codes": ["graph_test_task_brief"],
+                    },
+                    "task_brief": {
+                        "user_goal": message,
+                        "entities": [
+                            {"type": "company", "mention": message[:128]}
+                        ],
+                        "analysis_questions": [message],
+                        "search_keywords": [message],
+                        "freshness_required": freshness_required,
+                        "web_search_required": freshness_required,
+                        "web_search_reason": (
+                            "需要近期公开信息" if freshness_required else None
+                        ),
+                        "rag_required": rag_required,
+                        "time_horizon": None,
+                        "output_expectation": "完成测试请求",
+                        "constraints": [],
+                        "needs_clarification": False,
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            model="test-routing-model",
+            provider="test",
+        )
+
+
+_build_question_answer_graph = build_question_answer_graph
+_run_question_answer_graph = run_question_answer_graph
+_stream_question_answer_graph = stream_question_answer_graph
+
+
+def build_question_answer_graph(*args, **kwargs):
+    kwargs.setdefault("llm_client", _GraphTaskRoutingLlmClient())
+    return _build_question_answer_graph(*args, **kwargs)
+
+
+def run_question_answer_graph(*args, **kwargs):
+    kwargs.setdefault("llm_client", _GraphTaskRoutingLlmClient())
+    return _run_question_answer_graph(*args, **kwargs)
+
+
+def stream_question_answer_graph(*args, **kwargs):
+    kwargs.setdefault("llm_client", _GraphTaskRoutingLlmClient())
+    return _stream_question_answer_graph(*args, **kwargs)
+
+
 class _DiscoveryInput(BaseModel):
     pass
 

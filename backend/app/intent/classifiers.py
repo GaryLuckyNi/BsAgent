@@ -166,7 +166,14 @@ class LlmIntentClassifier:
                 thinking=False,
             )
         )
-        return IntentRoutingResult.model_validate(_extract_json_object(result.content))
+        payload = _extract_json_object(result.content)
+        return IntentRoutingResult.model_validate(_normalize_routing_payload(payload))
+
+
+def _normalize_routing_payload(payload: dict) -> dict:
+    if "decision" in payload:
+        return payload
+    return {"decision": payload, "task_brief": None}
 
 
 def _extract_json_object(content: str) -> dict:

@@ -6,6 +6,9 @@
 
 ### 变更
 
+- Planner 依据独立 `TaskBrief` 生成最多 12 个分析问题和对应子任务，不再通过“标准公司快照”提前返回或无条件执行固定五维；未命中 Skill 的 A 股开放任务同样进入动态规划。
+- 投研证据通道新增 `evidence_channels` 契约：行情、估值与财务优先使用已披露 MCP 工具，Web Search 仅在 `web_search_required=true` 时按关键词合成恰好一个请求，RAG 仅在 `rag_required=true` 时启用；未披露或 RBAC 不可见工具不会进入 `requested_tools`。
+- Intent Classifier 在解析边界兼容非 `task_workflow` 的旧扁平 JSON 输出并规范化为 `decision + task_brief:null`；任务型输出仍必须显式提供有效 `TaskBrief`。
 - Intent Router 通过一次 LLM 结构化理解同步输出粗粒度路由与独立 `TaskBrief`；命中 `task_workflow` Profile 时仍理解本次目标、实体、关键词和时效需求，未命中的 A 股投研问法不再被迫扩充细碎 `sub_intent`。
 - Graph State 新增独立 `task_brief` 与初始值为 `0` 的 `semantic_replan_count`；Intent Router builder 收敛为显式注入 catalog、LLM 和可用 Skill Provider 的唯一入口。
 - 应用生命周期统一从 Admin 加载并定时刷新业务意图目录，readiness 报告快照可用性；会话、SSE 与审批恢复在每次 Run 开始时只读取一次不可变 catalog 快照，刷新失败保留旧快照并执行脱敏日志记录。
@@ -81,6 +84,8 @@
 
 ### 测试
 
+- Planner 回归证明“海能达是否适合买入”与“只分析财务质量”产生不同分析问题、子任务和工具集合，并覆盖单次 Web Search、条件 RAG、12 条问题上限及未披露工具隔离。
+- Graph Runtime 测试夹具对齐 `decision + task_brief` 新契约，覆盖 run、stream 与直接 build 入口，同时保留生产环境缺少 Intent LLM 时的严格失败语义。
 - 真实 SSE 链路验证 A 股公司分析进入 `tool_execution`，动态生成 6 个执行步骤并调用 5 个 MCP 工具；单工具超时或数据源权限不足不中断 Run，最终回答以 Markdown 完成并持久化。
 - Planner 回归覆盖首轮 Top-K 未命中实体解析工具时的定向补充披露，并验证投研任务继续进入动态证据规划。
 - Synthesizer 单元回归覆盖宽泛公司分析的 Markdown 章节契约，并保留合法的同义标题文案。

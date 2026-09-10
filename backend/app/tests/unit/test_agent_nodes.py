@@ -486,6 +486,24 @@ def _search_tool_spec() -> ToolSpec:
     )
 
 
+def _web_search_tool_spec() -> ToolSpec:
+    return ToolSpec(
+        name="web_search",
+        version="1.0.0",
+        description="联网检索公开网页",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "max_results": {"type": "integer"},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        permission_scope=["web:search"],
+    )
+
+
 def _tool_search_service(*specs: ToolSpec) -> StubToolSearchService:
     return StubToolSearchService(
         specs=[*specs, _search_tool_spec()],
@@ -794,6 +812,24 @@ def test_planner_bootstraps_equity_resolver_before_dynamic_evidence_planning():
         "candidate_skill": "company_snapshot",
         "risk_level": "medium",
     }
+    state["task_brief"] = {
+        "user_goal": "分析海能达的公司业务、行情和财务表现",
+        "entities": [{"type": "company", "mention": "海能达"}],
+        "analysis_questions": [
+            "主营业务是什么",
+            "当前行情如何",
+            "财务表现如何",
+        ],
+        "search_keywords": ["海能达"],
+        "freshness_required": False,
+        "web_search_required": False,
+        "web_search_reason": None,
+        "rag_required": False,
+        "time_horizon": None,
+        "output_expectation": "公司综合分析",
+        "constraints": [],
+        "needs_clarification": False,
+    }
 
     result = build_planner_agent_node(
         llm_client=RecordingLlmClient("{}"),
@@ -1069,6 +1105,25 @@ def test_planner_builds_dynamic_equity_research_evidence_plan_with_mcp_and_rag()
         "reason_codes": ["business_profile:company_research.company_snapshot"],
         "next_node": "planner_agent",
     }
+    state["task_brief"] = {
+        "user_goal": "结合知识库研报分析银之杰",
+        "entities": [{"type": "company", "mention": "银之杰"}],
+        "analysis_questions": [
+            "公司主营业务和经营质量如何",
+            "当前行情与估值处于什么水平",
+            "盈利和现金流质量如何",
+            "知识库研报揭示了哪些风险",
+        ],
+        "search_keywords": ["银之杰"],
+        "freshness_required": False,
+        "web_search_required": False,
+        "web_search_reason": None,
+        "rag_required": True,
+        "time_horizon": None,
+        "output_expectation": "结合结构化数据和内部研报的公司分析",
+        "constraints": [],
+        "needs_clarification": False,
+    }
     tools = [
         _stock_tool_spec("mcp.local.stock.resolve_company"),
         _stock_tool_spec("mcp.local.stock.company_profile"),
@@ -1106,7 +1161,6 @@ def test_planner_builds_dynamic_equity_research_evidence_plan_with_mcp_and_rag()
         "mcp.local.stock.price_trend",
         "mcp.local.stock.market_snapshot",
         "mcp.local.stock.financial_metrics",
-        "mcp.local.stock.announcement_search",
         "rag_search",
     ]
     assert plan["requested_tools"][0].arguments["query"] == "银之杰"
@@ -1130,21 +1184,7 @@ def test_planner_builds_dynamic_equity_research_evidence_plan_with_mcp_and_rag()
     )
 
 
-def test_planner_uses_fast_standard_plan_for_broad_company_snapshot():
-    state = create_initial_state(
-        session_id="s1",
-        tenant_id="t1",
-        user_id="u1",
-        user_message="分析一下长鑫存储",
-    )
-    state["intent"] = {
-        "intent": "task_workflow",
-        "domain": "a_share_equity_research",
-        "sub_intent": "company_snapshot",
-        "candidate_skill": "company_snapshot",
-        "risk_level": "medium",
-        "confidence": 0.88,
-    }
+def test_planner_uses_task_brief_instead_of_fixed_snapshot_dimensions():
     tools = [
         _stock_tool_spec("mcp.local.stock.resolve_company"),
         _stock_tool_spec("mcp.local.stock.company_profile"),
@@ -1152,23 +1192,124 @@ def test_planner_uses_fast_standard_plan_for_broad_company_snapshot():
         _stock_tool_spec("mcp.local.stock.price_trend"),
         _stock_tool_spec("mcp.local.stock.financial_metrics"),
         _stock_tool_spec("mcp.local.stock.announcement_search"),
+        _web_search_tool_spec(),
     ]
-    llm_client = RecordingLlmClient("should not be called")
-
-    result = build_planner_agent_node(
-        llm_client=llm_client,
+    planner = build_planner_agent_node(
+        llm_client=RecordingLlmClient("{}"),
         tool_search_service=_tool_search_service(*tools),
-    )(state)
+    )
 
-    assert llm_client.calls == []
-    assert result["plan"]["analysis_dimensions"] == [
-        "business",
-        "market",
-        "valuation",
-        "financial",
-        "risk",
+    investment_state = create_initial_state(
+        session_id="investment-plan",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="海能达现在是否适合买入？",
+        permission_scopes=["mcp:market", "web:search"],
+    )
+    investment_state["intent"] = {
+        "intent": "task_workflow",
+        "domain": "a_share_equity_research",
+        "sub_intent": None,
+        "candidate_skill": None,
+        "risk_level": "medium",
+    }
+    investment_state["task_brief"] = {
+        "user_goal": "评估海能达当前是否具备投资吸引力",
+        "entities": [{"type": "company", "mention": "海能达"}],
+        "analysis_questions": [
+            "当前估值处于什么水平",
+            "盈利和现金流质量是否改善",
+            "近期有哪些催化因素与下行风险",
+        ],
+        "search_keywords": ["海能达", "最新公告", "近期经营动态"],
+        "freshness_required": True,
+        "web_search_required": True,
+        "web_search_reason": "需要近期公告和经营动态",
+        "rag_required": False,
+        "time_horizon": None,
+        "output_expectation": "平衡的投资决策辅助分析",
+        "constraints": ["不生成个性化买卖指令"],
+        "needs_clarification": False,
+    }
+
+    financial_state = create_initial_state(
+        session_id="financial-plan",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="只分析海能达的财务质量",
+        permission_scopes=["mcp:market", "web:search"],
+    )
+    financial_state["intent"] = {
+        "intent": "task_workflow",
+        "domain": "a_share_equity_research",
+        "sub_intent": "company_snapshot",
+        "candidate_skill": "company_snapshot",
+        "risk_level": "medium",
+    }
+    financial_state["task_brief"] = {
+        "user_goal": "只分析海能达的财务质量",
+        "entities": [{"type": "company", "mention": "海能达"}],
+        "analysis_questions": [
+            "盈利质量是否稳健",
+            "经营现金流能否支持利润",
+        ],
+        "search_keywords": ["海能达"],
+        "freshness_required": False,
+        "web_search_required": False,
+        "web_search_reason": None,
+        "rag_required": False,
+        "time_horizon": None,
+        "output_expectation": "聚焦财务质量的分析",
+        "constraints": ["不扩展到行业分析"],
+        "needs_clarification": False,
+    }
+
+    investment_plan = planner(investment_state)["plan"]
+    financial_plan = planner(financial_state)["plan"]
+    investment_tools = [
+        request.tool_name for request in investment_plan["requested_tools"]
     ]
-    assert result["plan"]["retrieval"]["required"] is False
+    financial_tools = [
+        request.tool_name for request in financial_plan["requested_tools"]
+    ]
+
+    assert investment_plan["analysis_questions"] == investment_state["task_brief"][
+        "analysis_questions"
+    ]
+    assert financial_plan["analysis_questions"] == financial_state["task_brief"][
+        "analysis_questions"
+    ]
+    assert investment_plan["analysis_questions"] != financial_plan[
+        "analysis_questions"
+    ]
+    assert [
+        task["objective"] for task in investment_plan["subtasks"][1:]
+    ] == investment_plan["analysis_questions"]
+    assert [
+        task["objective"] for task in financial_plan["subtasks"][1:]
+    ] == financial_plan["analysis_questions"]
+    assert investment_plan["evidence_channels"] == {
+        "mcp": True,
+        "web_search": True,
+        "rag": False,
+    }
+    assert financial_plan["evidence_channels"] == {
+        "mcp": True,
+        "web_search": False,
+        "rag": False,
+    }
+    assert investment_tools.count("web_search") == 1
+    assert "web_search" not in financial_tools
+    assert "mcp.local.stock.market_snapshot" in investment_tools
+    assert "mcp.local.stock.market_snapshot" not in financial_tools
+    assert "mcp.local.stock.financial_metrics" in financial_tools
+    assert "mcp.local.stock.company_profile" not in financial_tools
+    web_request = next(
+        request
+        for request in investment_plan["requested_tools"]
+        if request.tool_name == "web_search"
+    )
+    assert web_request.arguments["query"] == "海能达 最新公告 近期经营动态"
 
 
 def test_planner_uses_requested_financial_year_instead_of_latest():
@@ -1185,6 +1326,20 @@ def test_planner_uses_requested_financial_year_instead_of_latest():
         "candidate_skill": "financial_report_analysis",
         "risk_level": "medium",
         "confidence": 0.9,
+    }
+    state["task_brief"] = {
+        "user_goal": "分析银之杰 2025 年财务质量",
+        "entities": [{"type": "company", "mention": "银之杰"}],
+        "analysis_questions": ["2025 年盈利和现金流质量如何"],
+        "search_keywords": ["银之杰"],
+        "freshness_required": False,
+        "web_search_required": False,
+        "web_search_reason": None,
+        "rag_required": False,
+        "time_horizon": "2025 年",
+        "output_expectation": "年度财务质量分析",
+        "constraints": [],
+        "needs_clarification": False,
     }
     tools = [
         _stock_tool_spec("mcp.local.stock.resolve_company"),
@@ -1204,11 +1359,7 @@ def test_planner_uses_requested_financial_year_instead_of_latest():
     assert financial_request.arguments["period"] == "2025"
 
 
-def test_planner_does_not_force_rag_for_plain_company_analysis_when_decomposition_fails():
-    class FailingPlanningClient:
-        async def complete(self, **kwargs):
-            raise RuntimeError("planner unavailable")
-
+def test_planner_does_not_force_rag_when_task_brief_does_not_require_it():
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
@@ -1223,6 +1374,20 @@ def test_planner_does_not_force_rag_for_plain_company_analysis_when_decompositio
         "risk_level": "medium",
         "confidence": 0.9,
     }
+    state["task_brief"] = {
+        "user_goal": "了解海能达的主营业务",
+        "entities": [{"type": "company", "mention": "海能达"}],
+        "analysis_questions": ["海能达的主营业务是什么"],
+        "search_keywords": ["海能达"],
+        "freshness_required": False,
+        "web_search_required": False,
+        "web_search_reason": None,
+        "rag_required": False,
+        "time_horizon": None,
+        "output_expectation": "简要公司业务分析",
+        "constraints": [],
+        "needs_clarification": False,
+    }
     tools = [
         _stock_tool_spec("mcp.local.stock.resolve_company"),
         _stock_tool_spec("mcp.local.stock.company_profile"),
@@ -1235,7 +1400,7 @@ def test_planner_does_not_force_rag_for_plain_company_analysis_when_decompositio
     ]
 
     result = build_planner_agent_node(
-        llm_client=FailingPlanningClient(),
+        llm_client=RecordingLlmClient("{}"),
         tool_search_service=_tool_search_service(*tools),
     )(state)
 
@@ -1244,6 +1409,61 @@ def test_planner_does_not_force_rag_for_plain_company_analysis_when_decompositio
         request.tool_name != "rag_search"
         for request in result["plan"]["requested_tools"]
     )
+
+
+def test_planner_bounds_questions_and_excludes_undisclosed_evidence_tools():
+    resolver = _stock_tool_spec("mcp.local.stock.resolve_company")
+    financial = _stock_tool_spec("mcp.local.stock.financial_metrics")
+    web_search = _web_search_tool_spec()
+    rag = ToolSpec(
+        name="rag_search",
+        version="1.0.0",
+        description="检索知识库",
+        input_schema={"type": "object"},
+    )
+    service = StubToolSearchService(
+        specs=[resolver, financial, web_search, rag, _search_tool_spec()],
+        hit_names=[resolver.name, financial.name],
+    )
+    state = create_initial_state(
+        session_id="bounded-open-plan",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="只分析海能达的财务质量",
+        permission_scopes=["mcp:market"],
+    )
+    state["intent"] = {
+        "intent": "task_workflow",
+        "domain": "a_share_equity_research",
+        "sub_intent": None,
+        "candidate_skill": None,
+        "risk_level": "medium",
+    }
+    state["task_brief"] = {
+        "user_goal": "只分析海能达的财务质量",
+        "entities": [{"type": "company", "mention": "海能达"}],
+        "analysis_questions": [f"财务问题 {index}" for index in range(13)],
+        "search_keywords": ["海能达", "财务质量"],
+        "freshness_required": True,
+        "web_search_required": True,
+        "web_search_reason": "测试未披露工具",
+        "rag_required": True,
+        "time_horizon": None,
+        "output_expectation": "财务质量分析",
+        "constraints": [],
+        "needs_clarification": False,
+    }
+
+    plan = build_planner_agent_node(
+        llm_client=RecordingLlmClient("{}"),
+        tool_search_service=service,
+    )(state)["plan"]
+    requested_names = [request.tool_name for request in plan["requested_tools"]]
+
+    assert len(plan["analysis_questions"]) == 12
+    assert set(requested_names) <= set(state["disclosed_tool_names"])
+    assert "web_search" not in requested_names
+    assert "rag_search" not in requested_names
 
 
 def test_planner_agent_does_not_apply_equity_plan_to_non_financial_candidate_skill():

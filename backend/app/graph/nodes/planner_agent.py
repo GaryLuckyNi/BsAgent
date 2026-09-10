@@ -5,7 +5,6 @@ from langgraph.runtime import Runtime
 from app.core.config import settings
 from app.graph.planning.equity_research import (
     build_equity_research_evidence_plan,
-    has_stock_tooling,
 )
 from app.graph.planning.templates import (
     build_direct_response_plan,
@@ -126,10 +125,8 @@ def _disclosed_tool_specs(
 
 
 def _needs_equity_resolver(state: AgentState) -> bool:
-    intent = state["intent"] or {}
     return bool(
-        intent.get("candidate_skill")
-        and intent.get("domain") == "a_share_equity_research"
+        _is_equity_task(state)
         and not any(
             name.endswith(_EQUITY_RESOLVER_SUFFIX)
             for name in state["disclosed_tool_names"]
@@ -141,10 +138,20 @@ def _should_prefetch_tools(state: AgentState) -> bool:
     intent = state["intent"] or {}
     return bool(
         intent.get("intent") == "tool_action"
+        or _is_equity_task(state)
         or (
             intent.get("candidate_skill")
             and intent.get("domain") == "a_share_equity_research"
         )
+    )
+
+
+def _is_equity_task(state: AgentState) -> bool:
+    intent = state["intent"] or {}
+    return bool(
+        state.get("task_brief")
+        and intent.get("intent") == "task_workflow"
+        and intent.get("domain") == "a_share_equity_research"
     )
 
 
@@ -159,6 +166,17 @@ def _build_initial_tool_query(
         str(intent.get("domain") or ""),
         str(intent.get("sub_intent") or ""),
     ]
+    task_brief = state.get("task_brief") or {}
+    parts.extend(
+        [
+            str(task_brief.get("user_goal") or ""),
+            *[
+                question
+                for question in task_brief.get("analysis_questions", [])
+                if isinstance(question, str)
+            ],
+        ]
+    )
     candidate_skill = intent.get("candidate_skill")
     if candidate_skill and available_skills_provider is not None:
         try:
@@ -174,7 +192,9 @@ def _build_initial_tool_query(
             skill = None
         if skill is not None:
             parts.append(skill.summary)
-    return " ".join(part for part in parts if part)
+    return " ".join(part for part in parts if part)[:512]
+
+
 def planner_agent_node(state: AgentState, runtime: Runtime | None = None) -> AgentState:
     return build_planner_agent_node()(state, runtime)
 
@@ -204,16 +224,20 @@ def _build_plan(
             llm_client=llm_client,
             tool_specs=tool_specs,
         )
-    if (
-        intent.get("candidate_skill")
-        and intent.get("domain") == "a_share_equity_research"
-    ):
-        if llm_client is not None and has_stock_tooling(tool_specs):
+    if _is_equity_task(state):
+        if not intent.get("candidate_skill") or any(
+            name.endswith(_EQUITY_RESOLVER_SUFFIX) for name in tool_specs
+        ):
             return build_equity_research_evidence_plan(
                 state=state,
                 intent=intent,
                 llm_client=llm_client,
                 tool_specs=tool_specs,
             )
+        return build_skill_workflow_plan(intent)
+    if (
+        intent.get("candidate_skill")
+        and intent.get("domain") == "a_share_equity_research"
+    ):
         return build_skill_workflow_plan(intent)
     return build_direct_response_plan(intent)

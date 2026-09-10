@@ -430,6 +430,62 @@ def test_llm_intent_classifier_degrades_to_empty_skill_cards_when_registry_unava
     assert payload["available_skills"] == []
 
 
+def test_llm_intent_classifier_normalizes_only_non_workflow_flat_payloads(
+    business_intent_catalog,
+):
+    flat_conversation = json.dumps(
+        {
+            "intent": "conversation",
+            "domain": "general",
+            "sub_intent": None,
+            "candidate_skill": None,
+            "candidate_tool": None,
+            "risk_level": "low",
+            "confidence": 0.9,
+            "needs_clarification": False,
+            "reason_codes": ["legacy_flat_payload"],
+        }
+    )
+    router = HybridIntentRouter(
+        catalog=business_intent_catalog,
+        llm_client=FakeLlmClient(flat_conversation),
+    )
+
+    result = router.route(
+        message="讲个笑话",
+        tenant_id="tenant_1",
+        user_id="user_1",
+    )
+
+    assert result.decision.intent == "conversation"
+    assert result.task_brief is None
+
+    flat_workflow = json.dumps(
+        {
+            "intent": "task_workflow",
+            "domain": "a_share_equity_research",
+            "sub_intent": None,
+            "candidate_skill": None,
+            "candidate_tool": None,
+            "risk_level": "medium",
+            "confidence": 0.9,
+            "needs_clarification": False,
+            "reason_codes": ["legacy_flat_payload"],
+        }
+    )
+    strict_router = HybridIntentRouter(
+        catalog=business_intent_catalog,
+        llm_client=FakeLlmClient(flat_workflow),
+    )
+
+    with pytest.raises(IntentClassificationError):
+        strict_router.route(
+            message="海能达是否值得关注",
+            tenant_id="tenant_1",
+            user_id="user_1",
+        )
+
+
 def test_llm_intent_classifier_receives_balanced_research_boundary_policy(
     business_intent_catalog,
 ):

@@ -1,8 +1,5 @@
-import asyncio
-import json
 import re
 
-from app.graph.planning.json_output import extract_json_object
 from app.graph.planning.templates import build_risk_controls
 from app.graph.state import AgentState
 from app.llm.factory import LlmClient
@@ -10,26 +7,24 @@ from app.schemas.tools import ToolCallRequest, ToolSpec
 from app.skills.configured import RESOLVED_SYMBOL_PLACEHOLDER, extract_company_query
 
 
-_EQUITY_DIMENSIONS = {
-    "business",
-    "market",
-    "valuation",
-    "financial",
-    "risk",
-    "technical",
+_CAPABILITY_MARKERS = {
+    "business": ("主营", "业务", "商业模式", "产品", "客户", "竞争力"),
+    "market": ("行情", "股价", "涨跌", "成交", "换手", "市值", "市场状态"),
+    "valuation": ("估值", "PE", "PB", "市盈率", "市净率"),
+    "financial": (
+        "财务",
+        "财报",
+        "年报",
+        "利润",
+        "盈利",
+        "现金流",
+        "毛利率",
+        "ROE",
+        "负债",
+    ),
+    "risk": ("风险", "问询", "处罚", "诉讼", "减持", "质押", "下行"),
+    "technical": ("技术", "K线", "k线", "走势", "均线", "波动", "回撤"),
 }
-
-_DEFAULT_EQUITY_DIMENSIONS = [
-    "business",
-    "market",
-    "valuation",
-    "financial",
-    "risk",
-]
-
-
-def has_stock_tooling(tool_specs: dict[str, ToolSpec]) -> bool:
-    return any(name.endswith(".stock.resolve_company") for name in tool_specs)
 
 
 def build_equity_research_evidence_plan(
@@ -54,19 +49,28 @@ def build_equity_research_evidence_plan(
     )
     selected_tool_names = [request.tool_name for request in requested_tools]
     has_rag = any(request.tool_name == "rag_search" for request in requested_tools)
+    has_web = any(request.tool_name == "web_search" for request in requested_tools)
     return {
-        "objective": "先理解用户投研目标，再按需获取 MCP 与 RAG 证据并生成回答",
+        "objective": task["user_goal"],
         "execution_mode": "tool_execution",
         "selected_skill": {
             "name": intent.get("candidate_skill") or "equity_research",
             "selection_reason": "equity_research_dynamic_evidence_plan",
         },
+        "analysis_questions": task["analysis_questions"],
+        "evidence_channels": {
+            "mcp": True,
+            "web_search": task["need_web_search"],
+            "rag": task["need_rag"],
+        },
+        "subtasks": _build_analysis_subtasks(task),
         "analysis_dimensions": task["analysis_dimensions"],
         "answer_depth": task["answer_depth"],
         "execution_steps": [
             "understand_equity_research_intent",
             "build_market_data_evidence_plan",
             "execute_mcp_tools",
+            *(["search_public_web"] if has_web else []),
             *(["retrieve_evidence"] if has_rag else []),
             "analyze_evidence_and_tool_results",
             "synthesize_answer",
@@ -105,7 +109,7 @@ def build_equity_research_evidence_plan(
             "selected_tool": None,
             "selected_tools": selected_tool_names,
             "available_tool_count": len(tool_specs),
-            "decision": "planner_emitted_mcp_and_rag_evidence_requests",
+            "decision": "planner_emitted_task_brief_evidence_requests",
             "reason_codes": [
                 *intent.get("reason_codes", []),
                 "equity_research_task_decomposed",
@@ -121,123 +125,108 @@ def _plan_equity_research_task(
     intent: dict,
     llm_client: LlmClient | None,
 ) -> dict:
-    fallback = {
-        "company_query": extract_company_query(state["user_message"]),
-        "analysis_dimensions": _heuristic_equity_dimensions(state["user_message"]),
+    del intent, llm_client
+    task_brief = state.get("task_brief") or {}
+    questions = _bounded_strings(task_brief.get("analysis_questions"), limit=12)
+    user_goal = _safe_text(task_brief.get("user_goal"), fallback=state["user_message"])
+    if not questions:
+        questions = [user_goal]
+    company_query = _company_query_from_task_brief(task_brief, state["user_message"])
+    analysis_dimensions = _analysis_dimensions(
+        user_goal=user_goal,
+        analysis_questions=questions,
+    )
+    return {
+        "user_goal": user_goal,
+        "company_query": company_query,
+        "analysis_questions": questions,
+        "analysis_dimensions": analysis_dimensions,
         "need_mcp": True,
-        "need_rag": False,
+        "need_web_search": task_brief.get("web_search_required") is True,
+        "need_rag": task_brief.get("rag_required") is True,
+        "search_keywords": _bounded_strings(
+            task_brief.get("search_keywords"), limit=12
+        ),
         "answer_depth": "standard",
     }
-    if _is_standard_company_snapshot(
-        intent=intent,
-        user_message=state["user_message"],
-        analysis_dimensions=fallback["analysis_dimensions"],
-    ):
-        return fallback
-    if llm_client is None:
-        return fallback
-    try:
-        result = asyncio.run(
-            llm_client.complete(
-                system_prompt=(
-                    "你是 BsAgent 的 A 股投研任务拆解器。只能输出 JSON object，不要解释。"
-                    "先判断用户要分析的公司和维度，再决定是否需要 MCP 市场数据和 RAG 证据。"
-                    "普通公司综合分析、行情、估值、财务和技术指标应由 MCP 结构化数据完成，"
-                    "need_rag=false。只有用户明确要求研报、公告原文、制度文档、知识库资料或"
-                    "需要非结构化背景证据时，need_rag 才能为 true。"
-                    "analysis_dimensions 只能从 business、market、valuation、financial、risk、technical 中选择。"
-                    "宽泛的“分析一下某公司”应覆盖 business、market、valuation、financial、risk。"
-                    "不得提及任何模型厂商。"
-                ),
-                user_prompt=json.dumps(
-                    {
-                        "user_message": state["user_message"],
-                        "intent": intent,
-                        "required_schema": {
-                            "company_query": "string",
-                            "analysis_dimensions": "string[]",
-                            "need_mcp": "boolean",
-                            "need_rag": "boolean",
-                            "answer_depth": "brief|standard|deep",
-                        },
-                    },
-                    ensure_ascii=False,
-                ),
-                temperature=0.0,
-                max_tokens=512,
-                thinking=False,
-            )
-        )
-        payload = extract_json_object(result.content)
-    except Exception:
-        return fallback
-    return {
-        "company_query": _safe_company_query(
-            payload.get("company_query"),
-            fallback=fallback["company_query"],
-        ),
-        "analysis_dimensions": _safe_equity_dimensions(
-            payload.get("analysis_dimensions"),
-            fallback=fallback["analysis_dimensions"],
-        ),
-        "need_mcp": payload.get("need_mcp") is not False,
-        "need_rag": payload.get("need_rag") is not False,
-        "answer_depth": (
-            payload.get("answer_depth")
-            if payload.get("answer_depth") in {"brief", "standard", "deep"}
-            else fallback["answer_depth"]
-        ),
-    }
 
 
-def _is_standard_company_snapshot(
-    *,
-    intent: dict,
-    user_message: str,
-    analysis_dimensions: list[str],
-) -> bool:
-    return (
-        intent.get("sub_intent") == "company_snapshot"
-        and analysis_dimensions == _DEFAULT_EQUITY_DIMENSIONS
-        and not any(
-            marker in user_message
-            for marker in ("研报", "公告原文", "知识库", "制度文档")
-        )
-    )
+def _company_query_from_task_brief(task_brief: dict, user_message: str) -> str:
+    entities = task_brief.get("entities")
+    if isinstance(entities, list):
+        for entity in entities:
+            if not isinstance(entity, dict):
+                continue
+            if entity.get("type") not in {"company", "security"}:
+                continue
+            mention = entity.get("mention")
+            if isinstance(mention, str) and mention.strip():
+                return mention.strip()
+    return extract_company_query(user_message)
 
 
-def _safe_company_query(value: object, *, fallback: str) -> str:
-    if isinstance(value, str) and value.strip():
-        return extract_company_query(value)
-    return fallback
+def _safe_text(value: object, *, fallback: str) -> str:
+    return value.strip() if isinstance(value, str) and value.strip() else fallback
 
 
-def _safe_equity_dimensions(value: object, *, fallback: list[str]) -> list[str]:
+def _bounded_strings(value: object, *, limit: int) -> list[str]:
     if not isinstance(value, list):
-        return fallback
-    selected = [
-        item
-        for item in value
-        if isinstance(item, str) and item in _EQUITY_DIMENSIONS
+        return []
+    normalized = [item.strip() for item in value if isinstance(item, str) and item.strip()]
+    return list(dict.fromkeys(normalized))[:limit]
+
+
+def _analysis_dimensions(
+    *, user_goal: str, analysis_questions: list[str]
+) -> list[str]:
+    task_text = " ".join([user_goal, *analysis_questions])
+    return [
+        capability
+        for capability, markers in _CAPABILITY_MARKERS.items()
+        if any(marker in task_text for marker in markers)
     ]
-    return list(dict.fromkeys(selected)) or fallback
 
 
-def _heuristic_equity_dimensions(user_message: str) -> list[str]:
-    dimensions = []
-    if any(marker in user_message for marker in ("技术", "K线", "k线", "走势", "均线")):
-        dimensions.append("technical")
-    if any(marker in user_message for marker in ("估值", "PE", "PB", "市盈率", "市净率")):
-        dimensions.append("valuation")
-    if any(marker in user_message for marker in ("财务", "财报", "年报", "利润", "现金流", "毛利率", "ROE")):
-        dimensions.append("financial")
-    if any(marker in user_message for marker in ("风险", "问询", "处罚", "诉讼", "减持", "质押")):
-        dimensions.append("risk")
-    if any(marker in user_message for marker in ("业务", "主营", "行业", "基本面")):
-        dimensions.append("business")
-    if any(marker in user_message for marker in ("行情", "股价", "涨跌", "成交", "换手")):
-        dimensions.append("market")
-    return list(dict.fromkeys(dimensions)) or list(_DEFAULT_EQUITY_DIMENSIONS)
+def _build_analysis_subtasks(task: dict) -> list[dict]:
+    subtasks = [
+        {
+            "id": "resolve_company",
+            "objective": f"确认 {task['company_query']} 对应的 A 股主体",
+            "depends_on": [],
+            "capability_query": "A 股公司名称、简称或代码的实体标准化",
+            "evidence_requirements": ["证券代码", "证券名称"],
+            "success_criteria": "获得可供后续结构化查询使用的唯一证券标识",
+        }
+    ]
+    for index, question in enumerate(task["analysis_questions"], start=1):
+        subtasks.append(
+            {
+                "id": f"analysis_{index}",
+                "objective": question,
+                "depends_on": ["resolve_company"],
+                "capability_query": question,
+                "evidence_requirements": _evidence_requirements(question),
+                "success_criteria": "获得可引用、可核验且标明时间边界的事实",
+            }
+        )
+    return subtasks
+
+
+def _evidence_requirements(question: str) -> list[str]:
+    requirements = []
+    for capability, markers in _CAPABILITY_MARKERS.items():
+        if any(marker in question for marker in markers):
+            requirements.append(
+                {
+                    "business": "公司业务事实",
+                    "market": "结构化行情数据",
+                    "valuation": "结构化估值指标",
+                    "financial": "结构化财务指标",
+                    "risk": "近期公开风险证据",
+                    "technical": "结构化价格趋势数据",
+                }[capability]
+            )
+    return requirements or ["与分析问题直接相关的可核验证据"]
 
 
 def _equity_research_tool_requests(
@@ -267,7 +256,7 @@ def _equity_research_tool_requests(
         )
     if task["need_mcp"]:
         profile = _tool_by_suffix(tool_specs, ".stock.company_profile")
-        if profile is not None and ("business" in dimensions or "financial" in dimensions):
+        if profile is not None and "business" in dimensions:
             requests.append(
                 _tool_request(
                     tool=profile,
@@ -354,23 +343,23 @@ def _equity_research_tool_requests(
                     approval_required=risk_level == "high" or financial.risk_level == "high",
                 )
             )
-        announcements = _tool_by_suffix(tool_specs, ".stock.announcement_search")
-        if announcements is not None and ("risk" in dimensions or "business" in dimensions):
-            requests.append(
-                _tool_request(
-                    tool=announcements,
-                    arguments={
-                        "symbol": RESOLVED_SYMBOL_PLACEHOLDER,
-                        "date_range": "12m",
-                        "required_fields": [],
-                        "optional_fields": ["announcements"],
-                    },
-                    purpose="检索近期公告和事件线索，作为风险与业务变化证据",
-                    approval_required=(
-                        risk_level == "high" or announcements.risk_level == "high"
+    web_search = tool_specs.get("web_search")
+    if web_search is not None and task["need_web_search"]:
+        requests.append(
+            _tool_request(
+                tool=web_search,
+                arguments={
+                    "query": _web_search_query(
+                        task["search_keywords"], fallback=user_message
                     ),
-                )
+                    "max_results": 5,
+                },
+                purpose="检索任务明确需要的近期公开网页证据",
+                approval_required=(
+                    risk_level == "high" or web_search.risk_level == "high"
+                ),
             )
+        )
     rag = tool_specs.get("rag_search")
     if rag is not None and task["need_rag"]:
         requests.append(
@@ -388,6 +377,11 @@ def _equity_research_tool_requests(
             )
         )
     return requests
+
+
+def _web_search_query(search_keywords: list[str], *, fallback: str) -> str:
+    query = " ".join(search_keywords) or fallback.strip()
+    return query[:500]
 
 
 def _tool_by_suffix(tool_specs: dict[str, ToolSpec], suffix: str) -> ToolSpec | None:
