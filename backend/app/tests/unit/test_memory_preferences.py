@@ -10,6 +10,7 @@ from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.state import create_initial_state
 from app.memory.preferences import decode_user_preference, recall_user_preferences
+from app.tests.support.workflow_llm import WorkflowTestLlm
 
 
 def _item(value, *, key: str = "preference") -> Item:
@@ -97,13 +98,32 @@ def test_nodes_continue_when_preference_iteration_fails(node_name, caplog):
     store = Mock()
     store.search.return_value = _FailingItems()
     state = _state()
+    state["intent"] = {
+        "intent_type": "financial_research",
+        "domain": "a_share_equity_research",
+        "subdomain": "company_snapshot",
+        "goal": "分析海能达",
+        "confidence": 1.0,
+    }
     if node_name == "planner":
-        state["intent"] = {"intent": "conversation", "risk_level": "low"}
-        result = build_planner_agent_node()(state, Runtime(store=store))
+        result = build_planner_agent_node(llm_client=WorkflowTestLlm())(
+            state,
+            Runtime(store=store),
+        )
         assert result["plan"] is not None
     else:
-        state["plan"] = {"execution_mode": "direct_response", "response_policy": {}}
-        result = build_synthesizer_node()(state, Runtime(store=store))
+        state["plan"] = {
+            "tasks": [
+                {"id": "answer", "task_goal": "分析海能达", "depends_on": []}
+            ]
+        }
+        state["task_results"] = [
+            {"task_id": "answer", "status": "success", "content": "数据不足"}
+        ]
+        result = build_synthesizer_node(llm_client=WorkflowTestLlm())(
+            state,
+            Runtime(store=store),
+        )
         assert result["draft_answer"] is not None
 
     assert caplog.records[-1].event == "experience_memory_recall_failed"

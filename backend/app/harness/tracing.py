@@ -99,14 +99,17 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
             "attachments": _attachment_summaries(state),
             "intent": _intent_decision_summary(state) if state["intent"] else None,
             "plan": _planner_decision_summary(state) if state["plan"] else None,
-            "selected_skill": _selected_skill_summary(state),
             "tool_calls": [
                 {
                     "call_id": record.call_id or record.request.call_id,
                     "tool_name": record.request.tool_name,
-                    "status": record.result.status,
-                    "error_code": record.result.error.code if record.result.error else None,
-                    "latency_ms": record.result.latency_ms,
+                    "status": record.result.status if record.result else "staged",
+                    "error_code": (
+                        record.result.error.code
+                        if record.result and record.result.error
+                        else None
+                    ),
+                    "latency_ms": record.result.latency_ms if record.result else None,
                 }
                 for record in state["tool_calls"]
             ],
@@ -194,11 +197,6 @@ def summarize_node_transition(
         )
         if tool_search is not None:
             metadata["tool_search"] = tool_search
-        tool_repair = (output_state["plan"] or {}).get("tool_repair")
-        if isinstance(tool_repair, dict):
-            metadata["tool_repair"] = tool_repair
-    elif node_name == "retriever_agent":
-        metadata["retrieval"] = _retrieval_summary(output_state)
     elif node_name == "analysis_agent":
         metadata["analysis"] = _analysis_summary(output_state)
     elif node_name == "synthesizer":
@@ -219,33 +217,29 @@ def _node_summary(
     if node_name == "intent_router":
         intent = state["intent"] or {}
         return (
-            f"识别为 {intent.get('intent', 'unknown')}"
+            f"识别为 {intent.get('intent_type') or 'out_of_scope'}"
             f"/{intent.get('domain') or 'general'}"
-            f"/{intent.get('sub_intent') or 'none'}，"
+            f"/{intent.get('subdomain') or 'none'}，"
             f"置信度 {intent.get('confidence', 'unknown')}"
         )
     if node_name == "attachment_analyzer":
         return f"加载 {len(state['image_analyses'])} 个图片分析摘要"
     if node_name == "planner_agent":
         plan = state["plan"] or {}
-        return f"选择 {plan.get('execution_mode', 'unknown')}"
+        return f"生成 {len(plan.get('tasks', []))} 个子任务"
     if node_name == "skill_agent":
-        selected_skill = state["selected_skill"] or {}
-        return f"执行 Skill：{selected_skill.get('skill_name', '未选择')}"
+        task = state.get("active_task") or {}
+        return f"执行 Skill：{task.get('skill_name', '未选择')}"
     if node_name == "tool_agent":
         return f"完成 {len(state['tool_calls'])} 次工具调用"
-    if node_name == "retriever_agent":
-        evidence = state["evidence"]
-        return "检索完成" if evidence else "未获得检索证据"
     if node_name == "analysis_agent":
-        analysis = state["analysis"] or {}
-        return f"生成 {len(analysis.get('findings', []))} 条分析发现"
+        return f"累计完成 {len(state['task_results'])} 个子任务"
     if node_name == "synthesizer":
         draft_answer = state["draft_answer"] or {}
         return f"生成草稿回答，claim 数 {len(draft_answer.get('claims', []))}"
     if node_name == "verifier":
         verification = state["verification"] or {}
-        return f"校验结果：{verification.get('status', 'unknown')}"
+        return f"校验结果：{verification.get('verdict', 'unknown')}"
     if node_name == "approval_coordinator":
         approval_status = state["approval_status"]
         return (
@@ -261,16 +255,11 @@ def _node_summary(
 def _intent_decision_summary(state: AgentState) -> dict[str, Any]:
     intent = state["intent"] or {}
     return {
-        "intent": intent.get("intent"),
+        "intent_type": intent.get("intent_type"),
         "domain": intent.get("domain"),
-        "sub_intent": intent.get("sub_intent"),
-        "candidate_skill": intent.get("candidate_skill"),
-        "candidate_tool": intent.get("candidate_tool"),
+        "subdomain": intent.get("subdomain"),
+        "goal_length": len(intent.get("goal") or ""),
         "confidence": intent.get("confidence"),
-        "risk_level": intent.get("risk_level"),
-        "needs_clarification": intent.get("needs_clarification"),
-        "reason_codes": intent.get("reason_codes", []),
-        "next_node": intent.get("next_node"),
     }
 
 
@@ -296,42 +285,28 @@ def _attachment_summaries(state: AgentState) -> list[dict[str, Any]]:
 
 def _planner_decision_summary(state: AgentState) -> dict[str, Any]:
     plan = state["plan"] or {}
-    requested_tools = plan.get("requested_tools", [])
+    tasks = plan.get("tasks", [])
     return {
-        "execution_mode": plan.get("execution_mode"),
-        "selected_skill": (plan.get("selected_skill") or {}).get("name")
-        if isinstance(plan.get("selected_skill"), dict)
-        else None,
-        "execution_step_count": len(plan.get("execution_steps", [])),
-        "retrieval": _retrieval_policy_summary(plan.get("retrieval")),
-        "allowed_tools": list((plan.get("tool_policy") or {}).get("allowed_tools", [])),
-        "requested_tools": [_tool_request_summary(request) for request in requested_tools],
-    }
-
-
-def _selected_skill_summary(state: AgentState) -> dict[str, Any] | None:
-    selected_skill = state["selected_skill"]
-    if not selected_skill:
-        return None
-    return {
-        "skill_name": selected_skill.get("skill_name"),
-        "skill_version": selected_skill.get("skill_version"),
-        "status": selected_skill.get("status"),
-        "allowed_tools": list(selected_skill.get("allowed_tools", [])),
+        "task_count": len(tasks),
+        "tasks": [
+            {
+                "task_id": task.get("id"),
+                "dependency_count": len(task.get("depends_on", [])),
+                "skill_name": task.get("skill_name"),
+                "tool_name": task.get("tool_name"),
+            }
+            for task in tasks
+            if isinstance(task, dict)
+        ],
     }
 
 
 def _skill_decision_summary(state: AgentState) -> dict[str, Any]:
-    plan = state["plan"] or {}
-    skill_output = plan.get("skill_output", {})
+    task = state.get("active_task") or {}
     return {
-        "selected_skill": _selected_skill_summary(state),
-        "status": skill_output.get("status"),
-        "reason_codes": skill_output.get("reason_codes", []),
-        "requested_tools": [
-            _tool_request_summary(request)
-            for request in plan.get("requested_tools", [])
-        ],
+        "skill_name": task.get("skill_name"),
+        "task_id": task.get("id"),
+        "task_result_count": len(state["task_results"]),
     }
 
 
@@ -399,50 +374,18 @@ def _tool_search_summary(
     }
 
 
-def _retrieval_summary(state: AgentState) -> dict[str, Any]:
-    evidence = state["evidence"]
-    if evidence is None:
-        return {"coverage": "none", "item_count": 0, "evidence_ids": []}
-    return {
-        "coverage": evidence.coverage,
-        "item_count": len(evidence.items),
-        "evidence_ids": [item.evidence_id for item in evidence.items],
-    }
-
-
 def _analysis_summary(state: AgentState) -> dict[str, Any]:
-    analysis = state["analysis"] or {}
-    structured_tool_results = analysis.get("structured_tool_results", [])
-    data_coverage = analysis.get("data_coverage", [])
     return {
-        "finding_count": len(analysis.get("findings", [])),
-        "structured_tool_result_count": len(structured_tool_results),
-        "structured_tools": [
-            result.get("tool_name")
-            for result in structured_tool_results
-            if isinstance(result, dict)
-        ],
-        "missing_information_count": len(analysis.get("missing_information", [])),
-        "tool_fact_count": len(analysis.get("tool_facts", [])),
-        "data_coverage": [
+        "task_result_count": len(state["task_results"]),
+        "tasks": [
             {
-                key: item[key]
-                for key in (
-                    "tool_call_id",
-                    "capability",
-                    "status",
-                    "requested_fields",
-                    "provided_fields",
-                    "missing_optional_fields",
-                    "source_apis",
-                    "error_code",
-                )
-                if key in item
+                "task_id": item.get("task_id"),
+                "status": item.get("status"),
+                "error_code": item.get("error_code"),
             }
-            for item in data_coverage
+            for item in state["task_results"]
             if isinstance(item, dict)
         ],
-        "confidence": analysis.get("confidence"),
     }
 
 
@@ -450,7 +393,7 @@ def _synthesis_summary(state: AgentState) -> dict[str, Any]:
     draft_answer = state["draft_answer"] or {}
     response_policy = draft_answer.get("response_policy", {})
     return {
-        "response_type": response_policy.get("response_type"),
+        "response_type": draft_answer.get("response_type"),
         "llm_rendering": response_policy.get("llm_rendering"),
         "llm_validation_error": response_policy.get("llm_validation_error"),
         "claim_count": len(draft_answer.get("claims", [])),
@@ -469,28 +412,6 @@ def _verification_summary(state: AgentState) -> dict[str, Any] | None:
         "faithfulness_score": verification.get("faithfulness_score"),
         "citation_error_count": len(verification.get("citation_errors", [])),
         "risk_flag_count": len(verification.get("risk_flags", [])),
-    }
-
-
-def _tool_request_summary(request: Any) -> dict[str, Any]:
-    if hasattr(request, "model_dump"):
-        request = request.model_dump()
-    if not isinstance(request, dict):
-        return {"raw_type": type(request).__name__}
-    return {
-        "call_id": request.get("call_id"),
-        "tool_name": request.get("tool_name"),
-        "tool_version": request.get("tool_version"),
-        "approval_required": request.get("approval_required"),
-    }
-
-
-def _retrieval_policy_summary(retrieval: Any) -> dict[str, Any] | None:
-    if not isinstance(retrieval, dict):
-        return None
-    return {
-        "required": retrieval.get("required"),
-        "strategy": retrieval.get("strategy"),
     }
 
 

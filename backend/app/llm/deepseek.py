@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 import json
 
 import httpx
+from langchain_openai import ChatOpenAI
 
 from app.llm.schemas import LlmCompletionResult
 
@@ -38,6 +39,17 @@ class DeepSeekClient:
         self._base_url = base_url
         self._timeout_seconds = timeout_seconds
         self._http_client = http_client
+        self._chat_model = ChatOpenAI(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            timeout=timeout_seconds,
+            max_retries=0,
+            http_async_client=http_client,
+        )
+
+    def bind_tools(self, tools: list[dict[str, Any]], *, tool_choice: str):
+        return self._chat_model.bind_tools(tools, tool_choice=tool_choice)
 
     async def complete(
         self,

@@ -2,8 +2,9 @@ from collections.abc import Callable
 from typing import Any
 
 from langgraph.errors import GraphInterrupt
+from langgraph.graph.message import add_messages
 
-from app.graph.state import AgentState
+from app.graph.state import AgentState, merge_task_results, merge_tool_call_records
 from app.harness.error_boundary import (
     build_safe_error_record,
     classify_recoverable_error,
@@ -29,17 +30,21 @@ class NodeRunner:
     def run(
         self,
         node_name: str,
-        node: Callable[..., AgentState],
+        node: Callable[..., dict[str, Any]],
         state: AgentState,
         *,
         runtime: Any | None = None,
         runtime_aware: bool = False,
         handle_recoverable_errors: bool = False,
-    ) -> AgentState:
+    ) -> dict[str, Any]:
         observation = self.observer.observe_start(node_name, state)
         try:
             result = node(state, runtime) if runtime_aware else node(state)
-            self.observer.record_success(observation=observation, state=result)
+            observed_state = _observation_state(state, result)
+            self.observer.record_success(
+                observation=observation,
+                state=observed_state,
+            )
             return result
         except GraphInterrupt:
             self.observer.record_interrupted(observation=observation, state=state)
@@ -73,6 +78,7 @@ class NodeRunner:
                     self.observer.record_untraced_error(
                         observation=observation,
                         state=state,
+                        error=exc,
                         error_code=classified.code,
                     )
                 raise
@@ -84,3 +90,22 @@ class NodeRunner:
                 error_code="agent_node_error",
             )
             raise
+
+
+def _observation_state(
+    state: AgentState,
+    update: dict[str, Any],
+) -> AgentState:
+    if all(key in update for key in state):
+        return update  # type: ignore[return-value]
+    merged = dict(state)
+    for key, value in update.items():
+        if key == "messages":
+            merged[key] = add_messages(merged["messages"], value)
+        elif key == "task_results":
+            merged[key] = merge_task_results(merged["task_results"], value)
+        elif key == "tool_calls":
+            merged[key] = merge_tool_call_records(merged["tool_calls"], value)
+        else:
+            merged[key] = value
+    return merged

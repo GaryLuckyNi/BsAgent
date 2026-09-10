@@ -30,9 +30,7 @@ from app.llm.schemas import LlmCompletionResult
 from app.main import create_app
 from app.memory.dependencies import get_memory_store
 from app.schemas.approvals import ApprovalRequest, ApprovalStatus
-from app.schemas.approvals import ReadyToolCall
 from app.schemas.memory import MemoryCandidate
-from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
 from app.security.dependencies import get_current_principal
 from app.security.principal import Principal
 from app.storage.database import get_db
@@ -46,6 +44,7 @@ from app.storage.models import (
     MemoryCandidateRecord,
 )
 from app.tools.registry import ToolRegistry
+from app.tests.support.workflow_llm import WorkflowTestLlm
 
 
 TEST_MEMORY_STORE = object()
@@ -149,7 +148,7 @@ class FailingStreamingNarrativeLlmClient:
 
 @pytest.fixture(autouse=True)
 def avoid_live_llm_provider(monkeypatch):
-    monkeypatch.setattr(sessions, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(sessions, "maybe_build_llm_client", WorkflowTestLlm)
 
 
 def create_test_app_with_database(
@@ -629,7 +628,7 @@ def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
         "当前问题",
     ]
     assert sum(
-        message.message_id == captured["user_message_id"]
+            message.id == captured["user_message_id"]
         for message in captured["state"]["messages"]
     ) == 1
     assert all("checkpoint" not in message.content for message in captured["history"])
@@ -1028,7 +1027,6 @@ def test_session_api_rejects_unauthenticated_request_before_graph(monkeypatch):
 def test_post_session_message_flushes_trace_after_persisting_run(
     monkeypatch,
 ):
-    monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
     monkeypatch.setattr(sessions.settings, "trace_success_sample_ratio", 1.0)
     app, testing_session_local = create_test_app_with_database(
         business_intent_catalog_runtime=_TestBusinessIntentCatalogRuntime(
@@ -1057,46 +1055,6 @@ def test_post_session_message_flushes_trace_after_persisting_run(
     assert saved_run.trace_capture_status == "captured"
     assert saved_events
     assert {event.run_id for event in saved_events} == {saved_run.run_id}
-
-
-def test_post_session_message_uses_configured_rag_mode(monkeypatch):
-    captured = {}
-
-    def fake_graph(**kwargs):
-        captured["mock_evidence"] = kwargs["mock_evidence"]
-        state = _initial_state_from_graph_kwargs(kwargs)
-        state["intent"] = {
-            "intent": "knowledge_qa",
-            "risk_level": "medium",
-            "needs_clarification": False,
-                    "candidate_skill": "company_snapshot",
-            "reason_codes": [],
-            "next_node": "skill_agent",
-        }
-        state["final_response"] = {
-            "content": "ok",
-            "trace_id": state["trace_id"],
-            "cited_evidence_ids": [],
-            "approval_status": "not_required",
-        }
-        return state
-
-    monkeypatch.setattr(sessions.settings, "use_mock_rag", False, raising=False)
-    monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
-    app, _ = create_test_app_with_database()
-    client = TestClient(app)
-
-    response = client.post(
-        "/api/sessions/s1/messages",
-        json={
-            "tenant_id": "t1",
-            "user_id": "u1",
-            "message": "分析一下银之杰",
-        },
-    )
-
-    assert response.status_code == 200
-    assert captured["mock_evidence"] is False
 
 
 def test_post_session_message_uses_graph_checkpointer(monkeypatch):
@@ -1481,6 +1439,7 @@ def test_approval_resume_rejects_different_existing_checkpoint_before_graph(
         request_id="other_real_request",
         user_message="你好",
         checkpointer=checkpointer,
+        llm_client=WorkflowTestLlm(),
     )
     assert checkpointer.get_tuple(
         {
@@ -2876,60 +2835,54 @@ def test_stream_passes_completed_history_to_next_turn(monkeypatch):
     ]
 
 
-def test_product_progress_stage_tracks_equity_research_pipeline():
+def _apply_dynamic_plan(state):
+    state["intent"] = {
+        "intent_type": "financial_research",
+        "domain": "a_share_equity_research",
+        "subdomain": "company_snapshot",
+        "goal": "分析岩山科技",
+        "confidence": 0.98,
+    }
+    state["plan"] = {
+        "tasks": [
+            {
+                "id": "market_data",
+                "task_goal": "获取岩山科技行情",
+                "depends_on": [],
+                "skill_name": None,
+                "tool_name": "mcp.tushare.stock.daily",
+            },
+            {
+                "id": "interpret",
+                "task_goal": "解读行情证据",
+                "depends_on": ["market_data"],
+                "skill_name": None,
+                "tool_name": None,
+            },
+        ]
+    }
+
+
+def test_product_progress_stage_tracks_dynamic_task_graph():
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
         user_message="分析一下岩山科技",
     )
-    market_request = ToolCallRequest(
-        call_id="market_1",
-        tool_name="mcp.local.stock.market_snapshot",
-        tool_version="1",
-        arguments={"symbol": "002195.SZ"},
-        purpose="获取行情",
-    )
-    rag_request = ToolCallRequest(
-        call_id="rag_1",
-        tool_name="rag_search",
-        tool_version="1",
-        arguments={"query": "岩山科技"},
-        purpose="检索补充资料",
-    )
-    state["plan"] = {
-        "execution_mode": "tool_execution",
-        "requested_tools": [market_request, rag_request],
-        "response_policy": {"response_type": "equity_research_report"},
-    }
+    _apply_dynamic_plan(state)
+    state["active_task"] = state["plan"]["tasks"][0]
+    assert sessions._product_progress_stage(state) == "executing_tools"
 
-    assert sessions._product_progress_stage(state) == "collecting_market_data"
-
-    state["tool_calls"] = [
-        ToolCallRecord(
-            call_id="market_1",
-            request=market_request,
-            result=ToolCallResult(
-                tool_call_id="market_1",
-                tool_name=market_request.tool_name,
-                status="success",
-                result={"data": {"price": 6.83}},
-                trace_id=state["trace_id"],
-            ),
-        )
+    state["active_task"] = state["plan"]["tasks"][1]
+    state["task_results"] = [
+        {"task_id": "market_data", "status": "success", "content": "{}"}
     ]
-    state["ready_tool_call"] = ReadyToolCall(
-        call_id="rag_1",
-        step_index=1,
-        request_fingerprint="fingerprint",
-        tool_name="rag_search",
-    )
-    assert sessions._product_progress_stage(state) == "retrieving_knowledge"
-
-    state["ready_tool_call"] = None
     assert sessions._product_progress_stage(state) == "analyzing_evidence"
 
-    state["analysis"] = {"findings": [], "missing_information": []}
+    state["task_results"].append(
+        {"task_id": "interpret", "status": "success", "content": "已完成"}
+    )
     assert sessions._product_progress_stage(state) == "composing_answer"
 
     state["draft_answer"] = {"content": "完成"}
@@ -2941,17 +2894,8 @@ def test_post_session_message_stream_emits_product_progress_without_trace_detail
 ):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
-        state["plan"] = {
-            "execution_mode": "tool_execution",
-            "requested_tools": [
-                ToolCallRequest(
-                    tool_name="mcp.local.stock.market_snapshot",
-                    arguments={"symbol": "002195.SZ"},
-                    purpose="获取行情",
-                )
-            ],
-            "response_policy": {"response_type": "equity_research_report"},
-        }
+        _apply_dynamic_plan(state)
+        state["active_task"] = state["plan"]["tasks"][0]
         yield state
         state["final_response"] = {
             "content": "岩山科技投研结论。",
@@ -2975,7 +2919,7 @@ def test_post_session_message_stream_emits_product_progress_without_trace_detail
         if block.startswith("event: progress")
     )
     assert progress_events.count('"stage": "planning"') == 1
-    assert progress_events.count('"stage": "collecting_market_data"') == 1
+    assert progress_events.count('"stage": "executing_tools"') == 1
     assert "node_name" not in progress_events
     assert "arguments" not in progress_events
 
@@ -2983,33 +2927,7 @@ def test_post_session_message_stream_emits_product_progress_without_trace_detail
 def test_post_session_message_stream_emits_llm_thinking_before_final(monkeypatch):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
-        state["intent"] = {
-            "intent": "task_workflow",
-            "domain": "a_share_equity_research",
-            "sub_intent": "company_snapshot",
-            "risk_level": "medium",
-            "needs_clarification": False,
-            "candidate_skill": "company_snapshot",
-        }
-        state["plan"] = {
-            "objective": "分析银之杰公司概况",
-            "execution_mode": "skill_execution",
-            "selected_skill": {"skill_name": "company_snapshot"},
-            "execution_steps": ["识别公司实体", "获取市场数据", "生成投研摘要"],
-            "retrieval": {"required": True, "strategy": "rag_search"},
-            "tool_policy": {"allowed_tools": ["mcp.*", "rag_search"]},
-            "response_policy": {},
-            "risk_controls": {},
-        }
-        state["analysis"] = {
-            "findings": [],
-            "missing_information": ["公告检索权限不足"],
-            "confidence": 0.6,
-            "data_coverage": [
-                {"capability": "stock.company_profile", "status": "complete"},
-                {"capability": "stock.announcement_search", "status": "failed"},
-            ],
-        }
+        _apply_dynamic_plan(state)
         state["final_response"] = {
             "content": "银之杰公司概览。",
             "trace_id": state["trace_id"],
@@ -3045,31 +2963,14 @@ def test_post_session_message_stream_emits_thinking_before_graph_completed(
 ):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
-        state["intent"] = {
-            "intent": "task_workflow",
-            "domain": "a_share_equity_research",
-            "sub_intent": "company_snapshot",
-            "risk_level": "medium",
-            "needs_clarification": False,
-            "candidate_skill": "company_snapshot",
-        }
-        state["plan"] = {
-            "objective": "分析银之杰公司概况",
-            "execution_mode": "skill_execution",
-            "selected_skill": {"skill_name": "company_snapshot"},
-            "execution_steps": ["识别公司实体", "获取市场数据", "生成投研摘要"],
-            "retrieval": {"required": True, "strategy": "rag_search"},
-            "tool_policy": {"allowed_tools": ["mcp.*", "rag_search"]},
-            "response_policy": {},
-            "risk_controls": {},
-        }
+        _apply_dynamic_plan(state)
         kwargs["trace_buffer"].record_event(
             TraceEvent(
                 trace_id=state["trace_id"],
                 node_name="planner_agent",
                 status="success",
                 latency_ms=2,
-                metadata={"summary": "选择 skill_execution"},
+                metadata={"summary": "生成两个动态子任务"},
             )
         )
         yield state
@@ -3103,57 +3004,27 @@ def test_post_session_message_stream_emits_multiple_public_thinking_stages(
 ):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
-        state["intent"] = {
-            "intent": "task_workflow",
-            "domain": "a_share_equity_research",
-            "sub_intent": "company_snapshot",
-            "risk_level": "medium",
-            "needs_clarification": False,
-            "candidate_skill": "company_snapshot",
-        }
-        state["plan"] = {
-            "objective": "分析长鑫存储",
-            "execution_mode": "tool_execution",
-            "analysis_dimensions": ["business", "market", "financial", "risk"],
-            "requested_tools": [
-                ToolCallRequest(
-                    tool_name="mcp.local.stock.resolve_company",
-                    arguments={"query": "长鑫存储"},
-                    purpose="解析公司",
-                )
-            ],
-            "retrieval": {"required": True, "strategy": "rag_search"},
-            "response_policy": {"response_type": "equity_research_report"},
-        }
+        _apply_dynamic_plan(state)
         yield state
-        state["plan"]["tool_repair"] = {
-            "status": "recovered",
-            "strategy": "web_search_entity_discovery_and_market_revalidation",
-            "failed_query": "长鑫存储",
-            "recovered_query": "长鑫科技",
-            "source_urls": ["https://www.sse.com.cn/disclosure/example"],
-            "observation_error_code": "required_data_missing",
-        }
-        state["tool_calls"] = [
-            ToolCallRecord(
-                request=state["plan"]["requested_tools"][0],
-                result=ToolCallResult(
-                    tool_call_id="tool_1",
-                    tool_name="mcp.local.stock.resolve_company",
-                    status="success",
-                    result={"symbol": "688825.SH", "name": "长鑫科技"},
-                    trace_id=state["trace_id"],
-                ),
-            )
+        state["task_results"] = [
+            {
+                "task_id": "market_data",
+                "status": "business_failure",
+                "content": "实体未命中",
+                "error_code": "required_data_missing",
+            }
         ]
         yield state
-        state["analysis"] = {
-            "findings": ["已确认长鑫科技。"],
-            "missing_information": ["公告权限不足"],
-            "confidence": 0.7,
-            "data_coverage": [
-                {"capability": "stock.resolve_company", "status": "complete"}
-            ],
+        state["plan"] = {
+            "tasks": [
+                {
+                    "id": "r1_market_data",
+                    "task_goal": "根据失败原因重新确认公司并取数",
+                    "depends_on": [],
+                    "skill_name": None,
+                    "tool_name": "web_search",
+                }
+            ]
         }
         yield state
         state["final_response"] = {
@@ -3176,7 +3047,7 @@ def test_post_session_message_stream_emits_multiple_public_thinking_stages(
     thinking_events = [
         block for block in body.split("\n\n") if block.startswith("event: thinking_delta")
     ]
-    assert len(thinking_events) >= 3
+    assert len(thinking_events) >= 2
     thinking_text = "\n".join(thinking_events)
     assert "我先识别你的投研目标" in thinking_text
     assert "node_name" not in thinking_text
@@ -3189,24 +3060,7 @@ def test_post_session_message_stream_drops_incomplete_thinking_sentence(
 ):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
-        state["intent"] = {
-            "intent": "task_workflow",
-            "domain": "a_share_equity_research",
-            "sub_intent": "company_snapshot",
-            "risk_level": "medium",
-            "needs_clarification": False,
-            "candidate_skill": "company_snapshot",
-        }
-        state["plan"] = {
-            "objective": "分析银之杰公司概况",
-            "execution_mode": "skill_execution",
-            "selected_skill": {"skill_name": "company_snapshot"},
-            "execution_steps": ["识别公司实体", "获取市场数据", "生成投研摘要"],
-            "retrieval": {"required": True, "strategy": "rag_search"},
-            "tool_policy": {"allowed_tools": ["mcp.*", "rag_search"]},
-            "response_policy": {},
-            "risk_controls": {},
-        }
+        _apply_dynamic_plan(state)
         yield state
         state["final_response"] = {
             "content": "银之杰公司概览。",
@@ -3243,13 +3097,7 @@ def test_post_session_message_stream_emits_fallback_thinking_without_streaming_l
 ):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
-        state["intent"] = {
-            "intent": "task_workflow",
-            "domain": "a_share_equity_research",
-            "sub_intent": "company_snapshot",
-            "risk_level": "medium",
-            "needs_clarification": False,
-        }
+        _apply_dynamic_plan(state)
         state["final_response"] = {
             "content": "银之杰公司概览。",
             "trace_id": state["trace_id"],
@@ -3272,7 +3120,7 @@ def test_post_session_message_stream_emits_fallback_thinking_without_streaming_l
 
     assert response.status_code == 200
     assert "event: thinking_delta" in body
-    assert "我会先确认公司实体" in body
+    assert "我已将你的需求收敛为" in body
 
 
 def test_post_session_message_stream_falls_back_when_thinking_stream_fails(
@@ -3280,13 +3128,7 @@ def test_post_session_message_stream_falls_back_when_thinking_stream_fails(
 ):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
-        state["intent"] = {
-            "intent": "task_workflow",
-            "domain": "a_share_equity_research",
-            "sub_intent": "company_snapshot",
-            "risk_level": "medium",
-            "needs_clarification": False,
-        }
+        _apply_dynamic_plan(state)
         state["final_response"] = {
             "content": "最终答案仍然返回。",
             "trace_id": state["trace_id"],
@@ -3313,33 +3155,25 @@ def test_post_session_message_stream_falls_back_when_thinking_stream_fails(
 
     assert response.status_code == 200
     assert "event: thinking_delta" in body
-    assert "我会先确认公司实体" in body
+    assert "我已将你的需求收敛为" in body
     assert "最终答案仍然返回。" in body
     assert "event: final" in body
 
 
-def test_fallback_thinking_uses_business_dimensions_instead_of_internal_steps():
+def test_fallback_thinking_uses_dynamic_task_goals_without_internal_fields():
     state = create_initial_state(
         session_id="s1",
         tenant_id="t1",
         user_id="u1",
         user_message="分析一下岩山科技",
     )
-    state["intent"] = {"domain": "a_share_equity_research"}
-    state["plan"] = {
-        "execution_mode": "tool_execution",
-        "execution_steps": [
-            "understand_equity_research_intent",
-            "execute_mcp_tools",
-        ],
-        "analysis_dimensions": ["business", "financial", "risk"],
-    }
+    _apply_dynamic_plan(state)
 
     content = "".join(sessions._fallback_thinking_chunks(state))
 
-    assert "业务、财务和风险" in content
-    assert "understand_equity_research_intent" not in content
-    assert "execute_mcp_tools" not in content
+    assert "获取岩山科技行情" in content
+    assert "解读行情证据" in content
+    assert "mcp.tushare.stock.daily" not in content
 
 
 def test_post_session_message_stream_returns_error_for_missing_llm_configuration(

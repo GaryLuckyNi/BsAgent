@@ -164,14 +164,16 @@ class NodeObserver:
         *,
         observation: NodeObservation,
         state: AgentState,
+        error: BaseException,
         error_code: str,
     ) -> None:
-        self._finish_span(
+        self._record_error_event(
             observation=observation,
             state=state,
-            status="error",
-            latency_ms=measure_latency_ms(observation.started_at),
+            error=error,
             error_code=error_code,
+            status="error",
+            safe_message="节点依赖暂时不可用，等待有界重试。",
         )
 
     def _record_error_event(

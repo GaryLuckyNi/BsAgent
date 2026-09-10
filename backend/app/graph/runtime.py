@@ -2,12 +2,14 @@ from collections.abc import Callable, Iterator
 import re
 from typing import Any
 
+from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
 from langgraph.store.base import BaseStore
-from langgraph.types import Checkpointer, Command, RetryPolicy
+from langgraph.types import Checkpointer, Command, RetryPolicy, Send
 
 from app.core.config import settings
-from app.graph.nodes.analysis_agent import analysis_agent_node
+from app.graph.nodes.analysis_agent import build_analysis_agent_node
 from app.graph.nodes.attachment_analyzer import (
     AttachmentContextResolver,
     build_attachment_analyzer_node,
@@ -19,12 +21,7 @@ from app.graph.nodes.approval_gate import (
 from app.graph.nodes.approval_coordinator import approval_coordinator_node
 from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
-from app.graph.nodes.retriever_agent import build_default_rag_retriever_node
-from app.graph.nodes.skill_agent import (
-    build_default_skill_registry,
-    build_skill_agent_node,
-    guard_skill_agent_node,
-)
+from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.nodes.verifier import verifier_node
@@ -33,7 +30,8 @@ from app.graph.state import (
     build_checkpoint_thread_id,
     create_initial_state,
 )
-from app.schemas.messages import Message
+from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
+from app.graph.planning.scheduler import plan_status, ready_tasks
 from app.harness.error_boundary import (
     build_safe_error_record,
     build_node_error_handler,
@@ -48,7 +46,9 @@ from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
 from app.llm.factory import LlmClient
-from app.schemas.tools import ToolCallRequest
+from app.schemas.messages import Message
+from app.skills.factory import build_default_skill_registry
+from app.skills.registry import SkillRegistry
 from app.tools.default_registry import (
     get_default_tool_catalog_runtime,
     get_default_tool_registry,
@@ -156,32 +156,35 @@ def _append_assistant_message(state: AgentState) -> None:
         return
     message_id = state["assistant_message_id"]
     if any(
-        message.message_id == message_id
+        message.id == message_id
         for message in state["messages"]
     ):
         return
-    state["messages"].append(
-        Message(
-            message_id=message_id,
-            role="assistant",
-            content=content,
-            metadata={
-                "request_id": state["request_id"],
-                "trace_id": state["trace_id"],
-            },
-        )
+    state["messages"] = add_messages(
+        state["messages"],
+        [
+            AIMessage(
+                id=message_id,
+                content=content,
+                additional_kwargs={
+                    "metadata": {
+                        "request_id": state["request_id"],
+                        "trace_id": state["trace_id"],
+                    }
+                },
+            )
+        ],
     )
-    state["conversation_history"] = list(state["messages"])
 
 
 def _with_harness(
     node_name: str,
-    node: Callable[..., AgentState],
+    node: Callable[..., dict[str, Any]],
     runner: NodeRunner,
     *,
     runtime_aware: bool = False,
-) -> Callable[..., AgentState]:
-    def execute(state: AgentState, runtime: Any | None = None) -> AgentState:
+) -> Callable[..., dict[str, Any]]:
+    def execute(state: AgentState, runtime: Any | None = None) -> dict[str, Any]:
         previous_error_count = len(state["errors"])
         try:
             result = runner.run(
@@ -192,7 +195,9 @@ def _with_harness(
                 runtime_aware=runtime_aware,
                 handle_recoverable_errors=False,
             )
-            for error in result["errors"][previous_error_count:]:
+            result_errors = result.get("errors", [])
+            start_index = previous_error_count if result_errors is state["errors"] else 0
+            for error in result_errors[start_index:]:
                 if is_terminal_recoverable_code(error.get("code")):
                     raise AgentGraphExecutionError(
                         node_name=error["node"],
@@ -229,12 +234,12 @@ def _with_harness(
             raise graph_error from exc
 
     if runtime_aware:
-        def wrapped(state: AgentState, runtime: Any) -> AgentState:
+        def wrapped(state: AgentState, runtime: Any) -> dict[str, Any]:
             return execute(state, runtime)
 
         return wrapped
 
-    def wrapped(state: AgentState) -> AgentState:
+    def wrapped(state: AgentState) -> dict[str, Any]:
         return execute(state)
 
     return wrapped
@@ -243,8 +248,8 @@ def _with_harness(
 _OPERATIONAL_RETRY_NODE_NAMES = frozenset(
     {
         "attachment_analyzer",
-        "retriever_agent",
         "skill_agent",
+        "tool_agent",
     }
 )
 
@@ -285,87 +290,69 @@ def _add_harnessed_node(
     )
 
 
-def _route_after_planner(state: AgentState) -> str:
-    plan = state["plan"] or {}
-    if _has_pending_memory_approval(state):
+def _route_after_intent(state: AgentState) -> str:
+    intent = state.get("intent") or {}
+    return "planner_agent" if intent.get("intent_type") else "synthesizer"
+
+
+def task_scheduler_node(_state: AgentState) -> dict[str, Any]:
+    return {}
+
+
+def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
+    if _has_pending_memory_approval(state) or _has_pending_tool_approval(state):
         return "approval_gate"
-    if plan.get("execution_mode") == "image_analysis":
-        return "analysis_agent"
-    if plan.get("execution_mode") == "direct_response":
+    plan = PlanModel.model_validate(state.get("plan"))
+    results = [
+        TaskResultModel.model_validate(item)
+        for item in state.get("task_results", [])
+    ]
+    status = plan_status(plan, results=results)
+    if _completed_tool_search(plan, results=results):
+        if state["planner_iteration"] >= settings.planner_max_iterations:
+            return "synthesizer"
+        return "planner_agent"
+    if status in {"complete", "terminal_failure"}:
         return "synthesizer"
-    if plan.get("execution_mode") == "tool_execution":
+    if status == "needs_replan":
+        if state["planner_iteration"] >= settings.planner_max_iterations:
+            return "synthesizer"
+        return "planner_agent"
+    return [
+        Send(
+            _worker_name(task),
+            {**state, "active_task": task.model_dump(mode="python")},
+        )
+        for task in ready_tasks(plan, results=results)
+    ]
+
+
+def _worker_name(task: SubTaskModel) -> str:
+    if task.skill_name is not None:
+        return "skill_agent"
+    if task.tool_name is not None:
         return "tool_agent"
-    if _has_pending_tool_approval(state):
-        return "approval_gate"
-    return "skill_agent"
+    return "analysis_agent"
 
 
-def _route_after_skill_agent(state: AgentState) -> str:
-    if _has_pending_memory_approval(state):
-        return "approval_gate"
-    if _requested_tools(state):
-        return "tool_agent"
-    if _has_pending_tool_approval(state):
-        return "approval_gate"
-    if state["image_analyses"]:
-        return "analysis_agent"
-    return "synthesizer"
-
-
-def _route_after_tool_agent(state: AgentState) -> str:
-    if _has_pending_memory_approval(state):
-        return "approval_gate"
-    if _has_pending_tool_approval(state):
-        return "approval_gate"
-    if _latest_executed_tool_name(state) == "search_tool":
-        if state["tool_search_count"] < settings.tool_search_max_calls:
-            return "planner_agent"
-        return "synthesizer"
-    if _has_ready_rag_call(state):
-        return "retriever_agent"
-    plan = state["plan"] or {}
-    if (
-        plan.get("execution_mode") == "skill_execution"
-        or state["image_analyses"]
-        or _has_stock_tool_result(state)
-    ):
-        return "analysis_agent"
-    return "synthesizer"
-
-
-def _latest_executed_tool_name(state: AgentState) -> str | None:
-    return next(
-        (
-            record.request.tool_name
-            for record in reversed(state["tool_calls"])
-            if record.result is not None
-        ),
-        None,
+def _completed_tool_search(
+    plan: PlanModel,
+    *,
+    results: list[TaskResultModel],
+) -> bool:
+    successful_ids = {
+        result.task_id for result in results if result.status == "success"
+    }
+    return any(
+        task.tool_name == "search_tool" and task.id in successful_ids
+        for task in plan.tasks
     )
 
 
 def _route_after_approval_gate(state: AgentState) -> str:
     if state["approval_status"] is not None and state["approval_status"].status == "rejected":
         return "synthesizer"
-    if _has_pending_memory_approval(state):
-        return "approval_gate"
-    if _requested_tools(state):
-        return "tool_agent"
-    if state["image_analyses"]:
-        return "analysis_agent"
-    return "synthesizer"
-
-
-def _has_ready_rag_call(state: AgentState) -> bool:
-    ready_call = state.get("ready_tool_call")
-    return ready_call is not None and ready_call.tool_name == "rag_search"
-
-
-def _has_stock_tool_result(state: AgentState) -> bool:
-    return any(
-        ".stock." in record.request.tool_name and record.result is not None
-        for record in state["tool_calls"]
-    )
+    return "task_scheduler"
 
 
 def _has_pending_tool_approval(state: AgentState) -> bool:
@@ -380,40 +367,11 @@ def _has_pending_memory_approval(state: AgentState) -> bool:
     )
 
 
-def _requested_tools(state: AgentState) -> list[ToolCallRequest]:
-    plan = state["plan"] or {}
-    return [
-        parsed_request
-        for request in plan.get("requested_tools", [])
-        for parsed_request in [
-            request
-            if isinstance(request, ToolCallRequest)
-            else ToolCallRequest.model_validate(request)
-        ]
-    ]
-
-
 def _runtime_registry_snapshot(
     *,
     registry_factory: Callable[[], ToolRegistry],
-    retriever_node: Callable[[AgentState], AgentState],
 ) -> ToolRegistry:
-    registry = registry_factory().mutable_copy()
-    for tool, execution_binding in getattr(
-        retriever_node,
-        "tool_registry_contributions",
-        (),
-    ):
-        if registry.has(tool.name):
-            existing = registry.get(tool.name)
-            if (
-                existing.spec != tool.spec
-                or existing.execution_binding != execution_binding
-            ):
-                raise ValueError(f"工具目录中存在冲突的工具定义: {tool.name}")
-            continue
-        registry.register(tool, execution_binding=execution_binding)
-    return registry.snapshot()
+    return registry_factory().mutable_copy().snapshot()
 
 
 def _resolve_tool_search_service(
@@ -433,7 +391,6 @@ def _resolve_tool_search_service(
 def build_question_answer_graph(
     *,
     business_intent_catalog: BusinessIntentCatalog,
-    retriever_node: Callable[[AgentState], AgentState],
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     store: BaseStore | None = None,
@@ -453,21 +410,20 @@ def build_question_answer_graph(
     ) or get_default_tool_registry
     tool_registry_snapshot = tool_registry_snapshot or _runtime_registry_snapshot(
         registry_factory=selected_registry_factory,
-        retriever_node=retriever_node,
     )
-    tool_specs_snapshot = tuple(tool_registry_snapshot.specs())
     selected_tool_search_service = _resolve_tool_search_service(
         explicit_service=tool_search_service,
         registry_factory=selected_registry_factory,
         registry_snapshot=tool_registry_snapshot,
     )
     selected_skill_registry = (
-        build_default_skill_registry() if skill_agent_node is None else None
+        build_default_skill_registry()
+        if skill_agent_node is None
+        else SkillRegistry()
     )
-    selected_skill_agent_node = guard_skill_agent_node(
-        skill_agent_node
-        or build_skill_agent_node(registry=selected_skill_registry),
-        tool_specs=tool_specs_snapshot,
+    selected_skill_agent_node = skill_agent_node or build_skill_agent_node(
+        registry=selected_skill_registry,
+        llm_client=llm_client,
     )
     if tool_agent_node is not None and not getattr(
         tool_agent_node, "is_trusted_tool_agent", False
@@ -520,6 +476,7 @@ def build_question_answer_graph(
         runner,
         runtime_aware=True,
     )
+    _add_harnessed_node(graph, "task_scheduler", task_scheduler_node, runner)
     _add_harnessed_node(
         graph,
         "skill_agent",
@@ -540,8 +497,12 @@ def build_question_answer_graph(
         ),
         runner,
     )
-    _add_harnessed_node(graph, "retriever_agent", retriever_node, runner)
-    _add_harnessed_node(graph, "analysis_agent", analysis_agent_node, runner)
+    _add_harnessed_node(
+        graph,
+        "analysis_agent",
+        build_analysis_agent_node(llm_client=llm_client),
+        runner,
+    )
     _add_harnessed_node(
         graph,
         "synthesizer",
@@ -564,52 +525,35 @@ def build_question_answer_graph(
     graph.set_entry_point("catalog_guard")
     graph.add_edge("catalog_guard", "attachment_analyzer")
     graph.add_edge("attachment_analyzer", "intent_router")
-    graph.add_edge("intent_router", "planner_agent")
     graph.add_conditional_edges(
-        "planner_agent",
-        _route_after_planner,
+        "intent_router",
+        _route_after_intent,
         {
-            "analysis_agent": "analysis_agent",
-            "skill_agent": "skill_agent",
-            "tool_agent": "tool_agent",
-            "approval_gate": "approval_gate",
+            "planner_agent": "planner_agent",
             "synthesizer": "synthesizer",
         },
     )
+    graph.add_edge("planner_agent", "task_scheduler")
     graph.add_conditional_edges(
-        "skill_agent",
-        _route_after_skill_agent,
-        {
-            "tool_agent": "tool_agent",
-            "approval_gate": "approval_gate",
-            "retriever_agent": "retriever_agent",
-            "analysis_agent": "analysis_agent",
-            "synthesizer": "synthesizer",
-        },
-    )
-    graph.add_conditional_edges(
-        "tool_agent",
-        _route_after_tool_agent,
+        "task_scheduler",
+        _dispatch_after_scheduler,
         {
             "planner_agent": "planner_agent",
             "approval_gate": "approval_gate",
-            "retriever_agent": "retriever_agent",
-            "analysis_agent": "analysis_agent",
             "synthesizer": "synthesizer",
         },
     )
+    graph.add_edge("skill_agent", "task_scheduler")
+    graph.add_edge("tool_agent", "task_scheduler")
+    graph.add_edge("analysis_agent", "task_scheduler")
     graph.add_conditional_edges(
         "approval_gate",
         _route_after_approval_gate,
         {
-            "tool_agent": "tool_agent",
-            "retriever_agent": "retriever_agent",
-            "analysis_agent": "analysis_agent",
+            "task_scheduler": "task_scheduler",
             "synthesizer": "synthesizer",
         },
     )
-    graph.add_edge("retriever_agent", "analysis_agent")
-    graph.add_edge("analysis_agent", "synthesizer")
     graph.add_edge("synthesizer", "verifier")
     graph.add_edge("verifier", "approval_coordinator")
     graph.add_edge("approval_coordinator", "final_response")
@@ -630,8 +574,6 @@ def run_question_answer_graph(
     user_message_id: str | None = None,
     assistant_message_id: str | None = None,
     history: list[Message] | None = None,
-    mock_evidence: bool = True,
-    retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     store: BaseStore | None = None,
@@ -658,8 +600,6 @@ def run_question_answer_graph(
         user_message_id=user_message_id,
         assistant_message_id=assistant_message_id,
         history=history,
-        mock_evidence=mock_evidence,
-        retriever_node=retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         store=store,
@@ -690,8 +630,6 @@ def stream_question_answer_graph(
     user_message_id: str | None = None,
     assistant_message_id: str | None = None,
     history: list[Message] | None = None,
-    mock_evidence: bool = True,
-    retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     store: BaseStore | None = None,
@@ -718,8 +656,6 @@ def stream_question_answer_graph(
         user_message_id=user_message_id,
         assistant_message_id=assistant_message_id,
         history=history,
-        mock_evidence=mock_evidence,
-        retriever_node=retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         store=store,
@@ -755,8 +691,6 @@ def _prepare_question_answer_run(
     user_message_id: str | None,
     assistant_message_id: str | None,
     history: list[Message] | None,
-    mock_evidence: bool,
-    retriever_node: Callable[[AgentState], AgentState] | None,
     skill_agent_node: Callable[[AgentState], AgentState] | None,
     tool_agent_node: Callable[[AgentState], AgentState] | None,
     store: BaseStore | None,
@@ -771,15 +705,11 @@ def _prepare_question_answer_run(
     attachment_ids: list[str] | None,
     attachment_resolver: AttachmentContextResolver | None,
 ) -> tuple[AgentState, Any, dict | None]:
-    selected_retriever_node = retriever_node
-    if selected_retriever_node is None:
-        selected_retriever_node =  build_default_rag_retriever_node()
     selected_registry_factory = tool_registry_factory or getattr(
         tool_agent_node, "tool_registry_factory", None
     ) or get_default_tool_registry
     tool_registry_snapshot = _runtime_registry_snapshot(
         registry_factory=selected_registry_factory,
-        retriever_node=selected_retriever_node,
     )
     state = create_initial_state(
         session_id=session_id,
@@ -798,7 +728,6 @@ def _prepare_question_answer_run(
     )
     graph = build_question_answer_graph(
         business_intent_catalog=business_intent_catalog,
-        retriever_node=selected_retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         store=store,
@@ -856,8 +785,6 @@ def resume_question_answer_graph(
     interrupt_id: str,
     action_digest: str,
     approval_decision: dict,
-    mock_evidence: bool = True,
-    retriever_node: Callable[[AgentState], AgentState] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     store: BaseStore | None = None,
@@ -874,19 +801,14 @@ def resume_question_answer_graph(
         raise ValueError("checkpoint_namespace must be empty for the root graph")
     if _CHECKPOINT_THREAD_ID_PATTERN.fullmatch(checkpoint_thread_id) is None:
         raise LegacyCheckpointIncompatibleError()
-    selected_retriever_node = retriever_node
-    if selected_retriever_node is None:
-        selected_retriever_node = build_default_rag_retriever_node()
     selected_registry_factory = tool_registry_factory or getattr(
         tool_agent_node, "tool_registry_factory", None
     ) or get_default_tool_registry
     tool_registry_snapshot = _runtime_registry_snapshot(
         registry_factory=selected_registry_factory,
-        retriever_node=selected_retriever_node,
     )
     graph = build_question_answer_graph(
         business_intent_catalog=business_intent_catalog,
-        retriever_node=selected_retriever_node,
         skill_agent_node=skill_agent_node,
         tool_agent_node=tool_agent_node,
         store=store,

@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator
-from typing import Protocol
+from typing import Any, Protocol
 
 from app.core.config import settings
 from app.llm.deepseek import DeepSeekClient, LlmConfigurationError
@@ -28,6 +28,10 @@ class LlmClient(Protocol):
         thinking: bool | None = None,
     ) -> AsyncIterator[str]:
         ...
+
+
+class ToolCallingLlmClient(LlmClient, Protocol):
+    def bind_tools(self, tools: list[dict[str, Any]], *, tool_choice: str): ...
 
 
 def build_llm_client() -> LlmClient:

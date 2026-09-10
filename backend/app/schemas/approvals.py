@@ -18,6 +18,7 @@ class ApprovalStatus(BaseModel):
 
 
 class PendingToolApproval(BaseModel):
+    task_id: str
     call_id: str
     step_index: int = Field(ge=0)
     request_fingerprint: str
@@ -31,11 +32,3 @@ class PendingToolApproval(BaseModel):
 class ApprovedToolCall(BaseModel):
     call_id: str = Field(min_length=1)
     arguments_hash: str = Field(min_length=1)
-
-
-class ReadyToolCall(BaseModel):
-    call_id: str = Field(min_length=1)
-    step_index: int = Field(ge=0)
-    request_fingerprint: str = Field(min_length=1)
-    tool_name: str
-    execution_binding_digest: str | None = None

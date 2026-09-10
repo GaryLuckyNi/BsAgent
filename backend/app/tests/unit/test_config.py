@@ -75,7 +75,6 @@ def _production_settings(**overrides):
         ({"log_format": "console"}, "log_format"),
         ({"trace_backend": "memory"}, "trace_backend"),
         ({"otel_enabled": False}, "otel_enabled"),
-        ({"use_mock_rag": True}, "use_mock_rag"),
     ],
 )
 def test_production_rejects_development_backends(overrides, expected_field):

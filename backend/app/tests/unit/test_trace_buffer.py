@@ -290,17 +290,11 @@ def test_trace_buffer_accepts_summarize_state_without_business_body():
         "response_policy": {"response_type": "answer"},
     }
     state["intent"] = {
-        "intent": "knowledge_qa",
-        "domain": "policy",
-        "risk_level": "low",
-        "candidate_skill": "company_snapshot",
-        "reason_codes": ["knowledge_question"],
-    }
-    state["selected_skill"] = {
-        "skill_name": "company_snapshot",
-        "skill_version": "v1",
-        "status": "selected",
-        "allowed_tools": [],
+        "intent_type": "financial_research",
+        "domain": "a_share_equity_research",
+        "subdomain": "company_snapshot",
+        "goal": "分析公司基本面",
+        "confidence": 0.98,
     }
     state["final_response"] = {
         "content": "不得进入 Trace 的最终回答正文",
@@ -340,16 +334,11 @@ def test_trace_buffer_accepts_known_node_transition_fields_without_summary_text(
         user_message="原始消息",
     )
     state["intent"] = {
-        "intent": "knowledge_qa",
-        "domain": "policy",
-        "sub_intent": "lookup",
-        "candidate_skill": "company_snapshot",
-        "candidate_tool": "rag_search",
+        "intent_type": "financial_research",
+        "domain": "a_share_equity_research",
+        "subdomain": "company_snapshot",
+        "goal": "分析公司",
         "confidence": 0.9,
-        "risk_level": "low",
-        "needs_clarification": False,
-        "reason_codes": ["knowledge_question"],
-        "next_node": "skill_agent",
     }
     summary = summarize_node_transition(
         node_name="intent_router",
@@ -366,7 +355,13 @@ def test_trace_buffer_accepts_known_node_transition_fields_without_summary_text(
 
     assert artifact_ref == "artifact_transition"
     payload = json.loads(buffer.artifacts[0].payload_json)
-    assert payload["intent_decision"]["candidate_skill"] == "company_snapshot"
+    assert payload["intent_decision"] == {
+        "confidence": 0.9,
+        "domain": "a_share_equity_research",
+        "goal_length": 4,
+        "intent_type": "financial_research",
+        "subdomain": "company_snapshot",
+    }
     assert "summary" not in payload
     assert "原始消息" not in buffer.artifacts[0].payload_json
 

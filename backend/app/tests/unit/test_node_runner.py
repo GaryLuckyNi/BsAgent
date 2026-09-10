@@ -44,22 +44,21 @@ def test_node_runner_records_success_event():
 
     def node(input_state):
         input_state["intent"] = {
-            "intent": "knowledge_qa",
-            "risk_level": "low",
-            "needs_clarification": False,
-            "candidate_skill": "company_snapshot",
-            "reason_codes": ["knowledge_question"],
-            "next_node": "skill_agent",
+            "intent_type": "financial_research",
+            "domain": "a_share_equity_research",
+            "subdomain": "company_snapshot",
+            "goal": "分析公司",
+            "confidence": 0.9,
         }
         return input_state
 
     result = runner.run("intent_router", node, state)
 
-    assert result["intent"]["intent"] == "knowledge_qa"
+    assert result["intent"]["intent_type"] == "financial_research"
     assert trace_store.events[0].node_name == "intent_router"
     assert trace_store.events[0].status == "success"
-    assert trace_store.events[0].metadata["summary"].startswith("识别为 knowledge_qa")
-    assert trace_store.events[0].metadata["intent_decision"]["candidate_skill"] == "company_snapshot"
+    assert trace_store.events[0].metadata["summary"].startswith("识别为 financial_research")
+    assert trace_store.events[0].metadata["intent_decision"]["subdomain"] == "company_snapshot"
 
 
 def test_node_runner_executes_runtime_aware_node_without_owning_runtime():
@@ -96,24 +95,26 @@ def test_node_runner_records_sanitized_input_and_output_artifacts():
         user_message="制度是什么？",
     )
     state["plan"] = {
-        "objective": "回答问题",
-        "execution_mode": "tool_execution",
-        "requested_tools": [
-            ToolCallRequest.model_construct(
-                tool_name="mcp.mock.write",
-                arguments={"database_password": "plan-secret", "value": "visible"},
-                purpose="验证 Trace 摘要",
-            )
-        ],
+        "tasks": [
+            {
+                "id": "market",
+                "task_goal": "查询行情",
+                "depends_on": [],
+                "skill_name": None,
+                "tool_name": "mcp.market.read",
+            }
+        ]
     }
     trace_store = InMemoryTraceStore()
     runner = NodeRunner(trace_store=trace_store)
 
     def node(input_state):
         input_state["intent"] = {
-            "intent": "knowledge_qa",
-            "risk_level": "low",
-            "candidate_skill": "company_snapshot",
+            "intent_type": "financial_research",
+            "domain": "a_share_equity_research",
+            "subdomain": "company_snapshot",
+            "goal": "分析公司",
+            "confidence": 0.9,
         }
         return input_state
 
@@ -126,17 +127,15 @@ def test_node_runner_records_sanitized_input_and_output_artifacts():
     input_artifact = trace_store.get_artifact(event.input_ref)
     output_artifact = trace_store.get_artifact(event.output_ref)
 
-    assert "objective" not in input_artifact.payload["plan"]
-    assert input_artifact.payload["plan"]["requested_tools"] == [
+    assert input_artifact.payload["plan"]["tasks"] == [
         {
-            "call_id": None,
-            "tool_name": "mcp.mock.write",
-            "tool_version": None,
-            "approval_required": False,
+            "dependency_count": 0,
+            "skill_name": None,
+            "task_id": "market",
+            "tool_name": "mcp.market.read",
         }
     ]
-    assert "plan-secret" not in repr(input_artifact.payload)
-    assert output_artifact.payload["intent"]["intent"] == "knowledge_qa"
+    assert output_artifact.payload["intent"]["intent_type"] == "financial_research"
     assert trace_store.list_events(result["trace_id"])[0].node_name == "intent_router"
 
 
@@ -304,7 +303,9 @@ def test_node_runner_records_recoverable_error_and_reraises_by_default():
         runner.run("retriever_agent", node, state)
 
     assert state["errors"] == []
-    assert trace_store.events == []
+    assert len(trace_store.events) == 1
+    assert trace_store.events[0].status == "error"
+    assert trace_store.events[0].error == "rag_index_unavailable:ControlledError"
 
 
 def test_node_runner_can_handle_recoverable_error_only_when_explicitly_enabled():

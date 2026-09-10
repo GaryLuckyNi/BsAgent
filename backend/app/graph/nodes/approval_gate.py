@@ -14,6 +14,7 @@ from app.schemas.approvals import (
 )
 from app.schemas.memory import MemoryCandidate
 from app.schemas.tools import ToolCallRequest
+from app.graph.planning.contracts import TaskResultModel
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolCatalogChangedError
 
@@ -192,12 +193,14 @@ def _apply_decision(state: AgentState, *, action: ApprovalAction, decision: dict
     state["pending_tool_approval"] = None
     if decision["decision"] == "rejected":
         state["approval_status"] = ApprovalStatus(required=True, status="rejected")
-        state["plan"] = {
-            **(state["plan"] or {}),
-            "execution_mode": "direct_response",
-            "requested_tools": [],
-            "response_policy": {"response_type": "approval_rejected_response"},
-        }
+        state["task_results"].append(
+            TaskResultModel(
+                task_id=descriptor.task_id,
+                status="terminal_failure",
+                content="用户拒绝了该工具调用。",
+                error_code="tool_approval_rejected",
+            ).model_dump(mode="python")
+        )
         return
     approval = ApprovedToolCall(
         call_id=descriptor.call_id,
@@ -209,12 +212,18 @@ def _apply_decision(state: AgentState, *, action: ApprovalAction, decision: dict
 
 
 def _descriptor_request(state: AgentState, descriptor: PendingToolApproval) -> ToolCallRequest:
-    plan = state["plan"] or {}
-    requests = plan.get("requested_tools", [])
-    if descriptor.step_index >= len(requests):
-        raise ApprovalPayloadMismatchError("待审批工具步骤不存在。")
-    raw_request = requests[descriptor.step_index]
-    request = raw_request if isinstance(raw_request, ToolCallRequest) else ToolCallRequest.model_validate(raw_request)
+    record = next(
+        (
+            item
+            for item in state["tool_calls"]
+            if (item.call_id or item.request.call_id) == descriptor.call_id
+            and item.result is None
+        ),
+        None,
+    )
+    if record is None:
+        raise ApprovalPayloadMismatchError("待审批工具调用不存在。")
+    request = record.request
     if (request.call_id, request.tool_name, request.tool_version) != (
         descriptor.call_id,
         descriptor.tool_name,

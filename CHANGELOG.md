@@ -6,6 +6,15 @@
 
 ### 变更
 
+- Graph 主链新增任务调度器，通过 LangGraph `Send` 并行分发无依赖 Skill、Tool 和 Analysis 子任务，有依赖任务按 DAG 自然串行。
+- 子任务执行结果统一为 `TaskResult`：业务失败作为 Observation 回到 Planner 有界重规划，网络与 Provider 短暂故障交给 LangGraph `RetryPolicy`，终止错误不盲目重试。
+- Skill Agent 改为按 Planner 选中名称加载完整定义与指南；Analysis Agent 只基于依赖结果执行任务级推理，两者均返回可并行合并的局部 State 更新。
+- Synthesizer 改为基于 `goal + TaskResult + Evidence` 动态生成中文 Markdown，不再无条件套用固定 A 股章节；Verifier 收敛为终稿安全、免责声明和产品边界闸门。
+- 会话 SSE 产品进度和公开分析思路改为读取当前任务 DAG、活动任务与 Observation，不再依赖已删除的执行模式、固定维度或实体修复字段。
+- Trace 摘要对齐 Intent `goal`、Planner DAG 与任务结果，节点在创建 artifact 后异常时会补写脱敏错误事件，避免孤立 artifact 导致持久化身份冲突。
+- Tool Agent 改为执行 Planner 下发的单个子任务，通过原生 `tool_calls` 生成参数并统一经过 Tool Gateway；移除旧的固定工具计划、实体猜测与占位符执行逻辑。
+- Agent 消息状态迁移至 LangChain 原生消息类型与 LangGraph `add_messages` reducer，并为并行子任务结果和工具调用记录增加幂等合并 reducer。
+- 并行 Skill Worker 只返回子任务局部更新，不再写入共享 `selected_skill` 标量字段，避免 LangGraph `Send` 同超步并发合并冲突。
 - Planner 改为单一 LLM 任务规划路径：基于 Intent `goal`、双 Top-K Skill/Tool 卡片、长期规划偏好和既有任务 Observation 动态生成最多 12 个子任务的 DAG，不再进入固定知识问答、工具动作或 A 股模板分支。
 - 新增严格任务计划契约，支持 Skill、Tool 与无外部能力的分析任务，校验任务 ID、依赖闭包、无环约束和本轮能力披露边界；Planner 决策预算默认固定为 10 轮。
 - Skill 渐进式披露新增基于 BM25S 的 Top-K 检索，候选先按 Admin 配置的 `domain/subdomain` 过滤；轻量卡片移除租户、版本、风险和工具白名单，完整定义仅在 Planner 选中 Skill 后按名称加载当前启用配置。
@@ -82,6 +91,8 @@
 
 ### 移除
 
+- 移除固定 A 股证据规划、固定回答模板、逐工具请求执行模式和未接入新 Graph 的 Retriever Agent 兼容分支；`rag_search` 改为与 MCP/Web Search 一致的普通 Tool Agent 执行路径。
+- 移除本地 Skill 基类和 `ConfiguredSkill` 双轨运行时，Skill Registry 只保留能力卡片发现与完整定义分层加载。
 - 移除冗余的 `build_llm_intent_router_node` 及可绕过显式 catalog 绑定的 Router builder 测试替身入口。
 - 移除本地业务意图 JSON 事实源及 `load_default()`、`load_from_path()` 文件加载入口；Intent Router 与节点构造链路统一显式接收 Admin catalog 快照，不再提供空目录、文件或全局单例回退。
 - 移除 Redis `ShortTermMemoryStore`、会话完成事件写入、专用配置与测试；Agent 短期记忆统一由 LangGraph `PostgresSaver` 管理。
@@ -91,6 +102,8 @@
 
 ### 测试
 
+- 新增真实 StateGraph 动态工具端到端测试，覆盖意图分类、Top-K 披露、Planner 选择、原生 `tool_calls/ToolMessage`、任务合并、Markdown 合成和 Verifier。
+- 新增并行 `Send` 任务、依赖调度、业务重规划、基础设施重试分类、高风险调用精确恢复和动态终稿的回归覆盖。
 - 动态 Planner 回归覆盖纯推理任务、Skill/Tool 互斥、重复与未知依赖、自依赖、循环依赖、任务数量上限、轻量候选 Prompt、未披露能力拒绝及 Planner 节点状态写入。
 - Skill Registry 与检索回归覆盖领域资格过滤、Top-K 相关性排序、当前定义分层加载、风险延迟披露和注册中心失败边界。
 - Planner 回归证明“海能达是否适合买入”与“只分析财务质量”产生不同分析问题、子任务和工具集合，并覆盖单次 Web Search、条件 RAG、12 条问题上限及未披露工具隔离。

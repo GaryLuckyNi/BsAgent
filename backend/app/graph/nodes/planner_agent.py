@@ -3,7 +3,7 @@ from collections.abc import Callable
 from langgraph.runtime import Runtime
 
 from app.core.config import settings
-from app.graph.planning.contracts import TaskResultModel
+from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
 from app.graph.planning.planner import LlmTaskPlanner, PlannerCapabilities
 from app.graph.state import AgentState, merge_disclosed_tool_names
 from app.llm.factory import LlmClient
@@ -76,6 +76,8 @@ def build_planner_agent_node(
             ),
             planning_constraints=constraints,
         )
+        if current_iteration:
+            plan = _namespace_replanned_tasks(plan, revision=current_iteration)
         state["plan"] = plan.model_dump(mode="python")
         state["planner_iteration"] = current_iteration + 1
         state["memory_candidates"] = propose_explicit_preference_candidates(
@@ -86,6 +88,22 @@ def build_planner_agent_node(
         return state
 
     return node
+
+
+def _namespace_replanned_tasks(plan: PlanModel, *, revision: int) -> PlanModel:
+    names = {task.id: f"r{revision}_{task.id}" for task in plan.tasks}
+    return PlanModel(
+        tasks=[
+            SubTaskModel(
+                id=names[task.id],
+                task_goal=task.task_goal,
+                depends_on=[names[dependency] for dependency in task.depends_on],
+                skill_name=task.skill_name,
+                tool_name=task.tool_name,
+            )
+            for task in plan.tasks
+        ]
+    )
 
 
 def _discover_capabilities(
@@ -123,6 +141,14 @@ def _discover_capabilities(
             ),
         )
         tool_hits.extend(response.hits)
+        previously_disclosed = state.get("disclosed_tool_names", [])
+        for spec in (
+            tool_search_service.resolve_specs(previously_disclosed)
+            if previously_disclosed
+            else []
+        ):
+            if all(hit.tool_name != spec.name for hit in tool_hits):
+                tool_hits.append(_tool_card(spec, rank=len(tool_hits) + 1))
         search_hit = _search_tool_hit(tool_search_service, rank=len(tool_hits) + 1)
         if search_hit is not None and all(
             hit.tool_name != search_hit.tool_name for hit in tool_hits

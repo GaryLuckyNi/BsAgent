@@ -58,11 +58,11 @@ describe('applyAgentStreamEvent', () => {
 
     applyAgentStreamEvent(view, {
       event: 'progress',
-      data: '{"stage":"collecting_market_data","message":"正在获取公司、行情与财务数据"}'
+      data: '{"stage":"executing_tools","message":"正在调用投研数据工具"}'
     })
     expect(view.progress).toEqual({
-      stage: 'collecting_market_data',
-      message: '正在获取公司、行情与财务数据'
+      stage: 'executing_tools',
+      message: '正在调用投研数据工具'
     })
 
     applyAgentStreamEvent(view, {
@@ -88,20 +88,20 @@ describe('applyAgentStreamEvent', () => {
     })
     applyAgentStreamEvent(view, {
       event: 'thinking_delta',
-      data: '{"stage":"tool_repair","label":"实体修复","content":"再修正实体。"}'
+      data: '{"stage":"replanning","label":"路径调整","content":"再根据失败观测调整路径。"}'
     })
     applyAgentStreamEvent(view, {
       event: 'thinking_delta',
-      data: '{"stage":"tool_repair","label":"实体修复","content":"并验证标的。"}'
+      data: '{"stage":"replanning","label":"路径调整","content":"并重新核对证据。"}'
     })
 
-    expect(view.thinking).toBe('我先确认目标。再修正实体。并验证标的。')
+    expect(view.thinking).toBe('我先确认目标。再根据失败观测调整路径。并重新核对证据。')
     expect(view.thinkingSections).toEqual([
       { stage: 'planning', label: '规划', content: '我先确认目标。' },
       {
-        stage: 'tool_repair',
-        label: '实体修复',
-        content: '再修正实体。并验证标的。'
+        stage: 'replanning',
+        label: '路径调整',
+        content: '再根据失败观测调整路径。并重新核对证据。'
       }
     ])
   })

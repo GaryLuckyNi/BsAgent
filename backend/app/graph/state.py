@@ -3,12 +3,20 @@ import json
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from langchain_core.messages import (
+    AIMessage,
+    AnyMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langgraph.graph.message import add_messages
+
 from app.schemas.approvals import (
     ApprovalRequest,
     ApprovalStatus,
     ApprovedToolCall,
     PendingToolApproval,
-    ReadyToolCall,
 )
 from app.schemas.evidence import EvidencePackage
 from app.schemas.memory import MemoryCandidate
@@ -22,14 +30,6 @@ class IntentDecision(TypedDict, total=False):
     subdomain: str | None
     goal: str | None
     confidence: float
-
-
-class SkillSelection(TypedDict, total=False):
-    skill_name: str
-    skill_version: str
-    status: str
-    reason_codes: list[str]
-    allowed_tools: list[str]
 
 
 class EvidenceChannels(TypedDict):
@@ -165,27 +165,6 @@ def build_checkpoint_thread_id(
     return f"cpr1_{sha256(identity).hexdigest()}"
 
 
-def add_state_messages(
-    existing: list[Message] | None,
-    incoming: list[Message] | None,
-) -> list[Message]:
-    merged: list[Message] = []
-    positions: dict[str, int] = {}
-    for raw_message in [*(existing or []), *(incoming or [])]:
-        message = (
-            raw_message
-            if isinstance(raw_message, Message)
-            else Message.model_validate(raw_message)
-        )
-        position = positions.get(message.message_id)
-        if position is not None:
-            merged[position] = message
-        else:
-            positions[message.message_id] = len(merged)
-            merged.append(message)
-    return merged
-
-
 def merge_disclosed_tool_names(
     existing: list[str],
     incoming: list[str],
@@ -193,6 +172,60 @@ def merge_disclosed_tool_names(
     limit: int,
 ) -> list[str]:
     return list(dict.fromkeys([*existing, *incoming]))[:limit]
+
+
+def merge_task_results(
+    existing: list[dict[str, Any]] | None,
+    incoming: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    merged = [dict(item) for item in existing or []]
+    positions = {
+        item.get("task_id"): index
+        for index, item in enumerate(merged)
+        if item.get("task_id")
+    }
+    for item in incoming or []:
+        value = dict(item)
+        task_id = value.get("task_id")
+        if task_id in positions:
+            merged[positions[task_id]] = value
+        else:
+            if task_id:
+                positions[task_id] = len(merged)
+            merged.append(value)
+    return merged
+
+
+def merge_tool_call_records(
+    existing: list[ToolCallRecord] | None,
+    incoming: list[ToolCallRecord] | None,
+) -> list[ToolCallRecord]:
+    merged = list(existing or [])
+    positions = {
+        record.call_id or record.request.call_id: index
+        for index, record in enumerate(merged)
+        if record.call_id or record.request.call_id
+    }
+    for record in incoming or []:
+        call_id = record.call_id or record.request.call_id
+        if call_id in positions:
+            merged[positions[call_id]] = record
+        else:
+            if call_id:
+                positions[call_id] = len(merged)
+            merged.append(record)
+    return merged
+
+
+def merge_pending_tool_approval(
+    existing: PendingToolApproval | None,
+    incoming: PendingToolApproval | None,
+) -> PendingToolApproval | None:
+    if incoming is None:
+        return None
+    if existing is None:
+        return incoming
+    return min(existing, incoming, key=lambda item: (item.task_id, item.call_id))
 
 
 class AgentState(TypedDict):
@@ -207,16 +240,15 @@ class AgentState(TypedDict):
     tool_search_count: int
     user_message: str
     assistant_message_id: str
-    messages: Annotated[list[Message], add_state_messages]
+    messages: Annotated[list[AnyMessage], add_messages]
     attachment_refs: list[AttachmentRef]
     image_analyses: list[ImageAnalysisSummary]
-    conversation_history: list[Message]
     intent: IntentDecision | None
     planner_iteration: int
     plan: PlanDecision | None
-    task_results: list[dict[str, Any]]
-    selected_skill: SkillSelection | None
-    tool_calls: list[ToolCallRecord]
+    active_task: NotRequired[dict[str, Any]]
+    task_results: Annotated[list[dict[str, Any]], merge_task_results]
+    tool_calls: Annotated[list[ToolCallRecord], merge_tool_call_records]
     evidence: EvidencePackage | None
     analysis: AnalysisResult | None
     draft_answer: DraftAnswer | None
@@ -226,8 +258,10 @@ class AgentState(TypedDict):
     approval_status: ApprovalStatus | None
     permission_scopes: list[str]
     approved_tool_calls: list[ApprovedToolCall]
-    pending_tool_approval: PendingToolApproval | None
-    ready_tool_call: ReadyToolCall | None
+    pending_tool_approval: Annotated[
+        PendingToolApproval | None,
+        merge_pending_tool_approval,
+    ]
     final_response: AgentResponse | None
     errors: list[AgentError]
 
@@ -257,15 +291,17 @@ def create_initial_state(
     trace_id = trace_id or f"trace_{uuid4().hex}"
     user_message_id = user_message_id or f"{request_id}:user"
     assistant_message_id = assistant_message_id or f"{request_id}:assistant"
-    user_message_record = Message(
-        message_id=user_message_id,
-        role="user",
+    user_message_record = HumanMessage(
+        id=user_message_id,
         content=user_message,
-        metadata={
-            "request_id": request_id,
+        additional_kwargs={
+            "metadata": {"request_id": request_id},
         },
     )
-    messages = add_state_messages(history, [user_message_record])
+    messages = add_messages(
+        [_to_langchain_message(message) for message in history or []],
+        [user_message_record],
+    )
     return {
         "session_id": session_id,
         "session_key": session_key,
@@ -283,12 +319,10 @@ def create_initial_state(
             {"asset_id": asset_id} for asset_id in attachment_ids or []
         ],
         "image_analyses": [],
-        "conversation_history": list(messages),
         "intent": None,
         "planner_iteration": 0,
         "plan": None,
         "task_results": [],
-        "selected_skill": None,
         "tool_calls": [],
         "evidence": None,
         "analysis": None,
@@ -300,10 +334,27 @@ def create_initial_state(
         "permission_scopes": list(permission_scopes or []),
         "approved_tool_calls": [],
         "pending_tool_approval": None,
-        "ready_tool_call": None,
         "final_response": None,
         "errors": [],
     }
+
+
+def _to_langchain_message(message: Message) -> AnyMessage:
+    common = {
+        "content": message.content,
+        "id": message.message_id,
+        "additional_kwargs": {"metadata": dict(message.metadata)},
+    }
+    if message.role == "user":
+        return HumanMessage(**common)
+    if message.role == "assistant":
+        return AIMessage(**common)
+    if message.role == "system":
+        return SystemMessage(**common)
+    return ToolMessage(
+        **common,
+        tool_call_id=str(message.metadata.get("tool_call_id") or message.message_id),
+    )
 
 
 def _compat_session_key(*, session_id: str, tenant_id: str, user_id: str) -> str:

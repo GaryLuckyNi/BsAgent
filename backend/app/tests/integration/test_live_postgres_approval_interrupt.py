@@ -1,4 +1,5 @@
 import os
+import json
 
 import pytest
 from langgraph.checkpoint.postgres import PostgresSaver
@@ -21,19 +22,41 @@ from app.tools.registry import ToolRegistry
 
 class LocalPreferenceLlm:
     async def complete(self, **kwargs):
-        if "最终回答渲染器" in kwargs.get("system_prompt", ""):
-            return LlmCompletionResult(
-                content="偏好审批已处理。",
-                model="local-test",
-                provider="local",
+        prompt = kwargs.get("system_prompt", "")
+        if "投研任务理解器" in prompt:
+            content = json.dumps(
+                {
+                    "intent_type": "financial_research",
+                    "domain": "a_share_equity_research",
+                    "subdomain": "company_snapshot",
+                    "goal": "分析海能达并记住用户明确提供的联系方式",
+                    "confidence": 0.99,
+                },
+                ensure_ascii=False,
             )
+        elif "投研任务 Planner" in prompt:
+            content = json.dumps(
+                {
+                    "tasks": [
+                        {
+                            "id": "analyze_company",
+                            "task_goal": "基于已有上下文分析海能达",
+                            "depends_on": [],
+                            "skill_name": None,
+                            "tool_name": None,
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            )
+        elif "投研任务执行器" in prompt:
+            content = "未提供外部数据，本任务仅验证审批恢复。"
+        elif "投研报告合成器" in prompt:
+            content = "## 处理结果\n\n偏好审批已处理。"
+        else:
+            raise AssertionError(prompt)
         return LlmCompletionResult(
-            content=(
-                '{"intent":"conversation","domain":"preference_ack",'
-                '"sub_intent":"remember_user_preference","candidate_skill":null,'
-                '"candidate_tool":null,"risk_level":"low","confidence":0.99,'
-                '"needs_clarification":false,"reason_codes":["local_test"]}'
-            ),
+            content=content,
             model="local-test",
             provider="local",
         )
@@ -163,7 +186,7 @@ def _run_interrupted_graph(saver: PostgresSaver, business_intent_catalog):
         session_key="live-approval-session-key",
         tenant_id="tenant-live",
         user_id="user-live",
-        user_message="请记住我的联系电话：13800138000",
+        user_message="分析海能达，并请记住我的联系电话：13800138000",
         request_id="request-live-approval",
         checkpointer=saver,
         tool_registry_factory=ToolRegistry,

@@ -1,180 +1,103 @@
-from collections.abc import Callable
-from copy import deepcopy
+import asyncio
+import json
+from typing import Any
 
-import httpx
-from pydantic import ValidationError
+from langchain_core.messages import AIMessage
 
-from app.core.config import settings
+from app.graph.planning.contracts import SubTaskModel, TaskResultModel
 from app.graph.state import AgentState
-from app.graph.image_context import summarize_image_analyses
-from app.schemas.tools import ToolCallRequest, ToolSpec
-from app.skills.admin_provider import AdminSkillDefinitionProvider
+from app.llm.factory import LlmClient
 from app.skills.registry import SkillRegistry
-from app.skills.registry_client import CachedSkillDefinitionProvider
-from app.tools.redaction import (
-    InlineCredentialsForbiddenError,
-    reject_inline_credentials,
-    reject_server_injected_arguments,
-)
 
 
-class SkillToolRequestValidationError(ValueError):
-    code = "skill_tool_request_invalid"
-    http_status = 400
-
-
-def build_skill_agent_node(*, registry: SkillRegistry | None = None):
-    selected_registry = registry or build_default_skill_registry()
-
-    def node(state: AgentState) -> AgentState:
-        intent = state["intent"] or {}
-        plan = state["plan"] or {}
-        selected_skill_plan = plan.get("selected_skill", {})
-        candidate_skill = selected_skill_plan.get("name")
-        if not candidate_skill:
-            raise KeyError("Planner did not select a skill.")
-        skill = selected_registry.select(
-            candidate_skill=candidate_skill,
-        )
-        output = skill.run_validated(
-            run_id=state["request_id"],
-            tenant_id=state["tenant_id"],
-            user_id=state["user_id"],
-            user_message=state["user_message"],
-            context={
-                "intent": intent,
-                "selected_skill": state["selected_skill"],
-                "image_analyses": summarize_image_analyses(
-                    state["image_analyses"]
+def build_skill_agent_node(
+    *,
+    registry: SkillRegistry,
+    llm_client: LlmClient | None = None,
+):
+    def node(state: AgentState) -> dict[str, Any]:
+        task = _active_skill_task(state)
+        if llm_client is None:
+            return _terminal_failure(task, "skill_llm_required", "Skill 执行模型未配置。")
+        definition, guide = registry.get_definition_layers(name=task.skill_name or "")
+        completion = asyncio.run(
+            llm_client.complete(
+                system_prompt=(
+                    "你是投研 Skill 执行器。严格按照加载的 Skill 指南完成当前 task_goal，"
+                    "不要生成最终回答。只使用 dependencies 中已有事实；不得假装已调用工具，"
+                    "不得补造数据。缺少必要输入时明确说明。输出简洁专业的中文任务结果。"
                 ),
-            },
-            evidence=state["evidence"],
+                user_prompt=json.dumps(
+                    {
+                        "user_message": state["user_message"],
+                        "task_goal": task.task_goal,
+                        "skill": {
+                            "name": definition.name,
+                            "description": definition.description,
+                            "constraints": definition.constraints,
+                            "output_contract": definition.output_contract,
+                        },
+                        "instructions": guide.instructions,
+                        "recovery_policy": guide.recovery_policy,
+                        "dependencies": _dependency_results(state, task),
+                    },
+                    ensure_ascii=False,
+                ),
+                temperature=0.1,
+                max_tokens=1_024,
+                thinking=False,
+            )
         )
-        state["selected_skill"] = {
-            "skill_name": output.skill_name,
-            "skill_version": output.skill_version,
-            "status": output.status,
-            "reason_codes": output.reason_codes,
-            "allowed_tools": skill.spec.allowed_tools,
+        content = completion.content.strip()
+        if not content:
+            return _terminal_failure(
+                task,
+                "skill_output_empty",
+                "Skill 执行模型未返回任务结果。",
+            )
+        result = TaskResultModel(task_id=task.id, status="success", content=content)
+        return {
+            "messages": [
+                AIMessage(
+                    id=f"{state['request_id']}:task:{task.id}",
+                    content=content,
+                    additional_kwargs={"task_id": task.id, "task_role": "skill"},
+                )
+            ],
+            "task_results": [result.model_dump(mode="python")],
         }
-        state["plan"] = plan | {
-            "skill_output": output.model_dump(),
-            "requested_tools": output.requested_tools,
-        }
-        _record_evidence_contract_error(state, output.reason_codes)
-        return state
 
     return node
 
 
-def skill_agent_node(state: AgentState) -> AgentState:
-    return build_skill_agent_node()(state)
+def _active_skill_task(state: AgentState) -> SubTaskModel:
+    task = SubTaskModel.model_validate(state.get("active_task"))
+    if task.skill_name is None or task.tool_name is not None:
+        raise ValueError("Skill Agent 只能执行包含 skill_name 的子任务。")
+    return task
 
 
-def _record_evidence_contract_error(
+def _dependency_results(
     state: AgentState,
-    reason_codes: list[str],
-) -> None:
-    messages = {
-        "skill_evidence_contract_missing": (
-            "Skill 证据契约未配置，请联系管理员完善配置。"
-        ),
-        "skill_evidence_contract_invalid": (
-            "Skill 证据契约无效，请联系管理员检查配置。"
-        ),
-    }
-    code = next((code for code in reason_codes if code in messages), None)
-    if code is None:
-        return
-    state["errors"].append(
-        {
-            "node": "skill_agent",
-            "message": messages[code],
-            "code": code,
-            "http_status": 422,
-            "handled": True,
-        }
+    task: SubTaskModel,
+) -> list[dict[str, Any]]:
+    dependency_ids = set(task.depends_on)
+    return [
+        dict(result)
+        for result in state["task_results"]
+        if result.get("task_id") in dependency_ids
+    ]
+
+
+def _terminal_failure(
+    task: SubTaskModel,
+    code: str,
+    content: str,
+) -> dict[str, Any]:
+    result = TaskResultModel(
+        task_id=task.id,
+        status="terminal_failure",
+        content=content,
+        error_code=code,
     )
-
-
-def guard_skill_agent_node(
-    node: Callable[[AgentState], AgentState],
-    *,
-    tool_specs: tuple[ToolSpec, ...],
-) -> Callable[[AgentState], AgentState]:
-    specs_by_name = {spec.name: spec.model_copy(deep=True) for spec in tool_specs}
-
-    def guarded(state: AgentState) -> AgentState:
-        safe_state = deepcopy(state)
-        try:
-            result = node(state)
-            _validate_skill_tool_requests(result, specs_by_name=specs_by_name)
-            return result
-        except (InlineCredentialsForbiddenError, ValidationError) as exc:
-            state.clear()
-            state.update(safe_state)
-            if isinstance(exc, InlineCredentialsForbiddenError) or _is_inline_credential_error(
-                exc
-            ):
-                raise InlineCredentialsForbiddenError(
-                    "Skill 工具参数包含禁止进入 Agent State 的凭证或服务端字段。"
-                ) from exc
-            raise SkillToolRequestValidationError("Skill 工具请求不符合契约。") from exc
-
-    return guarded
-
-
-def _validate_skill_tool_requests(
-    state: AgentState,
-    *,
-    specs_by_name: dict[str, ToolSpec],
-) -> None:
-    plan = state["plan"] or {}
-    validated_requests = []
-    for raw_request in plan.get("requested_tools", []):
-        payload = (
-            raw_request.model_dump(mode="python")
-            if isinstance(raw_request, ToolCallRequest)
-            else raw_request
-        )
-        request = ToolCallRequest.model_validate(payload)
-        reject_inline_credentials(request.arguments)
-        tool_spec = specs_by_name.get(request.tool_name)
-        if tool_spec is not None:
-            reject_server_injected_arguments(
-                request.arguments,
-                schema=tool_spec.input_schema,
-                server_injected_fields=tool_spec.server_injected_fields,
-            )
-        validated_requests.append(request)
-    state["plan"] = {**plan, "requested_tools": validated_requests}
-    skill_output = state["plan"].get("skill_output")
-    if isinstance(skill_output, dict):
-        state["plan"]["skill_output"] = {
-            **skill_output,
-            "requested_tools": [
-                request.model_dump(mode="python") for request in validated_requests
-            ],
-        }
-
-
-def _is_inline_credential_error(exc: ValidationError) -> bool:
-    return any(
-        error.get("type") == "inline_credentials_forbidden"
-        for error in exc.errors()
-    )
-
-
-def build_default_skill_registry() -> SkillRegistry:
-    if settings.skill_registry_base_url:
-        client = httpx.Client(
-            base_url=settings.skill_registry_base_url,
-            timeout=5.0,
-        )
-        provider = CachedSkillDefinitionProvider(
-            AdminSkillDefinitionProvider(client=client),
-            ttl_seconds=settings.skill_definition_cache_ttl_seconds,
-        )
-        return SkillRegistry(definition_provider=provider)
-
-    return SkillRegistry()
+    return {"task_results": [result.model_dump(mode="python")]}

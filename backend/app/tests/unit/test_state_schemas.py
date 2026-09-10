@@ -1,7 +1,9 @@
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph.message import add_messages
 from pydantic import ValidationError
 
-from app.graph.state import add_state_messages, create_initial_state
+from app.graph.state import create_initial_state
 from app.intent.schemas import IntentDecisionModel
 from app.schemas.messages import Message
 from app.schemas.evidence import EvidenceItem, EvidencePackage
@@ -27,12 +29,12 @@ def test_create_initial_state_contains_trace_and_empty_collections():
     assert state["tenant_id"] == "t1"
     assert state["user_id"] == "u1"
     assert state["user_message"] == "报销制度是什么？"
-    assert [message.role for message in state["messages"]] == ["user"]
+    assert [message.type for message in state["messages"]] == ["human"]
     assert state["messages"][0].content == "报销制度是什么？"
-    assert state["messages"][0].message_id == "message-user-1"
+    assert state["messages"][0].id == "message-user-1"
     assert state["request_id"] == "request-1"
     assert state["trace_id"] == "trace-1"
-    assert state["conversation_history"] == state["messages"]
+    assert "conversation_history" not in state
     assert state["tool_calls"] == []
     assert state["errors"] == []
     assert state["disclosed_tool_names"] == []
@@ -83,54 +85,28 @@ def test_compat_session_key_uses_unambiguous_stable_identity_encoding():
     assert first == repeated
 
 
-def test_add_state_messages_replaces_same_id_in_place_and_appends_new_ids():
-    first = Message(
-        message_id="req_1:user",
-        role="user",
-        content="第一轮",
-    )
-    repeated = Message(
-        message_id="req_1:user",
-        role="assistant",
-        content="第一轮已修正",
-    )
-    second = Message(
-        message_id="req_1:assistant",
-        role="assistant",
-        content="第一轮回答",
-    )
+def test_add_messages_replaces_same_id_in_place_and_appends_new_ids():
+    first = HumanMessage(id="req_1:user", content="第一轮")
+    repeated = AIMessage(id="req_1:user", content="第一轮已修正")
+    second = AIMessage(id="req_1:assistant", content="第一轮回答")
 
-    merged = add_state_messages([first], [repeated, second])
+    merged = add_messages([first], [repeated, second])
 
-    assert [message.message_id for message in merged] == [
+    assert [message.id for message in merged] == [
         "req_1:user",
         "req_1:assistant",
     ]
     assert [message.content for message in merged] == ["第一轮已修正", "第一轮回答"]
-    assert merged[0].role == "assistant"
+    assert merged[0].type == "ai"
 
 
-def test_add_state_messages_does_not_deduplicate_equal_role_and_content():
-    merged = add_state_messages(
-        [Message(message_id="message-1", role="user", content="相同内容")],
-        [Message(message_id="message-2", role="user", content="相同内容")],
+def test_add_messages_does_not_deduplicate_equal_role_and_content():
+    merged = add_messages(
+        [HumanMessage(id="message-1", content="相同内容")],
+        [HumanMessage(id="message-2", content="相同内容")],
     )
 
-    assert [message.message_id for message in merged] == ["message-1", "message-2"]
-
-
-def test_add_state_messages_normalizes_duplicate_ids_already_in_state():
-    merged = add_state_messages(
-        [
-            Message(message_id="message-1", role="user", content="旧内容"),
-            Message(message_id="message-1", role="user", content="新内容"),
-        ],
-        [],
-    )
-
-    assert [(message.message_id, message.content) for message in merged] == [
-        ("message-1", "新内容")
-    ]
+    assert [message.id for message in merged] == ["message-1", "message-2"]
 
 
 def test_create_initial_state_normalizes_history_before_current_turn():
@@ -152,12 +128,16 @@ def test_create_initial_state_normalizes_history_before_current_turn():
         history=history,
     )
 
-    assert [message.message_id for message in state["messages"]] == [
+    assert [message.id for message in state["messages"]] == [
         "history-user",
         "history-assistant",
         "current-user",
     ]
-    assert state["conversation_history"] == state["messages"]
+    assert [message.type for message in state["messages"]] == [
+        "human",
+        "ai",
+        "human",
+    ]
 
 
 def test_initial_state_preserves_attachment_refs_without_analysis_payload():

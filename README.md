@@ -1,13 +1,13 @@
 # BsAgent
 
-BsAgent 是面向 A 股公司投研场景的多 Agent 底座。系统以 LangGraph 编排意图识别、规划、RAG 检索、Skill、MCP 工具、审批、验证与回答合成，并支持图片上传、PaddleOCR、外部 Vision 分析、流式回答、Checkpoint 恢复和全链路观测。
+BsAgent 是面向 A 股公司投研场景的多 Agent 底座。系统以 LangGraph 编排投研范围识别、动态任务 DAG、Skill、MCP/RAG 工具、审批、验证与回答合成，并支持图片上传、PaddleOCR、外部 Vision 分析、流式回答、Checkpoint 恢复和全链路观测。
 
 ## 核心组件
 
 - `backend`：FastAPI、LangGraph、PostgreSQL、Redis、Celery、S3/MinIO。
 - `frontend`：Vite、TypeScript、OIDC Authorization Code + PKCE、SSE。
 - `ocr-service`：独立 PaddleOCR HTTP 服务，启动期加载模型。
-- `mcp server`：投研工具 MCP Server，由 Agent 启动期动态发现工具。
+- `mcp server`：用于学习和本地联调的 MCP Server；生产市场数据由 Agent 通过 Streamable HTTP 直接连接 Tushare MCP Server。
 - `admin`：Intent、Sub-intent 与 Skill Registry 配置中心。
 - `rag`：同目录外部 RAG 微服务；BsAgent 只调用检索能力。
 
@@ -82,7 +82,7 @@ export BS_AGENT_WEB_SEARCH_ENABLED=true
 npm run dev
 ```
 
-`BS_AGENT_WEB_SEARCH_ENABLED=true` 会启用 DeepSeek 原生 Web Search，供公司名称精确解析失败后的实体发现使用。搜索结果必须再次通过 Tushare 的 `stock.resolve_company` 复验，不能直接作为证券代码事实。
+`BS_AGENT_WEB_SEARCH_ENABLED=true` 会把 Web Search 作为普通可检索 Tool 注册到目录。是否联网、搜索什么关键词以及后续如何复验，由 Planner 根据用户 `goal`、已披露能力和 Observation 动态安排，不使用公司名称失败的固定代码分支。搜索结果仍属于外部证据，不能未经交叉验证就当作证券代码或公司事实。
 
 `company_snapshot` 默认至少需要声明已开通 `stock_basic`、`stock_company`、`daily`；`daily_basic`、`anns_d` 可作为可选增强接口。
 

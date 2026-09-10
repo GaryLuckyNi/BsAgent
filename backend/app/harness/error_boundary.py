@@ -95,6 +95,60 @@ _RECOVERABLE_ERROR_DEFINITIONS: Mapping[str, RecoverableErrorDefinition] = {
         http_status=409,
         terminal=True,
     ),
+    "mcp_tool_timeout": RecoverableErrorDefinition(
+        code="mcp_tool_timeout",
+        message="MCP 工具执行超时。",
+        http_status=503,
+        retryable=True,
+    ),
+    "provider_rate_limited": RecoverableErrorDefinition(
+        code="provider_rate_limited",
+        message="市场数据服务访问频繁，请稍后重试。",
+        http_status=503,
+        retryable=True,
+    ),
+    "provider_timeout": RecoverableErrorDefinition(
+        code="provider_timeout",
+        message="市场数据服务响应超时。",
+        http_status=503,
+        retryable=True,
+    ),
+    "provider_unavailable": RecoverableErrorDefinition(
+        code="provider_unavailable",
+        message="市场数据服务暂不可用。",
+        http_status=503,
+        retryable=True,
+    ),
+    "provider_upstream_error": RecoverableErrorDefinition(
+        code="provider_upstream_error",
+        message="市场数据上游暂不可用。",
+        http_status=503,
+        retryable=True,
+    ),
+    "rag_service_timeout": RecoverableErrorDefinition(
+        code="rag_service_timeout",
+        message="检索服务响应超时。",
+        http_status=503,
+        retryable=True,
+    ),
+    "rag_service_unreachable": RecoverableErrorDefinition(
+        code="rag_service_unreachable",
+        message="检索服务不可达。",
+        http_status=503,
+        retryable=True,
+    ),
+    "web_search_timeout": RecoverableErrorDefinition(
+        code="web_search_timeout",
+        message="联网搜索响应超时。",
+        http_status=503,
+        retryable=True,
+    ),
+    "web_search_unavailable": RecoverableErrorDefinition(
+        code="web_search_unavailable",
+        message="联网搜索暂不可用。",
+        http_status=503,
+        retryable=True,
+    ),
 }
 
 RECOVERABLE_ERROR_CODES = frozenset(_RECOVERABLE_ERROR_DEFINITIONS)

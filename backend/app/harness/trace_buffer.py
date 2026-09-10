@@ -34,8 +34,6 @@ _SAFE_STRING_KEYS = {
     "asset_id",
     "call_id",
     "candidate_id",
-    "candidate_skill",
-    "candidate_tool",
     "catalog_digest",
     "capability",
     "code",
@@ -43,11 +41,10 @@ _SAFE_STRING_KEYS = {
     "document_type",
     "domain",
     "error_code",
-    "execution_mode",
+    "intent_type",
     "llm_rendering",
     "llm_validation_error",
     "memory_type",
-    "next_node",
     "node",
     "raw_type",
     "request_id",
@@ -61,7 +58,8 @@ _SAFE_STRING_KEYS = {
     "source",
     "status",
     "strategy",
-    "sub_intent",
+    "subdomain",
+    "task_id",
     "tenant_id",
     "tool_call_id",
     "tool_name",
@@ -76,7 +74,6 @@ _SAFE_STRING_LIST_KEYS = {
     "evidence_ids",
     "missing_optional_fields",
     "provided_fields",
-    "reason_codes",
     "requested_fields",
     "source_apis",
     "structured_tools",
@@ -86,11 +83,12 @@ _SAFE_NUMBER_KEYS = {
     "claim_count",
     "confidence",
     "content_length",
+    "dependency_count",
     "entry_count",
-    "execution_step_count",
     "executed_count",
     "faithfulness_score",
     "finding_count",
+    "goal_length",
     "http_status",
     "item_count",
     "latency_ms",
@@ -98,6 +96,8 @@ _SAFE_NUMBER_KEYS = {
     "missing_information_count",
     "risk_flag_count",
     "structured_tool_result_count",
+    "task_count",
+    "task_result_count",
     "tool_fact_count",
     "search_count",
     "warning_count",
@@ -105,7 +105,6 @@ _SAFE_NUMBER_KEYS = {
 _SAFE_BOOL_KEYS = {
     "approval_required",
     "degraded",
-    "needs_clarification",
     "required",
 }
 _SAFE_OBJECT_KEYS = {
@@ -130,10 +129,10 @@ _SAFE_OBJECT_LIST_KEYS = {
     "errors",
     "memory_candidates",
     "records",
-    "requested_tools",
+    "tasks",
     "tool_calls",
 }
-_SAFE_STRING_OR_OBJECT_KEYS = {"approval_status", "intent", "selected_skill"}
+_SAFE_STRING_OR_OBJECT_KEYS = {"approval_status", "intent"}
 _SAFE_EXACT_KEYS = (
     _SAFE_STRING_KEYS
     | _SAFE_STRING_LIST_KEYS

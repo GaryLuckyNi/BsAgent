@@ -13,7 +13,6 @@ class Settings(BaseSettings):
     rag_timeout_seconds: float = 30.0
     rag_provider_revision: str = "local-dev"
     rag_config_revision: str = "default"
-    use_mock_rag: bool = False
     database_url: str = "sqlite:///./bs_agent.db"
     redis_url: str = "redis://localhost:6379/0"
     memory_store_postgres_url: str = (
@@ -165,8 +164,6 @@ class Settings(BaseSettings):
             invalid.append("trace_backend")
         if not self.otel_enabled:
             invalid.append("otel_enabled")
-        if self.use_mock_rag:
-            invalid.append("use_mock_rag")
         if not _has_text(self.rag_base_url):
             invalid.append("rag_base_url")
         if not _has_text(self.skill_registry_base_url):

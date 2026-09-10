@@ -223,7 +223,6 @@ def decide_approval(
                     "action_digest": resume_snapshot.action_digest,
                     "decision": request.decision,
                 },
-                mock_evidence=settings.use_mock_rag,
                 store=memory_store,
                 trace_buffer=trace_buffer,
                 checkpointer=build_graph_checkpointer(),

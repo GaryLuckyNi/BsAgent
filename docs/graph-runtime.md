@@ -2,55 +2,73 @@
 
 ## 主链路
 
-Graph 入口先固化工具目录快照并处理附件，再进入意图、规划和动态执行路由：
+BsAgent 使用单一动态任务图，不再按固定的知识问答、工具动作或 A 股模板分叉：
 
 ```text
 catalog_guard
 -> attachment_analyzer
 -> intent_router
 -> planner_agent
--> skill_agent | tool_agent | approval_gate | analysis_agent | synthesizer
--> retriever_agent（仅当已就绪的 rag_search 需要执行）
--> analysis_agent
+-> task_scheduler
+   -> skill_agent    \
+   -> tool_agent      +-> task_scheduler
+   -> analysis_agent /
 -> synthesizer
 -> verifier
 -> approval_coordinator
 -> final_response
 ```
 
-`ToolAgent` 是显式 Graph 节点，可根据计划分步推进工具请求。需要审批的当前调用会转入 `approval_gate`；可执行的 RAG 调用由 `ready_tool_call` 路由到 Retriever，其他工具结果根据计划进入 Analysis 或 Synthesizer。
+`intent_router` 判断是否属于 Admin 已启用的投研范围，并在不改变语义的前提下生成 `goal`。超出范围时直接进入答案合成，不规划或调用工具。
 
-Graph 没有固定 Memory 节点。Planner 和 Synthesizer 只在需要时通过 LangGraph `Runtime.store` 按租户/用户召回长期偏好，避免每轮都把完整画像塞入上下文。
+## 动态规划
 
-## Intent Router 与 Planner
+Planner 先使用 `intent_type/domain/subdomain` 过滤 Skill，再对 Skill 和 Tool 分别执行 Top-K 检索。LLM 只看到本轮披露的轻量能力卡片，输出最多 12 个子任务的 DAG：
 
-Intent Router 负责识别用户目标、业务意图、风险和候选 Skill，并在 LLM 分类时获取当前租户可用的精简 Skill Card 及启动期工具摘要。
+```json
+{
+  "tasks": [
+    {
+      "id": "market_data",
+      "task_goal": "取得目标公司行情",
+      "depends_on": [],
+      "skill_name": null,
+      "tool_name": "mcp.tushare.stock.daily"
+    },
+    {
+      "id": "interpret",
+      "task_goal": "解读行情与风险",
+      "depends_on": ["market_data"],
+      "skill_name": null,
+      "tool_name": null
+    }
+  ]
+}
+```
 
-Planner 消费意图结果，生成可审计的执行模式、步骤、工具请求、证据策略和回答策略。它可以根据实际工具目录生成多步计划，不在代码中枚举某个具体 MCP 工具。
+同一子任务最多选择一种外部能力。没有 `skill_name/tool_name` 的子任务由 Analysis Agent 使用依赖结果做局部推理。
 
-## Tool 与 Skill 上下文
+## 调度与状态合并
 
-- MCP 工具在应用启动期通过 Streamable HTTP `list_tools` 动态发现，然后与 RAG/Adapter 能力合并成只读 `ToolRegistry` 快照。
-- Intent Router 和 Planner 仅获取精简工具摘要；执行阶段才使用完整 schema、风险、权限和 execution binding。
-- Skill 首先暴露精简 Skill Card，命中后才获取完整定义，避免把全部 Skill 内容长期占用模型上下文。
-- 计划、Skill 出站和 Tool Agent 执行前都使用同一目录快照校验工具名、版本、schema、权限和凭证边界。
+Scheduler 只调度所有依赖已成功的任务。多个无依赖任务通过 LangGraph `Send` 并行分发，有 `depends_on` 的任务自然串行。
+
+Worker 只返回局部更新。`messages` 使用官方 `add_messages` reducer，`task_results` 按 `task_id` 幂等合并，`tool_calls` 按可信 `call_id` 幂等合并。因此并行 Worker 不会相互覆盖状态。
+
+## ReAct 与容错
+
+- 工具业务失败写成 `TaskResult(status=business_failure)`，Planner 将 Observation 重新纳入上下文并生成新 DAG。
+- 网络超时、限流和 Provider 短暂不可用由 LangGraph `RetryPolicy` 在当前节点内有界重试，不浪费 Planner 决策轮次。
+- 不可恢复失败以 `terminal_failure` 结束，由 Synthesizer 输出可解释的数据边界。
+- Planner 最多 10 轮；Graph 还受 `BS_AGENT_GRAPH_RECURSION_LIMIT` 总超步上限保护。
 
 ## Store 与 Checkpointer
-
-Graph 统一使用官方编译入口：
 
 ```python
 graph.compile(checkpointer=checkpointer, store=store)
 ```
 
-- `store` 是 `PostgresStore`，管理长期跨会话偏好。
-- `checkpointer` 是 `PostgresSaver`，管理 Graph State、Checkpoint 历史和 Interrupt 恢复。
-- Message、Run、Candidate 和 Approval 由 PostgreSQL 业务表保存查询/审计投影，不与上述两类框架存储互相替代。
+- `PostgresSaver` 保存短期 Graph State、中间消息、Checkpoint 历史与 Interrupt，用于断点续传和审批恢复。
+- `PostgresStore` 保存跨会话长期偏好，Planner 和 Synthesizer 通过 LangGraph `Runtime.store` 按需读取。
+- 业务 PostgreSQL 表保存 Message、Run、Candidate 和 Approval 审计投影，不替代 Checkpointer 或 Store。
 
-正常审批恢复只调用 `Command(resume=...)`。`as_node` 仅限 Time Travel 或受控运维，不得用来绕过 Interrupt 和业务审批 claim。
-
-## 容错与上限
-
-- 可恢复运行节点使用 LangGraph `RetryPolicy` 做有界指数退避；业务拒绝、契约错误和不可恢复失败不盲目重试。
-- `BS_AGENT_GRAPH_RECURSION_LIMIT` 限制单次 Graph 的最大超步数，防止条件路由或重试链路无界循环。
-- Tool Catalog 摘要随 State 进入 Checkpoint，恢复时若目录或 execution binding 变化，会拒绝继续旧调用。
+正常审批恢复只使用 `Command(resume=...)`。工具目录摘要随 State 写入 Checkpoint，恢复时目录或执行绑定变化则拒绝继续旧调用。

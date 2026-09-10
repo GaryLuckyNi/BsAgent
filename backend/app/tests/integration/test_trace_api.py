@@ -33,6 +33,7 @@ from app.storage.models import (
     Base,
 )
 from app.tools.registry import ToolRegistry
+from app.tests.support.workflow_llm import WorkflowTestLlm
 
 
 TEST_MEMORY_STORE = object()
@@ -40,7 +41,7 @@ TEST_MEMORY_STORE = object()
 
 @pytest.fixture(autouse=True)
 def avoid_live_llm_provider(monkeypatch):
-    monkeypatch.setattr(sessions, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(sessions, "maybe_build_llm_client", WorkflowTestLlm)
     monkeypatch.setattr(sessions, "build_graph_checkpointer", InMemorySaver)
     monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
 
@@ -528,37 +529,29 @@ def test_synthesizer_transition_summary_exposes_only_safe_llm_status():
     assert "raw-response-secret" not in serialized
 
 
-def test_trace_exposes_market_data_coverage_without_credentials():
+def test_trace_exposes_task_result_status_without_credentials_or_content():
     state = create_initial_state(
         session_id="session_market_trace",
         tenant_id="tenant_1",
         user_id="user_1",
         user_message="查询行情",
     )
-    state["analysis"] = {
-        "findings": [],
-        "structured_tool_results": [],
-        "tool_facts": [],
-        "data_coverage": [
-            {
-                "tool_call_id": "market_1",
-                "capability": "stock.market_snapshot",
-                "status": "partial",
-                "requested_fields": ["price", "pe_ttm"],
-                "provided_fields": ["price"],
-                "missing_optional_fields": ["pe_ttm"],
-                "source_apis": ["daily"],
-            }
-        ],
-        "missing_information": [],
-        "confidence": 0.6,
-    }
+    state["analysis"] = {"confidence": 0.6}
+    state["task_results"] = [
+        {
+            "task_id": "market_data",
+            "status": "business_failure",
+            "content": "包含业务正文和 TUSHARE_TOKEN",
+            "error_code": "required_data_missing",
+        }
+    ]
 
     payload = json.dumps(summarize_state(state), ensure_ascii=False)
 
-    assert "requested_fields" in payload
-    assert "provided_fields" in payload
-    assert "source_apis" in payload
+    assert '"task_id": "market_data"' in payload
+    assert '"status": "business_failure"' in payload
+    assert '"error_code": "required_data_missing"' in payload
+    assert "包含业务正文" not in payload
     assert "TUSHARE_TOKEN" not in payload
     assert "token" not in payload.lower()
 
@@ -641,7 +634,6 @@ def test_node_runner_trace_never_records_arbitrary_exception_text():
 
 
 def test_session_message_trace_can_be_queried(monkeypatch, fake_business_intent_catalog_runtime):
-    monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
     monkeypatch.setattr(sessions.settings, "trace_success_sample_ratio", 1)
     monkeypatch.setattr(sessions.settings, "trace_detailed_sample_ratio", 1)
     store = get_trace_store()
@@ -660,25 +652,19 @@ def test_session_message_trace_can_be_queried(monkeypatch, fake_business_intent_
     assert trace_response.status_code == 200
     body = trace_response.json()
     event_node_names = [event["node_name"] for event in body["events"]]
-    assert [node_name for node_name in event_node_names if node_name != "experience_memory"] == [
+    assert [
+        node_name
+        for node_name in event_node_names
+        if node_name != "experience_memory"
+    ] == [
         "catalog_guard",
         "attachment_analyzer",
         "intent_router",
-        "planner_agent",
         "synthesizer",
         "verifier",
         "approval_coordinator",
         "final_response",
     ]
-    recall_indices = [
-        index
-        for index, node_name in enumerate(event_node_names)
-        if node_name == "experience_memory"
-    ]
-    assert len(recall_indices) == 2
-    planner_index = event_node_names.index("planner_agent")
-    synthesizer_index = event_node_names.index("synthesizer")
-    assert recall_indices[0] < planner_index < recall_indices[1] < synthesizer_index
     synthesizer_event = next(
         event for event in body["events"] if event["node_name"] == "synthesizer"
     )
@@ -689,7 +675,6 @@ def test_session_message_trace_can_be_queried(monkeypatch, fake_business_intent_
 
 
 def test_trace_cannot_be_read_across_tenants(monkeypatch, fake_business_intent_catalog_runtime):
-    monkeypatch.setattr(sessions.settings, "use_mock_rag", True)
     store = get_trace_store()
     store.clear()
     app = create_test_app_with_database(fake_business_intent_catalog_runtime)

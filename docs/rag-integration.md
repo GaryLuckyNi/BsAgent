@@ -90,7 +90,7 @@ BS_AGENT_SHORT_TERM_MEMORY_MAX_EVENTS=100
 
 ## 本地测试模式
 
-普通自动化测试不依赖真实 RAG 服务。测试会显式设置 `use_mock_rag=True` 或注入 fake retriever。
+普通自动化测试不依赖真实 RAG 服务，而是在测试 Tool Registry 中注册可控的 `rag_search` Tool 替身。生产运行时没有 Mock RAG 配置分支。
 
 真实联调时应保持：
 

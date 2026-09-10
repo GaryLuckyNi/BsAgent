@@ -2,20 +2,9 @@
 
 ## 职责边界
 
-LLM Gateway 是模型调用边界。Graph 节点不应该直接拼 HTTP 请求调用某个模型厂商，而应该通过统一 client 调用。这样后续可以集中处理：
+Graph 节点通过统一 LLM Client 访问模型，不直接拼接某个厂商的 HTTP 请求。该边界集中处理 Provider 配置、API key、超时、错误归一化、Token 用量、Trace 绑定和模型切换。
 
-- provider 配置
-- API key 管理
-- 超时
-- 错误归一化
-- token usage
-- trace 绑定
-- 模型切换
-- 测试替身
-
-当前第一版只接入 DeepSeek 的 OpenAI-compatible chat completions 接口。
-
-## 配置项
+当前生产 Provider 默认且必须为 DeepSeek：
 
 ```text
 BS_AGENT_LLM_PROVIDER=deepseek
@@ -23,16 +12,35 @@ BS_AGENT_DEEPSEEK_API_KEY=...
 BS_AGENT_DEEPSEEK_BASE_URL=https://api.deepseek.com
 BS_AGENT_DEEPSEEK_MODEL=deepseek-v4-flash
 BS_AGENT_LLM_TIMEOUT_SECONDS=30
+```
+
+缺少有效 LLM 配置时显式失败，不允许以 `none` 或默认 RAG 路由静默降级。
+
+## Graph 接入点
+
+- Intent Router：只根据用户输入、附件摘要和 Admin taxonomy 判断 `intent_type/domain/subdomain`，并生成不改变语义的 `goal`。
+- Planner：根据 `goal`、Top-K Skill/Tool 轻量卡片和既有 Observation 生成动态任务 DAG。
+- Tool Agent：只绑定当前任务选中的一个完整 Tool Schema，使用原生 Function Calling 生成参数。
+- Skill/Analysis Agent：使用依赖任务的可验证结果完成局部分析，不生成最终回答。
+- Synthesizer：使用 `goal + TaskResult + Evidence` 生成终稿 Markdown，不改写工具事实。
+
+## Web Search
+
+```text
 BS_AGENT_WEB_SEARCH_ENABLED=true
 BS_AGENT_WEB_SEARCH_PROVIDER=deepseek
 BS_AGENT_WEB_SEARCH_TIMEOUT_SECONDS=30
 ```
 
-`BS_AGENT_LLM_PROVIDER` 默认是 `deepseek`。生产运行必须有可用 LLM provider；当规则和业务配置无法确定意图时，Intent Router 会调用 LLM 分类器，不能静默降级为 RAG。
+Web Search 启用后以普通只读 Tool 加入启动期 Registry 和检索索引。Intent Router 不在代码中预判必须联网；Planner 根据问题时效性、已披露能力和业务失败 Observation 决定是否创建 Web Search 子任务。
 
-## Live Smoke Test
+搜索结果是外部证据，不是行情或财务事实源。公司名、上市主体和证券代码的关系必须有来源支持并经结构化工具复验；同行、供应商或概念相关公司不能当作同一实体。
 
-默认测试不会真实调用 DeepSeek。要测试连通性，设置：
+Web Search 仍经过 Tool Gateway 的 RBAC、Schema、超时、错误归一化和 Trace 边界，需要 `web:search` scope。
+
+## 连通性测试
+
+默认自动化测试不访问真实 DeepSeek。最小连通性验证使用：
 
 ```bash
 BS_AGENT_RUN_LIVE_DEEPSEEK_TESTS=1 \
@@ -40,24 +48,4 @@ BS_AGENT_DEEPSEEK_API_KEY=你的_key \
 python3 -m pytest backend/app/tests/integration/test_live_deepseek_llm.py -v
 ```
 
-该测试只做最小 `ping -> pong` 检查，用于确认 API key、base URL、模型名、网络和响应解析可用。
-
-## DeepSeek Web Search
-
-公司证券目录精确解析失败时，Tool Agent 可以调用 `web_search` 平台工具发现口语化公司名、法定主体、上市主体与证券代码关系。该工具使用 DeepSeek Anthropic Messages API 的服务端 Web Search，复用 `BS_AGENT_DEEPSEEK_API_KEY`、`BS_AGENT_DEEPSEEK_BASE_URL` 和 `BS_AGENT_DEEPSEEK_MODEL`。
-
-Web Search 只负责发现，不是市场数据事实源。模型必须引用搜索结果实际返回的 URL，并且候选名称或代码必须再次通过 `stock.resolve_company` 复验。同行、竞争对手、供应商、客户、概念相关公司以及来源不明的候选不会进入后续行情和财务工具。
-
-`web_search` 是低风险只读工具，需要 `web:search` scope，仍经过 `ToolExecutionGateway` 的 Plan/Skill 白名单、RBAC、参数校验、超时、错误归一化和 trace。Mock RBAC 的 analyst/approver 默认具备该 scope；生产权限应由可信身份系统下发。
-
-## Graph 接入点
-
-DeepSeek 当前接入两个位置：
-
-- Intent Router：规则未命中时，LLM 分类器会结合业务意图配置和可用 tool 列表判断 `intent`、`domain`、`sub_intent`、`candidate_skill`、`candidate_tool`。
-- Tool Agent：公司精确解析失败时，使用带来源的 Web Search 证据判断实体关系，并回到市场数据工具复验。
-- Synthesizer：在已有结构化结果基础上做文本渲染。
-
-Synthesizer 仍然先由确定性逻辑生成 `claims`、`cited_evidence_ids`、`missing_information`、`confidence` 和 `response_policy`，然后只把 `content` 交给 LLM 改写。
-
-LLM 不允许新增事实、不允许改 evidence 绑定，也不参与 Verifier 判定。若 LLM 调用失败，Synthesizer 会回退到确定性文本，并在 `response_policy.llm_rendering` 标记为 `failed`。
+该测试只验证 API key、Base URL、模型名、网络与基本响应解析，不代替完整 Agent 端到端验收。

@@ -62,14 +62,14 @@ logger = logging.getLogger(__name__)
 
 PRODUCT_PROGRESS_MESSAGES = {
     "planning": "正在规划分析范围",
-    "collecting_market_data": "正在获取公司、行情与财务数据",
+    "executing_tools": "正在调用投研数据工具",
     "retrieving_knowledge": "正在检索补充资料",
     "analyzing_evidence": "正在核对并分析已获得的证据",
     "composing_answer": "正在生成最终投研报告",
 }
 THINKING_STAGE_LABELS = {
     "planning": "规划",
-    "tool_repair": "实体修复",
+    "replanning": "路径调整",
     "evidence_review": "证据核对",
     "answer_synthesis": "答案合成",
 }
@@ -464,7 +464,6 @@ def _run_and_persist_agent_message(
             user_message_id=handle.user_message_id,
             assistant_message_id=handle.assistant_message_id,
             history=list(snapshot.history),
-            mock_evidence=settings.use_mock_rag,
             store=memory_store,
             trace_buffer=trace_buffer,
             checkpointer=checkpointer,
@@ -665,7 +664,6 @@ def _stream_agent_message(
             user_message_id=handle.user_message_id,
             assistant_message_id=handle.assistant_message_id,
             history=list(snapshot.history),
-            mock_evidence=settings.use_mock_rag,
             store=memory_store,
             trace_buffer=trace_buffer,
             checkpointer=build_graph_checkpointer(),
@@ -1019,28 +1017,29 @@ def _product_progress_stage(state: AgentState) -> str | None:
         return None
 
     plan = state.get("plan") or {}
-    requests = plan.get("requested_tools") or []
-    has_market_data = any(
-        ".stock." in request.tool_name
-        for request in requests
-        if hasattr(request, "tool_name")
-    )
-    has_rag = any(
-        request.tool_name == "rag_search"
-        for request in requests
-        if hasattr(request, "tool_name")
-    )
-
-    if state.get("analysis") is not None:
+    tasks = [item for item in plan.get("tasks", []) if isinstance(item, dict)]
+    if not tasks:
+        return None
+    results = {
+        str(item.get("task_id")): item
+        for item in state.get("task_results", [])
+        if isinstance(item, dict) and item.get("task_id")
+    }
+    if all(
+        (result := results.get(str(task.get("id")))) is not None
+        and result.get("status") == "success"
+        for task in tasks
+    ):
         return "composing_answer"
-    if state.get("ready_tool_call") is not None and has_rag:
+
+    active_task = state.get("active_task") or {}
+    tool_name = active_task.get("tool_name")
+    if tool_name == "rag_search":
         return "retrieving_knowledge"
-    if state.get("tool_calls") and state.get("ready_tool_call") is None:
+    if isinstance(tool_name, str) and tool_name:
+        return "executing_tools"
+    if active_task or results:
         return "analyzing_evidence"
-    if has_market_data:
-        return "collecting_market_data"
-    if has_rag:
-        return "retrieving_knowledge"
     return None
 
 
@@ -1048,14 +1047,29 @@ def _public_thinking_stage(state: AgentState) -> str | None:
     if state.get("final_response") is not None or state.get("draft_answer") is not None:
         return None
     plan = state.get("plan")
-    if not isinstance(plan, dict) or not plan.get("execution_mode"):
+    if not isinstance(plan, dict) or not plan.get("tasks"):
         return None
-    if state.get("analysis") is not None:
+    task_ids = {
+        str(task.get("id"))
+        for task in plan["tasks"]
+        if isinstance(task, dict) and task.get("id")
+    }
+    current_results = [
+        item
+        for item in state.get("task_results", [])
+        if isinstance(item, dict) and item.get("task_id") in task_ids
+    ]
+    if any(item.get("status") == "business_failure" for item in current_results):
+        return "replanning"
+    if task_ids and all(
+        any(
+            result.get("task_id") == task_id and result.get("status") == "success"
+            for result in current_results
+        )
+        for task_id in task_ids
+    ):
         return "answer_synthesis"
-    tool_repair = plan.get("tool_repair")
-    if isinstance(tool_repair, dict) and tool_repair.get("status"):
-        return "tool_repair"
-    if state.get("tool_calls"):
+    if current_results or state.get("active_task"):
         return "evidence_review"
     return "planning"
 
@@ -1159,108 +1173,58 @@ def _take_complete_sentence_prefix(text: str) -> tuple[str, str]:
 def _thinking_prompt_payload(state: AgentState, *, stage: str) -> dict:
     intent = state["intent"] or {}
     plan = state["plan"] or {}
-    selected_skill = state["selected_skill"] or {}
-    analysis = state["analysis"] or {}
-    data_coverage = analysis.get("data_coverage", [])
     return {
         "public_stage": stage,
         "user_message": state["user_message"],
         "intent": {
-            "intent": intent.get("intent"),
+            "intent_type": intent.get("intent_type"),
             "domain": intent.get("domain"),
-            "sub_intent": intent.get("sub_intent"),
+            "subdomain": intent.get("subdomain"),
+            "goal": intent.get("goal"),
         },
-        "plan": {
-            "objective": plan.get("objective"),
-            "execution_mode": plan.get("execution_mode"),
-            "execution_steps": plan.get("execution_steps", []),
-            "retrieval_required": (plan.get("retrieval") or {}).get("required"),
-            "tool_repair": _safe_tool_repair_summary(plan.get("tool_repair")),
-        },
-        "skill": {
-            "name": selected_skill.get("skill_name")
-            or (plan.get("selected_skill") or {}).get("skill_name"),
-            "status": selected_skill.get("status"),
-        },
-        "data_coverage": [
+        "tasks": [
             {
-                "capability": item.get("capability"),
-                "status": item.get("status"),
-                "missing_optional_fields": item.get("missing_optional_fields", []),
-                "error_code": item.get("error_code"),
+                "id": item.get("id"),
+                "goal": item.get("task_goal"),
+                "depends_on": item.get("depends_on", []),
+                "capability": item.get("skill_name") or item.get("tool_name"),
             }
-            for item in data_coverage[:8]
+            for item in plan.get("tasks", [])[:12]
             if isinstance(item, dict)
         ],
-        "missing_information": analysis.get("missing_information", [])[:8],
-    }
-
-
-def _safe_tool_repair_summary(tool_repair: object) -> dict | None:
-    if not isinstance(tool_repair, dict):
-        return None
-    return {
-        "status": tool_repair.get("status"),
-        "strategy": tool_repair.get("strategy"),
-        "failed_query": tool_repair.get("failed_query"),
-        "recovered_query": tool_repair.get("recovered_query"),
-        "observation_error_code": tool_repair.get("observation_error_code"),
+        "observations": [
+            {
+                "task_id": item.get("task_id"),
+                "status": item.get("status"),
+                "error_code": item.get("error_code"),
+            }
+            for item in state.get("task_results", [])[-12:]
+            if isinstance(item, dict)
+        ],
     }
 
 
 def _fallback_thinking_chunks(state: AgentState, *, stage: str = "planning") -> list[str]:
     intent = state["intent"] or {}
     plan = state["plan"] or {}
-    if stage == "tool_repair":
-        repair = _safe_tool_repair_summary(plan.get("tool_repair")) or {}
-        recovered = repair.get("recovered_query")
-        content = (
-            f"公司实体首次解析没有直接命中，我会结合错误信息尝试别名或上市主体修正。"
-            f"当前已验证到更可靠的候选：{recovered}，后续会基于验证后的标的继续取数。"
-            if recovered
-            else "公司实体首次解析没有直接命中，我会结合错误信息尝试别名或上市主体修正。"
-        )
+    if stage == "replanning":
+        content = "已有数据路径未能满足任务条件，我正根据失败原因调整后续计划，不会将未验证的候选当作事实。"
         return list(_chunk_text(content, chunk_size=24))
     if stage == "evidence_review":
         content = "我已经拿到部分工具结果，接下来会核对哪些字段可用、哪些字段缺失，避免把未返回的数据当作事实。"
         return list(_chunk_text(content, chunk_size=24))
     if stage == "answer_synthesis":
-        missing = (state["analysis"] or {}).get("missing_information", [])
-        content = (
-            "我正在把已验证的公司、行情和财务证据整理成最终分析。"
-            "如果仍有字段或公告权限缺口，会在结论里明确说明数据边界。"
-            if missing
-            else "我正在把已验证的公司、行情和财务证据整理成最终分析，并区分事实、判断和数据边界。"
-        )
+        content = "我正在把已验证的任务结果整理成最终分析，并区分事实、推断与数据边界。"
         return list(_chunk_text(content, chunk_size=24))
-    if intent.get("domain") == "a_share_equity_research":
-        labels = {
-            "business": "业务",
-            "market": "行情",
-            "valuation": "估值",
-            "financial": "财务",
-            "risk": "风险",
-            "technical": "技术面",
-        }
-        dimensions = [
-            labels[item]
-            for item in plan.get("analysis_dimensions", [])
-            if item in labels
-        ]
-        if dimensions:
-            joined = (
-                dimensions[0]
-                if len(dimensions) == 1
-                else f"{'、'.join(dimensions[:-1])}和{dimensions[-1]}"
-            )
-            content = (
-                f"我会先确认公司实体，再从{joined}等维度核对可用证据，"
-                "最后说明主要判断与数据限制。"
-            )
-        else:
-            content = "我会先确认公司实体，再检查可用市场数据和知识证据，最后整理风险与限制。"
-    else:
-        content = "我会先判断你的目标，再结合可用工具和证据生成回答。"
+    task_goals = [
+        str(item.get("task_goal"))
+        for item in plan.get("tasks", [])[:3]
+        if isinstance(item, dict) and item.get("task_goal")
+    ]
+    goal = str(intent.get("goal") or state["user_message"])
+    content = f"我已将你的需求收敛为“{goal}”。"
+    if task_goals:
+        content += f"接下来会按任务依赖完成：{'；'.join(task_goals)}。"
     return list(_chunk_text(content, chunk_size=24))
 
 
