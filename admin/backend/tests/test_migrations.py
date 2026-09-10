@@ -9,6 +9,9 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 
 
+LATEST_REVISION = "20260910_0005"
+
+
 def test_skill_evidence_contract_migration_backfills_legacy_rows(tmp_path, monkeypatch):
     database_path = tmp_path / "legacy.db"
     database_url = f"sqlite:///{database_path}"
@@ -51,7 +54,7 @@ def test_skill_evidence_contract_migration_backfills_legacy_rows(tmp_path, monke
             ).all()
         )
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-            "20260728_0004"
+            LATEST_REVISION
         )
     assert json.loads(stored_values["legacy_skill"]) == {"requirements": []}
     company_contract = json.loads(stored_values["company_snapshot"])
@@ -150,7 +153,7 @@ def test_default_skill_backfill_preserves_existing_admin_contract(tmp_path, monk
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
 
-    assert version == "20260728_0004"
+    assert version == LATEST_REVISION
     assert json.loads(stored_values["custom_skill"]) == custom_contract
     for skill_name in (
         "company_snapshot",
@@ -190,7 +193,7 @@ def test_alembic_cli_uses_backend_paths_from_repository_root(tmp_path):
     engine = create_engine(database_url)
     with engine.connect() as connection:
         assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == (
-            "20260728_0004"
+            LATEST_REVISION
         )
     assert "skill_profiles" not in inspect(engine).get_table_names()
 
@@ -260,13 +263,86 @@ def test_risk_scan_migration_removes_deprecated_risk_events_tool(tmp_path, monke
         )
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
 
-    assert version == "20260728_0004"
+    assert version == LATEST_REVISION
     assert "mcp.mock.stock.risk_events" not in allowed_tools
     assert allowed_tools == [
         "mcp.local.stock.resolve_company",
         "mcp.local.stock.announcement_search",
         "rag_search",
     ]
+
+
+def test_intent_catalog_migration_renames_taxonomy_and_removes_planning_fields(
+    tmp_path, monkeypatch
+):
+    database_url = f"sqlite:///{tmp_path / 'intent-catalog.db'}"
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE business_intent_profiles ("
+                "id VARCHAR(160) PRIMARY KEY, "
+                "intent VARCHAR(64) NOT NULL, "
+                "domain VARCHAR(128) NOT NULL, "
+                "sub_intent VARCHAR(128) NOT NULL, "
+                "candidate_skill VARCHAR(128), "
+                "risk_level VARCHAR(32) NOT NULL, "
+                "trigger_keywords JSON NOT NULL, "
+                "trigger_examples JSON NOT NULL, "
+                "required_capabilities JSON NOT NULL, "
+                "enabled BOOLEAN NOT NULL, "
+                "description TEXT, "
+                "created_at DATETIME NOT NULL, "
+                "updated_at DATETIME NOT NULL"
+                ")"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO business_intent_profiles VALUES ("
+                "'company', 'task_workflow', 'a_share_equity_research', "
+                "'company_snapshot', 'company_snapshot', 'medium', "
+                "'[]', '[]', '[]', 1, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP"
+                ")"
+            )
+        )
+
+    backend_directory = Path(__file__).resolve().parents[1]
+    config = Config(str(backend_directory / "alembic.ini"))
+    config.set_main_option("script_location", str(backend_directory / "alembic"))
+    monkeypatch.setenv("ADMIN_DATABASE_URL", database_url)
+    command.stamp(config, "20260728_0004")
+
+    command.upgrade(config, "head")
+
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns("business_intent_profiles")
+    }
+    assert {"intent_type", "domain", "subdomain"} <= columns
+    assert {
+        "intent",
+        "sub_intent",
+        "candidate_skill",
+        "risk_level",
+        "required_capabilities",
+    }.isdisjoint(columns)
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT intent_type, domain, subdomain "
+                "FROM business_intent_profiles WHERE id = 'company'"
+            )
+        ).one()
+        version = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one()
+    assert row == (
+        "financial_research",
+        "a_share_equity_research",
+        "company_snapshot",
+    )
+    assert version == LATEST_REVISION
 
 
 def test_default_market_tool_prefix_migration_renames_builtin_skills_only(
@@ -325,7 +401,7 @@ def test_default_market_tool_prefix_migration_renames_builtin_skills_only(
         )
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
 
-    assert version == "20260728_0004"
+    assert version == LATEST_REVISION
     assert json.loads(rows["company_snapshot"]) == [
         "mcp.local.stock.resolve_company",
         "mcp.local.stock.market_snapshot",

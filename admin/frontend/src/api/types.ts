@@ -1,24 +1,12 @@
 export type RiskLevel = 'low' | 'medium' | 'high'
 
-export type IntentKind =
-  | 'knowledge_qa'
-  | 'memory_query'
-  | 'tool_action'
-  | 'task_workflow'
-  | 'conversation'
-  | 'clarification_needed'
-  | 'unsupported'
-
 export interface BusinessIntentProfile {
   id: string
-  intent: IntentKind
+  intent_type: string
   domain: string
-  sub_intent: string
-  candidate_skill?: string | null
-  risk_level: RiskLevel
+  subdomain: string
   trigger_keywords: string[]
   trigger_examples: string[]
-  required_capabilities: string[]
   enabled: boolean
   description?: string | null
   created_at?: string

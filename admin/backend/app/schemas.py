@@ -6,15 +6,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from pydantic_core import PydanticCustomError
 
 
-IntentKind = Literal[
-    "knowledge_qa",
-    "memory_query",
-    "tool_action",
-    "task_workflow",
-    "conversation",
-    "clarification_needed",
-    "unsupported",
-]
 RiskLevel = Literal["low", "medium", "high"]
 MarketDataProviderName = Literal["tushare"]
 _MCP_MARKET_TOOL_PATTERN = re.compile(
@@ -76,27 +67,21 @@ class SkillEvidenceContract(BaseModel):
 
 class BusinessIntentCreate(BaseModel):
     id: str = Field(min_length=1, max_length=160)
-    intent: IntentKind
+    intent_type: str = Field(min_length=1, max_length=64)
     domain: str = Field(min_length=1, max_length=128)
-    sub_intent: str = Field(min_length=1, max_length=128)
-    candidate_skill: str | None = Field(default=None, max_length=128)
-    risk_level: RiskLevel = "medium"
+    subdomain: str = Field(min_length=1, max_length=128)
     trigger_keywords: list[str] = Field(default_factory=list)
     trigger_examples: list[str] = Field(default_factory=list)
-    required_capabilities: list[str] = Field(default_factory=list)
     enabled: bool = True
     description: str | None = None
 
 
 class BusinessIntentUpdate(BaseModel):
-    intent: IntentKind | None = None
+    intent_type: str | None = Field(default=None, min_length=1, max_length=64)
     domain: str | None = Field(default=None, min_length=1, max_length=128)
-    sub_intent: str | None = Field(default=None, min_length=1, max_length=128)
-    candidate_skill: str | None = Field(default=None, max_length=128)
-    risk_level: RiskLevel | None = None
+    subdomain: str | None = Field(default=None, min_length=1, max_length=128)
     trigger_keywords: list[str] | None = None
     trigger_examples: list[str] | None = None
-    required_capabilities: list[str] | None = None
     enabled: bool | None = None
     description: str | None = None
 

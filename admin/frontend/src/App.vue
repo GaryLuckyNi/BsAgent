@@ -47,7 +47,7 @@ const pageTitle = computed(() => {
 })
 const pageDescription = computed(() =>
   activeView.value === 'business-intents'
-    ? '维护 domain、sub_intent、candidate_skill 和风险策略。'
+    ? '维护 intent_type、domain、subdomain 和常见表达。'
     : activeView.value === 'skills'
       ? '维护 Skill 能力声明、支持范围和工具 allowlist。'
       : '维护 MCP market data provider 的激活配置和安全密钥引用。'

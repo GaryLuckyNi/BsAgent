@@ -21,10 +21,9 @@ def list_business_intents(
         query = query.where(
             or_(
                 BusinessIntentProfileRecord.id.like(like),
-                BusinessIntentProfileRecord.intent.like(like),
+                BusinessIntentProfileRecord.intent_type.like(like),
                 BusinessIntentProfileRecord.domain.like(like),
-                BusinessIntentProfileRecord.sub_intent.like(like),
-                BusinessIntentProfileRecord.candidate_skill.like(like),
+                BusinessIntentProfileRecord.subdomain.like(like),
             )
         )
     if enabled is not None:

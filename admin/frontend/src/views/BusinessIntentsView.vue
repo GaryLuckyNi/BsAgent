@@ -1,17 +1,15 @@
 <template>
   <section class="view-shell">
     <div class="toolbar">
-      <el-input v-model="query" clearable placeholder="搜索 ID / domain / sub_intent" />
+      <el-input v-model="query" clearable placeholder="搜索 ID / intent_type / domain / subdomain" />
       <el-button type="primary" :disabled="submitting" @click="openCreate">新增业务意图</el-button>
     </div>
 
     <el-table v-loading="loading" :data="items" border height="calc(100vh - 220px)">
       <el-table-column prop="id" label="ID" min-width="220" />
-      <el-table-column prop="intent" label="Intent" width="150" />
+      <el-table-column prop="intent_type" label="Intent Type" width="180" />
       <el-table-column prop="domain" label="Domain" width="170" />
-      <el-table-column prop="sub_intent" label="Sub Intent" width="190" />
-      <el-table-column prop="candidate_skill" label="Skill" width="150" />
-      <el-table-column prop="risk_level" label="Risk" width="100" />
+      <el-table-column prop="subdomain" label="Subdomain" width="190" />
       <el-table-column label="Enabled" width="110">
         <template #default="{ row }">
           <el-switch
@@ -45,35 +43,20 @@
         <el-form-item label="ID">
           <el-input v-model="form.id" :disabled="Boolean(editingId)" />
         </el-form-item>
-        <el-form-item label="Intent">
-          <el-select v-model="form.intent">
-            <el-option v-for="item in intentOptions" :key="item" :label="item" :value="item" />
-          </el-select>
+        <el-form-item label="Intent Type">
+          <el-input v-model="form.intent_type" />
         </el-form-item>
         <el-form-item label="Domain">
           <el-input v-model="form.domain" />
         </el-form-item>
-        <el-form-item label="Sub Intent">
-          <el-input v-model="form.sub_intent" />
-        </el-form-item>
-        <el-form-item label="Candidate Skill">
-          <el-input v-model="form.candidate_skill" />
-        </el-form-item>
-        <el-form-item label="Risk">
-          <el-select v-model="form.risk_level">
-            <el-option label="low" value="low" />
-            <el-option label="medium" value="medium" />
-            <el-option label="high" value="high" />
-          </el-select>
+        <el-form-item label="Subdomain">
+          <el-input v-model="form.subdomain" />
         </el-form-item>
         <el-form-item label="Trigger Keywords">
           <StringListInput v-model="form.trigger_keywords" />
         </el-form-item>
         <el-form-item label="Trigger Examples">
           <StringListInput v-model="form.trigger_examples" />
-        </el-form-item>
-        <el-form-item label="Capabilities">
-          <StringListInput v-model="form.required_capabilities" />
         </el-form-item>
         <el-form-item label="Enabled">
           <el-switch v-model="form.enabled" />
@@ -100,18 +83,8 @@ import {
   updateBusinessIntent
 } from '../api/businessIntents'
 import { apiErrorMessage } from '../api/client'
-import type { BusinessIntentProfile, IntentKind } from '../api/types'
+import type { BusinessIntentProfile } from '../api/types'
 import StringListInput from '../components/StringListInput.vue'
-
-const intentOptions: IntentKind[] = [
-  'knowledge_qa',
-  'memory_query',
-  'tool_action',
-  'task_workflow',
-  'conversation',
-  'clarification_needed',
-  'unsupported'
-]
 
 const loading = ref(false)
 const query = ref('')
@@ -123,14 +96,11 @@ const mutatingId = ref<string | null>(null)
 
 const form = reactive<BusinessIntentProfile>({
   id: '',
-  intent: 'knowledge_qa',
+  intent_type: 'financial_research',
   domain: '',
-  sub_intent: '',
-  candidate_skill: '',
-  risk_level: 'medium',
+  subdomain: '',
   trigger_keywords: [],
   trigger_examples: [],
-  required_capabilities: [],
   enabled: true,
   description: ''
 })
@@ -157,14 +127,11 @@ async function load() {
 function resetForm() {
   Object.assign(form, {
     id: '',
-    intent: 'knowledge_qa',
+    intent_type: 'financial_research',
     domain: '',
-    sub_intent: '',
-    candidate_skill: '',
-    risk_level: 'medium',
+    subdomain: '',
     trigger_keywords: [],
     trigger_examples: [],
-    required_capabilities: [],
     enabled: true,
     description: ''
   })
