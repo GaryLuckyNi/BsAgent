@@ -6,6 +6,8 @@
 
 ### 变更
 
+- Planner 改为单一 LLM 任务规划路径：基于 Intent `goal`、双 Top-K Skill/Tool 卡片、长期规划偏好和既有任务 Observation 动态生成最多 12 个子任务的 DAG，不再进入固定知识问答、工具动作或 A 股模板分支。
+- 新增严格任务计划契约，支持 Skill、Tool 与无外部能力的分析任务，校验任务 ID、依赖闭包、无环约束和本轮能力披露边界；Planner 决策预算默认固定为 10 轮。
 - Skill 渐进式披露新增基于 BM25S 的 Top-K 检索，候选先按 Admin 配置的 `domain/subdomain` 过滤；轻量卡片移除租户、版本、风险和工具白名单，完整定义仅在 Planner 选中 Skill 后按名称加载当前启用配置。
 - Intent Router 收敛为基于 Admin 目录的 LLM 范围分类与 `goal` 改写，删除本地规则预路由、Skill/Tool 候选、风险、澄清和 `TaskBrief` 字段；Graph State 新增独立 Planner 决策计数。
 - Admin 业务意图目录收敛为 `intent_type/domain/subdomain` 分类契约，删除候选 Skill、风险等级和所需能力等 Planner 职责字段；新增 Alembic 迁移并同步 CRUD 与管理界面。
@@ -89,6 +91,7 @@
 
 ### 测试
 
+- 动态 Planner 回归覆盖纯推理任务、Skill/Tool 互斥、重复与未知依赖、自依赖、循环依赖、任务数量上限、轻量候选 Prompt、未披露能力拒绝及 Planner 节点状态写入。
 - Skill Registry 与检索回归覆盖领域资格过滤、Top-K 相关性排序、当前定义分层加载、风险延迟披露和注册中心失败边界。
 - Planner 回归证明“海能达是否适合买入”与“只分析财务质量”产生不同分析问题、子任务和工具集合，并覆盖单次 Web Search、条件 RAG、12 条问题上限及未披露工具隔离。
 - Graph Runtime 测试夹具对齐 `decision + task_brief` 新契约，覆盖 run、stream 与直接 build 入口，同时保留生产环境缺少 Intent LLM 时的严格失败语义。

@@ -48,24 +48,7 @@ class AnalysisSubtask(TypedDict):
 
 
 class PlanDecision(TypedDict, total=False):
-    objective: str
-    execution_mode: Literal[
-        "skill_execution",
-        "tool_execution",
-        "direct_response",
-        "image_analysis",
-    ]
-    selected_skill: dict | None
-    execution_steps: list[str]
-    retrieval: dict
-    tool_policy: dict
-    response_policy: dict
-    risk_controls: dict
-    skill_output: dict
-    requested_tools: list
-    analysis_questions: list[str]
-    evidence_channels: EvidenceChannels
-    subtasks: list[AnalysisSubtask]
+    tasks: list[dict[str, Any]]
 
 
 class ToolEvidenceRef(TypedDict):
@@ -231,6 +214,7 @@ class AgentState(TypedDict):
     intent: IntentDecision | None
     planner_iteration: int
     plan: PlanDecision | None
+    task_results: list[dict[str, Any]]
     selected_skill: SkillSelection | None
     tool_calls: list[ToolCallRecord]
     evidence: EvidencePackage | None
@@ -303,6 +287,7 @@ def create_initial_state(
         "intent": None,
         "planner_iteration": 0,
         "plan": None,
+        "task_results": [],
         "selected_skill": None,
         "tool_calls": [],
         "evidence": None,

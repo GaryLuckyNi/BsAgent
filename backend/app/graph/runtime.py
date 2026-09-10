@@ -464,12 +464,6 @@ def build_question_answer_graph(
     selected_skill_registry = (
         build_default_skill_registry() if skill_agent_node is None else None
     )
-    available_skills_provider = None
-    if selected_skill_registry is not None:
-
-        def available_skills_provider(tenant_id: str):
-            return selected_skill_registry.discover()
-
     selected_skill_agent_node = guard_skill_agent_node(
         skill_agent_node
         or build_skill_agent_node(registry=selected_skill_registry),
@@ -520,7 +514,7 @@ def build_question_answer_graph(
         build_planner_agent_node(
             llm_client=llm_client,
             tool_search_service=selected_tool_search_service,
-            available_skills_provider=available_skills_provider,
+            skill_registry=selected_skill_registry,
             on_memory_recall_failure=memory_recall_failure_trace,
         ),
         runner,

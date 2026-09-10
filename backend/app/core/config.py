@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     tool_search_embedding_model: str = "BAAI/bge-small-zh-v1.5"
     tool_search_embedding_cache_dir: str = "./data/models/fastembed"
     tool_search_local_files_only: bool = False
+    skill_search_top_k: int = Field(default=5, ge=1, le=8)
+    planner_max_iterations: int = Field(default=10, ge=1, le=20)
     llm_provider: Literal["deepseek"] = "deepseek"
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
