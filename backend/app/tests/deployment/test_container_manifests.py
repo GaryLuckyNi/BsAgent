@@ -28,6 +28,26 @@ def test_production_compose_contains_required_runtime_services():
         "scheduler",
         "frontend",
     }.issubset(compose["services"])
+    assert "mcp-server" not in compose["services"]
+
+
+def test_agent_loads_tushare_from_admin_and_keeps_generic_mcp_optional():
+    compose = _compose()
+    environment = compose["services"]["api"]["environment"]
+    package = (PROJECT_ROOT / "package.json").read_text(encoding="utf-8")
+    dev_script = (PROJECT_ROOT / "scripts" / "dev.mjs").read_text(encoding="utf-8")
+
+    assert environment["BS_AGENT_ADMIN_BASE_URL"] == (
+        "${ADMIN_BASE_URL:?ADMIN_BASE_URL is required}"
+    )
+    assert environment["BS_AGENT_MCP_SERVER_NAME"] == (
+        "${BS_AGENT_MCP_SERVER_NAME:-agent-mcp}"
+    )
+    assert environment["BS_AGENT_MCP_SERVER_URL"] == "${BS_AGENT_MCP_SERVER_URL:-}"
+    assert "TUSHARE_TOKEN" not in environment
+    assert "api.tushare.pro/mcp/token=" not in dev_script
+    assert '"dev:backend": "node scripts/dev.mjs backend"' in package
+    assert "const defaultServiceNames = ['admin-backend', 'backend', 'frontend', 'admin-frontend']" in dev_script
 
 
 def test_api_waits_for_migrations_and_healthy_stateful_dependencies():

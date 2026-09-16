@@ -88,9 +88,12 @@ def update_market_data_provider(
 ) -> dict:
     record = _get_provider_or_404(db, provider_id)
     next_provider = payload.provider if payload.provider is not None else record.provider
+    incoming_settings = dict(payload.settings or {})
+    if not str(incoming_settings.get("mcp_server_url") or "").strip():
+        incoming_settings.pop("mcp_server_url", None)
     next_settings = {
         **(record.settings or {}),
-        **(payload.settings or {}),
+        **incoming_settings,
     }
     try:
         next_settings = validate_market_data_provider_settings(
@@ -163,7 +166,21 @@ def _deactivate_all(db: Session) -> None:
 
 
 def _provider_response(record: MarketDataProviderConfigRecord) -> dict:
-    return MarketDataProviderConfigRead.model_validate(record).model_dump(mode="json")
+    response = MarketDataProviderConfigRead.model_validate(record).model_dump(mode="json")
+    settings = dict(response.get("settings") or {})
+    mcp_url = settings.get("mcp_server_url")
+    if isinstance(mcp_url, str) and mcp_url:
+        settings["mcp_server_url"] = _mask_mcp_server_url(mcp_url)
+    response["settings"] = settings
+    return response
+
+
+def _mask_mcp_server_url(url: str) -> str:
+    marker = "/token="
+    prefix, separator, _secret = url.partition(marker)
+    if separator:
+        return f"{prefix}{separator}******"
+    return "******"
 
 
 def _validate_active_provider_settings(record: MarketDataProviderConfigRecord) -> None:

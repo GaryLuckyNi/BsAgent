@@ -55,7 +55,7 @@ POST            /api/market-data-providers/{id}/activate
 
 ## Tushare 配置
 
-Admin 只保存密钥引用和权限声明：
+Admin 保存完整的 Tushare 官方 MCP URL：
 
 ```json
 {
@@ -65,11 +65,7 @@ Admin 只保存密钥引用和权限声明：
   "enabled": true,
   "active": true,
   "settings": {
-    "token_env_var": "TUSHARE_TOKEN",
-    "enabled_api_names": ["stock_basic", "daily", "daily_basic"],
-    "base_url": "https://api.tushare.pro",
-    "timeout_seconds": 10,
-    "stock_basic_cache_ttl_seconds": 3600
+    "mcp_server_url": "https://api.tushare.pro/mcp/token=<完整 MCP Key>"
   }
 }
 ```
@@ -77,19 +73,17 @@ Admin 只保存密钥引用和权限声明：
 约束如下：
 
 - `provider` 只能是 `tushare`，不提供 fixture 或伪造数据源。
-- `token_env_var` 和非空 `enabled_api_names` 必填；数据库不保存 token 值。
-- `enabled_api_names` 是管理员对当前 Token 已开通接口的显式声明，不是自动权限探测。
-- MCP 会按字段依赖计算工具能力。用户明确询问的字段缺少所需 API 时直接返回权限不足，不用无关字段拼接答案。
-- 未配置激活数据源、Admin 不可达、配置无效是三个不同状态，MCP 均会失败关闭，不降级到假数据。
+- `mcp_server_url` 必须是完整的 HTTP(S) 地址，Admin 不拼接 Token。
+- 公开列表和详情接口只返回脱敏地址；Agent 通过内部接口读取完整连接。
+- 未配置激活数据源、Admin 不可达和配置无效是三个不同状态，Agent 不会降级到假数据。
 
-MCP 运行环境需要注入：
+Agent 运行环境需要连接 Admin：
 
 ```bash
-export MCP_MARKET_DATA_ADMIN_BASE_URL=http://127.0.0.1:8002
-export TUSHARE_TOKEN=你的真实TushareToken
+export BS_AGENT_ADMIN_BASE_URL=http://127.0.0.1:8002
 ```
 
-生产环境应使用 K8s Secret、容器密钥或云 Secret Manager 注入 `TUSHARE_TOKEN`。
+Tushare MCP URL 中包含 MCP Key。生产部署必须把 Admin Backend 和内部连接接口限制在服务网络内。
 
 ## Skill 证据契约
 

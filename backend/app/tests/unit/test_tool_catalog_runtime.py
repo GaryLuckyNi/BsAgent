@@ -111,3 +111,74 @@ def test_tool_catalog_runtime_close_discards_registry_and_search_service():
 
     assert first is not second
     assert len(builds) == 2
+
+
+def test_tool_catalog_runtime_refreshes_after_ttl():
+    now = [0.0]
+    builds = []
+
+    def discover():
+        builds.append(len(builds) + 1)
+        return ToolRegistry(build_revision=f"build-{builds[-1]}")
+
+    runtime = ToolCatalogRuntime(
+        registry_factory=discover,
+        refresh_seconds=30,
+        clock=lambda: now[0],
+    )
+
+    first = runtime.open()
+    now[0] = 29
+    assert runtime.open() is first
+    now[0] = 31
+    second = runtime.open()
+
+    assert second is not first
+    assert builds == [1, 2]
+
+
+def test_tool_catalog_runtime_keeps_last_snapshot_when_refresh_fails():
+    now = [0.0]
+    calls = [0]
+
+    def discover():
+        calls[0] += 1
+        if calls[0] == 2:
+            raise RuntimeError("admin unavailable")
+        return ToolRegistry()
+
+    runtime = ToolCatalogRuntime(
+        registry_factory=discover,
+        refresh_seconds=30,
+        clock=lambda: now[0],
+    )
+    first = runtime.open()
+    now[0] = 31
+
+    assert runtime.open() is first
+    runtime.check_health()
+    assert calls == [2]
+
+
+def test_tool_catalog_runtime_throttles_refresh_after_failure():
+    now = [0.0]
+    calls = [0]
+
+    def discover():
+        calls[0] += 1
+        if calls[0] > 1:
+            raise RuntimeError("admin unavailable")
+        return ToolRegistry()
+
+    runtime = ToolCatalogRuntime(
+        registry_factory=discover,
+        refresh_seconds=30,
+        clock=lambda: now[0],
+    )
+    first = runtime.open()
+    now[0] = 31
+    assert runtime.open() is first
+    now[0] = 32
+    assert runtime.open() is first
+
+    assert calls == [2]

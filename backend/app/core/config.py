@@ -21,16 +21,19 @@ class Settings(BaseSettings):
     experience_memory_recall_limit: int = Field(default=8, ge=1, le=50)
     graph_checkpoint_postgres_url: str | None = None
     graph_recursion_limit: int = Field(default=32, ge=8, le=256)
+    admin_base_url: str = "http://localhost:8002"
     skill_registry_base_url: str = "http://localhost:8010"
     intent_catalog_refresh_seconds: int = Field(default=30, ge=5, le=3600)
+    market_data_provider_refresh_seconds: int = Field(default=30, ge=5, le=3600)
     skill_definition_cache_ttl_seconds: int = 300
-    mcp_server_url: str = "http://127.0.0.1:8011/mcp"
-    mcp_server_name: str = "local"
+    mcp_server_url: str = ""
+    mcp_server_name: str = "agent-mcp"
     mcp_timeout_seconds: float = 30.0
     mcp_server_revision: str = "local-dev"
     mcp_config_revision: str = "default"
     tool_search_top_k: int = Field(default=5, ge=1, le=8)
     tool_search_candidate_k: int = Field(default=20, ge=5, le=128)
+    tool_search_dense_min_score: float = Field(default=0.35, ge=-1.0, le=1.0)
     tool_search_max_calls: int = Field(default=4, ge=1, le=16)
     tool_search_max_disclosed_tools: int = Field(default=16, ge=1, le=64)
     tool_search_query_cache_size: int = Field(default=1024, ge=0, le=10_000)
@@ -168,16 +171,19 @@ class Settings(BaseSettings):
             invalid.append("rag_base_url")
         if not _has_text(self.skill_registry_base_url):
             invalid.append("skill_registry_base_url")
+        if not _has_text(self.admin_base_url):
+            invalid.append("admin_base_url")
         if _is_development_revision(self.rag_provider_revision):
             invalid.append("rag_provider_revision")
         if _is_development_revision(self.rag_config_revision):
             invalid.append("rag_config_revision")
-        if _is_development_revision(self.mcp_server_revision):
-            invalid.append("mcp_server_revision")
-        if _is_development_revision(self.mcp_config_revision):
-            invalid.append("mcp_config_revision")
-        if not _is_production_mcp_url(self.mcp_server_url):
-            invalid.append("mcp_server_url")
+        if _has_text(self.mcp_server_url):
+            if _is_development_revision(self.mcp_server_revision):
+                invalid.append("mcp_server_revision")
+            if _is_development_revision(self.mcp_config_revision):
+                invalid.append("mcp_config_revision")
+            if not _is_production_mcp_url(self.mcp_server_url):
+                invalid.append("mcp_server_url")
         if not self.redis_url.strip():
             invalid.append("redis_url")
         if not self.tool_search_local_files_only:

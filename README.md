@@ -69,22 +69,25 @@ BS_AGENT_MEMORY_STORE_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
 一键启动会自动将 Agent 后端连接到本地 Admin：
 
 ```text
+BS_AGENT_ADMIN_BASE_URL=http://127.0.0.1:8002
 BS_AGENT_SKILL_REGISTRY_BASE_URL=http://127.0.0.1:8002
-MCP_MARKET_DATA_ADMIN_BASE_URL=http://127.0.0.1:8002
 ```
 
-Admin 后端启动前会自动执行 `alembic upgrade head`，用于修复本地配置库的历史 schema。Tushare 的真实 token 不应保存在 Admin 数据库中；Admin 的 `settings.token_env_var` 应填写环境变量名，例如 `TUSHARE_TOKEN`，真实 token 通过启动 shell 注入：
+Admin 后端启动前会自动执行 `alembic upgrade head`，用于修复本地配置库的历史 schema。Agent 不连接仓库内的示例 MCP Server。请在 Admin 的“市场数据源”页面保存并激活完整的 Tushare 官方 MCP URL；Agent 从 Admin 获取当前连接后，通过 Streamable HTTP 直接发现和调用工具。
+
+DeepSeek Key 仍通过启动 shell 注入：
 
 ```bash
-export TUSHARE_TOKEN=你的真实TushareToken
 export BS_AGENT_DEEPSEEK_API_KEY=你的DeepSeekApiKey
 export BS_AGENT_WEB_SEARCH_ENABLED=true
 npm run dev
 ```
 
-`BS_AGENT_WEB_SEARCH_ENABLED=true` 会把 Web Search 作为普通可检索 Tool 注册到目录。是否联网、搜索什么关键词以及后续如何复验，由 Planner 根据用户 `goal`、已披露能力和 Observation 动态安排，不使用公司名称失败的固定代码分支。搜索结果仍属于外部证据，不能未经交叉验证就当作证券代码或公司事实。
+`BS_AGENT_MCP_SERVER_URL` 只用于额外的通用 Agent MCP Server，默认不配置，也不会作为 Tushare 的备用地址。`npm run dev:mcp` 仅用于单独启动仓库内的学习示例，不在 `npm run dev` 或 `npm run dev:backend` 的依赖链中；只有运行该学习示例时才需要 `TUSHARE_TOKEN`。
 
-`company_snapshot` 默认至少需要声明已开通 `stock_basic`、`stock_company`、`daily`；`daily_basic`、`anns_d` 可作为可选增强接口。
+Tushare MCP URL 中包含 MCP Key。Admin 的公开列表和详情接口只返回脱敏地址，完整地址仅通过内部控制面接口提供给 Agent。部署时应限制 Admin Backend 的网络访问范围，不要把内部接口直接暴露到公网。
+
+`BS_AGENT_WEB_SEARCH_ENABLED=true` 会把 Web Search 作为普通可检索 Tool 注册到目录。是否联网、搜索什么关键词以及后续如何复验，由 Planner 根据用户 `goal`、已披露能力和 Observation 动态安排，不使用公司名称失败的固定代码分支。搜索结果仍属于外部证据，不能未经交叉验证就当作证券代码或公司事实。
 
 前端单独启动命令：
 

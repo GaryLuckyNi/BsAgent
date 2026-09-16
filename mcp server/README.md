@@ -45,22 +45,9 @@ export MCP_SERVER_PATH=/mcp
 
 任何状态都不会返回伪造行情、固定股票资料或空业务对象充当成功结果。
 
-## 通过 Admin 配置
-
-```bash
-export MCP_MARKET_DATA_ADMIN_BASE_URL=http://127.0.0.1:8002
-export TUSHARE_TOKEN=你的真实TushareToken
-cd "mcp server"
-/opt/anaconda3/bin/python3 -m app.main
-```
-
-Admin 只保存 `settings.token_env_var`，明文 token 必须由 K8s Secret、容器密钥或云 Secret Manager 注入。
-
-`settings.enabled_api_names` 必须明确列出管理员已确认当前 Token 开通的接口。MCP 不会遍历或猜测 Token 权限。
-
 ## 通过本地环境配置
 
-没有 Admin 时可显式配置：
+该服务只作为学习和本地联调示例，不接入 Admin 的官方 Tushare MCP 配置。显式启动时使用本地环境变量：
 
 ```bash
 export MCP_MARKET_DATA_PROVIDER=tushare

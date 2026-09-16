@@ -40,13 +40,18 @@ export interface SkillEvidenceContract {
 
 export type MarketDataProviderName = 'tushare'
 
+export interface TushareProviderSettings {
+  mcp_server_url?: string
+  [key: string]: unknown
+}
+
 export interface MarketDataProviderConfig {
   id: string
   provider: MarketDataProviderName
   display_name: string
   enabled: boolean
   active: boolean
-  settings: Record<string, unknown>
+  settings: TushareProviderSettings
   description?: string | null
   created_at?: string
   updated_at?: string

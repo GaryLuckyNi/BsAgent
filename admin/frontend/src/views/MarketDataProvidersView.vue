@@ -26,9 +26,9 @@
           />
         </template>
       </el-table-column>
-      <el-table-column label="Token Env" min-width="150">
+      <el-table-column label="MCP 地址" min-width="280">
         <template #default="{ row }">
-          {{ tokenEnvVar(row) }}
+          {{ mcpServerUrl(row) }}
         </template>
       </el-table-column>
       <el-table-column label="操作" width="230" fixed="right">
@@ -82,32 +82,18 @@
         <el-form-item label="Provider">
           <el-tag type="info">tushare</el-tag>
         </el-form-item>
-        <el-form-item label="Token Env Var">
-          <el-input v-model="settingsForm.token_env_var" placeholder="例如 TUSHARE_TOKEN" />
-        </el-form-item>
-        <el-form-item label="Enabled APIs">
-          <div class="api-selector">
-            <el-select
-              v-model="settingsForm.enabled_api_names"
-              multiple
-              filterable
-              allow-create
-              default-first-option
-              placeholder="选择或输入已开通的 Tushare 接口"
-            >
-              <el-option
-                v-for="apiName in supportedApiNames"
-                :key="apiName"
-                :label="apiName"
-                :value="apiName"
-              />
-            </el-select>
-            <div v-if="unmappedApiNames.length" class="unmapped-apis">
-              <el-tag v-for="apiName in unmappedApiNames" :key="apiName" type="warning" effect="plain">
-                {{ apiName }}：尚未映射
-              </el-tag>
-            </div>
-          </div>
+        <el-form-item label="Tushare MCP URL">
+          <el-input
+            v-model="settingsForm.mcp_server_url"
+            type="password"
+            show-password
+            autocomplete="off"
+            :placeholder="
+              editingId
+                ? '留空表示保留当前地址'
+                : 'https://api.tushare.pro/mcp/token=&lt;mcp-key&gt;'
+            "
+          />
         </el-form-item>
         <el-form-item label="Enabled">
           <el-switch v-model="form.enabled" />
@@ -140,21 +126,8 @@ import {
 } from '../api/marketDataProviders'
 import type { MarketDataProviderConfig } from '../api/types'
 
-const supportedApiNames = [
-  'stock_basic',
-  'stock_company',
-  'daily',
-  'daily_basic',
-  'income',
-  'cashflow',
-  'fina_indicator',
-  'anns_d'
-]
-
 interface TushareSettingsForm {
-  token_env_var: string
-  enabled_api_names: string[]
-  [key: string]: unknown
+  mcp_server_url: string
 }
 
 const loading = ref(false)
@@ -178,13 +151,9 @@ const form = reactive<MarketDataProviderForm>({
 })
 
 const settingsForm = reactive<TushareSettingsForm>({
-  token_env_var: 'TUSHARE_TOKEN',
-  enabled_api_names: []
+  mcp_server_url: ''
 })
 
-const unmappedApiNames = computed(() =>
-  settingsForm.enabled_api_names.filter((apiName) => !supportedApiNames.includes(apiName))
-)
 const isBusy = computed(() => submitting.value || Boolean(mutatingId.value))
 
 let timer = 0
@@ -226,18 +195,8 @@ function resetForm() {
   resetTushareSettings()
 }
 
-function resetTushareSettings(settings: Record<string, unknown> = {}) {
-  for (const key of Object.keys(settingsForm)) {
-    delete settingsForm[key]
-  }
-  Object.assign(settingsForm, {
-    ...settings,
-    token_env_var:
-      typeof settings.token_env_var === 'string' && settings.token_env_var.trim()
-        ? settings.token_env_var.trim()
-        : 'TUSHARE_TOKEN',
-    enabled_api_names: normalizeApiNames(settings.enabled_api_names)
-  })
+function resetTushareSettings() {
+  settingsForm.mcp_server_url = ''
 }
 
 function openCreate() {
@@ -259,28 +218,19 @@ function openEdit(row: MarketDataProviderConfig) {
     settings: { ...row.settings },
     description: row.description ?? ''
   })
-  resetTushareSettings(row.settings)
+  resetTushareSettings()
   dialogVisible.value = true
 }
 
 async function submit() {
   if (submitting.value) return
-  const tokenEnvVar = settingsForm.token_env_var.trim()
-  const enabledApiNames = normalizeApiNames(settingsForm.enabled_api_names)
-  if (!tokenEnvVar) {
-    ElMessage.error('请填写 Tushare Token 环境变量名')
-    return
-  }
-  if (!enabledApiNames.length) {
-    ElMessage.error('请至少配置一个已开通的 Tushare 接口')
+  const mcpServerUrl = settingsForm.mcp_server_url.trim()
+  if (!editingId.value && !mcpServerUrl) {
+    ElMessage.error('请填写 Tushare MCP URL')
     return
   }
   submitting.value = true
-  const settings = {
-    ...settingsForm,
-    token_env_var: tokenEnvVar,
-    enabled_api_names: enabledApiNames
-  }
+  const settings = mcpServerUrl ? { mcp_server_url: mcpServerUrl } : {}
   const payload: MarketDataProviderForm = {
     id: form.id,
     provider: 'tushare',
@@ -354,47 +304,17 @@ async function remove(row: MarketDataProviderConfig) {
   }
 }
 
-function tokenEnvVar(row: MarketDataProviderConfig) {
-  const value = row.settings?.token_env_var
-  return typeof value === 'string' ? value : '-'
+function mcpServerUrl(row: MarketDataProviderConfig) {
+  return row.settings.mcp_server_url || '-'
 }
 
 function handleDialogClose(done: () => void) {
   if (!submitting.value) done()
 }
 
-function normalizeApiNames(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  const names: string[] = []
-  const seen = new Set<string>()
-  for (const item of value) {
-    if (typeof item !== 'string') continue
-    const name = item.trim()
-    if (name && !seen.has(name)) {
-      names.push(name)
-      seen.add(name)
-    }
-  }
-  return names
-}
 </script>
 
 <style scoped>
-.api-selector {
-  width: 100%;
-}
-
-.api-selector :deep(.el-select) {
-  width: 100%;
-}
-
-.unmapped-apis {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
 .is-submitting {
   pointer-events: none;
 }

@@ -16,6 +16,7 @@ const graphCheckpointPostgresUrl =
   process.env.BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL || localPostgresUrl
 const memoryStorePostgresUrl =
   process.env.BS_AGENT_MEMORY_STORE_POSTGRES_URL || localPostgresUrl
+const genericMcpUrl = process.env.BS_AGENT_MCP_SERVER_URL?.trim() || ''
 const ports = {
   backend: Number(process.env.BS_AGENT_BACKEND_PORT || 8000),
   frontend: Number(process.env.BS_AGENT_FRONTEND_PORT || 5175),
@@ -44,10 +45,15 @@ const services = {
       BS_AGENT_GRAPH_CHECKPOINTER_BACKEND: 'postgres',
       BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL: graphCheckpointPostgresUrl,
       BS_AGENT_MEMORY_STORE_POSTGRES_URL: memoryStorePostgresUrl,
+      BS_AGENT_ADMIN_BASE_URL: `http://127.0.0.1:${ports['admin-backend']}`,
       BS_AGENT_SKILL_REGISTRY_BASE_URL: `http://127.0.0.1:${ports['admin-backend']}`,
       BS_AGENT_SKILL_DEFINITION_CACHE_TTL_SECONDS: '5',
-      BS_AGENT_MCP_SERVER_NAME: 'local',
-      BS_AGENT_MCP_SERVER_URL: `http://127.0.0.1:${ports.mcp}/mcp`
+      BS_AGENT_MCP_SERVER_NAME: process.env.BS_AGENT_MCP_SERVER_NAME || 'agent-mcp',
+      BS_AGENT_MCP_SERVER_URL: genericMcpUrl,
+      BS_AGENT_MCP_SERVER_REVISION:
+        process.env.BS_AGENT_MCP_SERVER_REVISION || 'local-dev',
+      BS_AGENT_MCP_CONFIG_REVISION:
+        process.env.BS_AGENT_MCP_CONFIG_REVISION || 'default'
     },
     port: ports.backend,
     startupTasks: [
@@ -85,7 +91,8 @@ const services = {
       MCP_SERVER_HOST: host,
       MCP_SERVER_PORT: String(ports.mcp),
       MCP_SERVER_PATH: '/mcp',
-      MCP_MARKET_DATA_ADMIN_BASE_URL: `http://127.0.0.1:${ports['admin-backend']}`
+      MCP_MARKET_DATA_ADMIN_BASE_URL: '',
+      MCP_MARKET_DATA_PROVIDER: process.env.MCP_MARKET_DATA_PROVIDER || 'tushare'
     },
     port: ports.mcp
   },
@@ -161,7 +168,8 @@ const services = {
   }
 }
 
-const defaultServiceNames = ['mcp', 'admin-backend', 'backend', 'frontend', 'admin-frontend']
+const defaultServiceNames = ['admin-backend', 'backend', 'frontend', 'admin-frontend']
+const defaultStopServiceNames = ['mcp', ...defaultServiceNames]
 const rawArgs = process.argv.slice(2)
 const checkOnly = rawArgs.includes('--check')
 const stopOnly = rawArgs.includes('--stop')
@@ -175,7 +183,12 @@ if (args.includes('--help') || args.includes('-h')) {
   process.exit(0)
 }
 
-const selectedServiceNames = args.length > 0 ? args : defaultServiceNames
+const selectedServiceNames =
+  args.length > 0
+    ? args
+    : stopOnly
+      ? defaultStopServiceNames
+      : defaultServiceNames
 const unknown = selectedServiceNames.filter((name) => !services[name])
 
 if (unknown.length > 0) {
@@ -341,15 +354,31 @@ async function stopLocalPostgres({ dryRun }) {
 
 function validateRequiredEnvironment(selectedServices) {
   const needsBackend = selectedServices.some((service) => service.label === 'backend')
-  if (!needsBackend) {
+  const needsLocalMcp = selectedServices.some((service) => service.label === 'mcp')
+  const missing = []
+  if (needsBackend && !process.env.BS_AGENT_DEEPSEEK_API_KEY?.trim()) {
+    missing.push('BS_AGENT_DEEPSEEK_API_KEY')
+  }
+  if (needsLocalMcp && !process.env.TUSHARE_TOKEN?.trim()) {
+    missing.push('TUSHARE_TOKEN')
+  }
+  if (needsLocalMcp && !process.env.MCP_TUSHARE_ENABLED_API_NAMES?.trim()) {
+    missing.push('MCP_TUSHARE_ENABLED_API_NAMES')
+  }
+  if (missing.length === 0) {
     return
   }
-  if (process.env.BS_AGENT_DEEPSEEK_API_KEY?.trim()) {
-    return
-  }
-  console.error('本地 Agent 后端缺少必需环境变量：BS_AGENT_DEEPSEEK_API_KEY')
+  console.error(`本地开发缺少必需环境变量：${missing.join('、')}`)
   console.error('\n启动前请先执行：')
-  console.error('  export BS_AGENT_DEEPSEEK_API_KEY=你的DeepSeekApiKey')
+  if (missing.includes('BS_AGENT_DEEPSEEK_API_KEY')) {
+    console.error('  export BS_AGENT_DEEPSEEK_API_KEY=你的DeepSeekApiKey')
+  }
+  if (missing.includes('TUSHARE_TOKEN')) {
+    console.error('  export TUSHARE_TOKEN=你的TushareToken')
+  }
+  if (missing.includes('MCP_TUSHARE_ENABLED_API_NAMES')) {
+    console.error('  export MCP_TUSHARE_ENABLED_API_NAMES=stock_basic,daily,daily_basic')
+  }
   console.error('  npm run dev')
   console.error('\n如果只启动 Admin 或前端，可使用 npm run dev:admin 或 npm run dev:frontend。')
   process.exit(1)
@@ -452,7 +481,7 @@ BsAgent 本地开发启动器
 
 默认端口:
   backend         http://127.0.0.1:${ports.backend}
-  mcp             http://127.0.0.1:${ports.mcp}/mcp
+  mcp（仅学习）   http://127.0.0.1:${ports.mcp}/mcp
   frontend        http://127.0.0.1:${ports.frontend}
   admin-backend   http://127.0.0.1:${ports['admin-backend']}
   admin-frontend  http://127.0.0.1:${ports['admin-frontend']}
@@ -466,6 +495,9 @@ BsAgent 本地开发启动器
   BS_AGENT_ADMIN_BACKEND_PORT
   BS_AGENT_ADMIN_FRONTEND_PORT
   BS_AGENT_DEEPSEEK_API_KEY
+  TUSHARE_TOKEN                  仅 dev:mcp 学习示例需要
+  MCP_TUSHARE_ENABLED_API_NAMES  仅 dev:mcp 学习示例需要
+  BS_AGENT_MCP_SERVER_URL        可选的通用 Agent MCP 地址
   BS_AGENT_DATABASE_URL
   BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL
   BS_AGENT_MEMORY_STORE_POSTGRES_URL
@@ -474,8 +506,10 @@ BsAgent 本地开发启动器
   BS_AGENT_DATABASE_URL=postgresql+psycopg://...@127.0.0.1:55432/bs_agent
   BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
   BS_AGENT_MEMORY_STORE_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
+  BS_AGENT_ADMIN_BASE_URL=http://127.0.0.1:<admin-backend-port>
   BS_AGENT_SKILL_REGISTRY_BASE_URL=http://127.0.0.1:<admin-backend-port>
-  BS_AGENT_MCP_SERVER_URL=http://127.0.0.1:<mcp-port>/mcp
-  MCP_MARKET_DATA_ADMIN_BASE_URL=http://127.0.0.1:<admin-backend-port>
+  BS_AGENT_MCP_SERVER_NAME=agent-mcp
+
+Tushare MCP 完整地址请在 Admin 的“市场数据源”页面配置。
 `)
 }

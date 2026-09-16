@@ -1,6 +1,7 @@
 from datetime import datetime
 import re
 from typing import Any, Literal
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic_core import PydanticCustomError
@@ -225,6 +226,14 @@ class MarketDataProviderConfigRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MarketDataMcpConnectionRead(BaseModel):
+    provider_id: str
+    provider: MarketDataProviderName
+    server_name: str
+    server_url: str
+    config_revision: str
+
+
 class Page(BaseModel):
     items: list
     total: int
@@ -257,43 +266,28 @@ def validate_market_data_provider_settings(
 
 
 class TushareSettings(BaseModel):
-    token_env_var: str
-    enabled_api_names: list[str]
+    mcp_server_url: str
 
     model_config = {"extra": "allow"}
 
     @model_validator(mode="before")
     @classmethod
     def validate_required_settings(cls, value: Any) -> Any:
-        if not isinstance(value, dict) or "token_env_var" not in value:
-            raise ValueError("Tushare 数据源必须配置 settings.token_env_var。")
-        if "enabled_api_names" not in value:
-            raise ValueError("Tushare 数据源必须配置非空 settings.enabled_api_names。")
+        if not isinstance(value, dict) or "mcp_server_url" not in value:
+            raise ValueError("Tushare 数据源必须配置 settings.mcp_server_url。")
         return value
 
-    @field_validator("token_env_var", mode="before")
+    @field_validator("mcp_server_url", mode="before")
     @classmethod
-    def validate_token_env_var(cls, value: Any) -> str:
+    def validate_mcp_server_url(cls, value: Any) -> str:
         if not isinstance(value, str) or not value.strip():
-            raise ValueError("Tushare 数据源必须配置 settings.token_env_var。")
-        return value.strip()
-
-    @field_validator("enabled_api_names", mode="before")
-    @classmethod
-    def normalize_enabled_api_names(cls, value: Any) -> list[str]:
-        if not isinstance(value, list):
-            raise ValueError("Tushare 数据源的 settings.enabled_api_names 必须是列表。")
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for api_name in value:
-            if not isinstance(api_name, str):
-                raise ValueError("Tushare 数据源的 settings.enabled_api_names 每项必须是字符串。")
-            normalized_name = api_name.strip()
-            if normalized_name and normalized_name not in seen:
-                normalized.append(normalized_name)
-                seen.add(normalized_name)
-        if not normalized:
-            raise ValueError("Tushare 数据源必须配置非空 settings.enabled_api_names。")
+            raise ValueError("Tushare 数据源必须配置 settings.mcp_server_url。")
+        normalized = value.strip()
+        parsed = urlparse(normalized)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("settings.mcp_server_url 必须是有效的 HTTP(S) URL。")
+        if "******" in normalized:
+            raise ValueError("settings.mcp_server_url 不能使用脱敏占位值。")
         return normalized
 
 

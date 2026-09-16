@@ -12,6 +12,10 @@ def test_intent_catalog_refresh_defaults_to_thirty_seconds():
     assert Settings(_env_file=None).intent_catalog_refresh_seconds == 30
 
 
+def test_market_data_provider_refresh_defaults_to_thirty_seconds():
+    assert Settings(_env_file=None).market_data_provider_refresh_seconds == 30
+
+
 @pytest.mark.parametrize("value", [4, 3601])
 def test_intent_catalog_refresh_enforces_bounds(value):
     with pytest.raises(ValidationError):
@@ -50,7 +54,7 @@ def _production_settings(**overrides):
         "rag_config_revision": "research-v1",
         "mcp_server_revision": "research-tools-2026.07",
         "mcp_config_revision": "production-v1",
-        "mcp_server_url": "http://mcp-server:8011/mcp",
+        "mcp_server_url": "https://api.tushare.pro/mcp/token=test-token",
         "memory_store_postgres_url": "postgresql://agent@postgres/agent",
         "rate_limit_backend": "redis",
         "log_format": "json",
@@ -132,6 +136,16 @@ def test_production_accepts_complete_externalized_configuration():
     assert settings.log_format == "json"
 
 
+def test_production_allows_generic_mcp_to_be_unconfigured():
+    settings = _production_settings(
+        mcp_server_url="",
+        mcp_server_revision="local-dev",
+        mcp_config_revision="default",
+    )
+
+    assert settings.mcp_server_url == ""
+
+
 def test_settings_do_not_expose_a_separate_short_term_memory_backend():
     runtime = Settings(_env_file=None)
 
@@ -158,6 +172,10 @@ def test_local_defaults_remain_offline_friendly():
     assert settings.trace_success_sample_ratio == 0.1
     assert settings.trace_detailed_sample_ratio == 0.01
     assert settings.trace_retention_days == 30
+    assert settings.admin_base_url == "http://localhost:8002"
+    assert settings.market_data_provider_refresh_seconds == 30
+    assert settings.mcp_server_name == "agent-mcp"
+    assert settings.mcp_server_url == ""
     assert settings.trace_cleanup_batch_size == 1000
     assert settings.trace_max_events_per_run == 128
     assert settings.trace_max_artifacts_per_run == 16

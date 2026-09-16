@@ -1,11 +1,15 @@
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import create_app
+
+
+TUSHARE_MCP_URL = "https://api.tushare.pro/mcp/token=top-secret"
+SECOND_TUSHARE_MCP_URL = "https://api.tushare.pro/mcp/token=second-secret"
+MASKED_TUSHARE_MCP_URL = "https://api.tushare.pro/mcp/token=******"
 
 
 def create_test_client():
@@ -26,6 +30,23 @@ def create_test_client():
     return TestClient(app)
 
 
+def _provider_payload(
+    provider_id: str = "tushare-prod",
+    *,
+    url: str = TUSHARE_MCP_URL,
+    enabled: bool = True,
+    active: bool = False,
+) -> dict:
+    return {
+        "id": provider_id,
+        "provider": "tushare",
+        "display_name": "Tushare Pro",
+        "enabled": enabled,
+        "active": active,
+        "settings": {"mcp_server_url": url},
+    }
+
+
 def test_market_data_provider_rejects_fixture_at_request_validation():
     client = create_test_client()
     response = client.post(
@@ -41,7 +62,7 @@ def test_market_data_provider_rejects_fixture_at_request_validation():
     assert response.status_code == 422
 
 
-def test_market_data_provider_requires_tushare_enabled_api_names():
+def test_tushare_provider_requires_mcp_url():
     client = create_test_client()
     response = client.post(
         "/api/market-data-providers",
@@ -49,14 +70,37 @@ def test_market_data_provider_requires_tushare_enabled_api_names():
             "id": "tushare-prod",
             "provider": "tushare",
             "display_name": "Tushare Pro",
-            "settings": {"token_env_var": "TUSHARE_TOKEN"},
+            "settings": {},
         },
     )
 
     assert response.status_code == 422
+    assert "mcp_server_url" in response.json()["detail"][0]["msg"]
 
 
-def test_market_data_provider_rejects_non_object_settings_on_create_in_chinese():
+def test_tushare_provider_requires_http_mcp_url():
+    client = create_test_client()
+    response = client.post(
+        "/api/market-data-providers",
+        json=_provider_payload(url="file:///tmp/mcp"),
+    )
+
+    assert response.status_code == 422
+    assert "HTTP(S) URL" in response.json()["detail"][0]["msg"]
+
+
+def test_tushare_provider_rejects_masked_mcp_url():
+    client = create_test_client()
+    response = client.post(
+        "/api/market-data-providers",
+        json=_provider_payload(url=MASKED_TUSHARE_MCP_URL),
+    )
+
+    assert response.status_code == 422
+    assert "脱敏占位值" in response.json()["detail"][0]["msg"]
+
+
+def test_market_data_provider_rejects_non_object_settings_in_chinese():
     client = create_test_client()
     response = client.post(
         "/api/market-data-providers",
@@ -64,273 +108,95 @@ def test_market_data_provider_rejects_non_object_settings_on_create_in_chinese()
             "id": "tushare-prod",
             "provider": "tushare",
             "display_name": "Tushare Pro",
-            "settings": ["TUSHARE_TOKEN", ["daily"]],
+            "settings": [TUSHARE_MCP_URL],
         },
-    )
-
-    assert response.status_code == 422
-    assert response.json()["detail"][0]["msg"] == "数据源 settings 必须是 JSON object。"
-
-
-def test_market_data_provider_rejects_non_object_settings_on_update_in_chinese():
-    client = create_test_client()
-    create_response = client.post(
-        "/api/market-data-providers",
-        json={
-            "id": "tushare-prod",
-            "provider": "tushare",
-            "display_name": "Tushare Pro",
-            "settings": {
-                "token_env_var": "TUSHARE_TOKEN",
-                "enabled_api_names": ["daily"],
-            },
-        },
-    )
-    assert create_response.status_code == 201
-
-    response = client.put(
-        "/api/market-data-providers/tushare-prod",
-        json={"settings": ["daily_basic"]},
     )
 
     assert response.status_code == 422
     assert response.json()["detail"][0]["msg"] == "数据源 settings 必须是 JSON object。"
 
 
-def test_market_data_provider_normalizes_enabled_api_names_before_persisting():
+def test_public_provider_responses_mask_mcp_credentials():
     client = create_test_client()
-    response = client.post(
-        "/api/market-data-providers",
-        json={
-            "id": "tushare-prod",
-            "provider": "tushare",
-            "display_name": "Tushare Pro",
-            "settings": {
-                "token_env_var": "TUSHARE_TOKEN",
-                "enabled_api_names": [" daily ", "daily", "daily_basic"],
-            },
-        },
+    created = client.post("/api/market-data-providers", json=_provider_payload())
+
+    assert created.status_code == 201
+    assert created.json()["settings"]["mcp_server_url"] == MASKED_TUSHARE_MCP_URL
+
+    detail = client.get("/api/market-data-providers/tushare-prod")
+    listed = client.get("/api/market-data-providers")
+
+    assert detail.json()["settings"]["mcp_server_url"] == MASKED_TUSHARE_MCP_URL
+    assert listed.json()["items"][0]["settings"]["mcp_server_url"] == (
+        MASKED_TUSHARE_MCP_URL
     )
 
-    assert response.status_code == 201
-    assert response.json()["settings"]["enabled_api_names"] == ["daily", "daily_basic"]
 
-    persisted = client.get("/api/market-data-providers/tushare-prod")
-    assert persisted.status_code == 200
-    assert persisted.json()["settings"]["enabled_api_names"] == ["daily", "daily_basic"]
-
-
-def test_market_data_provider_update_partial_patch_uses_saved_settings():
+def test_market_data_provider_partial_update_preserves_saved_url_and_extra_settings():
     client = create_test_client()
-    create_response = client.post(
-        "/api/market-data-providers",
-        json={
-            "id": "tushare-prod",
-            "provider": "tushare",
-            "display_name": "Tushare Pro",
-            "settings": {
-                "token_env_var": "TUSHARE_TOKEN",
-                "enabled_api_names": [" daily ", "daily"],
-            },
-        },
-    )
-    assert create_response.status_code == 201
+    payload = _provider_payload()
+    payload["settings"]["timeout_seconds"] = 10
+    assert client.post("/api/market-data-providers", json=payload).status_code == 201
 
-    response = client.put(
+    updated = client.put(
         "/api/market-data-providers/tushare-prod",
-        json={"enabled": False},
+        json={"enabled": False, "settings": {"mcp_server_url": ""}},
     )
 
-    assert response.status_code == 200
-    assert response.json()["enabled"] is False
-    assert response.json()["settings"]["enabled_api_names"] == ["daily"]
+    assert updated.status_code == 200
+    assert updated.json()["enabled"] is False
+    assert updated.json()["settings"]["mcp_server_url"] == MASKED_TUSHARE_MCP_URL
+    assert updated.json()["settings"]["timeout_seconds"] == 10
 
 
-def test_market_data_provider_rejects_empty_enabled_api_names_on_update():
+def test_market_data_provider_update_replaces_saved_url():
     client = create_test_client()
-    create_response = client.post(
-        "/api/market-data-providers",
-        json={
-            "id": "tushare-prod",
-            "provider": "tushare",
-            "display_name": "Tushare Pro",
-            "active": True,
-            "settings": {
-                "token_env_var": "TUSHARE_TOKEN",
-                "enabled_api_names": ["daily"],
-            },
-        },
-    )
-    assert create_response.status_code == 201
+    assert client.post(
+        "/api/market-data-providers", json=_provider_payload()
+    ).status_code == 201
 
-    response = client.put(
+    updated = client.put(
         "/api/market-data-providers/tushare-prod",
-        json={"settings": {"enabled_api_names": [" ", ""]}},
+        json={"settings": {"mcp_server_url": SECOND_TUSHARE_MCP_URL}},
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == (
-        "Tushare 数据源必须配置非空 settings.enabled_api_names。"
-    )
-
-    unchanged = client.get("/api/market-data-providers/tushare-prod")
-    assert unchanged.status_code == 200
-    assert unchanged.json()["settings"]["token_env_var"] == "TUSHARE_TOKEN"
-    assert unchanged.json()["settings"]["enabled_api_names"] == ["daily"]
-    assert unchanged.json()["active"] is True
-    assert unchanged.json()["enabled"] is True
-
-
-def test_market_data_provider_preserves_extra_settings_across_read_and_partial_patch():
-    client = create_test_client()
-    create_response = client.post(
-        "/api/market-data-providers",
-        json={
-            "id": "tushare-prod",
-            "provider": "tushare",
-            "display_name": "Tushare Pro",
-            "settings": {
-                "token_env_var": "TUSHARE_TOKEN",
-                "enabled_api_names": ["daily"],
-                "base_url": "https://api.tushare.pro",
-                "timeout_seconds": 10,
-            },
-        },
-    )
-
-    assert create_response.status_code == 201
-    assert create_response.json()["settings"]["base_url"] == "https://api.tushare.pro"
-    assert create_response.json()["settings"]["timeout_seconds"] == 10
-
-    read_response = client.get("/api/market-data-providers/tushare-prod")
-    assert read_response.status_code == 200
-    assert read_response.json()["settings"]["base_url"] == "https://api.tushare.pro"
-    assert read_response.json()["settings"]["timeout_seconds"] == 10
-
-    update_response = client.put(
-        "/api/market-data-providers/tushare-prod",
-        json={"settings": {"enabled_api_names": [" daily_basic "]}},
-    )
-
-    assert update_response.status_code == 200
-    assert update_response.json()["settings"]["token_env_var"] == "TUSHARE_TOKEN"
-    assert update_response.json()["settings"]["enabled_api_names"] == ["daily_basic"]
-    assert update_response.json()["settings"]["base_url"] == "https://api.tushare.pro"
-    assert update_response.json()["settings"]["timeout_seconds"] == 10
-
-    patched_read_response = client.get("/api/market-data-providers/tushare-prod")
-    assert patched_read_response.status_code == 200
-    assert patched_read_response.json()["settings"]["base_url"] == "https://api.tushare.pro"
-    assert patched_read_response.json()["settings"]["timeout_seconds"] == 10
+    assert updated.status_code == 200
+    assert updated.json()["settings"]["mcp_server_url"] == MASKED_TUSHARE_MCP_URL
 
 
 def test_market_data_provider_crud_and_active_switch():
     client = create_test_client()
-    local_payload = {
-        "id": "tushare-local",
-        "provider": "tushare",
-        "display_name": "本地 Tushare",
-        "enabled": True,
-        "active": True,
-        "settings": {
-            "token_env_var": "TUSHARE_TOKEN_LOCAL",
-            "enabled_api_names": ["daily"],
-        },
-    }
-    tushare_payload = {
-        "id": "tushare-prod",
-        "provider": "tushare",
-        "display_name": "Tushare Pro",
-        "enabled": True,
-        "active": False,
-        "settings": {
-            "token_env_var": "TUSHARE_TOKEN",
-            "enabled_api_names": ["daily", "daily_basic"],
-            "base_url": "https://api.tushare.pro",
-            "timeout_seconds": 10,
-        },
-    }
-
-    assert client.post("/api/market-data-providers", json=local_payload).status_code == 201
-    assert client.post("/api/market-data-providers", json=tushare_payload).status_code == 201
-
-    listed = client.get("/api/market-data-providers")
-    assert listed.status_code == 200
-    assert listed.json()["total"] == 2
+    assert client.post(
+        "/api/market-data-providers",
+        json=_provider_payload("tushare-local", active=True),
+    ).status_code == 201
+    assert client.post(
+        "/api/market-data-providers",
+        json=_provider_payload("tushare-prod", url=SECOND_TUSHARE_MCP_URL),
+    ).status_code == 201
 
     activated = client.post("/api/market-data-providers/tushare-prod/activate")
-    assert activated.status_code == 200
-    assert activated.json()["active"] is True
-
     active = client.get("/api/market-data-providers/active")
+    local = client.get("/api/market-data-providers/tushare-local")
+
+    assert activated.status_code == 200
     assert active.status_code == 200
     assert active.json()["id"] == "tushare-prod"
-    assert active.json()["settings"]["token_env_var"] == "TUSHARE_TOKEN"
-
-    local = client.get("/api/market-data-providers/tushare-local")
-    assert local.status_code == 200
+    assert active.json()["settings"]["mcp_server_url"] == MASKED_TUSHARE_MCP_URL
     assert local.json()["active"] is False
 
 
-def test_active_market_data_provider_returns_conflict_for_legacy_invalid_settings():
+def test_active_provider_reports_legacy_invalid_settings_but_list_remains_editable():
     client = create_test_client()
-    response = client.post(
+    assert client.post(
         "/api/market-data-providers",
-        json={
-            "id": "legacy-tushare",
-            "provider": "tushare",
-            "display_name": "旧版 Tushare",
-            "enabled": True,
-            "active": False,
-            "settings": {
-                "token_env_var": "TUSHARE_TOKEN",
-                "enabled_api_names": ["daily"],
-            },
-        },
-    )
-    assert response.status_code == 201
+        json=_provider_payload("legacy-tushare", active=True),
+    ).status_code == 201
 
     with client.app.dependency_overrides[get_db]().__next__() as session:
         session.execute(
             text(
-                "UPDATE market_data_provider_configs "
-                "SET active = 1, settings = :settings "
-                "WHERE id = 'legacy-tushare'"
-            ),
-            {"settings": '{"token_env_var": "TUSHARE_TOKEN"}'},
-        )
-        session.commit()
-
-    active = client.get("/api/market-data-providers/active")
-
-    assert active.status_code == 409
-    assert active.json()["detail"]["code"] == "market_data_provider_config_invalid"
-    assert "enabled_api_names" in active.json()["detail"]["message"]
-
-
-def test_market_data_provider_list_and_detail_allow_admin_to_edit_invalid_settings():
-    client = create_test_client()
-    response = client.post(
-        "/api/market-data-providers",
-        json={
-            "id": "legacy-tushare",
-            "provider": "tushare",
-            "display_name": "旧版 Tushare",
-            "enabled": True,
-            "active": True,
-            "settings": {
-                "token_env_var": "TUSHARE_TOKEN",
-                "enabled_api_names": ["daily"],
-            },
-        },
-    )
-    assert response.status_code == 201
-
-    with client.app.dependency_overrides[get_db]().__next__() as session:
-        session.execute(
-            text(
-                "UPDATE market_data_provider_configs "
-                "SET settings = :settings "
+                "UPDATE market_data_provider_configs SET settings = :settings "
                 "WHERE id = 'legacy-tushare'"
             ),
             {"settings": '{"token_env_var": "TUSHARE_TOKEN"}'},
@@ -342,52 +208,75 @@ def test_market_data_provider_list_and_detail_allow_admin_to_edit_invalid_settin
     active = client.get("/api/market-data-providers/active")
 
     assert listed.status_code == 200
-    assert listed.json()["items"][0]["settings"] == {"token_env_var": "TUSHARE_TOKEN"}
+    assert listed.json()["items"][0]["settings"] == {
+        "token_env_var": "TUSHARE_TOKEN"
+    }
     assert detail.status_code == 200
-    assert detail.json()["settings"] == {"token_env_var": "TUSHARE_TOKEN"}
     assert active.status_code == 409
+    assert active.json()["detail"]["code"] == "market_data_provider_config_invalid"
+    assert "mcp_server_url" in active.json()["detail"]["message"]
 
 
 def test_market_data_provider_rejects_disabled_activation():
     client = create_test_client()
-    payload = {
-        "id": "disabled-tushare",
-        "provider": "tushare",
-        "display_name": "停用的数据源",
-        "enabled": False,
-        "active": False,
-        "settings": {
-            "token_env_var": "TUSHARE_TOKEN",
-            "enabled_api_names": ["daily"],
-        },
-    }
+    assert client.post(
+        "/api/market-data-providers",
+        json=_provider_payload("disabled-tushare", enabled=False),
+    ).status_code == 201
 
-    assert client.post("/api/market-data-providers", json=payload).status_code == 201
     response = client.post("/api/market-data-providers/disabled-tushare/activate")
 
     assert response.status_code == 400
     assert response.json()["detail"] == "不能激活已停用的数据源配置。"
 
 
-def test_market_data_provider_rejects_tushare_update_without_token_env_var():
+def test_internal_active_mcp_connection_returns_unmasked_url_and_revision():
     client = create_test_client()
-    payload = {
-        "id": "tushare-prod",
-        "provider": "tushare",
-        "display_name": "Tushare Pro",
-        "enabled": True,
-        "active": False,
-        "settings": {
-            "token_env_var": "TUSHARE_TOKEN",
-            "enabled_api_names": ["daily"],
-        },
-    }
+    assert client.post(
+        "/api/market-data-providers",
+        json=_provider_payload(active=True),
+    ).status_code == 201
 
-    assert client.post("/api/market-data-providers", json=payload).status_code == 201
-    response = client.put(
-        "/api/market-data-providers/tushare-prod",
-        json={"settings": {"token_env_var": ""}},
+    response = client.get(
+        "/api/internal/market-data-providers/active/mcp-connection"
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Tushare 数据源必须配置 settings.token_env_var。"
+    assert response.status_code == 200
+    assert response.json()["server_url"] == TUSHARE_MCP_URL
+    assert response.json()["server_name"] == "tushare"
+    assert response.json()["provider_id"] == "tushare-prod"
+    assert len(response.json()["config_revision"]) == 64
+
+
+def test_internal_active_mcp_connection_returns_404_without_active_provider():
+    client = create_test_client()
+
+    response = client.get(
+        "/api/internal/market-data-providers/active/mcp-connection"
+    )
+
+    assert response.status_code == 404
+
+
+def test_internal_active_mcp_connection_returns_409_for_invalid_active_provider():
+    client = create_test_client()
+    assert client.post(
+        "/api/market-data-providers",
+        json=_provider_payload(active=True),
+    ).status_code == 201
+    with client.app.dependency_overrides[get_db]().__next__() as session:
+        session.execute(
+            text(
+                "UPDATE market_data_provider_configs SET settings = :settings "
+                "WHERE id = 'tushare-prod'"
+            ),
+            {"settings": "{}"},
+        )
+        session.commit()
+
+    response = client.get(
+        "/api/internal/market-data-providers/active/mcp-connection"
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "market_data_provider_config_invalid"

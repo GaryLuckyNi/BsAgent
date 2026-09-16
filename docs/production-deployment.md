@@ -13,8 +13,9 @@ flowchart LR
     API --> REDIS["Redis\n限流 + 缓存 + Celery"]
     API --> S3["S3 / MinIO\n原图 + 分析 artifact"]
     API --> RAG["外部 RAG 检索服务"]
-    API --> SKILL["Skill Registry"]
-    API --> MCP["MCP 工具服务"]
+    API --> ADMIN["Admin 配置中心"]
+    ADMIN --> API
+    API --> MCP["Tushare MCP / 可选通用 MCP"]
     REDIS --> WORKER["Image Worker"]
     REDIS --> MAINT["Maintenance Worker"]
     WORKER --> OCR["PaddleOCR Service"]
@@ -30,7 +31,7 @@ flowchart LR
 
 - Docker Engine 与 Docker Compose v2。
 - 可访问的 OIDC/JWT 身份服务，支持 Authorization Code + PKCE 和 JWKS。
-- 可访问的 RAG、Skill Registry、DeepSeek、Vision 和 OTLP 后端。
+- 可访问的 RAG、Admin、Skill Registry、DeepSeek、Vision 和 OTLP 后端。
 - 生产密码与 API Key 由 Secret Manager 或部署平台注入，不提交到 Git。
 - 对外入口必须使用 HTTPS；Nginx 容器只负责应用代理，TLS 建议在负载均衡器或 Ingress 终止。
 - PostgreSQL、Redis 和对象存储必须启用备份、监控与访问控制。
@@ -71,10 +72,15 @@ chmod 600 deploy/production.env
 必须替换所有 `replace-with-*`。`POSTGRES_PASSWORD_URLENCODED` 与 `REDIS_PASSWORD_URLENCODED` 用于 URL，密码包含 `@`、`:`、`/`、`%` 等字符时必须百分号编码。以下 revision 不能使用 `local-dev` 或 `default`：
 
 - `RAG_PROVIDER_REVISION`、`RAG_CONFIG_REVISION`
-- `MCP_SERVER_REVISION`、`MCP_CONFIG_REVISION`
 - `OCR_PROVIDER_VERSION`
 
 这些字段会进入运行上下文和 Trace，用于审计、问题回放与灰度对比。
+
+Tushare 官方 Streamable HTTP MCP 完整 URL 由管理员在 Admin 的“市场数据源”页面保存并激活。Agent 通过 `ADMIN_BASE_URL` 读取当前连接后直连 Tushare；生产 Compose 不读取 `TUSHARE_TOKEN`，也不构建、启动或依赖仓库内的学习示例 MCP Server。
+
+`BS_AGENT_MCP_SERVER_URL`、`BS_AGENT_MCP_SERVER_NAME`、`MCP_SERVER_REVISION` 和 `MCP_CONFIG_REVISION` 只用于额外的通用 MCP Server。未配置通用 MCP 时 URL 保持为空，其 revision 可以保留默认值；一旦配置生产通用 MCP，revision 必须改为可审计的非开发版本。
+
+Admin Backend 的内部接口会向 Agent 返回完整 MCP URL，因此必须只在服务网络内开放。面向浏览器的 Admin 列表和详情接口返回脱敏地址。
 
 ## 5. 构建与启动
 
