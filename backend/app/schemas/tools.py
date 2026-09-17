@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 from pydantic_core import PydanticCustomError
 
 from app.tools.redaction import contains_inline_credentials
@@ -56,7 +56,7 @@ class ToolCallResult(BaseModel):
     tool_call_id: str
     tool_name: str
     status: Literal["success", "failed", "timeout", "denied"]
-    result: dict[str, Any] | None = None
+    result: JsonValue = None
     error: ToolError | None = None
     latency_ms: int = Field(default=0, ge=0)
     trace_id: str

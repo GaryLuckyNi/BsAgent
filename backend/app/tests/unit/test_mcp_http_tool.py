@@ -1,5 +1,6 @@
 import asyncio
 
+import pytest
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 
@@ -8,7 +9,7 @@ from app.tools import mcp_http
 from app.tools.mcp_http import DynamicMcpHttpTool, McpHttpClient
 
 
-def _langchain_tool(name: str, payload: dict, *, schema: dict | None = None):
+def _langchain_tool(name: str, payload: object, *, schema: dict | None = None):
     async def call(**_kwargs):
         return (
             [{"type": "text", "text": "MCP structured response"}],
@@ -24,7 +25,7 @@ def _langchain_tool(name: str, payload: dict, *, schema: dict | None = None):
     )
 
 
-def _dynamic_tool(name: str, payload: dict) -> DynamicMcpHttpTool:
+def _dynamic_tool(name: str, payload: object) -> DynamicMcpHttpTool:
     return DynamicMcpHttpTool(
         name=f"mcp.local.{name}",
         server_name="local",
@@ -97,6 +98,35 @@ def test_dynamic_http_tool_reads_fastmcp_json_text_fallback():
     )
 
     assert mcp_http._langchain_tool_payload(response) == {"text": "ok"}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('[{"ts_code":"300085.SZ"}]', [{"ts_code": "300085.SZ"}]),
+        ('"ok"', "ok"),
+        ("0", 0),
+        ("false", False),
+        ("null", None),
+    ],
+)
+def test_dynamic_http_tool_reads_any_json_text_value(text, expected):
+    response = ToolMessage(
+        content=[{"type": "text", "text": text}],
+        tool_call_id="call-1",
+        status="success",
+    )
+
+    assert mcp_http._langchain_tool_payload(response) == expected
+
+
+def test_dynamic_http_tool_reads_structured_json_array_artifact():
+    tool = _dynamic_tool("rows", [{"ts_code": "300085.SZ"}])
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "success"
+    assert result.result == [{"ts_code": "300085.SZ"}]
 
 
 def test_dynamic_http_tool_preserves_and_redacts_market_failure():

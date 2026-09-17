@@ -9,7 +9,14 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool as LangChainTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    JsonValue,
+    TypeAdapter,
+    ValidationError as PydanticValidationError,
+    model_validator,
+)
 
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
 from app.tools.base import Tool
@@ -21,6 +28,7 @@ MCP_TOOL_ERROR_MESSAGES = {
     "mcp_tool_execution_failed": "MCP tool execution failed.",
     "mcp_tool_response_invalid": "MCP tool returned an invalid response.",
 }
+_JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
 
 class McpToolResponseError(RuntimeError):
@@ -229,14 +237,12 @@ def _langchain_input_schema(tool: LangChainTool) -> dict[str, Any]:
     return {"type": "object", "properties": {}}
 
 
-def _langchain_tool_payload(response: object) -> dict[str, Any]:
+def _langchain_tool_payload(response: object) -> JsonValue:
     if not isinstance(response, ToolMessage) or response.status == "error":
         raise McpToolResponseError("mcp_tool_execution_failed")
     artifact = response.artifact
-    if isinstance(artifact, dict):
-        payload = artifact.get("structured_content")
-        if isinstance(payload, dict):
-            return payload
+    if isinstance(artifact, dict) and "structured_content" in artifact:
+        return _validated_json_value(artifact["structured_content"])
 
     content = response.content
     if isinstance(content, list) and len(content) == 1:
@@ -245,10 +251,19 @@ def _langchain_tool_payload(response: object) -> dict[str, Any]:
             try:
                 payload = json.loads(block.get("text", ""))
             except (TypeError, json.JSONDecodeError):
-                payload = None
-            if isinstance(payload, dict):
-                return payload
+                pass
+            else:
+                return _validated_json_value(payload)
     raise McpToolResponseError("mcp_tool_response_invalid")
+
+
+def _validated_json_value(value: object) -> JsonValue:
+    try:
+        payload = _JSON_VALUE_ADAPTER.validate_python(value, strict=True)
+        json.dumps(payload, ensure_ascii=False, allow_nan=False)
+    except (PydanticValidationError, TypeError, ValueError) as exc:
+        raise McpToolResponseError("mcp_tool_response_invalid") from exc
+    return payload
 
 
 def _failure_result(
@@ -281,12 +296,14 @@ def _python_type_name(value: str) -> str:
 
 
 def _market_envelope_error(
-    payload: dict[str, Any],
+    payload: JsonValue,
     *,
     require_market_envelope: bool,
 ) -> ToolError | None:
     if not require_market_envelope:
         return None
+    if not isinstance(payload, dict):
+        return _invalid_response_error()
     if "status" not in payload:
         return _invalid_response_error()
     status = payload.get("status")

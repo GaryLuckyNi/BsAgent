@@ -5,7 +5,10 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
-from app.graph.nodes.tool_agent import build_tool_agent_node
+from app.graph.nodes.tool_agent import (
+    _tool_message_content,
+    build_tool_agent_node,
+)
 from app.graph.state import create_initial_state, merge_tool_call_records
 from app.schemas.approvals import ApprovedToolCall
 from app.schemas.messages import Message
@@ -93,6 +96,28 @@ def _spec() -> ToolSpec:
             "additionalProperties": False,
         },
     )
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ([], "[]"),
+        (0, "0"),
+        (False, "false"),
+        ("", '""'),
+        (None, "null"),
+    ],
+)
+def test_tool_message_content_preserves_json_falsey_values(payload, expected):
+    result = ToolCallResult(
+        tool_call_id="tool-1",
+        tool_name="mcp.tushare.stock_company",
+        status="success",
+        result=payload,
+        trace_id="trace-1",
+    )
+
+    assert _tool_message_content(result) == expected
 
 
 def test_native_tool_call_uses_bound_schema_and_restores_registry_name():

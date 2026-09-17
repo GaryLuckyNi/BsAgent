@@ -289,7 +289,7 @@ def _pending_approval(
 
 def _tool_message_content(result: ToolCallResult) -> str:
     if result.status == "success":
-        payload = result.result or {}
+        payload = result.result
     else:
         error = result.error
         payload = {
