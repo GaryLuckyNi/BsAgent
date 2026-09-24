@@ -1,6 +1,6 @@
 # Langfuse Cloud 最小观测验证设计
 
-日期：2026-09-24  
+日期：2026-09-24
 状态：已确认设计，尚未实施
 
 ## 一、目标
@@ -204,4 +204,3 @@ masking 使用确定性、无网络调用的字段删除规则。导出规则采
 - [Langfuse Masking](https://langfuse.com/docs/observability/features/masking)
 - [Token 与成本追踪](https://langfuse.com/docs/observability/features/token-and-cost-tracking)
 - [Environment 管理](https://langfuse.com/docs/observability/features/environments)
-
