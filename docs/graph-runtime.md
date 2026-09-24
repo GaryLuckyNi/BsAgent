@@ -23,43 +23,40 @@ catalog_guard
 
 ## 动态规划
 
-Planner 先使用 `intent_type/domain/subdomain` 过滤 Skill，再对 Skill 和 Tool 分别执行 Top-K 检索。LLM 只看到本轮披露的轻量能力卡片，输出最多 12 个子任务的 DAG：
+Planner 将 Admin 已按 `domain/subdomain` 过滤的全部轻量 Skill 卡片按名称稳定披露给模型，不再对 Skill 做文本检索；Planner 也不检索或绑定普通工具。模型按用户目标生成最多 12 个任务，保留所需证据和完成条件：
 
 ```json
 {
   "tasks": [
-    {
-      "id": "market_data",
-      "task_goal": "取得目标公司行情",
-      "depends_on": [],
-      "skill_name": null,
-      "tool_name": "mcp.tushare.stock.daily"
-    },
-    {
-      "id": "interpret",
-      "task_goal": "解读行情与风险",
-      "depends_on": ["market_data"],
-      "skill_name": null,
-      "tool_name": null
-    }
+    {"id": "market", "task_goal": "取得目标公司行情", "execution_type": "tool", "completion_criteria": ["标明数据期间与来源"], "depends_on": [], "skill_name": null},
+    {"id": "interpret", "task_goal": "依据行情分析变化", "execution_type": "analysis", "completion_criteria": ["区分事实和推断"], "depends_on": ["market"], "skill_name": null}
   ]
 }
 ```
 
-同一子任务最多选择一种外部能力。没有 `skill_name/tool_name` 的子任务由 Analysis Agent 使用依赖结果做局部推理。
+`execution_type=analysis` 路由到 Analysis Agent，仅使用已有材料；`tool` 路由到 Tool Agent，由模型从检索候选中选择一次工具调用或直接回答。绑定已披露 Skill 的任务路由到 Skill Agent。三个执行节点都会收到 `completion_criteria` 和有长度限制的用户材料。修订计划可通过 `evidence_task_ids` 显式引用历史成功结果；Planner 校验引用后才把证据交给执行节点。旧任务省略 execution_type 时默认 tool；这只是字段默认值，不代表旧 Checkpoint 可以跨策略版本恢复。
 
-## 调度与状态合并
+Planner 保留模型提出的必要末端分析，不按拓扑静默删任务。结构、依赖和能力引用错误允许一次模型修复；无法修复则明确报错。
 
-Scheduler 只调度所有依赖已成功的任务。多个无依赖任务通过 LangGraph `Send` 并行分发，有 `depends_on` 的任务自然串行。
+## 调度、反馈和版本
 
-Worker 只返回局部更新。`messages` 使用官方 `add_messages` reducer，`task_results` 按 `task_id` 幂等合并，`tool_calls` 按可信 `call_id` 幂等合并。因此并行 Worker 不会相互覆盖状态。
+Scheduler 只派发依赖已成功的任务，无依赖任务通过 LangGraph Send 并行执行。批次结果产生后，planner 读取当前计划、原始问题和观察，自主选择：
 
-## ReAct 与容错
+- continue：保持计划，推进仍可执行任务。
+- revise：提交完整的新活动计划，明确复用已完成任务。
+- finish：结束研究，可保留证据限制，不等同于所有目标均成功。
 
-- 工具业务失败写成 `TaskResult(status=business_failure)`，Planner 将 Observation 重新纳入上下文并生成新 DAG。
-- 网络超时、限流和 Provider 短暂不可用由 LangGraph `RetryPolicy` 在当前节点内有界重试，不浪费 Planner 决策轮次。
-- 不可恢复失败以 `terminal_failure` 结束，由 Synthesizer 输出可解释的数据边界。
-- Planner 最多 10 轮；Graph 还受 `BS_AGENT_GRAPH_RECURSION_LIMIT` 总超步上限保护。
+业务失败不自动触发修订，工具成功也会进入模型反馈。代码只校验可执行性、依赖、授权和预算。无进展 continue 被反馈给模型修复，不由代码生成替代业务计划。
+
+反馈输出若连续两次不符合契约，Planner 记录 `planner_feedback_invalid` 并停止后续派发，由 Synthesizer 基于已获得的材料说明未核实目标。该停止是 Harness 故障边界，不伪装成模型选择的 finish；初始计划无效仍按明确错误处理。
+
+计划修订仅在批次收敛后应用。已完成任务不能改写目标；复用任务保留 ID，新任务获得版本前缀，旧计划进入 plan_history。任务结果和调用记录按可信 ID 合并；检索披露列表及按任务标识的发现事件使用 reducer 合并，批次收敛时统计检索次数。
+
+初始计划和修订共受 min(BS_AGENT_PLANNER_MAX_ITERATIONS, 2) 限制；反馈最多 24 次，不因修订预算耗尽而剥夺模型 continue/finish 的选择。超过反馈预算记录 planner_stop_reason，合成答案必须说明未完成目标。图仍受 BS_AGENT_GRAPH_RECURSION_LIMIT 超步上限保护；默认值为 128，可容纳契约允许的 12 个串行任务及其反馈步骤。审批恢复使用同一上限。
+
+工具错误作为观察和 ToolMessage 保存；不再通过重跑整个 Tool Agent 节点重新选择工具和参数。当前不新增自动 Provider 重试，连接恢复、幂等重试为后续独立工作。其他现有节点的基础设施重试保持原有机制。
+
+策略版本为 model-feedback-v1。审批恢复要求归属、目录摘要和策略版本一致；旧版本 Checkpoint 拒绝继续，需重新发起请求。
 
 ## Store 与 Checkpointer
 
@@ -72,3 +69,30 @@ graph.compile(checkpointer=checkpointer, store=store)
 - 业务 PostgreSQL 表保存 Message、Run、Candidate 和 Approval 审计投影，不替代 Checkpointer 或 Store。
 
 正常审批恢复只使用 `Command(resume=...)`。工具目录摘要随 State 写入 Checkpoint，恢复时目录或执行绑定变化则拒绝继续旧调用。
+
+## 流式协议
+
+Graph 使用 LangGraph 官方多模式流：
+
+```python
+graph.stream(
+    state,
+    config=config,
+    stream_mode=["updates", "messages", "custom"],
+)
+```
+
+- `updates`：合并节点返回的局部 State，并作为最终业务持久化依据。
+- `messages`：只将 `synthesizer` 的 LLM 消息分片作为最终答案 Token 对外发送；Intent、Planner 等内部模型调用不会作为答案泄露。
+- `custom`：节点通过 `get_stream_writer()` 发送“理解问题、制定计划、获取证据、分析证据、生成回答”等公开执行进度，不包含私有思维链、工具参数或 Node Trace。
+
+Backend 保留现有 FastAPI、JWT、租户 RBAC、幂等 Turn 和 PostgreSQL Message/Run 生命周期，同时提供两条彼此隔离的协议入口：
+
+- `/api/sessions/{session_id}/messages/protocol-stream` 面向当前 Frontend，使用 LangGraph SDK 的 `useStream + FetchStreamTransport` 消费 `messages/custom` 事件。
+- `/api/ag-ui` 面向 AG-UI 客户端，接收官方 `RunAgentInput`，输出 `RUN_*`、`STEP_*`、`ACTIVITY_SNAPSHOT` 和 `TEXT_MESSAGE_*` 事件。
+
+两条入口复用同一业务执行函数，不重复创建 Message、Run、Checkpoint 或审批事实源。客户端提交的 AG-UI `tools/context` 不会绕过服务端冻结的 Tool Catalog、Skill Registry 与 RBAC。
+
+审批发生时，AG-UI 端点以 `RUN_FINISHED` 的 `interrupt` outcome 返回脱敏审批信息；客户端使用 `RunAgentInput.resume` 提交决定。适配层校验租户、会话、Run 与 Interrupt 身份后，复用现有审批 claim、`Command(resume=...)` 和 PostgreSQL Checkpointer。当前 Graph 每次只恢复一个活动 Interrupt；连续审批会返回新的 interrupt outcome。
+
+Node Trace 仍只进入观测与调试存储，不发送到产品端。若最终答案没有经过 LLM Token 流，例如范围外回复或确定性错误回复，Backend 才对最终文本执行兼容性分片。

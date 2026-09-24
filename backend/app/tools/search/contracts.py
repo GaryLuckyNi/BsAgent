@@ -3,8 +3,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-SearchSource = Literal["exact", "bm25", "dense"]
-SearchMode = Literal["exact", "hybrid", "bm25_fallback"]
+SearchSource = Literal["exact", "bm25"]
+SearchMode = Literal["exact", "bm25"]
 
 
 class ToolSearchInput(BaseModel):
@@ -28,13 +28,16 @@ class ToolSearchHit(BaseModel):
     required_arguments: list[str] = Field(default_factory=list)
     rank: int = Field(ge=1)
     sources: list[SearchSource] = Field(default_factory=list)
+    bm25_score: float | None = Field(default=None, ge=0)
+    lexical_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    schema_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    relevance_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class ToolSearchResponse(BaseModel):
     catalog_digest: str
     mode: SearchMode
     hits: list[ToolSearchHit] = Field(default_factory=list)
-    degraded: bool = False
 
 
 class ToolSearchContext(BaseModel):
@@ -44,3 +47,4 @@ class ToolSearchContext(BaseModel):
     user_id: str
     permission_scopes: tuple[str, ...] = Field(default_factory=tuple)
     skill_allowed_tools: tuple[str, ...] | None = None
+    excluded_tools: tuple[str, ...] = ()

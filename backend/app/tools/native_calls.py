@@ -1,11 +1,13 @@
+from collections.abc import Sequence
 from copy import deepcopy
+from dataclasses import dataclass
 from hashlib import sha256
 import re
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 
-from app.llm.factory import ToolCallingLlmClient
+from app.llm.factory import ToolCallingLlmClient, invoke_llm_completion
 from app.schemas.tools import ToolSpec
 from app.tools.redaction import contains_inline_credentials, redact_sensitive_data
 
@@ -21,27 +23,59 @@ class UnexpectedToolCallError(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class NativeToolSelection:
+    message: AIMessage
+    selected_tool: ToolSpec | None
+
+    def __getattr__(self, name: str):
+        # 临时兼容仍把返回值当作 AIMessage 使用的内部调用。
+        return getattr(self.message, name)
+
+
 def create_tool_call_message(
     *,
     llm_client: ToolCallingLlmClient,
     messages: list[AnyMessage],
-    tool_spec: ToolSpec,
-) -> AIMessage:
-    api_name = _api_tool_name(tool_spec.name)
+    tool_specs: Sequence[ToolSpec] | None = None,
+    tool_choice: Literal["auto", "required"] = "required",
+    tool_spec: ToolSpec | None = None,
+) -> NativeToolSelection:
+    specs = tuple(tool_specs or (() if tool_spec is None else (tool_spec,)))
+    if not specs:
+        if tool_choice != "auto":
+            raise ValueError("At least one tool candidate is required.")
+        response = invoke_llm_completion(
+            llm_client,
+            system_prompt="当前没有可调用工具。仅依据已有材料回答子任务，证据不足则说明缺口，不编造外部事实。",
+            user_prompt="\n".join(str(message.content) for message in messages),
+            max_tokens=2048,
+            thinking=False,
+        )
+        return NativeToolSelection(message=AIMessage(content=response.content), selected_tool=None)
+    api_names = {_api_tool_name(spec.name): spec for spec in specs}
+    if len(api_names) != len(specs):
+        raise ValueError("Tool candidate API names must be unique.")
     bound_model = llm_client.bind_tools(
-        [_openai_tool_schema(tool_spec, api_name=api_name)],
-        tool_choice=api_name,
+        [_openai_tool_schema(spec, api_name=api_name) for api_name, spec in api_names.items()],
+        tool_choice=tool_choice,
     )
     response = bound_model.invoke(messages)
     if not isinstance(response, AIMessage):
         raise TypeError("Tool calling model must return AIMessage.")
+    if not response.tool_calls:
+        if tool_choice == "auto":
+            return NativeToolSelection(message=response, selected_tool=None)
+        raise ToolCallCountError("Tool task must produce exactly one tool call.")
     if len(response.tool_calls) != 1:
         raise ToolCallCountError("Tool task must produce exactly one tool call.")
     tool_call = response.tool_calls[0]
-    if tool_call.get("name") != api_name:
+    selected = api_names.get(str(tool_call.get("name")))
+    if selected is None:
         raise UnexpectedToolCallError("Tool calling model selected an unexpected tool.")
-    restored = {**tool_call, "name": tool_spec.name}
-    return response.model_copy(update={"tool_calls": [restored]})
+    restored = {**tool_call, "name": selected.name}
+    message = response.model_copy(update={"tool_calls": [restored]})
+    return NativeToolSelection(message=message, selected_tool=selected)
 
 
 def create_tool_result_message(
@@ -65,9 +99,7 @@ def _openai_tool_schema(tool_spec: ToolSpec, *, api_name: str) -> dict[str, Any]
     if isinstance(properties, dict):
         blocked = set(tool_spec.server_injected_fields)
         blocked.update(
-            name
-            for name in properties
-            if contains_inline_credentials({name: "placeholder-value"})
+            name for name in properties if contains_inline_credentials({name: "placeholder-value"})
         )
         input_schema["properties"] = {
             name: schema for name, schema in properties.items() if name not in blocked

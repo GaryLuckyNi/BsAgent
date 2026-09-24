@@ -65,7 +65,15 @@ describe('toConversationMessages', () => {
           metadata: {
             trace_id: 'trace_1',
             approval_status: 'not_required',
-            cited_evidence_ids: ['evidence_1']
+            cited_evidence_ids: ['evidence_1'],
+            research_process: [{
+              id: 'plan',
+              kind: 'summary',
+              label: '研究计划',
+              message: '先核对公告，再比较行业数据。',
+              status: 'completed',
+              sequence: 0
+            }]
           }
         },
         {
@@ -83,7 +91,15 @@ describe('toConversationMessages', () => {
         content: '分析结果',
         traceId: 'trace_1',
         approvalStatus: 'not_required',
-        citedEvidenceIds: ['evidence_1']
+        citedEvidenceIds: ['evidence_1'],
+        researchProcess: [{
+          id: 'plan',
+          kind: 'summary',
+          label: '研究计划',
+          message: '先核对公告，再比较行业数据。',
+          status: 'completed',
+          sequence: 0
+        }]
       }
     ])
   })

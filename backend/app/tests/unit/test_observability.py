@@ -52,17 +52,16 @@ def test_tool_search_trace_contains_only_safe_discovery_summary():
                 status="success",
                 result={
                     "catalog_digest": "catalog-1",
-                    "mode": "hybrid",
+                    "mode": "bm25",
                     "hits": [
                         {
                             "tool_name": "mcp.test.income",
                             "tool_version": "1.0.0",
                             "description": "利润表",
                             "rank": 1,
-                            "sources": ["bm25", "dense"],
+                            "sources": ["bm25"],
                         }
                     ],
-                    "degraded": False,
                 },
                 trace_id="trace-search",
             ),
@@ -76,12 +75,11 @@ def test_tool_search_trace_contains_only_safe_discovery_summary():
     )
 
     assert summary["tool_search"] == {
-        "status": "hybrid",
+        "status": "bm25",
         "item_count": 1,
         "structured_tools": ["mcp.test.income"],
         "catalog_digest": "catalog-1",
         "search_count": 1,
-        "degraded": False,
     }
     serialized = str(summary)
     assert "secret-query" not in serialized

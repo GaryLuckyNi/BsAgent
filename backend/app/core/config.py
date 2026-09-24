@@ -8,6 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     service_name: str = "bs-agent-service"
     app_env: Literal["local", "test", "production"] = "local"
+    recover_orphaned_runs_on_startup: bool = False
+    prewarm_tool_catalog_on_startup: bool = False
     auth_provider: Literal["mock", "jwt"] = "mock"
     rag_base_url: str = "http://localhost:8001"
     rag_timeout_seconds: float = 30.0
@@ -20,7 +22,7 @@ class Settings(BaseSettings):
     )
     experience_memory_recall_limit: int = Field(default=8, ge=1, le=50)
     graph_checkpoint_postgres_url: str | None = None
-    graph_recursion_limit: int = Field(default=32, ge=8, le=256)
+    graph_recursion_limit: int = Field(default=128, ge=8, le=256)
     admin_base_url: str = "http://localhost:8002"
     skill_registry_base_url: str = "http://localhost:8010"
     intent_catalog_refresh_seconds: int = Field(default=30, ge=5, le=3600)
@@ -32,15 +34,9 @@ class Settings(BaseSettings):
     mcp_server_revision: str = "local-dev"
     mcp_config_revision: str = "default"
     tool_search_top_k: int = Field(default=5, ge=1, le=8)
-    tool_search_candidate_k: int = Field(default=20, ge=5, le=128)
-    tool_search_dense_min_score: float = Field(default=0.35, ge=-1.0, le=1.0)
+    tool_search_candidate_k: int = Field(default=50, ge=5, le=128)
     tool_search_max_calls: int = Field(default=4, ge=1, le=16)
     tool_search_max_disclosed_tools: int = Field(default=16, ge=1, le=64)
-    tool_search_query_cache_size: int = Field(default=1024, ge=0, le=10_000)
-    tool_search_embedding_model: str = "BAAI/bge-small-zh-v1.5"
-    tool_search_embedding_cache_dir: str = "./data/models/fastembed"
-    tool_search_local_files_only: bool = False
-    skill_search_top_k: int = Field(default=5, ge=1, le=8)
     planner_max_iterations: int = Field(default=10, ge=1, le=20)
     llm_provider: Literal["deepseek"] = "deepseek"
     deepseek_api_key: str = ""
@@ -165,6 +161,8 @@ class Settings(BaseSettings):
             invalid.append("log_format")
         if self.trace_backend != "database":
             invalid.append("trace_backend")
+        if self.recover_orphaned_runs_on_startup:
+            invalid.append("recover_orphaned_runs_on_startup")
         if not self.otel_enabled:
             invalid.append("otel_enabled")
         if not _has_text(self.rag_base_url):
@@ -186,8 +184,6 @@ class Settings(BaseSettings):
                 invalid.append("mcp_server_url")
         if not self.redis_url.strip():
             invalid.append("redis_url")
-        if not self.tool_search_local_files_only:
-            invalid.append("tool_search_local_files_only")
         if not _is_postgres_url(self.graph_checkpoint_postgres_url):
             invalid.append("graph_checkpoint_postgres_url")
         if self.asset_store_backend != "s3":

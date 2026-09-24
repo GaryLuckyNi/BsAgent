@@ -4,12 +4,12 @@ version = "0.1.0"
 description = "Industrial Agentic RAG service"
 requires-python = ">=3.11"
 dependencies = [
+  "ag-ui-protocol>=0.1.22,<0.2.0",
   "alembic>=1.13.2",
   "bm25s>=0.3.9,<0.4.0",
   "boto3>=1.40.46,<1.41.0",
   "celery[redis]>=5.6.0,<5.7.0",
   "fastapi>=0.111.0",
-  "fastembed>=0.8.0,<0.9.0",
   "filetype>=1.2.0",
   "httpx>=0.27.0",
   "jsonschema>=4.23.0",
@@ -18,7 +18,6 @@ dependencies = [
   "langchain-openai>=1.2.2,<1.3.0",
   "limits[redis]>=5.8.0,<6.0.0",
   "mcp>=1.28.1",
-  "numpy>=1.26.0,<3.0.0",
   "opentelemetry-api>=1.30.0,<2.0.0",
   "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
   "opentelemetry-instrumentation-fastapi>=0.51b0,<1.0.0",
@@ -63,7 +62,7 @@ app = ["intent/*.json"]
 pythonpath = ["backend", "ocr-service"]
 testpaths = ["backend/app/tests", "ocr-service/tests"]
 markers = [
-  "tool_search_eval: 运行需要本地向量模型的工具检索质量与延迟评测",
+  "tool_search_eval: 运行工具检索质量与延迟评测",
 ]
 
 [tool.ruff]

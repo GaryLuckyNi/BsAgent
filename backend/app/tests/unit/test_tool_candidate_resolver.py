@@ -1,0 +1,175 @@
+from app.schemas.tools import ToolSpec
+from app.tools.candidate_resolver import ToolCandidateResolver
+from app.tools.search import ToolSearchHit, ToolSearchResponse
+
+
+def _spec(name: str, scopes: list[str] | None = None) -> ToolSpec:
+    return ToolSpec(
+        name=name,
+        version="1.0.0",
+        description=name,
+        input_schema={"type": "object", "properties": {}},
+        permission_scope=scopes or [],
+    )
+
+
+class FakeSearchService:
+    catalog_digest = "digest"
+
+    def __init__(self, hits):
+        self.hits = hits
+        self.last_request = None
+        self.specs = {
+            hit.tool_name: _spec(hit.tool_name, ["mcp:tushare"])
+            for hit in hits
+        }
+        self.specs["web_search"] = _spec("web_search", ["web:search"])
+
+    def search(self, request, *, context):
+        self.last_request = request
+        return ToolSearchResponse(
+            catalog_digest="digest", mode="bm25", hits=self.hits
+        )
+
+    def resolve_specs(self, names):
+        return [self.specs[name] for name in names]
+
+
+def _hit(
+    name: str,
+    *,
+    rank=1,
+    sources=("bm25",),
+    lexical_score=1.0,
+):
+    return ToolSearchHit(
+        tool_name=name,
+        tool_version="1.0.0",
+        description=name,
+        rank=rank,
+        sources=list(sources),
+        lexical_score=lexical_score,
+    )
+
+
+def test_resolver_excludes_search_and_web_platform_tools():
+    resolver = ToolCandidateResolver(
+        search_service=FakeSearchService([
+            _hit("mcp.tushare.daily"),
+            _hit("web_search"),
+            _hit("search_tool"),
+            _hit("mcp.tushare.daily_basic"),
+        ])
+    )
+    result = resolver.resolve(
+        task_goal="获取银之杰近期日线价格和成交量",
+        tenant_id="tenant",
+        user_id="user",
+        permission_scopes=("mcp:tushare", "web:search"),
+        has_successful_dependencies=False,
+    )
+    assert [item.name for item in result.candidates] == [
+        "mcp.tushare.daily", "mcp.tushare.daily_basic", "web_search"
+    ]
+    assert result.tool_choice == "auto"
+    assert result.fallback_reason is None
+
+
+def test_resolver_uses_planner_tool_search_query_instead_of_entity_name():
+    service = FakeSearchService([_hit("mcp.tushare.anns_d")])
+    resolver = ToolCandidateResolver(search_service=service)
+
+    resolver.resolve(
+        task_goal="查询银之杰（300085.SZ）的近期资讯",
+        tool_search_query="上市公司公告 监管披露 公告标题 PDF下载 财经新闻 新闻快讯 媒体报道",
+        tenant_id="tenant",
+        user_id="user",
+        permission_scopes=("mcp:tushare", "web:search"),
+        has_successful_dependencies=False,
+    )
+
+    assert service.last_request.query == (
+        "上市公司公告 监管披露 公告标题 PDF下载 财经新闻 新闻快讯 媒体报道"
+    )
+
+
+def test_resolver_requires_web_without_candidates_or_dependencies():
+    result = ToolCandidateResolver(search_service=FakeSearchService([])).resolve(
+        task_goal="获取最新外部事实",
+        tenant_id="tenant",
+        user_id="user",
+        permission_scopes=("web:search",),
+        has_successful_dependencies=False,
+    )
+    assert [item.name for item in result.candidates] == ["web_search"]
+    assert result.tool_choice == "auto"
+    assert result.fallback_reason == "no_specialized_candidate"
+
+
+def test_resolver_allows_optional_web_with_dependencies():
+    result = ToolCandidateResolver(search_service=FakeSearchService([])).resolve(
+        task_goal="综合已有材料，必要时补充最新事件",
+        tenant_id="tenant",
+        user_id="user",
+        permission_scopes=("web:search",),
+        has_successful_dependencies=True,
+    )
+    assert result.tool_choice == "auto"
+
+
+def test_resolver_rejects_weak_bm25_only_overlap():
+    result = ToolCandidateResolver(
+        search_service=FakeSearchService([
+            _hit(
+                "mcp.tushare.stock_company",
+                sources=("bm25",),
+                lexical_score=0.05,
+            )
+        ])
+    ).resolve(
+        task_goal="查询银之杰近期资讯",
+        tenant_id="tenant",
+        user_id="user",
+        permission_scopes=("mcp:tushare", "web:search"),
+        has_successful_dependencies=False,
+    )
+
+    assert [item.name for item in result.candidates] == ["web_search"]
+    assert result.tool_choice == "auto"
+
+
+def test_resolver_keeps_specialized_candidates_even_when_web_ranks_first():
+    result = ToolCandidateResolver(
+        search_service=FakeSearchService([
+            _hit("web_search", rank=1),
+            _hit("rag_search", rank=2),
+        ])
+    ).resolve(
+        task_goal="获取今日全球股市、汇率、商品和国债收益率",
+        tenant_id="tenant",
+        user_id="user",
+        permission_scopes=("mcp:tushare", "web:search"),
+        has_successful_dependencies=False,
+    )
+
+    assert [item.name for item in result.candidates] == ["rag_search", "web_search"]
+    assert result.fallback_reason is None
+
+
+def test_web_exposure_respects_skill_scope_even_outside_search_hits():
+    result = ToolCandidateResolver(search_service=FakeSearchService([])).resolve(
+        task_goal="搜索", tenant_id="t", user_id="u", permission_scopes=("web:search",),
+        skill_allowed_tools=("mcp.*",), has_successful_dependencies=False,
+    )
+    assert result.candidates == ()
+
+
+def test_specialized_search_excludes_platform_tools_before_top_k():
+    class ScopedSearch(FakeSearchService):
+        def search(self, request, *, context):
+            assert set(context.excluded_tools) == {"web_search", "search_tool"}
+            return super().search(request, context=context)
+    service = ScopedSearch([_hit("mcp.tushare.daily")])
+    result = ToolCandidateResolver(search_service=service, top_k=1).resolve(
+        task_goal="行情", tenant_id="t", user_id="u", permission_scopes=("mcp:tushare", "web:search"), has_successful_dependencies=False)
+    assert [spec.name for spec in result.candidates] == ["mcp.tushare.daily", "web_search"]

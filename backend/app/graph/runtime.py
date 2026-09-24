@@ -1,6 +1,8 @@
 from collections.abc import Callable, Iterator
+import json
+from dataclasses import dataclass
 import re
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.messages import AIMessage
 from langgraph.graph import END, StateGraph
@@ -31,7 +33,14 @@ from app.graph.state import (
     create_initial_state,
 )
 from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
-from app.graph.planning.scheduler import plan_status, ready_tasks
+from app.graph.planning.scheduler import ready_tasks
+from app.graph.planning.policy import (
+    MAX_PLANNER_FEEDBACKS,
+    MAX_WEB_SEARCH_TASKS,
+    PLANNER_POLICY_VERSION,
+    observation_signature,
+)
+from app.graph.public_events import emit_public_progress
 from app.harness.error_boundary import (
     build_safe_error_record,
     build_node_error_handler,
@@ -54,6 +63,8 @@ from app.tools.default_registry import (
     get_default_tool_registry,
 )
 from app.tools.registry import ToolCatalogChangedError, ToolRegistry
+from app.tools.call_budget import SearchCallBudget
+from app.tools.candidate_resolver import ToolCandidateResolver
 from app.tools.search import ToolSearchService
 
 
@@ -82,11 +93,22 @@ class LegacyCheckpointIncompatibleError(RuntimeError):
 
     def __init__(self) -> None:
         super().__init__(
-            "旧 Checkpoint 不可安全恢复：坐标缺少可靠的租户或 Run 归属，请重新执行请求。"
+            "旧 Checkpoint 不可安全恢复：归属信息或规划策略版本不兼容，请重新执行请求。"
         )
 
 
+def _validate_planner_checkpoint(state: dict) -> None:
+    if state.get("planner_policy_version") != PLANNER_POLICY_VERSION:
+        raise LegacyCheckpointIncompatibleError()
+
+
 _CHECKPOINT_THREAD_ID_PATTERN = re.compile(r"cpr1_[0-9a-f]{64}")
+
+
+@dataclass(frozen=True)
+class AgentGraphStreamEvent:
+    event: Literal["messages", "custom"]
+    data: Any
 
 
 class _UnavailableAttachmentResolver:
@@ -94,7 +116,6 @@ class _UnavailableAttachmentResolver:
         error = RuntimeError("Attachment resolver is required for image messages.")
         error.code = "attachment_resolver_unavailable"
         raise error
-
 
 
 def _catalog_guard_node(*, catalog_digest: str):
@@ -142,9 +163,7 @@ def final_response_node(state: AgentState) -> AgentState:
     if draft and draft.get("response_type"):
         state["final_response"]["response_type"] = draft["response_type"]
     if draft and draft.get("business_error_code"):
-        state["final_response"]["business_error_code"] = draft[
-            "business_error_code"
-        ]
+        state["final_response"]["business_error_code"] = draft["business_error_code"]
     _append_assistant_message(state)
     return state
 
@@ -155,10 +174,7 @@ def _append_assistant_message(state: AgentState) -> None:
     if not content:
         return
     message_id = state["assistant_message_id"]
-    if any(
-        message.id == message_id
-        for message in state["messages"]
-    ):
+    if any(message.id == message_id for message in state["messages"]):
         return
     state["messages"] = add_messages(
         state["messages"],
@@ -186,6 +202,12 @@ def _with_harness(
 ) -> Callable[..., dict[str, Any]]:
     def execute(state: AgentState, runtime: Any | None = None) -> dict[str, Any]:
         previous_error_count = len(state["errors"])
+        # 节点可能只返回局部更新，也可能原地修改迭代号；首尾事件必须属于同一活动。
+        progress_identity = {
+            "active_task": dict(state.get("active_task") or {}),
+            "planner_iteration": state.get("planner_iteration", 0),
+        }
+        emit_public_progress(node_name, state, status="started")
         try:
             result = runner.run(
                 node_name,
@@ -205,12 +227,20 @@ def _with_harness(
                         code=error.get("code", "agent_graph_execution_failed"),
                         http_status=error.get("http_status", 500),
                     )
+            emit_public_progress(
+                node_name,
+                {**state, **result, **progress_identity},
+                status="completed",
+            )
             return result
         except Exception as exc:
+            emit_public_progress(
+                node_name,
+                {**state, **progress_identity},
+                status="failed",
+            )
             classified = classify_recoverable_error(exc)
-            if classified is not None and should_route_recoverable_error_to_synthesizer(
-                exc
-            ):
+            if classified is not None and should_route_recoverable_error_to_synthesizer(exc):
                 raise
             if classified is not None:
                 error_record = build_safe_error_record(node_name, exc)
@@ -234,6 +264,7 @@ def _with_harness(
             raise graph_error from exc
 
     if runtime_aware:
+
         def wrapped(state: AgentState, runtime: Any) -> dict[str, Any]:
             return execute(state, runtime)
 
@@ -249,7 +280,6 @@ _OPERATIONAL_RETRY_NODE_NAMES = frozenset(
     {
         "attachment_analyzer",
         "skill_agent",
-        "tool_agent",
     }
 )
 
@@ -295,58 +325,62 @@ def _route_after_intent(state: AgentState) -> str:
     return "planner_agent" if intent.get("intent_type") else "synthesizer"
 
 
-def task_scheduler_node(_state: AgentState) -> dict[str, Any]:
-    return {}
+def task_scheduler_node(state: AgentState) -> dict[str, Any]:
+    update = {}
+    count = len(state.get("tool_discovery_events", {}))
+    if count != state.get("tool_search_count", 0):
+        update["tool_search_count"] = count
+    if state.get("plan") and state.get("planner_feedback_count", 0) >= MAX_PLANNER_FEEDBACKS:
+        signature = observation_signature(
+            PlanModel.model_validate(state["plan"]), state.get("task_results", [])
+        )
+        if signature != state.get("planner_reviewed_signature"):
+            update["planner_stop_reason"] = "planner_feedback_budget_exhausted"
+    return update
 
 
 def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
     if _has_pending_memory_approval(state) or _has_pending_tool_approval(state):
         return "approval_gate"
-    plan = PlanModel.model_validate(state.get("plan"))
-    results = [
-        TaskResultModel.model_validate(item)
-        for item in state.get("task_results", [])
-    ]
-    status = plan_status(plan, results=results)
-    if _completed_tool_search(plan, results=results):
-        if state["planner_iteration"] >= settings.planner_max_iterations:
-            return "synthesizer"
-        return "planner_agent"
-    if status in {"complete", "terminal_failure"}:
+    if state.get("planner_stop_reason"):
         return "synthesizer"
-    if status == "needs_replan":
-        if state["planner_iteration"] >= settings.planner_max_iterations:
+    plan = PlanModel.model_validate(state.get("plan"))
+    results = [TaskResultModel.model_validate(item) for item in state.get("task_results", [])]
+    signature = observation_signature(plan, state.get("task_results", []))
+    reviewed = state.get("planner_reviewed_signature") == signature
+    if reviewed and (state.get("planner_decision") or {}).get("action") == "finish":
+        return "synthesizer"
+    active_ids = {task.id for task in plan.tasks}
+    has_observations = any(result.task_id in active_ids for result in results)
+    if has_observations and not reviewed:
+        if state.get("planner_feedback_count", 0) >= MAX_PLANNER_FEEDBACKS:
             return "synthesizer"
         return "planner_agent"
-    return [
-        Send(
-            _worker_name(task),
-            {**state, "active_task": task.model_dump(mode="python")},
-        )
-        for task in ready_tasks(plan, results=results)
-    ]
+    ready = ready_tasks(plan, results=results)
+    if not ready:
+        return "synthesizer"
+    used_searches = sum(
+        1
+        for record in state.get("tool_calls", [])
+        if record.request.tool_name == "web_search"
+        and record.result is not None
+        and not (record.result.error and record.result.error.code == "research_budget_exhausted")
+    )
+    remaining_web_slots = max(0, MAX_WEB_SEARCH_TASKS - used_searches)
+    sends: list[Send] = []
+    for task in ready:
+        worker = _worker_name(task)
+        payload = {**state, "active_task": task.model_dump(mode="python")}
+        if worker == "tool_agent":
+            payload["web_search_allowed"] = remaining_web_slots > 0
+        sends.append(Send(worker, payload))
+    return sends
 
 
 def _worker_name(task: SubTaskModel) -> str:
     if task.skill_name is not None:
         return "skill_agent"
-    if task.tool_name is not None:
-        return "tool_agent"
-    return "analysis_agent"
-
-
-def _completed_tool_search(
-    plan: PlanModel,
-    *,
-    results: list[TaskResultModel],
-) -> bool:
-    successful_ids = {
-        result.task_id for result in results if result.status == "success"
-    }
-    return any(
-        task.tool_name == "search_tool" and task.id in successful_ids
-        for task in plan.tasks
-    )
+    return "analysis_agent" if task.execution_type == "analysis" else "tool_agent"
 
 
 def _route_after_approval_gate(state: AgentState) -> str:
@@ -361,8 +395,7 @@ def _has_pending_tool_approval(state: AgentState) -> bool:
 
 def _has_pending_memory_approval(state: AgentState) -> bool:
     return any(
-        candidate.approval_status == "pending"
-        and candidate.sensitivity in {"medium", "high"}
+        candidate.approval_status == "pending" and candidate.sensitivity in {"medium", "high"}
         for candidate in state["memory_candidates"]
     )
 
@@ -405,9 +438,11 @@ def build_question_answer_graph(
     attachment_resolver: AttachmentContextResolver | None = None,
 ):
     runner = NodeRunner(trace_buffer=trace_buffer, trace_store=trace_store)
-    selected_registry_factory = tool_registry_factory or getattr(
-        tool_agent_node, "tool_registry_factory", None
-    ) or get_default_tool_registry
+    selected_registry_factory = (
+        tool_registry_factory
+        or getattr(tool_agent_node, "tool_registry_factory", None)
+        or get_default_tool_registry
+    )
     tool_registry_snapshot = tool_registry_snapshot or _runtime_registry_snapshot(
         registry_factory=selected_registry_factory,
     )
@@ -417,24 +452,27 @@ def build_question_answer_graph(
         registry_snapshot=tool_registry_snapshot,
     )
     selected_skill_registry = (
-        build_default_skill_registry()
-        if skill_agent_node is None
-        else SkillRegistry()
+        build_default_skill_registry() if skill_agent_node is None else SkillRegistry()
     )
     selected_skill_agent_node = skill_agent_node or build_skill_agent_node(
         registry=selected_skill_registry,
         llm_client=llm_client,
     )
-    if tool_agent_node is not None and not getattr(
-        tool_agent_node, "is_trusted_tool_agent", False
-    ):
+    search_budget = SearchCallBudget(limit=MAX_WEB_SEARCH_TASKS)
+    if tool_agent_node is not None and not getattr(tool_agent_node, "is_trusted_tool_agent", False):
         if not allow_test_tool_agent_override:
             raise ValueError("任意 ToolAgent callable 仅允许通过显式测试钩子注入。")
         selected_tool_agent_node = tool_agent_node
     else:
         selected_tool_agent_node = build_tool_agent_node(
             registry_factory=lambda: tool_registry_snapshot,
+            search_budget=search_budget,
             llm_client=llm_client,
+            candidate_resolver=(
+                ToolCandidateResolver(search_service=selected_tool_search_service)
+                if selected_tool_search_service is not None
+                else None
+            ),
         )
     graph = StateGraph(AgentState)
     memory_recall_failure_trace = _memory_recall_failure_trace_callback(
@@ -492,9 +530,7 @@ def build_question_answer_graph(
     _add_harnessed_node(
         graph,
         "approval_gate",
-        build_approval_gate_node(
-            tool_catalog_digest=tool_registry_snapshot.catalog_digest
-        ),
+        build_approval_gate_node(tool_catalog_digest=tool_registry_snapshot.catalog_digest),
         runner,
     )
     _add_harnessed_node(
@@ -520,7 +556,14 @@ def build_question_answer_graph(
         approval_coordinator_node,
         runner,
     )
-    _add_harnessed_node(graph, "final_response", final_response_node, runner)
+
+    def finish_response(state):
+        search_budget.release(
+            json.dumps([state["tenant_id"], state["session_id"], state["request_id"]])
+        )
+        return final_response_node(state)
+
+    _add_harnessed_node(graph, "final_response", finish_response, runner)
 
     graph.set_entry_point("catalog_guard")
     graph.add_edge("catalog_guard", "attachment_analyzer")
@@ -643,7 +686,7 @@ def stream_question_answer_graph(
     allow_test_tool_agent_override: bool = False,
     attachment_ids: list[str] | None = None,
     attachment_resolver: AttachmentContextResolver | None = None,
-) -> Iterator[AgentState]:
+) -> Iterator[AgentState | AgentGraphStreamEvent]:
     state, graph, config = _prepare_question_answer_run(
         session_id=session_id,
         business_intent_catalog=business_intent_catalog,
@@ -671,7 +714,14 @@ def stream_question_answer_graph(
         attachment_resolver=attachment_resolver,
     )
     latest_state = state
-    for update in graph.stream(state, config=config, stream_mode="updates"):
+    for mode, update in graph.stream(
+        state,
+        config=config,
+        stream_mode=["updates", "messages", "custom"],
+    ):
+        if mode in {"messages", "custom"}:
+            yield AgentGraphStreamEvent(event=mode, data=update)
+            continue
         next_state = _state_from_stream_update(update, fallback=latest_state)
         if next_state is not None:
             latest_state = next_state
@@ -705,12 +755,23 @@ def _prepare_question_answer_run(
     attachment_ids: list[str] | None,
     attachment_resolver: AttachmentContextResolver | None,
 ) -> tuple[AgentState, Any, dict | None]:
-    selected_registry_factory = tool_registry_factory or getattr(
-        tool_agent_node, "tool_registry_factory", None
-    ) or get_default_tool_registry
-    tool_registry_snapshot = _runtime_registry_snapshot(
-        registry_factory=selected_registry_factory,
+    selected_registry_factory = (
+        tool_registry_factory
+        or getattr(tool_agent_node, "tool_registry_factory", None)
+        or get_default_tool_registry
     )
+    if (
+        selected_registry_factory is _DEFAULT_TOOL_REGISTRY_FACTORY
+        and tool_search_service is None
+    ):
+        catalog_snapshot, tool_search_service = (
+            get_default_tool_catalog_runtime().snapshot_pair_for_run()
+        )
+        tool_registry_snapshot = catalog_snapshot.mutable_copy().snapshot()
+    else:
+        tool_registry_snapshot = _runtime_registry_snapshot(
+            registry_factory=selected_registry_factory,
+        )
     state = create_initial_state(
         session_id=session_id,
         session_key=session_key,
@@ -801,9 +862,11 @@ def resume_question_answer_graph(
         raise ValueError("checkpoint_namespace must be empty for the root graph")
     if _CHECKPOINT_THREAD_ID_PATTERN.fullmatch(checkpoint_thread_id) is None:
         raise LegacyCheckpointIncompatibleError()
-    selected_registry_factory = tool_registry_factory or getattr(
-        tool_agent_node, "tool_registry_factory", None
-    ) or get_default_tool_registry
+    selected_registry_factory = (
+        tool_registry_factory
+        or getattr(tool_agent_node, "tool_registry_factory", None)
+        or get_default_tool_registry
+    )
     tool_registry_snapshot = _runtime_registry_snapshot(
         registry_factory=selected_registry_factory,
     )
@@ -822,13 +885,16 @@ def resume_question_answer_graph(
         allow_test_tool_agent_override=allow_test_tool_agent_override,
     )
     config = {
+        "recursion_limit": settings.graph_recursion_limit,
         "configurable": {
             "thread_id": checkpoint_thread_id,
             "checkpoint_ns": checkpoint_namespace,
             "checkpoint_id": checkpoint_id,
-        }
+        },
     }
     snapshot = graph.get_state(config)
+    if snapshot.values:
+        _validate_planner_checkpoint(snapshot.values)
     interrupt_payload = _find_interrupt_payload(snapshot, interrupt_id=interrupt_id)
     if (
         interrupt_payload is None

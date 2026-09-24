@@ -1,6 +1,6 @@
 from collections.abc import Callable
 import logging
-from threading import Lock
+from threading import Lock, Thread
 from time import monotonic
 
 from app.tools.registry import ToolRegistry
@@ -24,12 +24,16 @@ class ToolCatalogRuntime:
         self._search_service_factory = search_service_factory
         self._snapshot: ToolRegistry | None = None
         self._search_service: ToolSearchService | None = None
+        self._snapshot_bundle: tuple[ToolRegistry, ToolSearchService | None] | None = None
         self._deferred_search_service: DeferredToolSearchService | None = None
         self._last_error: Exception | None = None
         self._refresh_seconds = refresh_seconds
         self._clock = clock
         self._last_refresh_at: float | None = None
         self._lock = Lock()
+        self._refresh_schedule_lock = Lock()
+        self._refresh_thread: Thread | None = None
+        self._generation = 0
 
     def open(self) -> ToolRegistry:
         snapshot = self._snapshot
@@ -62,14 +66,12 @@ class ToolCatalogRuntime:
                     return snapshot
                 raise
 
-            previous_deferred_service = self._deferred_search_service
             self._snapshot = next_snapshot
             self._search_service = next_search_service
             self._deferred_search_service = next_deferred_service
             self._last_refresh_at = self._clock()
             self._last_error = None
-            if previous_deferred_service is not None:
-                previous_deferred_service.close()
+            self._snapshot_bundle = (next_snapshot, next_search_service)
             return next_snapshot
         finally:
             self._lock.release()
@@ -106,6 +108,39 @@ class ToolCatalogRuntime:
     def snapshot(self) -> ToolRegistry:
         return self.open()
 
+    def snapshot_pair_for_run(self) -> tuple[ToolRegistry, ToolSearchService | None]:
+        bundle = self._snapshot_bundle
+        if bundle is None:
+            self.open()
+            bundle = self._snapshot_bundle
+        if bundle is None:
+            raise RuntimeError("tool_catalog_unavailable")
+        if self._is_expired():
+            self._schedule_background_refresh()
+        return bundle
+
+    def _schedule_background_refresh(self) -> None:
+        with self._refresh_schedule_lock:
+            if self._refresh_thread is not None and self._refresh_thread.is_alive():
+                return
+            generation = self._generation
+            thread = Thread(
+                target=self._refresh_in_background,
+                args=(generation,),
+                name="tool-catalog-refresh",
+                daemon=True,
+            )
+            self._refresh_thread = thread
+            thread.start()
+
+    def _refresh_in_background(self, generation: int) -> None:
+        if generation != self._generation:
+            return
+        try:
+            self.open()
+        except Exception as exc:
+            logger.warning("tool_catalog_background_refresh_failed type=%s", type(exc).__name__)
+
     def check_health(self) -> None:
         search_unavailable = (
             self._search_service_factory is not None and self._search_service is None
@@ -130,11 +165,18 @@ class ToolCatalogRuntime:
         return self._search_service
 
     def close(self) -> None:
+        with self._refresh_schedule_lock:
+            self._generation += 1
+            refresh_thread = self._refresh_thread
+        if refresh_thread is not None and refresh_thread.is_alive():
+            refresh_thread.join()
         with self._lock:
             if self._deferred_search_service is not None:
                 self._deferred_search_service.close()
             self._snapshot = None
             self._search_service = None
+            self._snapshot_bundle = None
             self._deferred_search_service = None
             self._last_error = None
             self._last_refresh_at = None
+            self._refresh_thread = None

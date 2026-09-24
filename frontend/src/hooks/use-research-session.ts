@@ -1,13 +1,57 @@
+import type { Message } from '@langchain/langgraph-sdk'
+import { FetchStreamTransport, useStream } from '@langchain/langgraph-sdk/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { resolveConversationSession, toConversationMessages } from '../conversation-session'
-import { buildEvidenceIndex, type ResearchMessage } from '../domain/research'
 import {
+  buildEvidenceIndex,
+  type ResearchMessage,
+  type ResearchProgress,
+  type ResearchReasoning
+} from '../domain/research'
+import {
+  agentProtocolStreamUrl,
+  agentRequestHeaders,
   checkAgentHealth,
   loadSessionMessages,
-  streamResearchMessage,
   type RequestIdentity
 } from '../services/research-api'
+
+type ResearchGraphState = {
+  messages: Message[]
+}
+
+type ResearchGraphUpdate = {
+  messages: Array<{ type: 'human'; id: string; content: string }>
+  attachment_ids: string[]
+  request_id: string
+}
+
+type AgentProtocolEvent = {
+  type: 'progress' | 'thinking_delta' | 'final' | 'approval_required'
+  id?: string
+  stage?: string
+  label?: string
+  message?: string
+  status?: 'started' | 'completed' | 'failed'
+  kind?: 'status' | 'activity' | 'summary'
+  activity_type?: 'web_search'
+  group_id?: string
+  task_id?: string
+  query?: string
+  result_count?: number
+  result_urls?: string[]
+  content?: string
+  response?: {
+    content?: string
+    cited_evidence_ids?: string[]
+  }
+}
+
+type ResearchStreamBag = {
+  UpdateType: ResearchGraphUpdate
+  CustomEventType: AgentProtocolEvent
+}
 
 const sampleEvidence = buildEvidenceIndex([
   {
@@ -53,10 +97,126 @@ export function useResearchSession(identity: RequestIdentity) {
     () => `session_${crypto.randomUUID().slice(0, 8)}`
   ), [identity])
   const [messages, setMessages] = useState<ResearchMessage[]>([welcomeMessage])
-  const [isStreaming, setIsStreaming] = useState(false)
   const [isOnline, setIsOnline] = useState<boolean | null>(null)
   const [error, setError] = useState('')
-  const abortRef = useRef<AbortController | null>(null)
+  const activeAssistantIdRef = useRef<string | null>(null)
+  const streamMessageIdsAtSubmitRef = useRef<Set<string>>(new Set())
+  const lastStreamedAnswerRef = useRef<{ assistantId: string; content: string } | null>(null)
+  const eventSequenceRef = useRef(0)
+  const messagesRef = useRef(messages)
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  const transport = useMemo(
+    () => new FetchStreamTransport<ResearchGraphState, ResearchStreamBag>({
+      apiUrl: agentProtocolStreamUrl(sessionId),
+      defaultHeaders: agentRequestHeaders(identity)
+    }),
+    [identity, sessionId]
+  )
+
+  const handleCustomEvent = useCallback((event: AgentProtocolEvent) => {
+    const assistantId = activeAssistantIdRef.current
+    if (!assistantId) return
+    if (event.type === 'thinking_delta' && event.content) {
+      const sequence = eventSequenceRef.current++
+      setMessages((current) => updateMessage(current, assistantId, (message) => ({
+        ...message,
+        reasoning: upsertReasoningDelta(message.reasoning, {
+          id: event.id || event.stage || 'reasoning',
+          sequence,
+          label: event.label || '分析',
+          content: event.content || ''
+        })
+      })))
+      return
+    }
+    if (event.type === 'progress' && event.message) {
+      if (!event.kind || event.kind === 'status') {
+        setMessages((current) => updateMessage(current, assistantId, (message) => ({
+          ...message,
+          processStatus: event.message
+        })))
+        return
+      }
+      const progress: ResearchProgress = {
+        sequence: eventSequenceRef.current++,
+        id: event.id || `${event.stage || 'analysis'}:${event.message}`,
+        kind: event.kind,
+        stage: event.stage,
+        label: event.label || '分析',
+        message: event.message,
+        status: event.status || 'started',
+        activityType: event.activity_type,
+        groupId: event.group_id,
+        queryCount: event.activity_type === 'web_search' ? 1 : undefined,
+        resultCount: event.activity_type === 'web_search' ? (event.result_count || 0) : undefined,
+        queries: event.activity_type === 'web_search' && event.task_id ? [{
+          taskId: event.task_id,
+          query: event.query || event.message,
+          status: event.status || 'started',
+          resultUrls: uniqueUrls(event.result_urls)
+        }] : undefined
+      }
+      setMessages((current) => updateMessage(current, assistantId, (message) => ({
+        ...message,
+        progress: progress.activityType === 'web_search' && progress.groupId
+          ? mergeSearchProgress(message.progress, progress)
+          : upsertProgress(message.progress, progress)
+      })))
+      return
+    }
+    if (event.type === 'final') {
+      const response = event.response || {}
+      const evidence = buildEvidenceIndex((response.cited_evidence_ids || []).map((id) => ({
+        id,
+        publisher: '投资研究数据源',
+        title: `引用资料 ${id}`,
+        url: '#',
+        summary: '原始资料地址将由后端证据元数据补充。'
+      })))
+      setMessages((current) => updateMessage(current, assistantId, (message) => ({
+        ...message,
+        content: response.content || message.content,
+        status: 'complete',
+        evidence,
+        citations: evidence.map((item) => item.index)
+      })))
+    }
+  }, [])
+
+  const stream = useStream<ResearchGraphState, ResearchStreamBag>({
+    transport,
+    threadId: sessionId,
+    throttle: true,
+    initialValues: { messages: [] },
+    onCustomEvent: handleCustomEvent,
+    onError: (caught) => {
+      const message = errorMessage(caught)
+      setError(message)
+      const assistantId = activeAssistantIdRef.current
+      if (assistantId) {
+        setMessages((current) => updateMessage(current, assistantId, (item) => ({
+          ...item,
+          content: item.content || message,
+          status: 'error'
+        })))
+      }
+    },
+    onFinish: () => {
+      const assistantId = activeAssistantIdRef.current
+      if (assistantId) {
+        setMessages((current) => updateMessage(current, assistantId, (message) => ({
+          ...message,
+          status: message.status === 'error' ? 'error' : 'complete'
+        })))
+      }
+      activeAssistantIdRef.current = null
+      streamMessageIdsAtSubmitRef.current.clear()
+    }
+  })
 
   useEffect(() => {
     void checkAgentHealth().then(setIsOnline)
@@ -67,61 +227,191 @@ export function useResearchSession(identity: RequestIdentity) {
         role: item.role === 'agent' ? 'assistant' : 'user',
         content: item.content,
         createdAt: new Date().toISOString(),
-        status: 'complete'
+        status: 'complete',
+        progress: item.researchProcess
       }))
       setMessages(restored)
     }).catch(() => undefined)
   }, [identity, sessionId])
 
+  useEffect(() => {
+    const assistantId = activeAssistantIdRef.current
+    if (!assistantId) return
+    const latestAssistant = [...stream.messages]
+      .reverse()
+      .find((message) => (
+        message.type === 'ai'
+        && typeof message.id === 'string'
+        && !streamMessageIdsAtSubmitRef.current.has(message.id)
+      ))
+    const content = messageText(latestAssistant)
+    if (!content) return
+    const lastStreamedAnswer = lastStreamedAnswerRef.current
+    if (
+      lastStreamedAnswer?.assistantId === assistantId
+      && lastStreamedAnswer.content === content
+    ) return
+    lastStreamedAnswerRef.current = { assistantId, content }
+    setMessages((current) => updateMessage(current, assistantId, (message) => ({
+      ...message,
+      content
+    })))
+  }, [stream.messages])
+
   const sendMessage = useCallback(async (content: string, attachmentIds: string[] = []) => {
-    if (!content.trim() || isStreaming) return
+    if (!content.trim() || stream.isLoading) return
     setError('')
+    const text = content.trim()
     const userMessage: ResearchMessage = {
-      id: crypto.randomUUID(), role: 'user', content: content.trim(),
-      createdAt: new Date().toISOString(), status: 'complete'
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: text,
+      createdAt: new Date().toISOString(),
+      status: 'complete'
     }
     const assistantId = crypto.randomUUID()
+    const optimisticMessages = [
+      ...messagesRef.current.map(toGraphMessage),
+      toGraphMessage(userMessage)
+    ]
+    streamMessageIdsAtSubmitRef.current = new Set(
+      [...stream.messages, ...optimisticMessages].flatMap((message) => (
+        typeof message.id === 'string' ? [message.id] : []
+      ))
+    )
+    eventSequenceRef.current = 0
+    activeAssistantIdRef.current = assistantId
+    lastStreamedAnswerRef.current = null
     setMessages((current) => [...current, userMessage, {
-      id: assistantId, role: 'assistant', content: '', thinking: '',
-      createdAt: new Date().toISOString(), status: 'streaming'
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      reasoning: [],
+      progress: [],
+      processStatus: '正在理解问题与研究范围。',
+      createdAt: new Date().toISOString(),
+      status: 'streaming'
     }])
-    setIsStreaming(true)
-    const controller = new AbortController()
-    abortRef.current = controller
-    try {
-      const response = await streamResearchMessage(
-        sessionId, content.trim(), attachmentIds, identity,
-        {
-          onThinking: (delta) => setMessages((current) => updateMessage(current, assistantId, (message) => ({ ...message, thinking: `${message.thinking ?? ''}${delta}` }))),
-          onProgress: (progress) => setMessages((current) => updateMessage(current, assistantId, (message) => ({ ...message, thinking: message.thinking || progress.message }))),
-          onAnswer: (delta) => setMessages((current) => updateMessage(current, assistantId, (message) => ({ ...message, content: `${message.content}${delta}` })))
-        }, controller.signal
-      )
-      const evidence = buildEvidenceIndex(response.cited_evidence_ids.map((id) => ({
-        id, publisher: '投资研究数据源', title: `引用资料 ${id}`,
-        url: '#', summary: '原始资料地址将由后端证据元数据补充。'
-      })))
-      setMessages((current) => updateMessage(current, assistantId, (message) => ({
-        ...message, content: response.content || message.content, status: 'complete',
-        evidence, citations: evidence.map((item) => item.index)
-      })))
-    } catch (caught) {
-      if (!(caught instanceof DOMException && caught.name === 'AbortError')) setError(errorMessage(caught))
-      setMessages((current) => updateMessage(current, assistantId, (message) => ({ ...message, status: 'error' })))
-    } finally {
-      setIsStreaming(false)
-      abortRef.current = null
-    }
-  }, [identity, isStreaming, sessionId])
+    await stream.submit(
+      {
+        messages: [{ type: 'human', id: userMessage.id, content: text }],
+        attachment_ids: attachmentIds,
+        request_id: `req_${crypto.randomUUID()}`
+      },
+      {
+        optimisticValues: {
+          messages: optimisticMessages
+        }
+      }
+    )
+  }, [stream])
 
-  const cancelMessage = useCallback(() => abortRef.current?.abort(), [])
-  return { sessionId, messages, isStreaming, isOnline, error, sendMessage, cancelMessage }
+  const cancelMessage = useCallback(() => {
+    void stream.stop()
+  }, [stream])
+
+  return {
+    sessionId,
+    messages,
+    isStreaming: stream.isLoading,
+    isOnline,
+    error,
+    sendMessage,
+    cancelMessage
+  }
 }
 
 function updateMessage(messages: ResearchMessage[], id: string, update: (message: ResearchMessage) => ResearchMessage) {
   return messages.map((message) => message.id === id ? update(message) : message)
 }
 
+function upsertProgress(
+  current: ResearchProgress[] | undefined,
+  incoming: ResearchProgress
+): ResearchProgress[] {
+  const items = [...(current || [])]
+  const index = items.findIndex((item) => item.id === incoming.id)
+  if (index >= 0) items[index] = { ...incoming, sequence: items[index].sequence }
+  else items.push(incoming)
+  return items
+}
+
+function mergeSearchProgress(
+  current: ResearchProgress[] | undefined,
+  incoming: ResearchProgress
+): ResearchProgress[] {
+  const items = [...(current || [])]
+  const index = items.findIndex((item) => (
+    item.activityType === 'web_search' && item.groupId === incoming.groupId
+  ))
+  const existing = index >= 0 ? items[index] : undefined
+  const queries = [...(existing?.queries || [])]
+  for (const query of incoming.queries || []) {
+    const queryIndex = queries.findIndex((item) => item.taskId === query.taskId)
+    if (queryIndex >= 0) queries[queryIndex] = query
+    else queries.push(query)
+  }
+  const resultUrls = uniqueUrls(queries.flatMap((query) => query.resultUrls))
+  const status = queries.some((query) => query.status === 'started')
+    ? 'started'
+    : queries.some((query) => query.status === 'completed')
+      ? 'completed'
+      : 'failed'
+  const merged: ResearchProgress = {
+    ...incoming,
+    id: incoming.groupId || incoming.id,
+    sequence: existing?.sequence ?? incoming.sequence,
+    status,
+    queryCount: queries.length,
+    resultCount: resultUrls.length,
+    queries
+  }
+  if (index >= 0) items[index] = merged
+  else items.push(merged)
+  return items
+}
+
+function uniqueUrls(urls: string[] | undefined): string[] {
+  return [...new Set((urls || []).filter((url) => typeof url === 'string' && url.length > 0))]
+}
+
+function upsertReasoningDelta(
+  current: ResearchReasoning[] | undefined,
+  incoming: ResearchReasoning
+): ResearchReasoning[] {
+  const items = [...(current || [])]
+  const index = items.findIndex((item) => item.id === incoming.id)
+  if (index >= 0) {
+    items[index] = {
+      ...items[index],
+      content: `${items[index].content}${incoming.content}`
+    }
+  } else {
+    items.push(incoming)
+  }
+  return items
+}
+
+function messageText(message: Message | undefined): string {
+  if (!message) return ''
+  if (typeof message.content === 'string') return message.content
+  return message.content
+    .filter((item) => typeof item === 'object' && item !== null && 'text' in item)
+    .map((item) => String((item as { text: unknown }).text || ''))
+    .join('')
+}
+
+function toGraphMessage(message: ResearchMessage): Message {
+  return {
+    type: message.role === 'assistant' ? 'ai' : 'human',
+    id: message.id,
+    content: message.content
+  } as Message
+}
+
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : '研究请求失败。'
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String(error.message || '研究请求失败。')
+  }
+  return '研究请求失败。'
 }

@@ -42,7 +42,6 @@ def _production_settings(**overrides):
         "mcp_server_revision": "research-tools-2026.07",
         "mcp_config_revision": "production-v1",
         "mcp_server_url": "http://mcp-server:8011/mcp",
-        "tool_search_local_files_only": True,
         "rate_limit_backend": "redis",
         "log_format": "json",
         "trace_backend": "database",

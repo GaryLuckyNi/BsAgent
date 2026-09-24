@@ -87,7 +87,7 @@ npm run dev
 
 Tushare MCP URL 中包含 MCP Key。Admin 的公开列表和详情接口只返回脱敏地址，完整地址仅通过内部控制面接口提供给 Agent。部署时应限制 Admin Backend 的网络访问范围，不要把内部接口直接暴露到公网。
 
-`BS_AGENT_WEB_SEARCH_ENABLED=true` 会把 Web Search 作为普通可检索 Tool 注册到目录。是否联网、搜索什么关键词以及后续如何复验，由 Planner 根据用户 `goal`、已披露能力和 Observation 动态安排，不使用公司名称失败的固定代码分支。搜索结果仍属于外部证据，不能未经交叉验证就当作证券代码或公司事实。
+`BS_AGENT_WEB_SEARCH_ENABLED=true` 会把 Web Search 注册到工具目录。Planner 根据用户 `goal` 和 Observation 安排事实获取任务；Tool Agent 模型在受权限约束的候选中自主决定是否调用 `web_search` 以及查询词，代码不使用公司名称失败的固定搜索分支。搜索结果仍属于外部证据，不能未经交叉验证就当作证券代码或公司事实。
 
 前端单独启动命令：
 

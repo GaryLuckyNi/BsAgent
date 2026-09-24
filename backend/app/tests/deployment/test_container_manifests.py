@@ -181,7 +181,7 @@ def test_python_images_install_reproducible_lock_files():
     assert "pip check" in ocr_dockerfile
 
 
-def test_backend_image_prefetches_tool_search_model_for_offline_runtime():
+def test_backend_image_uses_lightweight_bm25_tool_search():
     dockerfile = (PROJECT_ROOT / "backend" / "Dockerfile").read_text(
         encoding="utf-8"
     )
@@ -189,17 +189,13 @@ def test_backend_image_prefetches_tool_search_model_for_offline_runtime():
         encoding="utf-8"
     )
 
-    assert "ARG TOOL_SEARCH_EMBEDDING_MODEL=BAAI/bge-small-zh-v1.5" in dockerfile
-    assert "TextEmbedding(" in dockerfile
-    assert "cache_dir='/opt/fastembed-cache'" in dockerfile
-    assert "COPY --from=builder /opt/fastembed-cache /opt/fastembed-cache" in dockerfile
-    assert "BS_AGENT_TOOL_SEARCH_EMBEDDING_CACHE_DIR=/opt/fastembed-cache" in dockerfile
-    assert "BS_AGENT_TOOL_SEARCH_LOCAL_FILES_ONLY=true" in dockerfile
+    assert "TOOL_SEARCH_EMBEDDING" not in dockerfile
+    assert "TextEmbedding(" not in dockerfile
+    assert "fastembed-cache" not in dockerfile
     assert "API_KEY" not in dockerfile
     assert "TOKEN" not in dockerfile
     assert "bm25s==" in lock_file
-    assert "fastembed==" in lock_file
-    assert "numpy==" in lock_file
+    assert "fastembed==" not in lock_file
 
 
 def test_frontend_oidc_configuration_is_injected_at_container_startup():

@@ -3,21 +3,22 @@ from collections.abc import Callable
 from langgraph.runtime import Runtime
 
 from app.core.config import settings
+from app.graph.planning.context import user_materials
 from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
-from app.graph.planning.planner import LlmTaskPlanner, PlannerCapabilities
-from app.graph.state import AgentState, merge_disclosed_tool_names
+from app.graph.planning.planner import LlmTaskPlanner, PlannerCapabilities, PlannerOutputError
+from app.graph.planning.policy import (
+    MAX_PLANNER_ITERATIONS,
+    observation_signature,
+    planner_mode,
+    remaining_planner_iterations,
+)
+from app.graph.public_events import build_public_llm_stream_handler
+from app.graph.state import AgentState
 from app.llm.factory import LlmClient
 from app.memory.candidates import propose_explicit_preference_candidates
 from app.memory.preferences import planning_preference_constraints, recall_user_preferences
-from app.schemas.tools import ToolSpec
 from app.skills.registry import SkillRegistry
-from app.skills.search import SkillSearchService
-from app.tools.search import (
-    ToolSearchContext,
-    ToolSearchHit,
-    ToolSearchInput,
-    ToolSearchService,
-)
+from app.tools.search import ToolSearchService
 
 
 def build_planner_agent_node(
@@ -35,31 +36,83 @@ def build_planner_agent_node(
         domain = intent.get("domain")
         subdomain = intent.get("subdomain")
         goal = intent.get("goal")
-        if not all(isinstance(value, str) and value for value in (
-            intent_type,
-            domain,
-            subdomain,
-            goal,
-        )):
+        if not all(
+            isinstance(value, str) and value
+            for value in (
+                intent_type,
+                domain,
+                subdomain,
+                goal,
+            )
+        ):
             raise ValueError("Planner requires an in-scope intent decision and goal.")
 
         capabilities = _discover_capabilities(
             state=state,
-            goal=goal,
             domain=domain,
             subdomain=subdomain,
             skill_registry=skill_registry,
             tool_search_service=tool_search_service,
         )
-        state["disclosed_tool_names"] = merge_disclosed_tool_names(
-            state["disclosed_tool_names"],
-            [hit.tool_name for hit in capabilities.tools],
-            limit=settings.tool_search_max_disclosed_tools,
-        )
         constraints = planning_preference_constraints(
             recall_user_preferences(runtime, state, on_failure=on_memory_recall_failure)
         )
+        constraints = {**constraints, "user_materials": user_materials(state)}
         current_iteration = state["planner_iteration"]
+        if state.get("plan") is not None:
+            current_plan = PlanModel.model_validate(state["plan"])
+            try:
+                decision = LlmTaskPlanner(llm_client=llm_client).review(
+                    goal=goal,
+                    user_message=state["user_message"],
+                    current_plan=current_plan,
+                    capabilities=capabilities,
+                    task_results=tuple(
+                        TaskResultModel.model_validate(item)
+                        for item in state.get("task_results", [])
+                    ),
+                    remaining_revisions=max(
+                        0,
+                        min(settings.planner_max_iterations, MAX_PLANNER_ITERATIONS)
+                        - current_iteration,
+                    ),
+                    planning_constraints=constraints,
+                )
+            except PlannerOutputError:
+                state["planner_stop_reason"] = "planner_feedback_invalid"
+                state["planner_decision"] = None
+                state["planner_feedback_count"] = state.get("planner_feedback_count", 0) + 1
+                state["planner_reviewed_signature"] = observation_signature(
+                    current_plan, state.get("task_results", [])
+                )
+                return state
+            if decision.plan is not None:
+                state["plan_history"] = [
+                    *state.get("plan_history", []),
+                    {
+                        "revision": current_iteration - 1,
+                        "plan": current_plan.model_dump(mode="json"),
+                    },
+                ]
+                completed = {item["task_id"] for item in state.get("task_results", [])}
+                plan = _namespace_replanned_tasks(
+                    decision.plan, revision=current_iteration, preserved_ids=completed
+                )
+                state["plan"] = plan.model_dump(mode="python")
+                state["planner_iteration"] = current_iteration + 1
+            else:
+                plan = current_plan
+            state["planner_decision"] = {
+                "action": decision.action,
+                "reason": decision.reason,
+                "unresolved_questions": decision.unresolved_questions,
+            }
+            state["planner_feedback_count"] = state.get("planner_feedback_count", 0) + 1
+            state["planner_reviewed_signature"] = observation_signature(
+                plan, state.get("task_results", [])
+            )
+            return state
+        mode = planner_mode(current_iteration)
         plan = LlmTaskPlanner(llm_client=llm_client).plan(
             goal=goal,
             intent_type=intent_type,
@@ -67,18 +120,19 @@ def build_planner_agent_node(
             subdomain=subdomain,
             capabilities=capabilities,
             task_results=tuple(
-                TaskResultModel.model_validate(item)
-                for item in state.get("task_results", [])
+                TaskResultModel.model_validate(item) for item in state.get("task_results", [])
             ),
-            remaining_iterations=max(
-                settings.planner_max_iterations - current_iteration,
-                0,
-            ),
-            planning_constraints=constraints,
+            remaining_iterations=remaining_planner_iterations(current_iteration),
+            planning_constraints={**constraints, "user_message": state["user_message"]},
+            on_delta=build_public_llm_stream_handler("planner_agent", state),
+            mode=mode,
         )
         if current_iteration:
             plan = _namespace_replanned_tasks(plan, revision=current_iteration)
-        state["plan"] = plan.model_dump(mode="python")
+        plan_payload = plan.model_dump(mode="python")
+        if plan_payload.get("public_summary") is None:
+            plan_payload.pop("public_summary", None)
+        state["plan"] = plan_payload
         state["planner_iteration"] = current_iteration + 1
         state["memory_candidates"] = propose_explicit_preference_candidates(
             user_message=state["user_message"],
@@ -90,99 +144,63 @@ def build_planner_agent_node(
     return node
 
 
-def _namespace_replanned_tasks(plan: PlanModel, *, revision: int) -> PlanModel:
-    names = {task.id: f"r{revision}_{task.id}" for task in plan.tasks}
+def _namespace_replanned_tasks(
+    plan: PlanModel, *, revision: int, preserved_ids: set[str] | None = None
+) -> PlanModel:
+    from hashlib import sha256
+
+    preserved_ids = preserved_ids or set()
+
+    def revised_id(task_id: str) -> str:
+        name = f"r{revision}_{task_id}"
+        return name if len(name) <= 64 else f"{name[:51]}_{sha256(name.encode()).hexdigest()[:12]}"
+
+    names = {}
+    occupied = set(preserved_ids)
+    for task in plan.tasks:
+        if task.id in preserved_ids:
+            names[task.id] = task.id
+            continue
+        name = revised_id(task.id)
+        attempt = 0
+        while name in occupied:
+            attempt += 1
+            suffix = sha256(f"{revision}:{task.id}:{attempt}".encode()).hexdigest()[:12]
+            name = f"{revised_id(task.id)[:51]}_{suffix}"
+        names[task.id] = name
+        occupied.add(name)
     return PlanModel(
+        public_summary=plan.public_summary,
         tasks=[
-            SubTaskModel(
-                id=names[task.id],
-                task_goal=task.task_goal,
-                depends_on=[names[dependency] for dependency in task.depends_on],
-                skill_name=task.skill_name,
-                tool_name=task.tool_name,
+            SubTaskModel.model_validate(
+                {
+                    **task.model_dump(),
+                    "id": names[task.id],
+                    "depends_on": [names[dependency] for dependency in task.depends_on],
+                }
             )
             for task in plan.tasks
-        ]
+        ],
     )
 
 
 def _discover_capabilities(
     *,
     state: AgentState,
-    goal: str,
     domain: str,
     subdomain: str,
     skill_registry: SkillRegistry | None,
     tool_search_service: ToolSearchService | None,
 ) -> PlannerCapabilities:
+    del state, tool_search_service
     skill_cards = ()
     if skill_registry is not None:
         eligible_cards = skill_registry.discover(
             domain=domain,
             subdomain=subdomain,
         )
-        skill_cards = tuple(
-            SkillSearchService(eligible_cards).search(
-                query=goal,
-                domain=domain,
-                subdomain=subdomain,
-                top_k=settings.skill_search_top_k,
-            )
-        )
-
-    tool_hits: list[ToolSearchHit] = []
-    if tool_search_service is not None:
-        response = tool_search_service.search(
-            ToolSearchInput(query=goal, top_k=settings.tool_search_top_k),
-            context=ToolSearchContext(
-                tenant_id=state["tenant_id"],
-                user_id=state["user_id"],
-                permission_scopes=tuple(state["permission_scopes"]),
-            ),
-        )
-        tool_hits.extend(response.hits)
-        previously_disclosed = state.get("disclosed_tool_names", [])
-        for spec in (
-            tool_search_service.resolve_specs(previously_disclosed)
-            if previously_disclosed
-            else []
-        ):
-            if all(hit.tool_name != spec.name for hit in tool_hits):
-                tool_hits.append(_tool_card(spec, rank=len(tool_hits) + 1))
-        search_hit = _search_tool_hit(tool_search_service, rank=len(tool_hits) + 1)
-        if search_hit is not None and all(
-            hit.tool_name != search_hit.tool_name for hit in tool_hits
-        ):
-            tool_hits.append(search_hit)
-    return PlannerCapabilities(skills=skill_cards, tools=tuple(tool_hits))
-
-
-def _search_tool_hit(
-    service: ToolSearchService,
-    *,
-    rank: int,
-) -> ToolSearchHit | None:
-    try:
-        spec = service.resolve_specs(["search_tool"])[0]
-    except (KeyError, IndexError):
-        return None
-    return _tool_card(spec, rank=rank)
-
-
-def _tool_card(spec: ToolSpec, *, rank: int) -> ToolSearchHit:
-    required = spec.input_schema.get("required", [])
-    return ToolSearchHit(
-        tool_name=spec.name,
-        tool_version=spec.version,
-        description=spec.description,
-        required_arguments=(
-            [item for item in required if isinstance(item, str)]
-            if isinstance(required, list)
-            else []
-        ),
-        rank=rank,
-        sources=["exact"],
-    )
+        skill_cards = tuple(sorted(eligible_cards, key=lambda card: card.name))
+    return PlannerCapabilities(skills=skill_cards)
 
 
 def planner_agent_node(state: AgentState, runtime: Runtime | None = None) -> AgentState:

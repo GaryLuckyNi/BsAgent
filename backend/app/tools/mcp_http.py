@@ -32,8 +32,9 @@ _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
 
 class McpToolResponseError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, failure_stage: str | None = None) -> None:
         self.code = code
+        self.failure_stage = failure_stage
         super().__init__(
             MCP_TOOL_ERROR_MESSAGES.get(
                 code,
@@ -172,6 +173,11 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 tool_name=self.name,
                 code=exc.code,
                 message=str(exc),
+                details=(
+                    {"failure_stage": exc.failure_stage}
+                    if exc.code == "mcp_tool_execution_failed" and exc.failure_stage
+                    else None
+                ),
                 start=start,
             )
         except TimeoutError as exc:
@@ -182,11 +188,15 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 start=start,
                 status="timeout",
             )
-        except Exception:
+        except Exception as exc:
             return _failure_result(
                 tool_name=self.name,
                 code="mcp_tool_execution_failed",
                 message=MCP_TOOL_ERROR_MESSAGES["mcp_tool_execution_failed"],
+                details={
+                    "failure_stage": "client_exception",
+                    "exception_type": type(exc).__name__[:80],
+                },
                 start=start,
             )
 
@@ -238,8 +248,12 @@ def _langchain_input_schema(tool: LangChainTool) -> dict[str, Any]:
 
 
 def _langchain_tool_payload(response: object) -> JsonValue:
-    if not isinstance(response, ToolMessage) or response.status == "error":
-        raise McpToolResponseError("mcp_tool_execution_failed")
+    if not isinstance(response, ToolMessage):
+        raise McpToolResponseError(
+            "mcp_tool_execution_failed", failure_stage="response_type_invalid"
+        )
+    if response.status == "error":
+        raise McpToolResponseError("mcp_tool_execution_failed", failure_stage="remote_tool_error")
     artifact = response.artifact
     if isinstance(artifact, dict) and "structured_content" in artifact:
         return _validated_json_value(artifact["structured_content"])

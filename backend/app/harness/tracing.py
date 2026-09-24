@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field, replace
+import re
 from time import perf_counter
 from typing import Any, Literal
 from uuid import uuid4
@@ -105,9 +106,7 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
                     "tool_name": record.request.tool_name,
                     "status": record.result.status if record.result else "staged",
                     "error_code": (
-                        record.result.error.code
-                        if record.result and record.result.error
-                        else None
+                        record.result.error.code if record.result and record.result.error else None
                     ),
                     "latency_ms": record.result.latency_ms if record.result else None,
                 }
@@ -126,15 +125,11 @@ def summarize_state(state: AgentState) -> dict[str, Any]:
                 "claim_count": len(draft_answer.get("claims", [])),
                 "cited_evidence_ids": draft_answer.get("cited_evidence_ids", []),
                 "confidence": draft_answer.get("confidence"),
-                "response_type": draft_answer.get("response_policy", {}).get(
-                    "response_type"
+                "response_type": draft_answer.get("response_policy", {}).get("response_type"),
+                "llm_rendering": draft_answer.get("response_policy", {}).get("llm_rendering"),
+                "llm_validation_error": draft_answer.get("response_policy", {}).get(
+                    "llm_validation_error"
                 ),
-                "llm_rendering": draft_answer.get("response_policy", {}).get(
-                    "llm_rendering"
-                ),
-                "llm_validation_error": draft_answer.get(
-                    "response_policy", {}
-                ).get("llm_validation_error"),
             }
             if draft_answer
             else None,
@@ -242,11 +237,7 @@ def _node_summary(
         return f"校验结果：{verification.get('verdict', 'unknown')}"
     if node_name == "approval_coordinator":
         approval_status = state["approval_status"]
-        return (
-            f"审批状态：{approval_status.status}"
-            if approval_status
-            else "无需人工审批"
-        )
+        return f"审批状态：{approval_status.status}" if approval_status else "无需人工审批"
     if node_name == "final_response":
         return "最终回答已生成"
     return f"{node_name} 执行完成"
@@ -264,9 +255,7 @@ def _intent_decision_summary(state: AgentState) -> dict[str, Any]:
 
 
 def _attachment_summaries(state: AgentState) -> list[dict[str, Any]]:
-    analyses = {
-        analysis["asset_id"]: analysis for analysis in state["image_analyses"]
-    }
+    analyses = {analysis["asset_id"]: analysis for analysis in state["image_analyses"]}
     summaries = []
     for ref in state["attachment_refs"]:
         analysis = analyses.get(ref["asset_id"])
@@ -287,6 +276,11 @@ def _planner_decision_summary(state: AgentState) -> dict[str, Any]:
     plan = state["plan"] or {}
     tasks = plan.get("tasks", [])
     return {
+        "action": (state.get("planner_decision") or {}).get("action", "plan"),
+        "policy_version": state.get("planner_policy_version"),
+        "revision": max(0, state.get("planner_iteration", 1) - 1),
+        "feedback_count": state.get("planner_feedback_count", 0),
+        "stop_reason": state.get("planner_stop_reason"),
         "task_count": len(tasks),
         "tasks": [
             {
@@ -328,10 +322,29 @@ def _tool_execution_summary(
                 "error_code": record.result.error.code
                 if record.result and record.result.error
                 else None,
+                **_mcp_failure_category(record.result.error if record.result else None),
             }
             for record in new_records
         ],
     }
+
+
+def _mcp_failure_category(error: Any) -> dict[str, str]:
+    if error is None or error.code != "mcp_tool_execution_failed":
+        return {}
+    details = error.details if isinstance(error.details, dict) else {}
+    stage = details.get("failure_stage")
+    if stage not in {"remote_tool_error", "response_type_invalid", "client_exception"}:
+        return {}
+    category = {"failure_stage": stage}
+    exception_type = details.get("exception_type")
+    if (
+        stage == "client_exception"
+        and isinstance(exception_type, str)
+        and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", exception_type)
+    ):
+        category["exception_type"] = exception_type
+    return category
 
 
 def _tool_search_summary(
@@ -358,7 +371,6 @@ def _tool_search_summary(
             "structured_tools": [],
             "catalog_digest": output_state["tool_catalog_digest"],
             "search_count": output_state["tool_search_count"],
-            "degraded": False,
         }
     try:
         response = ToolSearchResponse.model_validate(result.result)
@@ -370,7 +382,6 @@ def _tool_search_summary(
         "structured_tools": [hit.tool_name for hit in response.hits],
         "catalog_digest": response.catalog_digest,
         "search_count": output_state["tool_search_count"],
-        "degraded": response.degraded,
     }
 
 

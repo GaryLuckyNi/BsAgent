@@ -44,16 +44,17 @@ def test_web_search_tool_returns_bounded_source_evidence():
         )
     )
 
-    assert client.calls == [
-        {"query": "长鑫存储 上市主体 股票代码", "max_results": 3}
-    ]
+    assert client.calls == [{"query": "长鑫存储 上市主体 股票代码", "max_results": 3}]
     assert result.status == "success"
     assert result.result["query"] == "长鑫存储 上市主体 股票代码"
-    assert result.result["results"][0]["url"] == (
-        "https://www.sse.com.cn/disclosure/example"
-    )
+    assert result.result["results"][0]["url"] == ("https://www.sse.com.cn/disclosure/example")
     assert len(result.result["results"][0]["snippet"]) == 4_000
     assert "usage" not in result.result
+
+
+def test_web_search_tool_is_discoverable_for_current_market_event_research():
+    assert "当日市场涨跌原因" in WebSearchTool.description
+    assert "政策" in WebSearchTool.description
 
 
 def test_web_search_tool_maps_provider_failure_without_raw_diagnostics():
@@ -66,9 +67,7 @@ def test_web_search_tool_maps_provider_failure_without_raw_diagnostics():
             )
 
     result = asyncio.run(
-        WebSearchTool(client=FailingClient()).run(
-            WebSearchInput(query="长鑫存储", max_results=3)
-        )
+        WebSearchTool(client=FailingClient()).run(WebSearchInput(query="长鑫存储", max_results=3))
     )
 
     assert result.status == "failed"

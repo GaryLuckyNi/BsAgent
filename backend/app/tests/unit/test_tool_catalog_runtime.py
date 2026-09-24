@@ -1,4 +1,6 @@
 import pytest
+from threading import Event
+from time import perf_counter
 
 from app.tools.catalog_runtime import ToolCatalogRuntime
 from app.tools.search import ToolSearchContext, ToolSearchInput, ToolSearchResponse
@@ -12,7 +14,7 @@ class _SearchService:
     def search(self, request, *, context):
         return ToolSearchResponse(
             catalog_digest=self.catalog_digest,
-            mode="hybrid",
+            mode="bm25",
         )
 
 
@@ -182,3 +184,49 @@ def test_tool_catalog_runtime_throttles_refresh_after_failure():
     assert runtime.open() is first
 
     assert calls == [2]
+
+
+def test_run_uses_consistent_stale_catalog_while_refresh_runs_in_background():
+    now = [0.0]
+    refresh_started = Event()
+    allow_refresh = Event()
+    calls = [0]
+
+    def discover():
+        calls[0] += 1
+        if calls[0] == 2:
+            refresh_started.set()
+            assert allow_refresh.wait(5)
+        return ToolRegistry(build_revision=f"build-{calls[0]}")
+
+    runtime = ToolCatalogRuntime(
+        registry_factory=discover,
+        search_service_factory=lambda registry: _SearchService(registry.catalog_digest),
+        refresh_seconds=30,
+        clock=lambda: now[0],
+    )
+    first_registry, first_search = runtime.snapshot_pair_for_run()
+    first_deferred = runtime._deferred_search_service
+    now[0] = 31.0
+
+    started = perf_counter()
+    try:
+        stale_registry, stale_search = runtime.snapshot_pair_for_run()
+        elapsed = perf_counter() - started
+        assert elapsed < 1.0
+        assert refresh_started.wait(2)
+        assert (stale_registry, stale_search) == (first_registry, first_search)
+        assert stale_search.catalog_digest == stale_registry.catalog_digest
+        assert runtime.snapshot_pair_for_run() == (first_registry, first_search)
+        assert calls == [2]
+    finally:
+        allow_refresh.set()
+
+    runtime._refresh_thread.join(timeout=5)
+    fresh_registry, fresh_search = runtime.snapshot_pair_for_run()
+    assert fresh_registry is not first_registry
+    assert fresh_search.catalog_digest == fresh_registry.catalog_digest
+    assert first_deferred.search(
+        ToolSearchInput(query="利润表"),
+        context=ToolSearchContext(tenant_id="tenant-1", user_id="user-1"),
+    ).catalog_digest == first_registry.catalog_digest

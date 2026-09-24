@@ -19,7 +19,39 @@ export type ResearchMessage = {
   evidence?: EvidenceSource[]
   status?: 'streaming' | 'complete' | 'error'
   thinking?: string
+  reasoning?: ResearchReasoning[]
+  progress?: ResearchProgress[]
+  processStatus?: string
   attachments?: ResearchAttachmentSnapshot[]
+}
+
+export type ResearchReasoning = {
+  sequence?: number
+  id: string
+  label: string
+  content: string
+}
+
+export type ResearchProgress = {
+  sequence?: number
+  id: string
+  kind?: 'activity' | 'summary'
+  stage?: string
+  label: string
+  message: string
+  status: 'started' | 'completed' | 'failed'
+  activityType?: 'web_search'
+  groupId?: string
+  queryCount?: number
+  resultCount?: number
+  queries?: ResearchSearchQuery[]
+}
+
+export type ResearchSearchQuery = {
+  taskId: string
+  query: string
+  status: 'started' | 'completed' | 'failed'
+  resultUrls: string[]
 }
 
 export type ResearchAttachmentSnapshot = {

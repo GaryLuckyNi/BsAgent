@@ -1,5 +1,4 @@
 import pytest
-import numpy as np
 from pydantic import ValidationError
 
 from app.schemas.tools import ToolCallResult
@@ -13,14 +12,6 @@ from app.tools.search.contracts import (
 )
 from app.tools.search.index import ToolSearchIndex
 from app.tools.search.service import ToolSearchService
-
-
-class _ZeroEmbedder:
-    def embed_documents(self, texts):
-        return np.zeros((len(texts), 2), dtype=np.float32)
-
-    def embed_query(self, text):
-        return np.zeros(2, dtype=np.float32)
 
 
 class _Input(ToolSearchInput):
@@ -66,7 +57,6 @@ def _search_service():
     index = ToolSearchIndex.build(
         specs=snapshot.specs(),
         catalog_digest=snapshot.catalog_digest,
-        embedder=_ZeroEmbedder(),
     )
     return ToolSearchService(registry=snapshot, index=index, candidate_k=20)
 
@@ -102,27 +92,28 @@ def test_tool_search_response_preserves_ranked_contract():
         description="检索企业知识库证据片段",
         required_arguments=["query"],
         rank=1,
-        sources=["exact", "bm25", "dense"],
+        sources=["bm25"],
     )
     response = ToolSearchResponse(
         catalog_digest="catalog-v1",
-        mode="hybrid",
+        mode="bm25",
         hits=[hit],
-        degraded=False,
     )
 
     assert response.hits == [hit]
-    assert response.hits[0].sources == ["exact", "bm25", "dense"]
+    assert response.hits[0].sources == ["bm25"]
+    assert "dense_score" not in response.model_dump_json()
+    assert "fusion_score" not in response.model_dump_json()
+    assert "degraded" not in response.model_dump_json()
 
 
 def test_tool_search_response_has_empty_defaults():
     response = ToolSearchResponse(catalog_digest="catalog-v1", mode="exact")
 
     assert response.hits == []
-    assert response.degraded is False
 
 
-@pytest.mark.parametrize("mode", ["unknown", "dense"])
+@pytest.mark.parametrize("mode", ["unknown", "dense", "hybrid", "bm25_fallback"])
 def test_tool_search_response_rejects_unknown_mode(mode):
     with pytest.raises(ValidationError):
         ToolSearchResponse(
@@ -208,9 +199,7 @@ def test_search_service_resolves_only_specs_from_same_catalog():
 
 def test_search_service_rejects_index_from_different_catalog():
     registry = ToolRegistry().snapshot()
-    index = ToolSearchIndex.build(
-        specs=[], catalog_digest="different", embedder=_ZeroEmbedder()
-    )
+    index = ToolSearchIndex.build(specs=[], catalog_digest="different")
 
     with pytest.raises(ValueError, match="digest"):
         ToolSearchService(registry=registry, index=index, candidate_k=20)

@@ -19,6 +19,16 @@ export type RestoredConversationMessage = {
   traceId?: string
   citedEvidenceIds?: string[]
   approvalStatus?: string
+  researchProcess?: RestoredResearchProcessEvent[]
+}
+
+export type RestoredResearchProcessEvent = {
+  id: string
+  kind: 'activity' | 'summary'
+  label: string
+  message: string
+  status: 'started' | 'completed' | 'failed'
+  sequence: number
 }
 
 export function resolveConversationSession(
@@ -61,14 +71,41 @@ export function toConversationMessages(
       const traceId = stringMetadata(item.metadata, 'trace_id')
       const approvalStatus = stringMetadata(item.metadata, 'approval_status')
       const citedEvidenceIds = stringArrayMetadata(item.metadata, 'cited_evidence_ids')
+      const researchProcess = researchProcessMetadata(item.metadata)
       return {
         role: 'agent',
         content: item.content,
         ...(traceId ? { traceId } : {}),
         ...(approvalStatus ? { approvalStatus } : {}),
-        ...(citedEvidenceIds ? { citedEvidenceIds } : {})
+        ...(citedEvidenceIds ? { citedEvidenceIds } : {}),
+        ...(researchProcess ? { researchProcess } : {})
       }
     })
+}
+
+function researchProcessMetadata(
+  metadata: Record<string, unknown>
+): RestoredResearchProcessEvent[] | undefined {
+  const value = metadata.research_process
+  if (!Array.isArray(value)) return undefined
+  const events = value.flatMap((item): RestoredResearchProcessEvent[] => {
+    if (!item || typeof item !== 'object') return []
+    const event = item as Record<string, unknown>
+    if (
+      typeof event.id !== 'string'
+      || (event.kind !== 'activity' && event.kind !== 'summary')
+      || typeof event.message !== 'string'
+    ) return []
+    return [{
+      id: event.id,
+      kind: event.kind,
+      label: typeof event.label === 'string' ? event.label : '研究过程',
+      message: event.message,
+      status: event.status === 'failed' || event.status === 'completed' ? event.status : 'started',
+      sequence: typeof event.sequence === 'number' ? event.sequence : 0
+    }]
+  })
+  return events.length ? events : undefined
 }
 
 function conversationSessionStorageKey(identity: ConversationIdentity): string {

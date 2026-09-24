@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import FastAPI
 from redis import Redis
 
+from app.api.ag_ui import router as ag_ui_router
 from app.api.approvals import router as approvals_router
 from app.api.assets import router as assets_router
 from app.api.health import router as health_router
@@ -14,6 +15,7 @@ from app.api.traces import router as traces_router
 from app.assets.factory import build_object_store
 from app.assets.object_store import ObjectStore
 from app.core.config import Settings, settings
+from app.conversations.recovery import recover_interrupted_local_runs
 from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpointer
 from app.intent.dependencies import build_business_intent_catalog_runtime
 from app.intent.runtime import BusinessIntentCatalogRuntime
@@ -78,6 +80,13 @@ def create_app(
     async def lifespan(_: FastAPI):
         nonlocal intent_refresh_task
         try:
+            if runtime.app_env == "local" and runtime.recover_orphaned_runs_on_startup:
+                recovered = await asyncio.to_thread(
+                    recover_interrupted_local_runs,
+                    selected_engine,
+                )
+                if recovered:
+                    logger.warning("local_orphaned_runs_recovered count=%s", recovered)
             build_graph_checkpointer()
             memory_store = None
             try:
@@ -99,8 +108,10 @@ def create_app(
                         "memory_store_startup_reconciliation_failed type=%s",
                         type(exc).__name__,
                     )
-            if runtime.app_env == "production":
-                selected_tool_catalog.open()
+            if runtime.app_env == "production" or (
+                runtime.app_env == "local" and runtime.prewarm_tool_catalog_on_startup
+            ):
+                await asyncio.to_thread(selected_tool_catalog.open)
             try:
                 await asyncio.to_thread(selected_business_intent_catalog.open)
             except Exception as exc:  # noqa: BLE001 - 首次加载失败交由 readiness 报告
@@ -172,6 +183,7 @@ def create_app(
     )
     configure_logging(log_format=runtime.log_format, level=runtime.log_level)
     app.include_router(health_router)
+    app.include_router(ag_ui_router)
     app.include_router(sessions_router)
     app.include_router(approvals_router)
     app.include_router(assets_router)

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from time import perf_counter
 from uuid import uuid4
@@ -6,7 +7,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError
+from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError, ToolSpec
 from app.schemas.approvals import ApprovedToolCall
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.redaction import sanitize_untrusted_details
@@ -60,6 +61,35 @@ SAFE_TOOL_ERROR_MESSAGES = {
     "web_search_no_results": "联网搜索未返回可验证来源。",
     "tool_search_unavailable": "工具检索暂不可用。",
 }
+
+
+@dataclass(frozen=True)
+class ToolArgumentValidationResult:
+    valid: bool
+    errors: tuple[dict[str, str], ...] = ()
+
+
+def validate_tool_arguments(
+    *,
+    tool_spec: ToolSpec,
+    arguments: dict,
+) -> ToolArgumentValidationResult:
+    try:
+        validator = Draft202012Validator(tool_spec.input_schema)
+        errors = sorted(validator.iter_errors(arguments), key=lambda item: list(item.path))
+    except Exception:
+        return ToolArgumentValidationResult(
+            valid=False,
+            errors=({"field": "schema", "type": "invalid_tool_schema"},),
+        )
+    safe_errors = tuple(
+        {
+            "field": ".".join(str(part) for part in error.path) or "root",
+            "type": str(error.validator or "validation_error"),
+        }
+        for error in errors
+    )
+    return ToolArgumentValidationResult(valid=not safe_errors, errors=safe_errors)
 
 
 class ToolExecutionContext(BaseModel):

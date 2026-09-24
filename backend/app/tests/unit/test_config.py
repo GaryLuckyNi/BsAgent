@@ -16,6 +16,11 @@ def test_market_data_provider_refresh_defaults_to_thirty_seconds():
     assert Settings(_env_file=None).market_data_provider_refresh_seconds == 30
 
 
+def test_orphaned_run_recovery_requires_explicit_local_opt_in():
+    assert Settings(_env_file=None).recover_orphaned_runs_on_startup is False
+    assert Settings(_env_file=None).prewarm_tool_catalog_on_startup is False
+
+
 @pytest.mark.parametrize("value", [4, 3601])
 def test_intent_catalog_refresh_enforces_bounds(value):
     with pytest.raises(ValidationError):
@@ -61,7 +66,6 @@ def _production_settings(**overrides):
         "trace_backend": "database",
         "otel_enabled": True,
         "otel_exporter_otlp_traces_endpoint": "http://otel-collector:4318/v1/traces",
-        "tool_search_local_files_only": True,
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -79,6 +83,7 @@ def _production_settings(**overrides):
         ({"log_format": "console"}, "log_format"),
         ({"trace_backend": "memory"}, "trace_backend"),
         ({"otel_enabled": False}, "otel_enabled"),
+        ({"recover_orphaned_runs_on_startup": True}, "recover_orphaned_runs_on_startup"),
     ],
 )
 def test_production_rejects_development_backends(overrides, expected_field):
@@ -189,13 +194,13 @@ def test_tool_search_settings_have_safe_defaults():
     settings = Settings(_env_file=None)
 
     assert settings.tool_search_top_k == 5
-    assert settings.tool_search_candidate_k == 20
+    assert settings.tool_search_candidate_k == 50
     assert settings.tool_search_max_calls == 4
     assert settings.tool_search_max_disclosed_tools == 16
-    assert settings.tool_search_query_cache_size == 1024
-    assert settings.tool_search_embedding_model == "BAAI/bge-small-zh-v1.5"
-    assert settings.tool_search_embedding_cache_dir == "./data/models/fastembed"
-    assert settings.tool_search_local_files_only is False
+    assert not any(
+        name.startswith("tool_search_embedding")
+        for name in type(settings).model_fields
+    )
 
 
 @pytest.mark.parametrize(
@@ -209,8 +214,6 @@ def test_tool_search_settings_have_safe_defaults():
         ("tool_search_max_calls", 17),
         ("tool_search_max_disclosed_tools", 0),
         ("tool_search_max_disclosed_tools", 65),
-        ("tool_search_query_cache_size", -1),
-        ("tool_search_query_cache_size", 10_001),
     ],
 )
 def test_tool_search_settings_enforce_bounds(field, value):
@@ -228,11 +231,6 @@ def test_tool_search_settings_enforce_bounds(field, value):
 def test_tool_search_top_k_cannot_exceed_disclosure_limits(overrides):
     with pytest.raises(ValidationError, match="tool_search_top_k"):
         Settings(_env_file=None, **overrides)
-
-
-def test_production_requires_local_tool_search_embeddings():
-    with pytest.raises(ValidationError, match="tool_search_local_files_only"):
-        _production_settings(tool_search_local_files_only=False)
 
 
 @pytest.mark.parametrize("app_env", ["local", "test", "production"])

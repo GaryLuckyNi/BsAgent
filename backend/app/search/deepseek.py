@@ -52,18 +52,13 @@ class DeepSeekWebSearchClient:
             "max_tokens": 768,
             "thinking": {"type": "disabled"},
             "system": (
-                "你是投研实体发现搜索助手。只能输出一个 JSON object，不要输出 Markdown 或解释。"
-                "只依据搜索来源判断用户公司名与 A 股上市主体的关系，"
-                "不得将同行、竞争对手、供应商、客户或概念股当作同一实体。"
-                "必须输出 status、candidate_query、canonical_name、symbol、"
-                "relation_type、confidence、source_urls、reason。"
-                "candidate_query 优先使用可供市场数据源复验的证券简称；"
-                "source_urls 只能使用本次搜索实际引用的 URL。"
-                "source_urls 最多 2 个，reason 不超过 40 个中文字符。"
-                "relation_type 只能是 same_entity、alias、legal_name、listed_subject、"
-                "security_code、subsidiary_of_listed_subject、peer_company、"
-                "related_company、supplier_customer 或 unknown。"
-                "证据不能唯一确认时，status 必须为 unresolved。"
+                "你是投研联网检索助手。根据用户 query 自主检索可验证的公开来源，"
+                "覆盖当日市场涨跌原因、政策、新闻、公告、行业动态、事实核验或实体关系。"
+                "回答必须只依据本次搜索结果，使用简洁中文概括关键事实和不确定性，"
+                "不得补造数字、时间、因果关系或来源。"
+                "当 query 要求解析公司、上市主体或证券代码时，必须明确说明实体关系，"
+                "不得把同行、竞争对手、供应商、客户或概念股当作同一实体；"
+                "无法唯一确认时必须明确表示未确认。"
             ),
             "messages": [{"role": "user", "content": normalized_query}],
             "tools": [
@@ -120,9 +115,7 @@ class DeepSeekWebSearchClient:
             ],
         }
         continuation = await self._request(client, continuation_payload)
-        if _needs_search_continuation(continuation) or not _has_text_content(
-            continuation
-        ):
+        if _needs_search_continuation(continuation) or not _has_text_content(continuation):
             raise _incomplete_search_response()
         return [first_turn, continuation]
 
@@ -252,9 +245,7 @@ def _normalize_response(
         if block_type == "web_search_tool_result":
             result_content = block.get("content")
             if isinstance(result_content, list):
-                raw_results.extend(
-                    item for item in result_content if isinstance(item, dict)
-                )
+                raw_results.extend(item for item in result_content if isinstance(item, dict))
 
     results: list[WebSearchResult] = []
     seen_urls: set[str] = set()

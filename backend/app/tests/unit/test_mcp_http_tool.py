@@ -200,10 +200,37 @@ def test_dynamic_http_tool_normalizes_adapter_errors_without_leaking(monkeypatch
     async def failed_invoke(_input):
         raise RuntimeError("Authorization: Bearer top-secret")
 
-    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: failed_invoke(value))
+    monkeypatch.setattr(
+        type(tool._langchain_tool), "ainvoke", lambda self, value: failed_invoke(value)
+    )
 
     result = asyncio.run(tool.run(tool.input_model.model_validate({})))
 
     assert result.status == "failed"
     assert result.error.code == "mcp_tool_execution_failed"
+    assert result.error.details == {
+        "failure_stage": "client_exception",
+        "exception_type": "RuntimeError",
+    }
     assert "top-secret" not in result.error.message
+
+
+def test_dynamic_http_tool_distinguishes_remote_tool_error_without_raw_content(monkeypatch):
+    tool = _dynamic_tool("echo", {"text": "unused"})
+
+    async def failed_invoke(_input):
+        return ToolMessage(
+            content="Authorization: Bearer top-secret",
+            tool_call_id="call-1",
+            status="error",
+        )
+
+    monkeypatch.setattr(
+        type(tool._langchain_tool), "ainvoke", lambda self, value: failed_invoke(value)
+    )
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.error.code == "mcp_tool_execution_failed"
+    assert result.error.details == {"failure_stage": "remote_tool_error"}
+    assert "top-secret" not in str(result.error.model_dump())

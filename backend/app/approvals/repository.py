@@ -110,6 +110,22 @@ class ApprovalRepository:
             )
         )
 
+    def get_by_interrupt_id(
+        self,
+        *,
+        interrupt_id: str,
+        tenant_id: str,
+    ) -> ApprovalRecord | None:
+        return self._session.scalar(
+            select(ApprovalRecord)
+            .where(
+                ApprovalRecord.interrupt_id == interrupt_id,
+                ApprovalRecord.tenant_id == tenant_id,
+            )
+            .order_by(ApprovalRecord.created_at.desc())
+            .limit(1)
+        )
+
     def list_pending(self, *, tenant_id: str) -> list[ApprovalRecord]:
         return list(
             self._session.scalars(

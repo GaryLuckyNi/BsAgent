@@ -1,7 +1,6 @@
 import json
 
 from langchain_core.messages import AIMessage, ToolMessage
-import numpy as np
 from pydantic import BaseModel
 
 from app.graph.runtime import run_question_answer_graph
@@ -26,6 +25,10 @@ class WorkflowLlm:
                 },
                 ensure_ascii=False,
             )
+        elif "计划反馈决策器" in prompt:
+            content = json.dumps(
+                {"action": "finish", "reason": "完成本次研究，保留证据限制"}, ensure_ascii=False
+            )
         elif "投研任务 Planner" in prompt:
             content = json.dumps(
                 {
@@ -35,7 +38,6 @@ class WorkflowLlm:
                             "task_goal": "基于已有上下文评估经营质量",
                             "depends_on": [],
                             "skill_name": None,
-                            "tool_name": None,
                         }
                     ]
                 },
@@ -70,14 +72,6 @@ class MarketDataTool(Tool[MarketDataInput]):
         )
 
 
-class ZeroEmbedder:
-    def embed_documents(self, texts):
-        return np.zeros((len(texts), 2), dtype=np.float32)
-
-    def embed_query(self, _text):
-        return np.zeros(2, dtype=np.float32)
-
-
 class BoundMarketModel:
     def invoke(self, _messages):
         return AIMessage(
@@ -96,7 +90,7 @@ class BoundMarketModel:
 class ToolWorkflowLlm:
     def bind_tools(self, tools, *, tool_choice):
         assert tools[0]["function"]["name"] == "mcp_tushare_stock_daily"
-        assert tool_choice == "mcp_tushare_stock_daily"
+        assert tool_choice == "auto"
         return BoundMarketModel()
 
     async def complete(self, **kwargs):
@@ -112,11 +106,12 @@ class ToolWorkflowLlm:
                 },
                 ensure_ascii=False,
             )
+        elif "计划反馈决策器" in prompt:
+            content = json.dumps(
+                {"action": "finish", "reason": "完成本次研究，保留证据限制"}, ensure_ascii=False
+            )
         elif "投研任务 Planner" in prompt:
-            disclosed_tools = json.loads(kwargs["user_prompt"])["tools"]
-            assert {item["name"] for item in disclosed_tools} == {
-                MarketDataTool.name
-            }
+            assert "tools" not in json.loads(kwargs["user_prompt"])
             content = json.dumps(
                 {
                     "tasks": [
@@ -125,15 +120,14 @@ class ToolWorkflowLlm:
                             "task_goal": "查询海能达最新日线行情",
                             "depends_on": [],
                             "skill_name": None,
-                            "tool_name": MarketDataTool.name,
                         }
                     ]
                 },
                 ensure_ascii=False,
             )
         elif "投研报告合成器" in prompt:
-            task_results = json.loads(kwargs["user_prompt"])["task_results"]
-            assert '"close":8.12' in task_results[0]["content"]
+            research_materials = json.loads(kwargs["user_prompt"])["research_materials"]
+            assert '"close":8.12' in research_materials[0]["content"]
             content = "## 行情解读\n\n海能达收盘价为 8.12 元，当日上涨 1.5%。"
         else:
             raise AssertionError(prompt)
@@ -147,7 +141,6 @@ def _market_tool_runtime():
     index = ToolSearchIndex.build(
         specs=snapshot.specs(),
         catalog_digest=snapshot.catalog_digest,
-        embedder=ZeroEmbedder(),
     )
     search_service = ToolSearchService(
         registry=snapshot,
@@ -167,6 +160,16 @@ def test_full_graph_executes_dynamic_analysis_task(business_intent_catalog):
         user_id="user-1",
         user_message="分析海能达的经营质量",
         skill_agent_node=lambda state: state,
+        tool_agent_node=lambda state: {
+            "task_results": [
+                {
+                    "task_id": state["active_task"]["id"],
+                    "status": "success",
+                    "content": "当前没有外部经营数据，无法判断经营质量。",
+                }
+            ]
+        },
+        allow_test_tool_agent_override=True,
         tool_registry_factory=lambda: registry,
         llm_client=WorkflowLlm(),
     )
@@ -199,3 +202,157 @@ def test_full_graph_discovers_and_executes_dynamic_tool_task(
     assert any(isinstance(message, ToolMessage) for message in result["messages"])
     assert "## 行情解读" in result["final_response"]["content"]
     assert "不构成投资建议" in result["final_response"]["content"]
+
+
+class FeedbackWorkflowLlm(ToolWorkflowLlm):
+    def __init__(self, *, parallel=False, revise=False):
+        self.parallel = parallel
+        self.revise = revise
+        self.review_count = 0
+        self.tool_count = 0
+
+    def bind_tools(self, tools, *, tool_choice):
+        self.tool_count += 1
+        return super().bind_tools(tools, tool_choice=tool_choice)
+
+    async def complete(self, **kwargs):
+        prompt = kwargs["system_prompt"]
+        payload = json.loads(kwargs["user_prompt"])
+        if "投研任务 Planner" in prompt:
+            tasks = [
+                {
+                    "id": "market",
+                    "task_goal": "查询海能达最新日线行情",
+                    "completion_criteria": ["得到价格"],
+                }
+            ]
+            if self.parallel:
+                tasks.append({"id": "other", "task_goal": "查询海能达历史日线行情"})
+            elif not self.revise:
+                tasks.append(
+                    {
+                        "id": "compare",
+                        "task_goal": "分析价格",
+                        "execution_type": "analysis",
+                        "depends_on": ["market"],
+                    }
+                )
+            return LlmCompletionResult(
+                content=json.dumps({"tasks": tasks}), model="test", provider="test"
+            )
+        if "计划反馈决策器" in prompt:
+            self.review_count += 1
+            if self.revise and self.review_count == 1:
+                tasks = payload["current_plan"]["tasks"] + [
+                    {
+                        "id": "verify",
+                        "task_goal": "分析已取得的价格",
+                        "execution_type": "analysis",
+                        "depends_on": ["market"],
+                    }
+                ]
+                decision = {
+                    "action": "revise",
+                    "reason": "需要进一步分析",
+                    "plan": {"tasks": tasks},
+                }
+            else:
+                decision = {
+                    "action": "continue"
+                    if self.review_count == 1 and not self.parallel
+                    else "finish",
+                    "reason": "根据观察选择",
+                }
+            return LlmCompletionResult(content=json.dumps(decision), model="test", provider="test")
+        if "投研任务执行器" in prompt:
+            assert "8.12" in payload["dependencies"][0]["content"]
+            return LlmCompletionResult(
+                content="价格为 8.12，尚需更多数据才能判断趋势。", model="test", provider="test"
+            )
+        return await super().complete(**kwargs)
+
+
+def _feedback_run(catalog, client):
+    registry, service = _market_tool_runtime()
+    return run_question_answer_graph(
+        business_intent_catalog=catalog,
+        session_id="feedback",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析海能达价格",
+        tool_registry_factory=lambda: registry,
+        tool_search_service=service,
+        llm_client=client,
+        skill_agent_node=lambda state: state,
+    )
+
+
+def test_model_continues_then_finishes_multibatch_graph(business_intent_catalog):
+    client = FeedbackWorkflowLlm()
+    result = _feedback_run(business_intent_catalog, client)
+    assert client.review_count == 2, (
+        result.get("intent"),
+        result.get("errors"),
+        result.get("final_response"),
+    )
+    assert client.tool_count == 1
+    assert result["planner_decision"]["action"] == "finish"
+    assert {item["task_id"] for item in result["task_results"]} == {"market", "compare"}
+
+
+def test_model_revises_without_reexecuting_completed_evidence(business_intent_catalog):
+    client = FeedbackWorkflowLlm(revise=True)
+    result = _feedback_run(business_intent_catalog, client)
+    assert client.review_count == 2, (
+        result.get("intent"),
+        result.get("errors"),
+        result.get("final_response"),
+    )
+    assert client.tool_count == 1
+    assert result["planner_iteration"] == 2
+    assert {item["task_id"] for item in result["task_results"]} == {"market", "r1_verify"}
+
+
+def test_parallel_tool_discovery_updates_merge_without_conflict(business_intent_catalog):
+    client = FeedbackWorkflowLlm(parallel=True)
+    result = _feedback_run(business_intent_catalog, client)
+    assert client.tool_count == 2
+    assert result["tool_search_count"] == 2
+    assert len(result["tool_calls"]) == 2
+
+
+def test_default_runtime_supports_twelve_sequential_tasks(business_intent_catalog):
+    class ChainLlm(FeedbackWorkflowLlm):
+        async def complete(self, **kwargs):
+            prompt = kwargs["system_prompt"]
+            data = json.loads(kwargs["user_prompt"])
+            if "投研任务 Planner" in prompt:
+                content = {
+                    "tasks": [
+                        {
+                            "id": f"task_{i}",
+                            "task_goal": "分析提供的材料",
+                            "execution_type": "analysis",
+                            "depends_on": [] if i == 0 else [f"task_{i - 1}"],
+                        }
+                        for i in range(12)
+                    ]
+                }
+            elif "计划反馈决策器" in prompt:
+                content = {
+                    "action": "finish" if len(data["observations"]) == 12 else "continue",
+                    "reason": "根据任务进度",
+                }
+            elif "投研任务执行器" in prompt:
+                return LlmCompletionResult(
+                    content="缺少外部材料，不能核实事实。", model="test", provider="test"
+                )
+            elif "投研报告合成器" in prompt:
+                return LlmCompletionResult(content="材料不足。", model="test", provider="test")
+            else:
+                return await super().complete(**kwargs)
+            return LlmCompletionResult(content=json.dumps(content), model="test", provider="test")
+
+    result = _feedback_run(business_intent_catalog, ChainLlm())
+    assert len(result["task_results"]) == 12
+    assert result["planner_decision"]["action"] == "finish"

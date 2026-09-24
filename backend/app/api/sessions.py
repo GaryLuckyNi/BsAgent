@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Generator, Iterator
@@ -12,6 +11,7 @@ from langgraph.store.base import BaseStore
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.concurrency import iterate_in_threadpool
 
 from app.approvals.repository import ApprovalRepository
 from app.api.assets import get_asset_service
@@ -30,6 +30,7 @@ from app.conversations.service import (
 from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import (
+    AgentGraphStreamEvent,
     AgentGraphExecutionError,
     run_question_answer_graph,
     stream_question_answer_graph,
@@ -66,12 +67,6 @@ PRODUCT_PROGRESS_MESSAGES = {
     "retrieving_knowledge": "正在检索补充资料",
     "analyzing_evidence": "正在核对并分析已获得的证据",
     "composing_answer": "正在生成最终投研报告",
-}
-THINKING_STAGE_LABELS = {
-    "planning": "规划",
-    "replanning": "路径调整",
-    "evidence_review": "证据核对",
-    "answer_synthesis": "答案合成",
 }
 AGENT_INVOCATION_RATE_LIMIT = RateLimitPolicy(
     name="agent_invocation",
@@ -136,6 +131,13 @@ class SessionMessageRequest(BaseModel):
         default_factory=list,
         max_length=settings.max_message_attachments,
     )
+
+
+class AgentProtocolStreamRequest(BaseModel):
+    input: dict | None = None
+    context: dict | None = None
+    command: dict | None = None
+    config: dict | None = None
 
 
 class SessionMessageResponse(BaseModel):
@@ -213,14 +215,10 @@ def list_sessions(
 def post_message(
     session_id: str,
     request: SessionMessageRequest,
-    business_intent_catalog: BusinessIntentCatalog = Depends(
-        get_business_intent_catalog
-    ),
+    business_intent_catalog: BusinessIntentCatalog = Depends(get_business_intent_catalog),
     principal: Principal = Depends(require_permission("agent:invoke")),
     db: Session = Depends(get_db),
-    attachment_resolver: VisionAttachmentContextResolver = Depends(
-        get_attachment_context_resolver
-    ),
+    attachment_resolver: VisionAttachmentContextResolver = Depends(get_attachment_context_resolver),
     memory_store: BaseStore = Depends(get_memory_store),
     idempotency_key: str | None = Header(
         default=None,
@@ -309,14 +307,10 @@ def list_messages(
 def post_message_stream(
     session_id: str,
     request: SessionMessageRequest,
-    business_intent_catalog: BusinessIntentCatalog = Depends(
-        get_business_intent_catalog
-    ),
+    business_intent_catalog: BusinessIntentCatalog = Depends(get_business_intent_catalog),
     principal: Principal = Depends(require_permission("agent:invoke")),
     db: Session = Depends(get_db),
-    attachment_resolver: VisionAttachmentContextResolver = Depends(
-        get_attachment_context_resolver
-    ),
+    attachment_resolver: VisionAttachmentContextResolver = Depends(get_attachment_context_resolver),
     memory_store: BaseStore = Depends(get_memory_store),
     idempotency_key: str | None = Header(
         default=None,
@@ -327,15 +321,57 @@ def post_message_stream(
     ),
 ) -> StreamingResponse:
     return StreamingResponse(
-        _stream_agent_message(
-            session_id=session_id,
-            request=request,
-            principal=principal,
-            db=db,
-            attachment_resolver=attachment_resolver,
-            memory_store=memory_store,
-            business_intent_catalog=business_intent_catalog,
-            request_id=idempotency_key or f"req_{uuid4().hex}",
+        _closeable_async_stream(
+            _stream_agent_message(
+                session_id=session_id,
+                request=request,
+                principal=principal,
+                db=db,
+                attachment_resolver=attachment_resolver,
+                memory_store=memory_store,
+                business_intent_catalog=business_intent_catalog,
+                request_id=idempotency_key or f"req_{uuid4().hex}",
+            )
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post(
+    "/{session_id}/messages/protocol-stream",
+    dependencies=[Depends(require_rate_limit(AGENT_INVOCATION_RATE_LIMIT))],
+)
+def post_message_protocol_stream(
+    session_id: str,
+    protocol_request: AgentProtocolStreamRequest,
+    business_intent_catalog: BusinessIntentCatalog = Depends(get_business_intent_catalog),
+    principal: Principal = Depends(require_permission("agent:invoke")),
+    db: Session = Depends(get_db),
+    attachment_resolver: VisionAttachmentContextResolver = Depends(get_attachment_context_resolver),
+    memory_store: BaseStore = Depends(get_memory_store),
+) -> StreamingResponse:
+    message, attachments, request_id = _protocol_input(protocol_request)
+    return StreamingResponse(
+        _closeable_async_stream(
+            _to_agent_protocol_stream(
+                _stream_agent_message(
+                    session_id=session_id,
+                    request=SessionMessageRequest(
+                        message=message,
+                        attachments=attachments,
+                    ),
+                    principal=principal,
+                    db=db,
+                    attachment_resolver=attachment_resolver,
+                    memory_store=memory_store,
+                    business_intent_catalog=business_intent_catalog,
+                    request_id=request_id,
+                ),
+            )
         ),
         media_type="text/event-stream",
         headers={
@@ -417,9 +453,7 @@ def _run_and_persist_agent_message(
                 session_id=session_id,
                 request_id=request_id,
                 user_content=request.message,
-                metadata=ConversationMetadata(
-                    attachment_ids=tuple(request.attachments)
-                ),
+                metadata=ConversationMetadata(attachment_ids=tuple(request.attachments)),
             )
         )
         db.commit()
@@ -595,9 +629,7 @@ def _stream_agent_message(
                 session_id=session_id,
                 request_id=request_id,
                 user_content=request.message,
-                metadata=ConversationMetadata(
-                    attachment_ids=tuple(request.attachments)
-                ),
+                metadata=ConversationMetadata(attachment_ids=tuple(request.attachments)),
             )
         )
         db.commit()
@@ -650,9 +682,10 @@ def _stream_agent_message(
 
         llm_client = maybe_build_llm_client()
         emitted_event_count = 0
-        emitted_thinking_stages: set[str] = set()
         emitted_progress_stages = {"planning"}
-        for state in stream_question_answer_graph(
+        answer_streamed = False
+        research_process: list[dict] = []
+        for stream_item in stream_question_answer_graph(
             business_intent_catalog=business_intent_catalog,
             session_id=session_id,
             session_key=handle.session_key,
@@ -672,6 +705,43 @@ def _stream_agent_message(
             attachment_ids=request.attachments,
             attachment_resolver=snapshot.attachment_resolver,
         ):
+            if isinstance(stream_item, AgentGraphStreamEvent):
+                if stream_item.event == "custom":
+                    public_event = stream_item.data
+                    if not isinstance(public_event, dict):
+                        continue
+                    event_type = public_event.get("type")
+                    if event_type == "progress":
+                        _collect_research_process_event(research_process, public_event)
+                        yield _sse("progress", public_event)
+                    elif event_type == "answer_delta":
+                        content = str(public_event.get("content") or "")
+                        if content:
+                            answer_streamed = True
+                            yield _sse("answer_delta", {"content": content})
+                    elif event_type == "thinking_delta":
+                        content = str(public_event.get("content") or "")
+                        if content:
+                            yield _sse(
+                                "thinking_delta",
+                                {
+                                    "id": public_event.get("id"),
+                                    "stage": public_event.get("stage"),
+                                    "label": public_event.get("label"),
+                                    "content": content,
+                                },
+                            )
+                    continue
+                chunk, metadata = stream_item.data
+                node_name = str(metadata.get("langgraph_node") or "analysis")
+                if node_name != "synthesizer":
+                    continue
+                content = _message_chunk_text(chunk)
+                if content:
+                    answer_streamed = True
+                    yield _sse("answer_delta", {"content": content})
+                continue
+            state = stream_item
             events = trace_buffer.events
             for event in events[emitted_event_count:]:
                 yield _sse("agent_event", _trace_event_payload(event))
@@ -682,14 +752,6 @@ def _stream_agent_message(
                 yield _sse(
                     "progress",
                     _product_progress_payload(progress_stage),
-                )
-            thinking_stage = _public_thinking_stage(state)
-            if thinking_stage and thinking_stage not in emitted_thinking_stages:
-                emitted_thinking_stages.add(thinking_stage)
-                yield from _thinking_sse_events(
-                    llm_client=llm_client,
-                    state=state,
-                    stage=thinking_stage,
                 )
         if state is None:
             raise AgentGraphExecutionError(
@@ -724,10 +786,11 @@ def _stream_agent_message(
             handle=handle,
             state=state,
             interrupt_payloads=interrupt_payloads,
-            emitted_thinking_stages=emitted_thinking_stages,
             llm_client=llm_client,
             trace_buffer=trace_buffer,
             trace_lifecycle=trace_lifecycle,
+            answer_streamed=answer_streamed,
+            research_process=research_process,
         )
     except AgentGraphExecutionError as exc:
         finalized = _fail_stream_turn(
@@ -818,6 +881,7 @@ def _stream_agent_message(
             approval_occurred=bool(state and _interrupt_payloads(state)),
         )
 
+
 def _emit_stream_result(
     *,
     db: Session,
@@ -826,10 +890,11 @@ def _emit_stream_result(
     handle: TurnHandle,
     state: AgentState,
     interrupt_payloads: list[dict],
-    emitted_thinking_stages: set[str],
     llm_client,
     trace_buffer: TraceBuffer,
     trace_lifecycle: _TraceLifecycle,
+    answer_streamed: bool = False,
+    research_process: list[dict] | None = None,
 ) -> Generator[str, None, bool]:
     identity = _stream_identity(handle)
     if state["image_analyses"]:
@@ -839,8 +904,7 @@ def _emit_stream_result(
                 "stage": "image_analysis_loaded",
                 "attachment_count": len(state["image_analyses"]),
                 "partial_count": sum(
-                    analysis["status"] == "partial"
-                    for analysis in state["image_analyses"]
+                    analysis["status"] == "partial" for analysis in state["image_analyses"]
                 ),
             },
         )
@@ -850,9 +914,7 @@ def _emit_stream_result(
             "approval_required",
             {
                 "trace_id": state["trace_id"],
-                "approval_ids": [
-                    payload["approval_id"] for payload in interrupt_payloads
-                ],
+                "approval_ids": [payload["approval_id"] for payload in interrupt_payloads],
                 **identity,
             },
         )
@@ -874,31 +936,26 @@ def _emit_stream_result(
         "trace_events",
         {
             "trace_id": final_response["trace_id"],
-            "events": [
-                _trace_event_payload(event)
-                for event in trace_buffer.events
-            ],
+            "events": [_trace_event_payload(event) for event in trace_buffer.events],
         },
     )
-    if not emitted_thinking_stages:
-        yield from _thinking_sse_events(
-            llm_client=llm_client,
-            state=state,
-            stage="planning",
-        )
     conversation_service.mark_streaming(
         tenant_id=principal.tenant_id,
         run_id=handle.run_id,
     )
     db.commit()
     yield _sse("status", {"stage": "answering", "trace_id": final_response["trace_id"]})
-    for chunk in _chunk_text(final_response["content"]):
-        yield _sse("answer_delta", {"content": chunk})
+    if not answer_streamed:
+        for chunk in _chunk_text(final_response["content"]):
+            yield _sse("answer_delta", {"content": chunk})
     conversation_service.complete_turn(
         tenant_id=principal.tenant_id,
         run_id=handle.run_id,
         content=final_response["content"],
-        metadata=_assistant_response_metadata(final_response),
+        metadata=_assistant_response_metadata(
+            final_response,
+            research_process=research_process,
+        ),
     )
     db.commit()
     trace_lifecycle.failed = False
@@ -1004,8 +1061,142 @@ def _persist_agent_message_state(
         commit=commit,
     )
 
-def _sse(event: str, data: dict) -> str:
+
+def _sse(event: str, data: dict | list) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _closeable_async_stream(frames: Iterator[str]) -> AsyncIterator[str]:
+    try:
+        async for frame in iterate_in_threadpool(frames):
+            yield frame
+    finally:
+        close = getattr(frames, "close", None)
+        if callable(close):
+            close()
+
+
+def _protocol_input(
+    request: AgentProtocolStreamRequest,
+) -> tuple[str, list[str], str]:
+    if request.command is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "protocol_command_not_supported"},
+        )
+    payload = request.input or {}
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "protocol_messages_required"},
+        )
+    message = next(
+        (
+            str(item.get("content") or "").strip()
+            for item in reversed(messages)
+            if isinstance(item, dict)
+            and str(item.get("type") or item.get("role") or "").lower() in {"human", "user"}
+            and str(item.get("content") or "").strip()
+        ),
+        "",
+    )
+    if not message:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "protocol_user_message_required"},
+        )
+    raw_attachments = payload.get("attachment_ids", [])
+    attachments = (
+        [str(item) for item in raw_attachments] if isinstance(raw_attachments, list) else []
+    )
+    raw_request_id = payload.get("request_id")
+    request_id = (
+        str(raw_request_id)
+        if isinstance(raw_request_id, str) and raw_request_id.strip()
+        else f"req_{uuid4().hex}"
+    )
+    return message, attachments, request_id
+
+
+def _to_agent_protocol_stream(frames: Iterator[str]) -> Iterator[str]:
+    assistant_message_id = f"assistant_{uuid4().hex}"
+    answer_emitted = False
+    try:
+        for frame in frames:
+            event, data = _parse_sse_frame(frame)
+            if event == "status" and isinstance(data.get("message_id"), str):
+                assistant_message_id = data["message_id"]
+                continue
+            if event == "answer_delta":
+                content = str(data.get("content") or "")
+                if content:
+                    answer_emitted = True
+                    yield _sse(
+                        "messages",
+                        [
+                            {
+                                "type": "ai",
+                                "id": assistant_message_id,
+                                "content": content,
+                            },
+                            {"langgraph_node": "synthesizer"},
+                        ],
+                    )
+                continue
+            if event in {"progress", "thinking_delta"}:
+                yield _sse("custom", {"type": event, **data})
+                continue
+            if event == "approval_required":
+                yield _sse("custom", {"type": "approval_required", **data})
+                continue
+            if event == "final":
+                content = str(data.get("content") or "")
+                if content and not answer_emitted:
+                    yield _sse(
+                        "messages",
+                        [
+                            {
+                                "type": "ai",
+                                "id": assistant_message_id,
+                                "content": content,
+                            },
+                            {"langgraph_node": "synthesizer"},
+                        ],
+                    )
+                yield _sse("custom", {"type": "final", "response": data})
+                continue
+            if event == "error":
+                yield _sse("error", data)
+    finally:
+        close = getattr(frames, "close", None)
+        if callable(close):
+            close()
+
+
+def _parse_sse_frame(frame: str) -> tuple[str, dict]:
+    event = "message"
+    data: dict = {}
+    for line in frame.splitlines():
+        if line.startswith("event:"):
+            event = line.removeprefix("event:").strip()
+        elif line.startswith("data:"):
+            decoded = json.loads(line.removeprefix("data:").strip())
+            data = decoded if isinstance(decoded, dict) else {"value": decoded}
+    return event, data
+
+
+def _message_chunk_text(chunk) -> str:
+    content = getattr(chunk, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            str(item.get("text") or "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        )
+    return ""
 
 
 def _product_progress_payload(stage: str) -> dict[str, str]:
@@ -1043,216 +1234,11 @@ def _product_progress_stage(state: AgentState) -> str | None:
     return None
 
 
-def _public_thinking_stage(state: AgentState) -> str | None:
-    if state.get("final_response") is not None or state.get("draft_answer") is not None:
-        return None
-    plan = state.get("plan")
-    if not isinstance(plan, dict) or not plan.get("tasks"):
-        return None
-    task_ids = {
-        str(task.get("id"))
-        for task in plan["tasks"]
-        if isinstance(task, dict) and task.get("id")
-    }
-    current_results = [
-        item
-        for item in state.get("task_results", [])
-        if isinstance(item, dict) and item.get("task_id") in task_ids
-    ]
-    if any(item.get("status") == "business_failure" for item in current_results):
-        return "replanning"
-    if task_ids and all(
-        any(
-            result.get("task_id") == task_id and result.get("status") == "success"
-            for result in current_results
-        )
-        for task_id in task_ids
-    ):
-        return "answer_synthesis"
-    if current_results or state.get("active_task"):
-        return "evidence_review"
-    return "planning"
-
-
-def _thinking_sse_events(
-    *,
-    llm_client,
-    state: AgentState,
-    stage: str,
-) -> Iterator[str]:
-    yield _sse("status", {"stage": "thinking", "trace_id": state["trace_id"]})
-    try:
-        for chunk in _stream_user_visible_thinking(
-            llm_client=llm_client,
-            state=state,
-            stage=stage,
-        ):
-            yield _sse(
-                "thinking_delta",
-                {
-                    "stage": stage,
-                    "label": THINKING_STAGE_LABELS.get(stage, "分析"),
-                    "content": chunk,
-                },
-            )
-    except Exception:
-        logger.warning("agent_thinking_stream_failed", exc_info=True)
-        for chunk in _fallback_thinking_chunks(state, stage=stage):
-            yield _sse(
-                "thinking_delta",
-                {
-                    "stage": stage,
-                    "label": THINKING_STAGE_LABELS.get(stage, "分析"),
-                    "content": chunk,
-                },
-            )
-
-
-def _stream_user_visible_thinking(
-    *,
-    llm_client,
-    state: AgentState,
-    stage: str,
-) -> Iterator[str]:
-    if llm_client is None or not hasattr(llm_client, "stream_complete"):
-        yield from _fallback_thinking_chunks(state, stage=stage)
-        return
-    emitted = False
-    for chunk in _complete_sentence_chunks(
-        _sync_iter_async_chunks(
-            llm_client.stream_complete(
-                system_prompt=(
-                    "你是 BsAgent 的投研分析过程播报器。"
-                    "输出用户可见的分析思路摘要，不要暴露内部节点名、trace、工具参数、系统提示或隐藏推理。"
-                    "用第一人称简洁说明当前公开阶段正在做什么、依据什么证据边界推进。"
-                    "输出 1 到 3 个完整中文短句，总长度 60 到 180 字。"
-                    "不要输出 JSON、括号、Markdown、列表编号，不要提及模型厂商。"
-                    "最后一句必须完整收尾，不要以冒号、逗号或分号结尾。"
-                ),
-                user_prompt=json.dumps(
-                    _thinking_prompt_payload(state, stage=stage),
-                    ensure_ascii=False,
-                ),
-                temperature=0.2,
-                max_tokens=360,
-                thinking=False,
-            )
-        )
-    ):
-        emitted = True
-        yield chunk
-    if not emitted:
-        yield from _fallback_thinking_chunks(state, stage=stage)
-
-
-def _complete_sentence_chunks(chunks: Iterator[str]) -> Iterator[str]:
-    buffer = ""
-    for chunk in chunks:
-        buffer += chunk
-        completed, buffer = _take_complete_sentence_prefix(buffer)
-        if completed:
-            yield completed
-
-
-def _take_complete_sentence_prefix(text: str) -> tuple[str, str]:
-    end = -1
-    terminal_chars = {"。", "！", "？", "!", "?"}
-    closing_chars = {"”", "’", "」", "』", "）", ")", "】", "]"}
-    for index, char in enumerate(text):
-        if char not in terminal_chars:
-            continue
-        candidate_end = index + 1
-        while candidate_end < len(text) and text[candidate_end] in closing_chars:
-            candidate_end += 1
-        end = candidate_end
-    if end < 0:
-        return "", text
-    return text[:end], text[end:]
-
-
-def _thinking_prompt_payload(state: AgentState, *, stage: str) -> dict:
-    intent = state["intent"] or {}
-    plan = state["plan"] or {}
-    return {
-        "public_stage": stage,
-        "user_message": state["user_message"],
-        "intent": {
-            "intent_type": intent.get("intent_type"),
-            "domain": intent.get("domain"),
-            "subdomain": intent.get("subdomain"),
-            "goal": intent.get("goal"),
-        },
-        "tasks": [
-            {
-                "id": item.get("id"),
-                "goal": item.get("task_goal"),
-                "depends_on": item.get("depends_on", []),
-                "capability": item.get("skill_name") or item.get("tool_name"),
-            }
-            for item in plan.get("tasks", [])[:12]
-            if isinstance(item, dict)
-        ],
-        "observations": [
-            {
-                "task_id": item.get("task_id"),
-                "status": item.get("status"),
-                "error_code": item.get("error_code"),
-            }
-            for item in state.get("task_results", [])[-12:]
-            if isinstance(item, dict)
-        ],
-    }
-
-
-def _fallback_thinking_chunks(state: AgentState, *, stage: str = "planning") -> list[str]:
-    intent = state["intent"] or {}
-    plan = state["plan"] or {}
-    if stage == "replanning":
-        content = "已有数据路径未能满足任务条件，我正根据失败原因调整后续计划，不会将未验证的候选当作事实。"
-        return list(_chunk_text(content, chunk_size=24))
-    if stage == "evidence_review":
-        content = "我已经拿到部分工具结果，接下来会核对哪些字段可用、哪些字段缺失，避免把未返回的数据当作事实。"
-        return list(_chunk_text(content, chunk_size=24))
-    if stage == "answer_synthesis":
-        content = "我正在把已验证的任务结果整理成最终分析，并区分事实、推断与数据边界。"
-        return list(_chunk_text(content, chunk_size=24))
-    task_goals = [
-        str(item.get("task_goal"))
-        for item in plan.get("tasks", [])[:3]
-        if isinstance(item, dict) and item.get("task_goal")
-    ]
-    goal = str(intent.get("goal") or state["user_message"])
-    content = f"我已将你的需求收敛为“{goal}”。"
-    if task_goals:
-        content += f"接下来会按任务依赖完成：{'；'.join(task_goals)}。"
-    return list(_chunk_text(content, chunk_size=24))
-
-
-def _sync_iter_async_chunks(async_chunks: AsyncIterator[str]) -> Iterator[str]:
-    loop = asyncio.new_event_loop()
-    try:
-        while True:
-            try:
-                chunk = loop.run_until_complete(anext(async_chunks))
-            except StopAsyncIteration:
-                break
-            if chunk:
-                yield chunk
-    finally:
-        close = getattr(async_chunks, "aclose", None)
-        if close is not None:
-            loop.run_until_complete(close())
-        loop.close()
-
-
 def _llm_configuration_error_payload(exc: LlmConfigurationError) -> dict:
     return {
         "code": "llm_configuration_error",
         "node": "llm_provider",
-        "message": (
-            "LLM Provider 配置不完整，请设置 BS_AGENT_DEEPSEEK_API_KEY "
-            "后重启本地服务。"
-        ),
+        "message": ("LLM Provider 配置不完整，请设置 BS_AGENT_DEEPSEEK_API_KEY 后重启本地服务。"),
         "http_status": 503,
         "details": {"provider": settings.llm_provider, "reason": str(exc)},
     }
@@ -1358,13 +1344,53 @@ def _session_message_response(
     )
 
 
-def _assistant_response_metadata(final_response: dict) -> dict:
-    return {
+def _assistant_response_metadata(
+    final_response: dict,
+    *,
+    research_process: list[dict] | None = None,
+) -> dict:
+    metadata = {
         "cited_evidence_ids": list(final_response.get("cited_evidence_ids", [])),
         "approval_status": final_response.get("approval_status", "not_required"),
         "response_type": final_response.get("response_type"),
         "business_error_code": final_response.get("business_error_code"),
     }
+    if research_process:
+        metadata["research_process"] = research_process[:32]
+    return metadata
+
+
+def _collect_research_process_event(events: list[dict], event: dict) -> None:
+    kind = event.get("kind")
+    if kind not in {"activity", "summary"}:
+        return
+    event_id = str(event.get("id") or "").strip()[:128]
+    message = str(event.get("message") or "").strip()[:500]
+    if not event_id or not message:
+        return
+    normalized = {
+        "id": event_id,
+        "kind": kind,
+        "label": str(event.get("label") or "研究过程").strip()[:80],
+        "message": message,
+        "status": (
+            event.get("status")
+            if event.get("status") in {"started", "completed", "failed"}
+            else "started"
+        ),
+    }
+    existing_index = next(
+        (index for index, item in enumerate(events) if item.get("id") == event_id),
+        None,
+    )
+    if existing_index is not None:
+        normalized["sequence"] = events[existing_index]["sequence"]
+        events[existing_index] = normalized
+        return
+    if len(events) >= 32:
+        return
+    normalized["sequence"] = len(events)
+    events.append(normalized)
 
 
 def _replayed_message_response(

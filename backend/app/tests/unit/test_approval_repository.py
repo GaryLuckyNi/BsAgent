@@ -61,6 +61,27 @@ def test_approval_repository_creates_pending_record_idempotently(session):
     assert second.requested_by == "user_1"
 
 
+def test_get_by_interrupt_id_is_tenant_scoped(session):
+    repository = ApprovalRepository(session)
+    record = repository.create_pending(_pending())
+    session.commit()
+
+    assert (
+        repository.get_by_interrupt_id(
+            interrupt_id="interrupt_1",
+            tenant_id="tenant_1",
+        )
+        == record
+    )
+    assert (
+        repository.get_by_interrupt_id(
+            interrupt_id="interrupt_1",
+            tenant_id="tenant_other",
+        )
+        is None
+    )
+
+
 def test_approval_repository_rejects_same_id_with_changed_hash(session):
     repository = ApprovalRepository(session)
     repository.create_pending(_pending())

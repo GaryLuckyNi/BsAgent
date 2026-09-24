@@ -1,20 +1,20 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 import bm25s
-import numpy as np
 
 from app.schemas.tools import ToolSpec
-from app.tools.search.contracts import SearchSource, ToolSearchHit, ToolSearchResponse
+from app.tools.search.contracts import (
+    SearchMode,
+    SearchSource,
+    ToolSearchHit,
+    ToolSearchResponse,
+)
 from app.tools.search.documents import (
     ToolSearchDocument,
     build_tool_search_document,
     tokenize_tool_text,
 )
-from app.tools.search.embedding import ToolTextEmbedder, normalize_embedding_matrix
-
-
-_SOURCE_ORDER: dict[SearchSource, int] = {"exact": 0, "bm25": 1, "dense": 2}
 
 
 class ToolSearchUnavailableError(RuntimeError):
@@ -29,8 +29,6 @@ class ToolSearchIndex:
     catalog_digest: str
     _documents: tuple[ToolSearchDocument, ...]
     _bm25: bm25s.BM25 | None
-    _document_embeddings: np.ndarray
-    _embedder: ToolTextEmbedder
 
     @classmethod
     def build(
@@ -38,36 +36,19 @@ class ToolSearchIndex:
         *,
         specs: Sequence[ToolSpec],
         catalog_digest: str,
-        embedder: ToolTextEmbedder,
     ) -> "ToolSearchIndex":
         documents = tuple(build_tool_search_document(spec) for spec in specs)
-        if not documents:
-            empty = np.empty((0, 0), dtype=np.float32)
-            empty.setflags(write=False)
-            return cls(
-                catalog_digest=catalog_digest,
-                _documents=(),
-                _bm25=None,
-                _document_embeddings=empty,
-                _embedder=embedder,
+        retriever = None
+        if documents:
+            retriever = bm25s.BM25()
+            retriever.index(
+                [list(document.tokens) for document in documents],
+                show_progress=False,
             )
-
-        retriever = bm25s.BM25()
-        retriever.index(
-            [list(document.tokens) for document in documents],
-            show_progress=False,
-        )
-        embeddings = normalize_embedding_matrix(
-            embedder.embed_documents([document.search_text for document in documents])
-        )
-        if len(embeddings) != len(documents):
-            raise ValueError("Document embedding count does not match tool catalog.")
         return cls(
             catalog_digest=catalog_digest,
             _documents=documents,
             _bm25=retriever,
-            _document_embeddings=embeddings,
-            _embedder=embedder,
         )
 
     def search(
@@ -79,59 +60,67 @@ class ToolSearchIndex:
         allowed_tool_names: set[str] | frozenset[str] | None = None,
     ) -> ToolSearchResponse:
         if not self._documents:
-            return ToolSearchResponse(
-                catalog_digest=self.catalog_digest,
-                mode="hybrid",
-            )
+            return ToolSearchResponse(catalog_digest=self.catalog_digest, mode="bm25")
 
         allowed_ids = self._allowed_document_ids(allowed_tool_names)
         exact_ids = self._exact_matches(query, allowed_ids=allowed_ids)
         if exact_ids:
             return self._response(
-                document_ids=exact_ids[:top_k],
-                sources={document_id: ("exact",) for document_id in exact_ids},
+                rows=[
+                    (document_id, None, 1.0, 0.0, 1.0)
+                    for document_id in exact_ids[:top_k]
+                ],
+                source="exact",
                 mode="exact",
             )
 
-        bm25_error = False
-        dense_error = False
         try:
-            bm25_ranking = self._bm25_ranking(
+            ranking = self._bm25_ranking(
                 query,
                 allowed_ids=allowed_ids,
                 candidate_k=candidate_k,
             )
-        except Exception:
-            bm25_error = True
-            bm25_ranking = []
-        try:
-            dense_ranking = self._dense_ranking(
-                query,
-                allowed_ids=allowed_ids,
-                candidate_k=candidate_k,
-            )
-        except Exception:
-            dense_error = True
-            dense_ranking = []
-
-        if bm25_error and dense_error:
-            raise ToolSearchUnavailableError()
-        rankings: dict[SearchSource, Sequence[int]] = {}
-        if not bm25_error:
-            rankings["bm25"] = bm25_ranking
-        if not dense_error:
-            rankings["dense"] = dense_ranking
-        fused = reciprocal_rank_fusion(rankings)
-        selected = [document_id for document_id, _, _ in fused[:top_k]]
-        source_map = {
-            document_id: sources for document_id, _, sources in fused[:top_k]
-        }
+        except Exception as exc:
+            raise ToolSearchUnavailableError() from exc
         return self._response(
-            document_ids=selected,
-            sources=source_map,
-            mode="bm25_fallback" if dense_error else "hybrid",
-            degraded=bm25_error or dense_error,
+            rows=self._rerank(query, ranking=ranking)[:top_k],
+            source="bm25",
+            mode="bm25",
         )
+
+    def _rerank(
+        self,
+        query: str,
+        *,
+        ranking: Sequence[tuple[int, float]],
+    ) -> list[tuple[int, float, float, float, float]]:
+        if not ranking:
+            return []
+
+        query_tokens = _meaningful_tokens(tokenize_tool_text(query))
+        max_bm25 = max(score for _, score in ranking)
+        rows = []
+        for document_id, bm25_score in ranking:
+            document = self._documents[document_id]
+            lexical_score = _token_coverage(query_tokens, document.tokens)
+            schema_score = _token_coverage(query_tokens, document.schema_tokens)
+            bm25_component = bm25_score / max_bm25 if max_bm25 else 0.0
+            relevance_score = min(
+                1.0,
+                0.65 * bm25_component
+                + 0.25 * lexical_score
+                + 0.10 * schema_score,
+            )
+            rows.append(
+                (
+                    document_id,
+                    bm25_score,
+                    lexical_score,
+                    schema_score,
+                    relevance_score,
+                )
+            )
+        return sorted(rows, key=lambda item: (-item[4], item[0]))
 
     def _allowed_document_ids(
         self,
@@ -159,7 +148,7 @@ class ToolSearchIndex:
         *,
         allowed_ids: frozenset[int],
         candidate_k: int,
-    ) -> list[int]:
+    ) -> list[tuple[int, float]]:
         if self._bm25 is None or not allowed_ids:
             return []
         results = self._bm25.retrieve(
@@ -175,38 +164,23 @@ class ToolSearchIndex:
             if int(document_id) in allowed_ids and float(score) > 0
         ]
         ranked.sort(key=lambda item: (-item[1], item[0]))
-        return [document_id for document_id, _ in ranked[:candidate_k]]
-
-    def _dense_ranking(
-        self,
-        query: str,
-        *,
-        allowed_ids: frozenset[int],
-        candidate_k: int,
-    ) -> list[int]:
-        if not allowed_ids:
-            return []
-        query_matrix = normalize_embedding_matrix([self._embedder.embed_query(query)])
-        query_vector = query_matrix[0]
-        if not np.any(query_vector):
-            return []
-        scores = self._document_embeddings @ query_vector
-        ranked = sorted(
-            ((index, float(scores[index])) for index in allowed_ids),
-            key=lambda item: (-item[1], item[0]),
-        )
-        return [document_id for document_id, _ in ranked[:candidate_k]]
+        return ranked[:candidate_k]
 
     def _response(
         self,
         *,
-        document_ids: Sequence[int],
-        sources: Mapping[int, Sequence[SearchSource]],
-        mode: str,
-        degraded: bool = False,
+        rows: Sequence[tuple[int, float | None, float, float, float]],
+        source: SearchSource,
+        mode: SearchMode,
     ) -> ToolSearchResponse:
         hits = []
-        for rank, document_id in enumerate(document_ids, start=1):
+        for rank, (
+            document_id,
+            bm25_score,
+            lexical_score,
+            schema_score,
+            relevance_score,
+        ) in enumerate(rows, start=1):
             document = self._documents[document_id]
             hits.append(
                 ToolSearchHit(
@@ -215,36 +189,29 @@ class ToolSearchIndex:
                     description=document.description,
                     required_arguments=list(document.required_arguments),
                     rank=rank,
-                    sources=list(sources[document_id]),
+                    sources=[source],
+                    bm25_score=bm25_score,
+                    lexical_score=lexical_score,
+                    schema_score=schema_score,
+                    relevance_score=relevance_score,
                 )
             )
         return ToolSearchResponse(
             catalog_digest=self.catalog_digest,
             mode=mode,
             hits=hits,
-            degraded=degraded,
         )
 
 
-def reciprocal_rank_fusion(
-    rankings: Mapping[SearchSource, Sequence[int]],
-    *,
-    rrf_k: int = 60,
-) -> list[tuple[int, float, tuple[SearchSource, ...]]]:
-    scores: dict[int, float] = {}
-    sources: dict[int, set[SearchSource]] = {}
-    for source, document_ids in rankings.items():
-        for rank, document_id in enumerate(document_ids, start=1):
-            scores[document_id] = scores.get(document_id, 0.0) + 1 / (rrf_k + rank)
-            sources.setdefault(document_id, set()).add(source)
-    return sorted(
-        (
-            (
-                document_id,
-                score,
-                tuple(sorted(sources[document_id], key=_SOURCE_ORDER.__getitem__)),
-            )
-            for document_id, score in scores.items()
-        ),
-        key=lambda item: (-item[1], item[0]),
+def _meaningful_tokens(tokens: Sequence[str]) -> frozenset[str]:
+    meaningful = frozenset(
+        token for token in tokens if token.isascii() or len(token) > 1
     )
+    return meaningful or frozenset(tokens)
+
+
+def _token_coverage(query_tokens: frozenset[str], document_tokens: Sequence[str]) -> float:
+    if not query_tokens:
+        return 0.0
+    searchable = _meaningful_tokens(document_tokens)
+    return len(query_tokens.intersection(searchable)) / len(query_tokens)

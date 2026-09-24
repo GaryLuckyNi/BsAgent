@@ -2,22 +2,15 @@
 
 ## 定位
 
-Tool Agent 执行 Planner 已选定的单个工具子任务。它不拆分任务、不自由选择其他工具、不把业务失败伪装成成功数据。
-
-完整链路为：
+Tool Agent 执行 planner 给出的信息目标，不负责上层任务拆分。模型根据任务、已有材料和检索候选，自主决定是否调用工具以及调用哪个工具。
 
 ```text
-MCP Streamable HTTP list_tools
--> ToolRegistry 冻结 ToolSpec 与 ExecutionBinding
--> ToolSearchIndex 建立 BM25S + Dense 索引
--> Planner 获得 Top-K 轻量工具卡片
--> Planner 选择 tool_name 和 task_goal
--> Tool Agent 只绑定该工具完整 Schema
--> LLM 返回原生 AIMessage.tool_calls
--> Tool Gateway 执行治理校验
--> Provider/MCP 执行
--> ToolMessage + TaskResult
--> Scheduler 推进依赖任务
+MCP list_tools → 冻结 ToolRegistry 与执行绑定
+→ 按任务检索专业候选，独立披露有权限的 web_search
+→ 模型自主选择一次调用或不调用
+→ 参数校验、审批、预算、执行网关
+→ ToolMessage 与任务观察
+→ planner 自主决定继续、修订或结束
 ```
 
 ## 启动期动态发现
@@ -26,31 +19,45 @@ MCP Streamable HTTP list_tools
 
 每个远端工具被适配为内部 `ToolSpec`，保存非秘密的 Provider、Server、Deployment 和 Config revision。目录冻结后生成 `catalog_digest`，同一次 Run 的 Planner、Tool Agent、Gateway 和审批恢复必须使用同一快照。
 
+生产环境在启动时加载工具目录，本地 `npm run dev` 也在启动时预热目录。目录过期后，已有快照可供新请求继续使用；刷新在后台执行，请求同时取得配对的工具清单和检索索引。正在运行的请求保留原快照，刷新不会提前关闭旧版检索服务。首次尚无快照时仍须等待目录构建完成。
+
+每份目录快照只为工具名、描述、参数名和参数说明建立内存 BM25 索引。目录变化时后台重建轻量索引，不加载向量模型，不生成或读取文档向量，也不需要模型缓存。运行快照仍使用完整 `catalog_digest` 校验检索结果与执行绑定；MCP 发现和实际业务工具调用不属于索引构建过程。
+
 ## 渐进式披露
 
 应用启动时会加载所有可用工具到进程内 Registry，但不把全量 Schema 放入每次 Prompt。
 
 1. 检索层先按 Principal Scope 过滤不可见工具。
-2. BM25S 与 Dense 检索通过 RRF 融合，返回 Top-K 工具名、描述和必需参数名。
-3. Planner 只能选择本轮已披露工具。
-4. 只有选中工具进入 Tool Agent 后，完整输入 Schema 才绑定给 LLM 用于生成参数。
-5. 如果首轮 Top-K 不足，Planner 可将内置 `search_tool` 作为一个普通子任务，扩充披露集合后重新规划。
+2. 工具名明确出现时使用精确匹配，否则由 BM25 返回 Top-K 工具名、描述和必需参数名。
+3. Planner 不选择普通工具，tool_search_query 是可选的能力检索提示。
+4. 将合格候选完整 Schema 提供给 Tool Agent；web_search 独立于专业候选命中和排序，在授权范围内披露。
+5. 检索只负责候选发现，不按命中或排名设置必须调用，不自动执行搜索。当前未增加额外的模型驱动 search_tool 循环；模型需要不同路径时可通过反馈修订任务目标。
 
-该机制同时限制搜索次数、总披露工具数和 Planner 轮次，防止上下文膨胀与无界循环。
+候选数量、任务数量、反馈次数和搜索执行次数分别有预算。候选不足时仍允许模型基于材料回答并说明缺口，不强制搜索。
+
+## 搜索使用时机
+
+工具使用指令要求模型根据公开证据缺口、时效性、用户明确搜索请求和已有材料决定是否搜索。专业工具命中时仍可选择 web_search，未命中时也可以不调用。代码负责权限、参数和资源校验，不决定业务调用顺序。
+
+搜索配额在模型提出真实调用后，在同一图实例内以锁原子预留，最多六个不同调用；不会按任务位置提前分配。恢复时从已记录搜索调用重建使用量。该计数不提供跨进程分布式租约，也不保证进程崩溃前未落盘调用的精确计量；服务仍须保持每个 Run 单一执行者。
 
 ## 原生 Function Calling
 
-Tool Agent 对本任务工具执行 `bind_tools(..., tool_choice=<name>)`，接受且仅接受一个原生 `AIMessage.tool_calls`。模型给出的 call ID 不被信任，系统用 `request_id + planner_iteration + task_id + tool_name` 生成稳定可信 ID。
+Tool Agent 对候选执行 `bind_tools(..., tool_choice="auto")`，允许零或一个原生工具调用；模型不调用时保留回答或缺口说明。若模型一次返回多个调用或未知工具，先将契约错误反馈给模型修复一次，保持 `auto` 选择权；再次失败才记录业务失败观察。参数修复针对模型已选定的调用，允许一次保持工具不变的修复。模型给出的 call ID 不被信任，系统用 `request_id + planner_iteration + task_id + tool_name` 生成稳定可信 ID。
 
-参数生成上下文只包含持久化的用户会话、当前 `task_goal` 和该任务声明的依赖 `TaskResult`。其他并行分支产生的内部 `AIMessage.tool_calls`、`ToolMessage` 和 Skill/Analysis 过程消息会被过滤，防止不相关工具名与参数污染当前 Worker。
+Planner 生成工具子任务时必须保证它代表一次可执行调用，并能从用户消息或依赖任务结果中确定必需参数。对于“比较多家公司”这类复数目标，应先拆分实体或为每个实体建立独立任务，不能把复数抽象描述直接传给单实体工具。
 
-DeepSeek 参数生成通过 LangChain 同步 `invoke()` 执行，并显式使用非 thinking 模式。该步只负责按已选 Schema 生成参数，不承担任务推理；任务推理属于 Planner 和 Analysis Agent。
+参数生成上下文包含用户会话、当前 `task_goal`、`completion_criteria`、直接依赖结果、显式引用的历史成功结果，以及有长度限制的用户材料。其他并行分支产生的内部 `AIMessage.tool_calls`、`ToolMessage` 和 Skill/Analysis 过程消息会被过滤，防止不相关工具名与参数污染当前节点。
+
+DeepSeek 参数生成通过 LangChain 同步 `invoke()` 执行，并显式使用非 thinking 模式。该步负责候选选择与参数生成；完成情况由后续 planner 结合任务验收条件与结果判断。
 
 执行结果写为 `ToolMessage`：
 
 - `content` 只保留给后续 LLM 使用的脱敏紧凑 JSON。
 - `artifact` 保留脱敏后的结构化结果，供观测与程序化处理。
 - `tool_call_id` 必须与对应 AIMessage 中的可信 ID 一致。
+
+工具结果进入任务观察前按 8,000 字符契约压缩。联网搜索优先保留回答、来源 URL 和简短摘要；其他超长结果保留脱敏预览。完整的结构化工具结果仍在 `ToolCallRecord` 中，超长正文不会因任务观察字段限制使节点失败。
 
 ## 执行治理
 
@@ -65,10 +72,13 @@ LLM 只能提供参数建议。Tool Gateway 在真正调用 Provider 前依次�
 
 高风险调用在审批前将完整请求保存到 PostgresSaver。恢复后重用同一个 `call_id + arguments_hash`，不重新请求 LLM 生成参数。
 
-## 失败分类
+## 失败与反馈
 
-- 超时、限流、MCP/Provider 短暂不可用：抛出可重试异常，交给 LangGraph `RetryPolicy`。
-- 参数不合法、必需数据缺失、接口权限未开通：转成 `business_failure` Observation，由 Planner 判断是否改用其他合法路径。
-- 目录变化、RBAC 拒绝、审批拒绝和不可恢复契约错误：终止当前任务，不盲目重试。
+- Provider 超时、限流及业务失败均保留规范化结果，不再抛异常让整个 Tool Agent 重跑模型选择。
+- MCP 通用执行失败仅记录安全分类 `remote_tool_error`、`response_type_invalid` 或 `client_exception`；客户端异常另记录异常类名。远端原始错误正文、URL 和凭证不写入 ToolError 或 Trace。
+- 参数不合法允许一次本地模型修复，失败后记录观察。
+- auto 模式没有 Tool Call 是合法选择；未知工具或多个调用先修复一次，仍不合约才形成可诊断观察。
+- 目录、RBAC 与审批约束继续生效，模型不能用重新规划绕过授权。
+- ToolCallResult 的 success 表示调用完成，不自动证明研究目标充分；planner 在批次反馈中判断后续动作。
 
-RAG 已是普通的 `rag_search` Tool，由同一 Tool Agent/Gateway 路径执行，不再存在独立 Retriever 执行分支。
+RAG 继续作为普通 rag_search 工具，MCP 连接和业务结果适配未在本轮重写。

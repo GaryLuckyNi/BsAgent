@@ -6,6 +6,33 @@
 
 ### 变更
 
+- Planner 增加批次反馈决策，模型选择 continue/revise/finish；取消按业务错误自动重规划和按拓扑删除末端任务，修复计划修订丢失检索提示。计划新增执行类型与完成条件，修订保留历史并显式复用已完成成果。
+- 工具发现收敛为权限与 Skill 作用域过滤、工具名精确匹配和 BM25 排序，删除 Dense、RRF、FastEmbed 模型与向量缓存；专业候选与 web_search 可共同披露，模型通过 auto 自主选择是否调用。搜索配额改为调用前原子预留，并修复并行检索状态合并冲突。
+- Skill 发现收敛为 `domain/subdomain` 作用域过滤后披露全部轻量卡片，由 Planner 自主选择，不再维护 Skill BM25 Top-K。
+- Tool Agent 失败结果保留为观察，不再通过整节点重试重复模型决策。审批恢复新增规划策略版本校验；旧策略 Checkpoint 需要重新发起请求。
+- 本地真实模型试运行发现反馈 JSON 不合法会导致 Planner 500，已改为一次修复后安全停止并显式说明未核实目标；反馈提示改为精简的 continue/revise/finish 格式。`auto` 一次返回多个工具调用时增加一次模型修复，不由代码代选工具。
+- MCP 通用执行失败增加安全阶段分类，并在 Trace 只展示允许的阶段和异常类名；本地真实调用确认当前 Tushare 财务指标接口返回远端工具错误，用户确认第三方接口权限不足，未泄露远端原始正文。
+
+- 外部 Tushare MCP 工具发现失败不再阻断整个 Agent 图初始化；工具目录保留 RAG、联网检索等平台能力继续规划，并以不含 URL、Token 或异常正文的安全日志记录 Provider 不可用状态。
+- Admin 启用跨资产金融研究意图，补充贵金属、大宗商品、债券、基金、外汇、利率、宏观和资产配置边界；A 股分类保持独立，Planner 仍按分类结果渐进式发现能力。
+- AI Research 思考面板新增独立的 Tool/Skill 活动行，展示“正在联网检索”“正在查询市场数据”等用户可理解的摘要及进行中/已完成状态；原始工具名称、节点标签和控制面 Trace 不进入产品界面。
+- Agent 的 Tushare MCP 运行链改为由 Admin 市场数据源配置完整 URL，Agent 读取激活配置后直连官方 Streamable HTTP；`BS_AGENT_MCP_SERVER_URL` 仅保留为默认关闭的通用 MCP 扩展，仓库内示例服务只保留显式学习命令。
+- Synthesizer 不再向最终模型暴露原始任务 ID、工具名、内部错误码和执行状态；成功结果转换为研究材料，失败维度转换为最小数据局限，部分证据可用时以研究分析而非链路故障报告为主体。新增 AI Research 近期体验验收规范，明确首屏反馈、公开思路、工具活动、原生 Token 流和内部信息隔离边界。
+- 修复 AI Research 长答案流式渲染中断：开启 LangGraph SDK `useStream` 原生 `throttle` 合并同一批 Token 的同步外部 Store 通知，并对等价答案快照增加幂等同步，避免 React `Maximum update depth exceeded` 导致页面只显示部分答案；重规划时的完全相同公开思路摘要不再重复拼接。
+- Analysis Agent、Skill Agent 和 Synthesizer 在 Thinking 消耗输出预算但没有返回正文时，允许一次关闭 Thinking 的有界补偿请求；同时纯概念投研问题默认收敛为单个分析任务，避免无能力依赖时过度拆分串行任务。
+- 修复 Agent 思考与答案的流式边界：产品端仅接收中文、面向用户的分析摘要，不再透传 Intent、Planner、Skill、Analysis 或 Synthesizer 的私有 `reasoning_content`，避免暴露 JSON 契约、内部字段、任务 ID 与中英混排控制指令；最终答案继续按原生 token 流式输出，前端按本轮 Message ID 隔离历史消息。
+- DeepSeek 流式结果新增 `finish_reason` 保留，Planner 首次输出预算提升至 4096；遇到 `length` 截断、空正文或无效计划时执行一次关闭 thinking 的结构化补偿重试，避免推理耗尽共享输出预算后直接中断节点。
+- Planner 明确单一职责拆分约束：同一目标若同时需要 Skill 和 Tool，必须拆成有依赖关系的独立子任务，由 Tool 获取事实，再由 Skill 或分析任务消费前序结果。
+- 修复前端中断 Agent Streaming Protocol 或 AG-UI 消费后未显式关闭上游会话流的问题；StreamingResponse 通过可关闭的异步线程桥接消费同步 Graph 流，确保连接取消后逐层关闭适配器、执行会话失败收口并释放 `active_run_id`，避免会话永久返回“请求正在执行或会话忙”。
+- 思考面板展示动态生成的中文研究思路摘要，不混入节点进度、阶段任务清单或控制面私有推理，面板标题同步中文化。
+- 修复整体市场问题误选单证券数据工具及失败 JSON 直出：web_search 作为受 RBAC 约束的精简平台基础能力常驻披露，由 Planner 根据时效性和证据缺口自主决定是否调用；联网搜索扩展为市场事件、政策、新闻、公告与实体核验通用投研证据能力。数据 Provider 权限不足改为携带 tool_name 的可重规划 Observation，Synthesizer 仅输出去重后的用户友好错误信息。
+- DeepSeek 非工具参数生成节点保留原生 Thinking Mode：Provider 区分私有 `reasoning_content`、公开 `content` 与结束原因；AG-UI 仅映射显式公开的分析摘要和最终答案，工具进度保持独立轻量活动提示。
+- 新增独立 `/api/ag-ui` 协议适配端点：请求与响应使用官方 `ag-ui-protocol` 类型和 `EventEncoder`，将现有会话流映射为 Run、Step、Activity 与 Text Message 事件；审批中断使用 `RUN_FINISHED(outcome=interrupt)`，标准 `RunAgentInput.resume` 复用既有租户 RBAC、审批投影和 LangGraph `Command(resume=...)` 恢复链路。
+- 前端会话流改用官方 `@langchain/langgraph-sdk/react` 的 `useStream + FetchStreamTransport`，删除自建浏览器 SSE 解析器；Backend 在保留现有 FastAPI、JWT、PostgreSQL 会话与幂等生命周期的前提下新增 Agent Streaming Protocol 适配端点。
+- Graph 流式模式统一为 `updates + messages + custom`：节点通过官方 `get_stream_writer()` 发出面向用户的结构化进度，Synthesizer 的 LangChain 调用通过 `messages` 模式实时透传 LLM Token，产品端不展示 Node Trace 或私有推理。
+- 最终答案已产生原生 Token 时不再按字符二次切片，前端由 SDK 按稳定 Message ID 合并分片，并在最终事件到达时完成状态收口，避免重复渲染答案。
+- Tool Agent 将“模型未生成 Tool Call”或“返回错误工具名”转换为带错误码的 `business_failure` Observation，由 Planner 在既有 10 轮预算内重新规划，不再直接使请求返回 500。
+- Planner 增加单次工具任务约束：必须能够从用户消息或依赖结果确定必需参数，不允许把“多家公司”等复数抽象对象直接传给单实体工具。
 - 业务意图运行时不再将 Admin 返回的空启用目录当作有效快照；首次加载为空时 readiness 明确报不可用，避免所有投研请求被静默误判为范围外。
 - Tool Agent 生成参数时只传入用户会话、当前 `task_goal` 和该任务的依赖结果，隔离其他并行分支的 `AIMessage.tool_calls` 与 `ToolMessage`，避免重规划时复用错误工具名。
 - DeepSeek Function Calling 改用与同步 LangGraph 节点一致的 LangChain `invoke()`，并对参数生成显式关闭 thinking 模式，避免临时事件循环连接故障及历史 `reasoning_content` 契约冲突。
@@ -20,7 +47,7 @@
 - 并行 Skill Worker 只返回子任务局部更新，不再写入共享 `selected_skill` 标量字段，避免 LangGraph `Send` 同超步并发合并冲突。
 - Planner 改为单一 LLM 任务规划路径：基于 Intent `goal`、双 Top-K Skill/Tool 卡片、长期规划偏好和既有任务 Observation 动态生成最多 12 个子任务的 DAG，不再进入固定知识问答、工具动作或 A 股模板分支。
 - 新增严格任务计划契约，支持 Skill、Tool 与无外部能力的分析任务，校验任务 ID、依赖闭包、无环约束和本轮能力披露边界；Planner 决策预算默认固定为 10 轮。
-- Skill 渐进式披露新增基于 BM25S 的 Top-K 检索，候选先按 Admin 配置的 `domain/subdomain` 过滤；轻量卡片移除租户、版本、风险和工具白名单，完整定义仅在 Planner 选中 Skill 后按名称加载当前启用配置。
+- Skill 渐进式披露按 Admin 配置的 `domain/subdomain` 过滤后直接交给 Planner 选择；轻量卡片移除租户、版本、风险和工具白名单，完整定义仅在 Planner 选中 Skill 后按名称加载当前启用配置。
 - Intent Router 收敛为基于 Admin 目录的 LLM 范围分类与 `goal` 改写，删除本地规则预路由、Skill/Tool 候选、风险、澄清和 `TaskBrief` 字段；Graph State 新增独立 Planner 决策计数。
 - Admin 业务意图目录收敛为 `intent_type/domain/subdomain` 分类契约，删除候选 Skill、风险等级和所需能力等 Planner 职责字段；新增 Alembic 迁移并同步 CRUD 与管理界面。
 - 新增投研意图、动态规划与任务图重构实施计划，按 Admin/Intent 契约、双 Top-K 能力发现、LLM 任务 DAG、原生 ToolMessage、三类 Worker、受限 ReAct 和终稿校验分阶段迁移，并在全链路完成后统一复审。
@@ -36,8 +63,8 @@
 - 新增开放式任务理解与动态规划设计：Admin 成为业务意图 Profile 唯一事实源，本地 `business_intents.json` 已删除；未命中的投研问题由开放式 `TaskBrief` 表达目标、实体、关键词与时效需求，Planner 动态选择 MCP、Web Search 或 RAG 并生成多步计划，Tool Agent 不再内置专用实体二次探测。
 - A 股投研任务的首轮渐进式工具披露若未命中实体解析能力，Planner 会在同一租户 RBAC 与披露上限内定向补充检索 `stock.resolve_company`，避免动态证据规划因 Top-K 偶然遗漏而退化为固定 Skill。
 - 投研回答的标准章节、同义章节标题与免责声明统一输出为 Markdown 二级标题，LLM 回答、修复回答与确定性降级回答共用同一格式化出口。
-- 生产 Backend 镜像在构建阶段预下载 FastEmbed 中文模型，并将只读模型缓存复制到最终镜像；运行时强制 `local_files_only`，避免容器启动或请求期间访问模型仓库。
-- Python 3.11 生产依赖锁补齐 `bm25s`、`fastembed`、`numpy` 及其传递依赖，保证渐进式工具检索可在锁定依赖的容器中安装和预热。
+- 生产 Backend 镜像不再下载或复制工具向量模型，工具目录首次构建与后台刷新只建立轻量 BM25 索引。
+- Python 3.11 生产依赖锁移除 `fastembed`、ONNX Runtime 和模型下载依赖；`numpy` 仅作为 `bm25s` 的传递依赖保留。
 - 工具调用文档补充渐进式披露全链路、双重 RBAC、目录摘要固定、搜索预算、BM25 降级、进程内缓存和生产评测方式。
 - `search_tool` 执行后会将受权限约束的命中工具合并到 Graph State 并回到 Planner 重新规划；每次搜索使用独立可重放 call ID，失败尝试也计入预算。
 - 工具发现回路最多执行 `BS_AGENT_TOOL_SEARCH_MAX_CALLS` 次；预算耗尽后以 `tool_search_budget_exhausted` 可解释错误结束，中途搜索失败只进入观测事实，不污染后续成功回答。
@@ -46,10 +73,10 @@
 - 通用工具规划改为 `execute/search/respond` 结构化决策，工具版本、风险等级与参数 Schema 继续由 Harness 校验；模型猜测的未披露工具不会从完整 Registry 补查或执行。
 - 默认 `rag_search` 现在与 MCP、Web Search 和 `search_tool` 一同在 Tool Catalog 启动期冻结，Planner 搜索索引与 Tool Agent Registry 共用同一 `catalog_digest`。
 - Intent Classifier 不再接收或序列化完整工具目录，仅基于用户目标、业务意图与租户 `SkillCard` 分类；工具选择留给 Planner 的渐进式披露流程。
-- 工具目录运行时现以最终 `catalog_digest` 原子构建并发布检索索引与 `search_tool`，复用有界 Query Embedding LRU，构建失败时 readiness 保持不可用且不暴露半成品快照。
+- 工具目录运行时以最终 `catalog_digest` 原子构建并发布 BM25 检索索引与 `search_tool`，构建失败时 readiness 保持不可用且不暴露半成品快照。
 - 新增受 RBAC 与 Skill 工具白名单约束的 `ToolSearchService` 和本地 `search_tool`；Gateway 仅向可信本地执行器注入工具执行上下文，MCP 工具调用接口保持不变。
-- 新增工具检索文档、中英文词元化、FastEmbed 向量封装与 BM25S/Dense RRF 混合索引，支持精确工具名快速路径、权限集合预过滤和 Dense 故障降级。
-- 新增渐进式工具检索的配置、依赖与冻结权限上下文契约，约束查询输入、命中结果、检索模式及生产环境本地模型加载策略。
+- 工具检索文档采用确定性的中英文词元化与 BM25 索引，支持精确工具名快速路径和权限集合预过滤。
+- 渐进式工具检索契约约束查询输入、命中结果、检索模式及冻结权限上下文，不再包含本地向量模型加载策略。
 - 新增低延迟渐进式工具披露实施计划，明确混合检索、权限过滤、目录原子绑定、Planner 结构化决策、受控重规划、生产预热与质量门槛的分步实现路径。
 - 新增低延迟渐进式工具披露设计：以内置 `search_tool`、BM25 与中文稠密向量混合检索替代向 Intent/Planner 注入全量工具 Schema，并保留现有 Registry、RBAC、审批和 MCP Gateway 执行边界。
 - 候选治理持久化收敛为 `MemoryCandidateRepository`，不再使用易与 LangGraph Store 混淆的 `SqlAlchemyMemoryStore` 命名；长期偏好的生效与召回仍由 `PostgresStore` 负责。
@@ -105,6 +132,7 @@
 
 ### 测试
 
+- 新增 AG-UI 类型化事件、流式文本、错误终态、审批中断与标准恢复载荷的单元及 API 集成覆盖。
 - 新增真实 StateGraph 动态工具端到端测试，覆盖意图分类、Top-K 披露、Planner 选择、原生 `tool_calls/ToolMessage`、任务合并、Markdown 合成和 Verifier。
 - 新增并行 `Send` 任务、依赖调度、业务重规划、基础设施重试分类、高风险调用精确恢复和动态终稿的回归覆盖。
 - 动态 Planner 回归覆盖纯推理任务、Skill/Tool 互斥、重复与未知依赖、自依赖、循环依赖、任务数量上限、轻量候选 Prompt、未披露能力拒绝及 Planner 节点状态写入。

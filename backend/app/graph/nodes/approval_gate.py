@@ -90,10 +90,11 @@ def _next_pending_memory_candidate(state: AgentState) -> MemoryCandidate | None:
     candidates = [
         candidate
         for candidate in state["memory_candidates"]
-        if candidate.approval_status == "pending"
-        and candidate.sensitivity in {"medium", "high"}
+        if candidate.approval_status == "pending" and candidate.sensitivity in {"medium", "high"}
     ]
-    return min(candidates, key=lambda item: (item.memory_key or "", item.candidate_id), default=None)
+    return min(
+        candidates, key=lambda item: (item.memory_key or "", item.candidate_id), default=None
+    )
 
 
 def _memory_action(state: AgentState, candidate: MemoryCandidate) -> ApprovalAction:
@@ -199,7 +200,7 @@ def _apply_decision(state: AgentState, *, action: ApprovalAction, decision: dict
                 status="terminal_failure",
                 content="用户拒绝了该工具调用。",
                 error_code="tool_approval_rejected",
-            ).model_dump(mode="python")
+            ).model_dump(mode="python", exclude={"tool_name"})
         )
         return
     approval = ApprovedToolCall(
@@ -216,8 +217,7 @@ def _descriptor_request(state: AgentState, descriptor: PendingToolApproval) -> T
         (
             item
             for item in state["tool_calls"]
-            if (item.call_id or item.request.call_id) == descriptor.call_id
-            and item.result is None
+            if (item.call_id or item.request.call_id) == descriptor.call_id and item.result is None
         ),
         None,
     )
@@ -254,7 +254,8 @@ def _validate_decision(decision: Any, *, approval_id: str, action_digest: str) -
 
 def _upsert_approval_request(state: AgentState, approval_request: ApprovalRequest) -> None:
     state["approval_requests"] = [
-        existing for existing in state["approval_requests"]
+        existing
+        for existing in state["approval_requests"]
         if existing.approval_id != approval_request.approval_id
     ]
     state["approval_requests"].append(approval_request)

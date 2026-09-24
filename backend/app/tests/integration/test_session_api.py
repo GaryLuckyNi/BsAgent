@@ -20,13 +20,12 @@ from app.api import approvals, sessions
 from app.conversations.service import BeginTurn, ConversationService
 from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.graph import runtime
-from app.graph.runtime import AgentGraphExecutionError
+from app.graph.runtime import AgentGraphExecutionError, AgentGraphStreamEvent
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
 from app.intent.runtime import BusinessIntentCatalogUnavailableError
 from app.llm.deepseek import LlmConfigurationError
-from app.llm.schemas import LlmCompletionResult
 from app.main import create_app
 from app.memory.dependencies import get_memory_store
 from app.schemas.approvals import ApprovalRequest, ApprovalStatus
@@ -93,9 +92,7 @@ def test_api_modules_and_repository_expose_only_native_store_contract():
         "experience_entries",
     ):
         assert removed_symbol not in runtime_sources
-    assert "experience_store" not in inspect.signature(
-        repositories.persist_agent_run
-    ).parameters
+    assert "experience_store" not in inspect.signature(repositories.persist_agent_run).parameters
     assert tuple(inspect.signature(sessions._ExecutionSnapshot).parameters) == (
         "history",
         "attachment_resolver",
@@ -108,42 +105,6 @@ def isolate_session_api_tests_from_external_mcp(monkeypatch):
     monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
     monkeypatch.setattr(sessions, "build_graph_checkpointer", InMemorySaver)
     monkeypatch.setattr(approvals, "build_graph_checkpointer", InMemorySaver)
-
-
-class StreamingNarrativeLlmClient:
-    async def complete(self, **_):
-        return LlmCompletionResult(
-            content="兜底回答不应该用于思考流。",
-            model="fake-stream-model",
-            provider="fake",
-        )
-
-    async def stream_complete(self, **_):
-        for chunk in ["我先识别你的投研目标，", "再检查可用市场数据。"]:
-            yield chunk
-
-
-class IncompleteStreamingNarrativeLlmClient:
-    async def complete(self, **_):
-        return LlmCompletionResult(content="unused", model="fake", provider="fake")
-
-    async def stream_complete(self, **_):
-        chunks = [
-            "我会先拆解“分析银之杰”这个问题，明确这是A股公司分析请求。",
-            "我会检查公司资料、行情数据和公开资料。",
-            "最后提示基本面变化或市场系统性风险可能带来的",
-        ]
-        for chunk in chunks:
-            yield chunk
-
-
-class FailingStreamingNarrativeLlmClient:
-    async def complete(self, **_):
-        return LlmCompletionResult(content="unused", model="fake", provider="fake")
-
-    async def stream_complete(self, **_):
-        raise RuntimeError("thinking stream unavailable")
-        yield ""
 
 
 @pytest.fixture(autouse=True)
@@ -180,6 +141,7 @@ def create_test_app_with_database(
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_memory_store] = lambda: TEST_MEMORY_STORE
     if override_principal:
+
         async def override_get_current_principal(request: Request):
             payload = await request.json() if request.method == "POST" else {}
             actor_id = payload.get("actor_id") or request.query_params.get("actor_id")
@@ -211,9 +173,7 @@ def create_test_app_with_database(
                 scopes=scopes,
             )
 
-        app.dependency_overrides[get_current_principal] = (
-            override_get_current_principal
-        )
+        app.dependency_overrides[get_current_principal] = override_get_current_principal
     return app, testing_session_local
 
 
@@ -397,9 +357,7 @@ def test_post_message_uses_one_run_scoped_intent_catalog_snapshot(monkeypatch):
         return _completed_graph_state(kwargs)
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
-    app, _ = create_test_app_with_database(
-        business_intent_catalog_runtime=intent_runtime
-    )
+    app, _ = create_test_app_with_database(business_intent_catalog_runtime=intent_runtime)
 
     response = TestClient(app).post(
         "/api/sessions/s1/messages",
@@ -426,9 +384,7 @@ def test_post_message_returns_safe_503_when_intent_catalog_is_unavailable(monkey
         "run_question_answer_graph",
         lambda **kwargs: graph_calls.append(kwargs),
     )
-    app, _ = create_test_app_with_database(
-        business_intent_catalog_runtime=intent_runtime
-    )
+    app, _ = create_test_app_with_database(business_intent_catalog_runtime=intent_runtime)
 
     response = TestClient(app, raise_server_exceptions=False).post(
         "/api/sessions/s1/messages",
@@ -436,9 +392,7 @@ def test_post_message_returns_safe_503_when_intent_catalog_is_unavailable(monkey
     )
 
     assert response.status_code == 503
-    assert response.json() == {
-        "detail": {"code": "business_intent_catalog_unavailable"}
-    }
+    assert response.json() == {"detail": {"code": "business_intent_catalog_unavailable"}}
     assert intent_runtime.snapshot_calls == 1
     assert intent_runtime.refresh_calls == 0
     assert graph_calls == []
@@ -510,9 +464,7 @@ def test_list_sessions_returns_only_principal_owned_sessions():
     response = TestClient(app).get("/api/sessions", params={"limit": 10})
 
     assert response.status_code == 200
-    assert [item["session_id"] for item in response.json()["items"]] == [
-        "session_owned"
-    ]
+    assert [item["session_id"] for item in response.json()["items"]] == ["session_owned"]
 
 
 def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
@@ -627,10 +579,10 @@ def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
         "旧回答3",
         "当前问题",
     ]
-    assert sum(
-            message.id == captured["user_message_id"]
-        for message in captured["state"]["messages"]
-    ) == 1
+    assert (
+        sum(message.id == captured["user_message_id"] for message in captured["state"]["messages"])
+        == 1
+    )
     assert all("checkpoint" not in message.content for message in captured["history"])
 
 
@@ -688,9 +640,7 @@ def test_post_message_releases_turn_transaction_before_graph(monkeypatch):
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
     app, testing_session_local = create_test_app_with_database(on_session=record_session)
-    app.dependency_overrides[sessions.get_attachment_context_resolver] = (
-        lambda: source_resolver
-    )
+    app.dependency_overrides[sessions.get_attachment_context_resolver] = lambda: source_resolver
     response = TestClient(app).post(
         "/api/sessions/s1/messages",
         json={"message": "问题", "attachments": ["asset-1"]},
@@ -752,9 +702,7 @@ def test_post_message_pre_graph_failure_fails_turn_and_releases_session(
         lambda **kwargs: _completed_graph_state(kwargs),
     )
     app, testing_session_local = create_test_app_with_database()
-    app.dependency_overrides[sessions.get_attachment_context_resolver] = (
-        FailOnceAttachmentResolver
-    )
+    app.dependency_overrides[sessions.get_attachment_context_resolver] = FailOnceAttachmentResolver
     client = TestClient(app, raise_server_exceptions=False)
     payload = {
         "message": "问题",
@@ -802,9 +750,7 @@ def test_post_message_maps_database_error_to_safe_503(monkeypatch):
     )
 
     assert response.status_code == 503
-    assert response.json() == {
-        "detail": {"code": "conversation_persistence_unavailable"}
-    }
+    assert response.json() == {"detail": {"code": "conversation_persistence_unavailable"}}
     assert "secret" not in response.text
 
 
@@ -830,15 +776,11 @@ def test_post_message_maps_completion_database_error_to_safe_503(monkeypatch):
     )
 
     assert response.status_code == 503
-    assert response.json() == {
-        "detail": {"code": "conversation_persistence_unavailable"}
-    }
+    assert response.json() == {"detail": {"code": "conversation_persistence_unavailable"}}
     assert "secret" not in response.text
     with testing_session_local() as db:
         run = db.scalars(select(AgentRun)).one()
-        assistant = db.scalar(
-            select(AgentMessage).where(AgentMessage.role == "assistant")
-        )
+        assistant = db.scalar(select(AgentMessage).where(AgentMessage.role == "assistant"))
         session_record = db.scalars(select(AgentSession)).one()
     assert run.status == "failed"
     assert assistant.status == "failed"
@@ -1192,9 +1134,7 @@ def test_approval_api_uses_dependency_principal_for_tenant_scope():
     )
 
     assert response.status_code == 200
-    assert [item["approval_id"] for item in response.json()["items"]] == [
-        "approval_trusted"
-    ]
+    assert [item["approval_id"] for item in response.json()["items"]] == ["approval_trusted"]
 
 
 def test_approval_endpoint_rejects_analyst_and_allows_mock_approver():
@@ -1313,7 +1253,11 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
                 "subject_name": "mcp.mock.trade.submit",
                 "risk_level": "high",
                 "action_digest": "digest_1",
-                "checkpoint_thread_id": build_checkpoint_thread_id(tenant_id=state["tenant_id"], session_key=state["session_key"], request_id=state["request_id"]),
+                "checkpoint_thread_id": build_checkpoint_thread_id(
+                    tenant_id=state["tenant_id"],
+                    session_key=state["session_key"],
+                    request_id=state["request_id"],
+                ),
                 "checkpoint_namespace": "",
                 "checkpoint_id": "checkpoint_1",
                 "interrupt_id": "interrupt_1",
@@ -1441,14 +1385,17 @@ def test_approval_resume_rejects_different_existing_checkpoint_before_graph(
         checkpointer=checkpointer,
         llm_client=WorkflowTestLlm(),
     )
-    assert checkpointer.get_tuple(
-        {
-            "configurable": {
-                "thread_id": other_checkpoint,
-                "checkpoint_ns": "",
+    assert (
+        checkpointer.get_tuple(
+            {
+                "configurable": {
+                    "thread_id": other_checkpoint,
+                    "checkpoint_ns": "",
+                }
             }
-        }
-    ) is not None
+        )
+        is not None
+    )
 
     def forbidden_resume(**kwargs):
         assert kwargs["checkpoint_thread_id"] == other_checkpoint
@@ -1516,9 +1463,7 @@ def test_approval_claim_commit_failure_returns_safe_503(monkeypatch):
     )
 
     assert response.status_code == 503
-    assert response.json() == {
-        "detail": {"code": "approval_persistence_unavailable"}
-    }
+    assert response.json() == {"detail": {"code": "approval_persistence_unavailable"}}
     assert "leaked_secret" not in response.text
 
 
@@ -1597,9 +1542,7 @@ def test_approval_resume_fails_closed_when_request_user_rbac_is_unavailable(
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"]["code"] == (
-        "approval_requester_authorization_unavailable"
-    )
+    assert response.json()["detail"]["code"] == ("approval_requester_authorization_unavailable")
 
 
 def test_approval_failure_record_failure_returns_safe_503(monkeypatch):
@@ -1629,9 +1572,7 @@ def test_approval_failure_record_failure_returns_safe_503(monkeypatch):
     )
 
     assert response.status_code == 503
-    assert response.json() == {
-        "detail": {"code": "approval_persistence_unavailable"}
-    }
+    assert response.json() == {"detail": {"code": "approval_persistence_unavailable"}}
     assert "leaked_secret" not in response.text
 
 
@@ -1665,7 +1606,26 @@ def test_approval_resume_rejects_state_identity_mismatch(
     monkeypatch.setattr(
         approvals,
         "_project_current_interrupts",
-        lambda state: [{"approval_id": "approval_child", "approval_type": "tool_call", "run_id": "run_1", "tenant_id": "tenant_1", "requested_by": "user_1", "subject_name": "mcp.mock.trade.submit", "risk_level": "high", "action_digest": "digest_child", "checkpoint_thread_id": build_checkpoint_thread_id(tenant_id="tenant_1", session_key="session_key_1", request_id="checkpoint_request_1"), "checkpoint_namespace": "", "checkpoint_id": "checkpoint_2", "interrupt_id": "interrupt_2"}],
+        lambda state: [
+            {
+                "approval_id": "approval_child",
+                "approval_type": "tool_call",
+                "run_id": "run_1",
+                "tenant_id": "tenant_1",
+                "requested_by": "user_1",
+                "subject_name": "mcp.mock.trade.submit",
+                "risk_level": "high",
+                "action_digest": "digest_child",
+                "checkpoint_thread_id": build_checkpoint_thread_id(
+                    tenant_id="tenant_1",
+                    session_key="session_key_1",
+                    request_id="checkpoint_request_1",
+                ),
+                "checkpoint_namespace": "",
+                "checkpoint_id": "checkpoint_2",
+                "interrupt_id": "interrupt_2",
+            }
+        ],
     )
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
@@ -1727,7 +1687,26 @@ def test_approval_resume_child_approval_keeps_original_run_identity(monkeypatch)
     monkeypatch.setattr(
         approvals,
         "_project_current_interrupts",
-        lambda state: [{"approval_id": "approval_child", "approval_type": "tool_call", "run_id": "run_1", "tenant_id": "tenant_1", "requested_by": "user_1", "subject_name": "mcp.mock.trade.submit", "risk_level": "high", "action_digest": "digest_child", "checkpoint_thread_id": build_checkpoint_thread_id(tenant_id="tenant_1", session_key="session_key_1", request_id="checkpoint_request_1"), "checkpoint_namespace": "", "checkpoint_id": "checkpoint_2", "interrupt_id": "interrupt_2"}],
+        lambda state: [
+            {
+                "approval_id": "approval_child",
+                "approval_type": "tool_call",
+                "run_id": "run_1",
+                "tenant_id": "tenant_1",
+                "requested_by": "user_1",
+                "subject_name": "mcp.mock.trade.submit",
+                "risk_level": "high",
+                "action_digest": "digest_child",
+                "checkpoint_thread_id": build_checkpoint_thread_id(
+                    tenant_id="tenant_1",
+                    session_key="session_key_1",
+                    request_id="checkpoint_request_1",
+                ),
+                "checkpoint_namespace": "",
+                "checkpoint_id": "checkpoint_2",
+                "interrupt_id": "interrupt_2",
+            }
+        ],
     )
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
     app, testing_session_local = create_test_app_with_database()
@@ -2180,9 +2159,7 @@ def test_post_session_message_returns_500_for_graph_execution_error(monkeypatch)
     with testing_session_local() as db:
         saved_run = db.scalars(select(AgentRun)).one()
         saved_session = db.scalars(select(AgentSession)).one()
-        saved_assistant = db.scalar(
-            select(AgentMessage).where(AgentMessage.role == "assistant")
-        )
+        saved_assistant = db.scalar(select(AgentMessage).where(AgentMessage.role == "assistant"))
     assert saved_run.status == "failed"
     assert saved_run.trace_capture_status == "captured"
     assert saved_session.active_run_id is None
@@ -2272,9 +2249,7 @@ def test_trace_flush_failure_does_not_change_completed_session_response(monkeypa
     assert response.json()["content"] == "业务回答保持成功"
     with testing_session_local() as db:
         run = db.scalars(select(AgentRun)).one()
-        assistant = db.scalar(
-            select(AgentMessage).where(AgentMessage.role == "assistant")
-        )
+        assistant = db.scalar(select(AgentMessage).where(AgentMessage.role == "assistant"))
     assert run.status == "completed"
     assert assistant.status == "completed"
 
@@ -2408,6 +2383,155 @@ def test_post_session_message_stream_returns_answer_deltas_and_final(monkeypatch
     assert "event: done" in body
 
 
+def test_agent_protocol_stream_projects_progress_and_message_tokens(monkeypatch):
+    def fake_stream(**_kwargs):
+        yield sessions._sse(
+            "status",
+            {
+                "stage": "accepted",
+                "message_id": "assistant-message-1",
+            },
+        )
+        yield sessions._sse(
+            "progress",
+            {
+                "type": "progress",
+                "stage": "tool_agent",
+                "label": "获取证据",
+                "message": "正在调用市场数据工具。",
+            },
+        )
+        yield sessions._sse("answer_delta", {"content": "第一段"})
+        yield sessions._sse("answer_delta", {"content": "第二段"})
+        yield sessions._sse(
+            "final",
+            {
+                "content": "第一段第二段",
+                "trace_id": "trace-1",
+                "cited_evidence_ids": [],
+                "approval_status": "not_required",
+            },
+        )
+
+    monkeypatch.setattr(sessions, "_stream_agent_message", fake_stream)
+    app, _ = create_test_app_with_database()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/protocol-stream",
+        json={
+            "input": {
+                "messages": [{"type": "human", "content": "分析银之杰"}],
+                "attachment_ids": [],
+                "request_id": "protocol-1",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert "event: custom" in response.text
+    assert '"type": "progress"' in response.text
+    assert response.text.count("event: messages") == 2
+    assert '"id": "assistant-message-1"' in response.text
+    assert "第一段" in response.text
+    assert '"type": "final"' in response.text
+    assert "event: answer_delta" not in response.text
+
+
+def test_ag_ui_endpoint_streams_official_typed_events(monkeypatch):
+    def fake_stream(**_kwargs):
+        yield sessions._sse(
+            "status",
+            {"stage": "accepted", "message_id": "assistant-message-1"},
+        )
+        yield sessions._sse("answer_delta", {"content": "投研"})
+        yield sessions._sse("answer_delta", {"content": "结论"})
+        yield sessions._sse(
+            "final",
+            {
+                "content": "投研结论",
+                "trace_id": "trace-1",
+                "cited_evidence_ids": [],
+                "approval_status": "not_required",
+            },
+        )
+
+    monkeypatch.setattr(sessions, "_stream_agent_message", fake_stream)
+    app, _ = create_test_app_with_database()
+
+    response = TestClient(app).post(
+        "/api/ag-ui",
+        json={
+            "threadId": "s1",
+            "runId": "ag-ui-run-1",
+            "messages": [{"id": "user-message-1", "role": "user", "content": "分析银之杰"}],
+            "tools": [],
+            "context": [],
+            "forwardedProps": {"attachmentIds": []},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert '"type":"RUN_STARTED"' in response.text
+    assert '"threadId":"s1"' in response.text
+    assert response.text.count('"type":"TEXT_MESSAGE_CONTENT"') == 2
+    assert '"delta":"投研"' in response.text
+    assert '"type":"RUN_FINISHED"' in response.text
+
+
+def test_ag_ui_endpoint_resumes_existing_interrupt_with_canonical_payload(monkeypatch):
+    captured = {}
+
+    def seed_resume(db):
+        add_approval_resume_fixture(db)
+        db.flush()
+
+    def fake_decide_approval(**kwargs):
+        captured.update(kwargs)
+        return {
+            "run_id": "run_1",
+            "run_status": "completed",
+            "message_id": "assistant_run_1",
+            "final_response": {
+                "content": "审批通过，分析已完成。",
+                "trace_id": "trace_1",
+            },
+        }
+
+    monkeypatch.setattr(approvals, "decide_approval", fake_decide_approval)
+    app, _ = create_test_app_with_database(
+        on_session=seed_resume,
+    )
+
+    response = TestClient(app).post(
+        "/api/ag-ui",
+        json={
+            "threadId": "session_1",
+            "runId": "ag-ui-resume-1",
+            "messages": [],
+            "tools": [],
+            "context": [],
+            "forwardedProps": {},
+            "resume": [
+                {
+                    "interruptId": "interrupt_1",
+                    "status": "resolved",
+                    "payload": {"decision": "approved"},
+                }
+            ],
+            "user_id": "approver_1",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert captured["approval_id"] == "approval_1"
+    assert captured["request"].decision == "approved"
+    assert '"type":"RUN_STARTED"' in response.text
+    assert '"delta":"审批通过，分析已完成。"' in response.text
+    assert '"type":"RUN_FINISHED"' in response.text
+    assert '"type":"success"' in response.text
+
+
 def test_post_message_stream_uses_one_run_scoped_intent_catalog_snapshot(monkeypatch):
     captured = {}
     intent_runtime = _TestBusinessIntentCatalogRuntime(EMPTY_BUSINESS_INTENT_CATALOG)
@@ -2417,9 +2541,7 @@ def test_post_message_stream_uses_one_run_scoped_intent_catalog_snapshot(monkeyp
         yield _completed_graph_state(kwargs)
 
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
-    app, _ = create_test_app_with_database(
-        business_intent_catalog_runtime=intent_runtime
-    )
+    app, _ = create_test_app_with_database(business_intent_catalog_runtime=intent_runtime)
 
     response = TestClient(app).post(
         "/api/sessions/s1/messages/stream",
@@ -2576,9 +2698,7 @@ def test_stream_graph_error_fails_original_turn_and_clears_active_run(monkeypatc
     )
     with testing_session_local() as db:
         run = db.scalars(select(AgentRun)).one()
-        assistant = db.scalars(
-            select(AgentMessage).where(AgentMessage.role == "assistant")
-        ).one()
+        assistant = db.scalars(select(AgentMessage).where(AgentMessage.role == "assistant")).one()
         session_record = db.scalars(select(AgentSession)).one()
     assert run.status == assistant.status == "failed"
     assert run.trace_capture_status == "captured"
@@ -2616,9 +2736,7 @@ def test_closing_stream_generator_fails_started_turn(monkeypatch):
 
     with testing_session_local() as db:
         run = db.scalars(select(AgentRun)).one()
-        assistant = db.scalars(
-            select(AgentMessage).where(AgentMessage.role == "assistant")
-        ).one()
+        assistant = db.scalars(select(AgentMessage).where(AgentMessage.role == "assistant")).one()
         session_record = db.scalars(select(AgentSession)).one()
     assert graph_calls == []
     assert run.status == assistant.status == "failed"
@@ -2653,9 +2771,7 @@ def test_cancelled_stream_fails_started_turn(monkeypatch):
 
     with testing_session_local() as db:
         run = db.scalars(select(AgentRun)).one()
-        assistant = db.scalars(
-            select(AgentMessage).where(AgentMessage.role == "assistant")
-        ).one()
+        assistant = db.scalars(select(AgentMessage).where(AgentMessage.role == "assistant")).one()
         session_record = db.scalars(select(AgentSession)).one()
     assert run.status == assistant.status == "failed"
     assert run.trace_capture_status == "captured"
@@ -2696,9 +2812,7 @@ def test_disconnect_after_business_completion_keeps_success_capture_outcome(
 
     with testing_session_local() as db:
         run = db.scalars(select(AgentRun)).one()
-        assistant = db.scalars(
-            select(AgentMessage).where(AgentMessage.role == "assistant")
-        ).one()
+        assistant = db.scalars(select(AgentMessage).where(AgentMessage.role == "assistant")).one()
     assert run.status == assistant.status == "completed"
     assert run.trace_capture_status == "not_sampled"
 
@@ -2777,7 +2891,30 @@ def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
         yield state
 
     monkeypatch.setattr(sessions, "stream_question_answer_graph", interrupted_stream)
-    monkeypatch.setattr(sessions, "_interrupt_payloads", lambda state: [{"approval_id": "stream_approval_1", "approval_type": "tool_call", "run_id": state["request_id"], "tenant_id": state["tenant_id"], "requested_by": state["user_id"], "subject_name": "mcp.mock.trade.submit", "risk_level": "high", "action_digest": "digest_stream", "checkpoint_thread_id": build_checkpoint_thread_id(tenant_id=state["tenant_id"], session_key=state["session_key"], request_id=state["request_id"]), "checkpoint_namespace": "", "checkpoint_id": "checkpoint_stream", "interrupt_id": "interrupt_stream"}])
+    monkeypatch.setattr(
+        sessions,
+        "_interrupt_payloads",
+        lambda state: [
+            {
+                "approval_id": "stream_approval_1",
+                "approval_type": "tool_call",
+                "run_id": state["request_id"],
+                "tenant_id": state["tenant_id"],
+                "requested_by": state["user_id"],
+                "subject_name": "mcp.mock.trade.submit",
+                "risk_level": "high",
+                "action_digest": "digest_stream",
+                "checkpoint_thread_id": build_checkpoint_thread_id(
+                    tenant_id=state["tenant_id"],
+                    session_key=state["session_key"],
+                    request_id=state["request_id"],
+                ),
+                "checkpoint_namespace": "",
+                "checkpoint_id": "checkpoint_stream",
+                "interrupt_id": "interrupt_stream",
+            }
+        ],
+    )
     app, testing_session_local = create_test_app_with_database()
 
     response = TestClient(app).post(
@@ -2793,9 +2930,7 @@ def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
     )
     with testing_session_local() as db:
         run = db.scalars(select(AgentRun)).one()
-        assistant = db.scalars(
-            select(AgentMessage).where(AgentMessage.role == "assistant")
-        ).one()
+        assistant = db.scalars(select(AgentMessage).where(AgentMessage.role == "assistant")).one()
         session_record = db.scalars(select(AgentSession)).one()
     assert run.status == assistant.status == "interrupted"
     assert run.trace_capture_status == "captured"
@@ -2875,14 +3010,10 @@ def test_product_progress_stage_tracks_dynamic_task_graph():
     assert sessions._product_progress_stage(state) == "executing_tools"
 
     state["active_task"] = state["plan"]["tasks"][1]
-    state["task_results"] = [
-        {"task_id": "market_data", "status": "success", "content": "{}"}
-    ]
+    state["task_results"] = [{"task_id": "market_data", "status": "success", "content": "{}"}]
     assert sessions._product_progress_stage(state) == "analyzing_evidence"
 
-    state["task_results"].append(
-        {"task_id": "interpret", "status": "success", "content": "已完成"}
-    )
+    state["task_results"].append({"task_id": "interpret", "status": "success", "content": "已完成"})
     assert sessions._product_progress_stage(state) == "composing_answer"
 
     state["draft_answer"] = {"content": "完成"}
@@ -2908,15 +3039,17 @@ def test_post_session_message_stream_emits_product_progress_without_trace_detail
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
     app, _ = create_test_app_with_database()
 
-    body = TestClient(app).post(
-        "/api/sessions/s1/messages/stream",
-        json={"message": "分析一下岩山科技"},
-    ).text
+    body = (
+        TestClient(app)
+        .post(
+            "/api/sessions/s1/messages/stream",
+            json={"message": "分析一下岩山科技"},
+        )
+        .text
+    )
 
     progress_events = "\n".join(
-        block
-        for block in body.split("\n\n")
-        if block.startswith("event: progress")
+        block for block in body.split("\n\n") if block.startswith("event: progress")
     )
     assert progress_events.count('"stage": "planning"') == 1
     assert progress_events.count('"stage": "executing_tools"') == 1
@@ -2924,10 +3057,42 @@ def test_post_session_message_stream_emits_product_progress_without_trace_detail
     assert "arguments" not in progress_events
 
 
-def test_post_session_message_stream_emits_llm_thinking_before_final(monkeypatch):
+def test_post_session_message_stream_emits_native_progress_and_tokens_before_final(
+    monkeypatch,
+):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         _apply_dynamic_plan(state)
+        yield AgentGraphStreamEvent(
+            event="custom",
+            data={
+                "type": "progress",
+                "kind": "summary",
+                "id": "planner_agent:0",
+                "stage": "planner_agent",
+                "label": "研究计划",
+                "status": "completed",
+                "message": "先确认分析对象与证据范围，再核对市场数据。",
+            },
+        )
+        yield AgentGraphStreamEvent(
+            event="custom",
+            data={
+                "type": "reasoning_delta",
+                "id": "planner_agent:req-1:0",
+                "stage": "planner_agent",
+                "label": "制定计划",
+                "content": "我会先确认分析对象与证据范围。",
+            },
+        )
+        yield AgentGraphStreamEvent(
+            event="custom",
+            data={"type": "answer_delta", "content": "银之杰公司"},
+        )
+        yield AgentGraphStreamEvent(
+            event="custom",
+            data={"type": "answer_delta", "content": "概览。"},
+        )
         state["final_response"] = {
             "content": "银之杰公司概览。",
             "trace_id": state["trace_id"],
@@ -2936,7 +3101,6 @@ def test_post_session_message_stream_emits_llm_thinking_before_final(monkeypatch
         }
         yield state
 
-    monkeypatch.setattr(sessions, "maybe_build_llm_client", StreamingNarrativeLlmClient)
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
     app, _ = create_test_app_with_database()
     client = TestClient(app)
@@ -2949,16 +3113,18 @@ def test_post_session_message_stream_emits_llm_thinking_before_final(monkeypatch
         body = response.read().decode("utf-8")
 
     assert response.status_code == 200
-    thinking_index = body.index("event: thinking_delta")
+    progress_index = body.index("event: progress")
     answer_index = body.index("event: answer_delta")
     final_index = body.index("event: final")
-    assert thinking_index < answer_index < final_index
-    assert "我先识别你的投研目标" in body
-    assert "再检查可用市场数据" in body
+    assert progress_index < answer_index < final_index
+    assert "event: thinking_delta" not in body
+    assert "我会先确认分析对象与证据范围" not in body
+    assert "先确认分析对象与证据范围，再核对市场数据" in body
     assert "银之杰公司概览。" in body
+    assert body.count("event: answer_delta") == 2
 
 
-def test_post_session_message_stream_emits_thinking_before_graph_completed(
+def test_post_session_message_stream_does_not_turn_trace_into_thinking(
     monkeypatch,
 ):
     def fake_stream(**kwargs):
@@ -2982,7 +3148,6 @@ def test_post_session_message_stream_emits_thinking_before_graph_completed(
         }
         yield state
 
-    monkeypatch.setattr(sessions, "maybe_build_llm_client", StreamingNarrativeLlmClient)
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
     app, _ = create_test_app_with_database()
     client = TestClient(app)
@@ -2995,38 +3160,88 @@ def test_post_session_message_stream_emits_thinking_before_graph_completed(
         body = response.read().decode("utf-8")
 
     assert response.status_code == 200
-    assert body.index("event: thinking_delta") < body.index('"stage": "graph_completed"')
-    assert body.index("event: thinking_delta") < body.index("event: answer_delta")
+    assert "event: thinking_delta" not in body
+    assert '"stage": "graph_completed"' in body
+    assert "event: answer_delta" in body
 
 
-def test_post_session_message_stream_emits_multiple_public_thinking_stages(
+def test_post_session_message_stream_forwards_filtered_public_thinking(monkeypatch):
+    def fake_stream(**kwargs):
+        state = _initial_state_from_graph_kwargs(kwargs)
+        _apply_dynamic_plan(state)
+        yield AgentGraphStreamEvent(
+            event="custom",
+            data={
+                "type": "thinking_delta",
+                "id": "synthesizer:reasoning",
+                "stage": "synthesizer",
+                "label": "分析证据",
+                "content": "先比较量能与资金变化。",
+            },
+        )
+        state["final_response"] = {
+            "content": "市场仍在等待方向确认。",
+            "trace_id": state["trace_id"],
+            "cited_evidence_ids": [],
+            "approval_status": "not_required",
+        }
+        yield state
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+    app, _ = create_test_app_with_database()
+
+    body = (
+        TestClient(app)
+        .post(
+            "/api/sessions/s1/messages/stream",
+            json={"message": "A股是否临近变盘？"},
+        )
+        .text
+    )
+
+    assert "event: thinking_delta" in body
+    assert '"stage": "synthesizer"' in body
+    assert '"label": "分析证据"' in body
+    assert "先比较量能与资金变化。" in body
+
+
+def test_post_session_message_stream_does_not_expose_private_model_reasoning(
     monkeypatch,
 ):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         _apply_dynamic_plan(state)
-        yield state
-        state["task_results"] = [
-            {
-                "task_id": "market_data",
-                "status": "business_failure",
-                "content": "实体未命中",
-                "error_code": "required_data_missing",
-            }
-        ]
-        yield state
-        state["plan"] = {
-            "tasks": [
-                {
-                    "id": "r1_market_data",
-                    "task_goal": "根据失败原因重新确认公司并取数",
-                    "depends_on": [],
-                    "skill_name": None,
-                    "tool_name": "web_search",
-                }
-            ]
-        }
-        yield state
+        for stage, label, message in (
+            ("planner_agent", "制定计划", "正在拆分投研子任务。"),
+            ("tool_agent", "获取证据", "正在调用市场数据工具。"),
+            ("analysis_agent", "分析证据", "正在核对已返回的证据。"),
+        ):
+            yield AgentGraphStreamEvent(
+                event="custom",
+                data={
+                    "type": "progress",
+                    "id": stage,
+                    "stage": stage,
+                    "label": label,
+                    "status": "started",
+                    "message": message,
+                },
+            )
+        for stage, reasoning in (
+            ("intent_router", "需要先确认这是一项公司投研请求。"),
+            ("planner_agent", "我会把问题拆成主体核对与证据获取。"),
+            ("analysis_agent", "获得数据后需要区分事实、推断和数据缺口。"),
+        ):
+            yield AgentGraphStreamEvent(
+                event="messages",
+                data=(
+                    SimpleNamespace(
+                        content="",
+                        additional_kwargs={"reasoning_content": reasoning},
+                    ),
+                    {"langgraph_node": stage},
+                ),
+            )
         state["final_response"] = {
             "content": "长鑫科技投研结论。",
             "trace_id": state["trace_id"],
@@ -3035,33 +3250,40 @@ def test_post_session_message_stream_emits_multiple_public_thinking_stages(
         }
         yield state
 
-    monkeypatch.setattr(sessions, "maybe_build_llm_client", StreamingNarrativeLlmClient)
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
     app, _ = create_test_app_with_database()
 
-    body = TestClient(app).post(
-        "/api/sessions/s1/messages/stream",
-        json={"message": "分析一下长鑫存储"},
-    ).text
+    body = (
+        TestClient(app)
+        .post(
+            "/api/sessions/s1/messages/stream",
+            json={"message": "分析一下长鑫存储"},
+        )
+        .text
+    )
 
-    thinking_events = [
-        block for block in body.split("\n\n") if block.startswith("event: thinking_delta")
-    ]
-    assert len(thinking_events) >= 2
-    thinking_text = "\n".join(thinking_events)
-    assert "我先识别你的投研目标" in thinking_text
-    assert "node_name" not in thinking_text
-    assert "tool_calls" not in thinking_text
-    assert body.index("event: thinking_delta") < body.index("event: answer_delta")
+    assert "event: thinking_delta" not in body
+    assert "event: progress" in body
 
 
-def test_post_session_message_stream_drops_incomplete_thinking_sentence(
-    monkeypatch,
-):
+def test_post_session_message_stream_does_not_repeat_native_answer_tokens(monkeypatch):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         _apply_dynamic_plan(state)
-        yield state
+        yield AgentGraphStreamEvent(
+            event="messages",
+            data=(
+                SimpleNamespace(content="银之杰公司"),
+                {"langgraph_node": "synthesizer"},
+            ),
+        )
+        yield AgentGraphStreamEvent(
+            event="messages",
+            data=(
+                SimpleNamespace(content="概览。"),
+                {"langgraph_node": "synthesizer"},
+            ),
+        )
         state["final_response"] = {
             "content": "银之杰公司概览。",
             "trace_id": state["trace_id"],
@@ -3070,11 +3292,6 @@ def test_post_session_message_stream_drops_incomplete_thinking_sentence(
         }
         yield state
 
-    monkeypatch.setattr(
-        sessions,
-        "maybe_build_llm_client",
-        IncompleteStreamingNarrativeLlmClient,
-    )
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
     app, _ = create_test_app_with_database()
     client = TestClient(app)
@@ -3087,12 +3304,13 @@ def test_post_session_message_stream_drops_incomplete_thinking_sentence(
         body = response.read().decode("utf-8")
 
     assert response.status_code == 200
-    assert "我会先拆解" in body
-    assert "我会检查公司资料" in body
-    assert "市场系统性风险可能带来的" not in body
+    assert body.count("event: answer_delta") == 2
+    assert '"content": "银之杰公司概览。"' not in "\n".join(
+        block for block in body.split("\n\n") if block.startswith("event: answer_delta")
+    )
 
 
-def test_post_session_message_stream_emits_fallback_thinking_without_streaming_llm(
+def test_post_session_message_stream_does_not_fabricate_fallback_thinking(
     monkeypatch,
 ):
     def fake_stream(**kwargs):
@@ -3119,61 +3337,8 @@ def test_post_session_message_stream_emits_fallback_thinking_without_streaming_l
         body = response.read().decode("utf-8")
 
     assert response.status_code == 200
-    assert "event: thinking_delta" in body
-    assert "我已将你的需求收敛为" in body
-
-
-def test_post_session_message_stream_falls_back_when_thinking_stream_fails(
-    monkeypatch,
-):
-    def fake_stream(**kwargs):
-        state = _initial_state_from_graph_kwargs(kwargs)
-        _apply_dynamic_plan(state)
-        state["final_response"] = {
-            "content": "最终答案仍然返回。",
-            "trace_id": state["trace_id"],
-            "cited_evidence_ids": [],
-            "approval_status": "not_required",
-        }
-        yield state
-
-    monkeypatch.setattr(
-        sessions,
-        "maybe_build_llm_client",
-        FailingStreamingNarrativeLlmClient,
-    )
-    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
-    app, _ = create_test_app_with_database()
-    client = TestClient(app)
-
-    with client.stream(
-        "POST",
-        "/api/sessions/s1/messages/stream",
-        json={"message": "分析一下银之杰"},
-    ) as response:
-        body = response.read().decode("utf-8")
-
-    assert response.status_code == 200
-    assert "event: thinking_delta" in body
-    assert "我已将你的需求收敛为" in body
-    assert "最终答案仍然返回。" in body
-    assert "event: final" in body
-
-
-def test_fallback_thinking_uses_dynamic_task_goals_without_internal_fields():
-    state = create_initial_state(
-        session_id="s1",
-        tenant_id="t1",
-        user_id="u1",
-        user_message="分析一下岩山科技",
-    )
-    _apply_dynamic_plan(state)
-
-    content = "".join(sessions._fallback_thinking_chunks(state))
-
-    assert "获取岩山科技行情" in content
-    assert "解读行情证据" in content
-    assert "mcp.tushare.stock.daily" not in content
+    assert "event: thinking_delta" not in body
+    assert "我已将你的需求收敛为" not in body
 
 
 def test_post_session_message_stream_returns_error_for_missing_llm_configuration(

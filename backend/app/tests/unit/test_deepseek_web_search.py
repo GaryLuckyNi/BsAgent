@@ -87,12 +87,10 @@ def test_deepseek_web_search_uses_anthropic_server_tool_and_normalizes_sources()
             "max_uses": 1,
         }
     ]
-    assert captured["payload"]["messages"][0]["content"] == (
-        "长鑫存储 上市主体 股票代码"
-    )
+    assert captured["payload"]["messages"][0]["content"] == ("长鑫存储 上市主体 股票代码")
     assert captured["payload"]["max_tokens"] <= 768
-    assert "candidate_query" in captured["payload"]["system"]
-    assert "source_urls" in captured["payload"]["system"]
+    assert "当日市场涨跌原因" in captured["payload"]["system"]
+    assert "实体关系" in captured["payload"]["system"]
     assert result.query == "长鑫存储 上市主体 股票代码"
     assert result.answer == "长鑫科技的证券代码为 688825。"
     assert [str(item.url) for item in result.results] == [
@@ -207,8 +205,8 @@ def test_deepseek_web_search_continues_paused_server_tool_turn():
     assert requests[0]["max_tokens"] == 768
     assert requests[1]["max_tokens"] == 4_096
     assert requests[1]["output_config"] == {"effort": "low"}
-    assert "source_urls 最多 2 个" in requests[1]["system"]
-    assert "reason 不超过 40 个中文字符" in requests[1]["system"]
+    assert "当日市场涨跌原因" in requests[1]["system"]
+    assert "不得把同行" in requests[1]["system"]
     assert result.answer == final_answer
     assert [str(item.url) for item in result.results] == [
         "https://www.sse.com.cn/disclosure/longxin"

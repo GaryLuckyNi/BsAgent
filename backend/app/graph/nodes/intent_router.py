@@ -1,5 +1,6 @@
 from app.graph.state import AgentState
 from app.graph.image_context import summarize_image_analyses
+from app.graph.public_events import build_public_llm_stream_handler
 from app.intent.catalog import BusinessIntentCatalog
 from app.intent.router import HybridIntentRouter
 from app.llm.factory import LlmClient
@@ -23,11 +24,8 @@ def build_intent_router_node(
             message=state["user_message"],
             tenant_id=state["tenant_id"],
             user_id=state["user_id"],
-            context={
-                "image_analyses": summarize_image_analyses(
-                    state["image_analyses"]
-                )
-            },
+            context={"image_analyses": summarize_image_analyses(state["image_analyses"])},
+            on_delta=build_public_llm_stream_handler("intent_router", state),
         )
         state["intent"] = result.model_dump()
         return state

@@ -1,4 +1,3 @@
-import { parseSseEvent, type AgentProgress } from '../agent-stream'
 import type { PersistedConversationMessage } from '../conversation-session'
 
 export type RequestIdentity = {
@@ -7,20 +6,15 @@ export type RequestIdentity = {
   accessToken?: string
 }
 
-export type AgentResponse = {
-  content: string
-  trace_id: string
-  cited_evidence_ids: string[]
-  approval_status: string
-}
-
-export type StreamHandlers = {
-  onThinking: (content: string) => void
-  onProgress: (progress: AgentProgress) => void
-  onAnswer: (content: string) => void
-}
-
 const apiBaseUrl = normalizeBaseUrl(import.meta.env.VITE_AGENT_API_BASE_URL)
+
+export function agentProtocolStreamUrl(sessionId: string): string {
+  return `${apiBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages/protocol-stream`
+}
+
+export function agentRequestHeaders(identity: RequestIdentity): Record<string, string> {
+  return authHeaders(identity)
+}
 
 export async function loadSessionMessages(
   sessionId: string,
@@ -33,68 +27,6 @@ export async function loadSessionMessages(
   if (response.status === 404) return []
   const body = await parseJsonResponse<{ items: PersistedConversationMessage[] }>(response)
   return body.items
-}
-
-export async function streamResearchMessage(
-  sessionId: string,
-  message: string,
-  attachmentIds: string[],
-  identity: RequestIdentity,
-  handlers: StreamHandlers,
-  signal?: AbortSignal
-): Promise<AgentResponse> {
-  const response = await fetch(
-    `${apiBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}/messages/stream`,
-    {
-      method: 'POST',
-      signal,
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-        ...authHeaders(identity)
-      },
-      body: JSON.stringify({ message, attachments: attachmentIds })
-    }
-  )
-  if (!response.ok) return parseJsonResponse<AgentResponse>(response)
-  if (!response.body) throw new Error('当前浏览器不支持流式回答。')
-
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  let finalResponse: AgentResponse | null = null
-
-  const consume = (raw: string) => {
-    const event = parseSseEvent(raw)
-    if (!event) return
-    if (event.event === 'thinking_delta') {
-      const payload = JSON.parse(event.data) as { content?: string }
-      if (payload.content) handlers.onThinking(payload.content)
-    }
-    if (event.event === 'progress') handlers.onProgress(JSON.parse(event.data) as AgentProgress)
-    if (event.event === 'answer_delta') {
-      const payload = JSON.parse(event.data) as { content?: string }
-      if (payload.content) handlers.onAnswer(payload.content)
-    }
-    if (event.event === 'final') finalResponse = JSON.parse(event.data) as AgentResponse
-    if (event.event === 'error') {
-      const payload = JSON.parse(event.data) as { message?: string }
-      throw new Error(payload.message ?? 'AI 研究任务执行失败。')
-    }
-  }
-
-  while (true) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const events = buffer.split('\n\n')
-    buffer = events.pop() ?? ''
-    events.forEach(consume)
-  }
-  buffer += decoder.decode()
-  if (buffer.trim()) consume(buffer)
-  if (!finalResponse) throw new Error('回答流已结束，但未收到最终结果。')
-  return finalResponse
 }
 
 export async function checkAgentHealth(): Promise<boolean> {

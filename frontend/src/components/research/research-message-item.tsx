@@ -1,4 +1,15 @@
-import { Compass, Copy, ThumbsDown, ThumbsUp } from 'lucide-react'
+import {
+  CheckCircle2,
+  CircleAlert,
+  Compass,
+  Copy,
+  Database,
+  LoaderCircle,
+  Search,
+  ThumbsDown,
+  ThumbsUp,
+  Workflow
+} from 'lucide-react'
 
 import {
   Message,
@@ -7,25 +18,105 @@ import {
   MessageContent,
   MessageResponse
 } from '@/components/ai-elements/message'
-import { Reasoning, ReasoningContent, ReasoningTrigger } from '@/components/ai-elements/reasoning'
-import type { ResearchMessage } from '@/domain/research'
+import {
+  Reasoning,
+  ReasoningContent,
+  ReasoningText,
+  ReasoningTrigger
+} from '@/components/ai-elements/reasoning'
+import type { ResearchMessage, ResearchProgress, ResearchReasoning } from '@/domain/research'
 
 export function ResearchMessageItem({ message, onCitation }: {
   message: ResearchMessage
   onCitation: (message: ResearchMessage, index: number) => void
 }) {
+  const reasoning: ResearchReasoning[] = message.reasoning?.length
+    ? message.reasoning
+    : message.thinking ? [{ id: 'legacy', label: '思考', content: message.thinking }] : []
+  const processEntries = (message.progress || []).filter((item) => (
+    item.kind === 'summary'
+    || item.kind === 'activity'
+    || item.stage === 'tool_agent'
+    || item.stage === 'skill_agent'
+  ))
+  const timeline: Array<
+    { kind: 'legacy-reasoning'; item: ResearchReasoning }
+    | { kind: 'process'; item: ResearchProgress }
+  > = [
+    ...reasoning.map((item) => ({ kind: 'legacy-reasoning' as const, item })),
+    ...processEntries.map((item) => ({ kind: 'process' as const, item }))
+  ]
+  timeline.sort((a, b) => (a.item.sequence ?? 0) - (b.item.sequence ?? 0))
+  const hasReasoningDetails = timeline.length > 0
+  const isResearching = message.status === 'streaming' && !message.content
+  const statusLabel = message.status === 'streaming'
+    ? '正在研究'
+    : message.status === 'error'
+      ? '研究失败'
+      : '研究完成'
+
   return (
     <Message from={message.role} className={`message message--${message.role}`}>
       {message.role === 'assistant' && <div className="assistant-avatar"><Compass size={17} /></div>}
       <MessageContent className="message-body">
-        {message.role === 'assistant' && <div className="message-author">InvestWise 研究助手 <span>{message.status === 'streaming' ? '正在研究' : '研究完成'}</span></div>}
-        {message.thinking && (
-          <Reasoning className="reasoning" isStreaming={message.status === 'streaming'}>
-            <ReasoningTrigger />
-            <ReasoningContent>{message.thinking}</ReasoningContent>
+        {message.role === 'assistant' && <div className="message-author">InvestWise 研究助手 <span>{statusLabel}</span></div>}
+        {(message.status === 'streaming' || hasReasoningDetails) && (
+          <Reasoning className="reasoning" isStreaming={isResearching}>
+            <ReasoningTrigger
+              className="reasoning-trigger"
+              getThinkingMessage={(streaming, duration) => {
+                if (streaming) return message.processStatus || '正在研究…'
+                return duration === undefined ? '研究完成' : `研究完成（用时 ${duration} 秒）`
+              }}
+            />
+            {hasReasoningDetails && (
+              <ReasoningContent>
+                <div className="reasoning-stream">
+                  {timeline.map((entry) => (
+                    entry.kind === 'legacy-reasoning' || entry.item.kind === 'summary'
+                  ) ? (
+                    <div className="reasoning-narrative" key={`reasoning:${entry.item.id}`}>
+                      <ReasoningText>{
+                        entry.kind === 'legacy-reasoning'
+                          ? entry.item.content
+                          : entry.item.message
+                      }</ReasoningText>
+                    </div>
+                  ) : (
+                    <div
+                      className="reasoning-activity"
+                      aria-label="研究活动"
+                      data-status={entry.item.status}
+                      key={`activity:${entry.item.id}`}
+                    >
+                      <ActivityIcon
+                        activityType={entry.item.activityType}
+                        message={entry.item.message}
+                        status={entry.item.status}
+                      />
+                      <div className="reasoning-activity__content">
+                        <span>{activityMessage(entry.item)}</span>
+                        {entry.item.activityType === 'web_search' && entry.item.queries?.length ? (
+                          <details className="reasoning-activity__details">
+                            <summary>查看搜索范围</summary>
+                            <ul>
+                              {entry.item.queries.map((query) => (
+                                <li key={query.taskId}>{query.query}</li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ReasoningContent>
+            )}
           </Reasoning>
         )}
-        <MessageResponse className="message-content">{message.content || '正在整理研究结果…'}</MessageResponse>
+        {message.content && (
+          <MessageResponse className="message-content">{message.content}</MessageResponse>
+        )}
         {message.citations && message.citations.length > 0 && (
           <div className="citation-row">
             <span>引用证据</span>
@@ -42,4 +133,24 @@ export function ResearchMessageItem({ message, onCitation }: {
       </MessageContent>
     </Message>
   )
+}
+
+function activityMessage(item: ResearchProgress): string {
+  if (item.activityType !== 'web_search') return item.message
+  if (item.status === 'started') return `正在搜索 ${item.queryCount || 1} 项信息…`
+  if (item.status === 'failed') return '搜索未完成'
+  return `搜索到 ${item.resultCount || 0} 个网页`
+}
+
+function ActivityIcon({ activityType, message, status }: {
+  activityType?: ResearchProgress['activityType']
+  message: string
+  status: 'started' | 'completed' | 'failed'
+}) {
+  if (status === 'failed') return <CircleAlert size={15} aria-hidden="true" />
+  if (status === 'completed') return <CheckCircle2 size={15} aria-hidden="true" />
+  if (activityType === 'web_search' || message.includes('联网检索')) return <Search size={15} aria-hidden="true" />
+  if (message.includes('市场数据')) return <Database size={15} aria-hidden="true" />
+  if (message.includes('研究流程')) return <Workflow size={15} aria-hidden="true" />
+  return <LoaderCircle className="reasoning-activity__spinner" size={15} aria-hidden="true" />
 }

@@ -9,15 +9,11 @@ from app.graph.planning.planner import (
     PlannerCapabilities,
     UndisclosedPlannerCapabilityError,
 )
+from app.graph.planning.policy import PlannerMode
 from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.state import create_initial_state
-from app.llm.schemas import LlmCompletionResult
-from app.schemas.tools import ToolSpec
+from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
 from app.skills.definitions import SkillCard
-from app.tools.search import (
-    ToolSearchHit,
-    ToolSearchResponse,
-)
 
 
 class RecordingLlmClient:
@@ -45,31 +41,37 @@ def _skill(name: str) -> SkillCard:
     )
 
 
-def _tool(name: str) -> ToolSearchHit:
-    return ToolSearchHit(
-        tool_name=name,
-        tool_version="1.0.0",
-        description=f"{name} 工具",
-        required_arguments=["symbol"],
-        rank=1,
-        sources=["bm25"],
-    )
-
 
 def test_plan_allows_reasoning_task_without_capability():
     plan = PlanModel.model_validate(
+        {"tasks": [{"id": "judge", "task_goal": "归纳已取得证据", "depends_on": []}]}
+    )
+
+    assert plan.tasks[0].skill_name is None
+    assert not hasattr(plan.tasks[0], "tool_name")
+
+
+def test_plan_preserves_capability_oriented_tool_search_query():
+    plan = PlanModel.model_validate(
         {
             "tasks": [
-                {"id": "judge", "task_goal": "归纳已取得证据", "depends_on": []}
+                {
+                    "id": "company_news",
+                    "task_goal": "查询银之杰（300085.SZ）的近期资讯",
+                    "tool_search_query": (
+                        "上市公司公告 监管披露 公告标题 PDF下载 财经新闻 新闻快讯 媒体报道"
+                    ),
+                }
             ]
         }
     )
 
-    assert plan.tasks[0].skill_name is None
-    assert plan.tasks[0].tool_name is None
+    assert plan.tasks[0].tool_search_query == (
+        "上市公司公告 监管披露 公告标题 PDF下载 财经新闻 新闻快讯 媒体报道"
+    )
 
 
-def test_plan_rejects_task_with_skill_and_tool():
+def test_plan_rejects_task_with_legacy_tool_binding():
     with pytest.raises(ValidationError):
         PlanModel.model_validate(
             {
@@ -112,22 +114,17 @@ def test_plan_rejects_more_than_twelve_tasks():
         PlanModel.model_validate(
             {
                 "tasks": [
-                    {"id": f"task_{index}", "task_goal": f"任务 {index}"}
-                    for index in range(13)
+                    {"id": f"task_{index}", "task_goal": f"任务 {index}"} for index in range(13)
                 ]
             }
         )
 
 
-def test_llm_planner_only_discloses_lightweight_top_k_candidates():
+def test_llm_planner_only_discloses_skills_and_atomic_task_schema():
     llm = RecordingLlmClient(
         {
             "tasks": [
-                {
-                    "id": "collect_market",
-                    "task_goal": "取得目标公司的最新行情",
-                    "tool_name": "mcp.tushare.stock.daily",
-                },
+                {"id": "collect_market", "task_goal": "取得目标公司的最新行情"},
                 {
                     "id": "analyze",
                     "task_goal": "结合行情判断趋势",
@@ -143,44 +140,95 @@ def test_llm_planner_only_discloses_lightweight_top_k_candidates():
         intent_type="financial_research",
         domain="equity_research",
         subdomain="company_research",
-        capabilities=PlannerCapabilities(
-            skills=(_skill("company_snapshot"),),
-            tools=(_tool("mcp.tushare.stock.daily"),),
-        ),
+        capabilities=PlannerCapabilities(skills=(_skill("company_snapshot"),)),
         task_results=(
             TaskResultModel(
                 task_id="previous",
                 status="business_failure",
                 content="证券代码尚未解析",
                 error_code="entity_not_found",
+                tool_name="mcp.tushare.stock.daily",
             ),
         ),
         remaining_iterations=9,
+        mode=PlannerMode(thinking=False, max_tokens=1024),
     )
 
     assert [task.id for task in plan.tasks] == ["collect_market", "analyze"]
     prompt = json.loads(llm.calls[0]["user_prompt"])
     assert prompt["skills"] == [
-        {
-            "name": "company_snapshot",
-            "summary": "company_snapshot 工作流",
-        }
+        {"name": "company_snapshot", "summary": "company_snapshot 工作流"}
     ]
-    assert prompt["tools"][0]["name"] == "mcp.tushare.stock.daily"
-    assert "input_schema" not in prompt["tools"][0]
+    assert "tools" not in prompt
+    assert "tool_name" not in prompt["required_schema"]["tasks"][0]
+    assert "tool_search_query" in prompt["required_schema"]["tasks"][0]
     assert prompt["observations"][0]["error_code"] == "entity_not_found"
+    assert prompt["timezone"] == "Asia/Shanghai"
+    assert prompt["current_datetime"].startswith("20")
+    assert "不得选择普通工具" in llm.calls[0]["system_prompt"]
+    assert llm.calls[0]["thinking"] is False
+    assert llm.calls[0]["max_tokens"] == 1024
 
 
-@pytest.mark.parametrize(
-    ("field", "hidden_name"),
-    [
-        ("skill_name", "hidden_skill"),
-        ("tool_name", "mcp.hidden.tool"),
-    ],
-)
-def test_llm_planner_rejects_undisclosed_capability(field, hidden_name):
+def test_llm_planner_retries_once_without_thinking_after_length_truncation():
+    class TruncatedThenValidLlm:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def complete(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return LlmCompletionResult(
+                    content="",
+                    model="fake-planner",
+                    provider="fake",
+                    finish_reason="length",
+                )
+            return LlmCompletionResult(
+                content=json.dumps(
+                    {
+                        "tasks": [
+                            {
+                                "id": "collect_evidence",
+                                "task_goal": "获取市场证据",
+                            },
+                            {
+                                "id": "analyze_evidence",
+                                "task_goal": "分析市场证据",
+                                "depends_on": ["collect_evidence"],
+                            },
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                model="fake-planner",
+                provider="fake",
+                finish_reason="stop",
+            )
+
+    llm = TruncatedThenValidLlm()
+
+    plan = LlmTaskPlanner(llm_client=llm).plan(
+        goal="分析大金融板块是否值得投资",
+        intent_type="financial_research",
+        domain="a_share_equity_research",
+        subdomain="general_research",
+        capabilities=PlannerCapabilities(),
+        task_results=(),
+        remaining_iterations=10,
+    )
+
+    assert [task.id for task in plan.tasks] == ["collect_evidence", "analyze_evidence"]
+    assert len(llm.calls) == 2
+    assert llm.calls[0]["thinking"] is False
+    assert llm.calls[0]["max_tokens"] == 1024
+    assert llm.calls[1]["thinking"] is False
+    assert "上一次输出被截断" in llm.calls[1]["user_prompt"]
+
+
+def test_llm_planner_rejects_undisclosed_skill():
     llm = RecordingLlmClient(
-        {"tasks": [{"id": "hidden", "task_goal": "执行任务", field: hidden_name}]}
+        {"tasks": [{"id": "hidden", "task_goal": "执行任务", "skill_name": "hidden_skill"}]}
     )
     planner = LlmTaskPlanner(llm_client=llm)
 
@@ -190,18 +238,13 @@ def test_llm_planner_rejects_undisclosed_capability(field, hidden_name):
             intent_type="financial_research",
             domain="equity_research",
             subdomain="company_research",
-            capabilities=PlannerCapabilities(
-                skills=(_skill("visible_skill"),),
-                tools=(_tool("mcp.visible.tool"),),
-            ),
+            capabilities=PlannerCapabilities(skills=(_skill("visible_skill"),)),
             task_results=(),
             remaining_iterations=10,
         )
 
 
-def test_planner_node_discovers_capabilities_from_goal_and_stores_task_dag():
-    daily = _tool("mcp.tushare.stock.daily")
-
+def test_planner_node_discovers_only_skills_and_stores_unbound_task_dag():
     class Registry:
         def __init__(self) -> None:
             self.calls: list[dict] = []
@@ -211,52 +254,18 @@ def test_planner_node_discovers_capabilities_from_goal_and_stores_task_dag():
             return [_skill("company_snapshot")]
 
     class ToolSearch:
-        def __init__(self) -> None:
-            self.queries: list[str] = []
-
         def search(self, request, *, context):
-            self.queries.append(request.query)
-            return ToolSearchResponse(
-                catalog_digest="digest",
-                mode="hybrid",
-                hits=[daily],
-            )
-
-        def resolve_specs(self, tool_names):
-            if tool_names == ["search_tool"]:
-                return [
-                    ToolSpec(
-                        name="search_tool",
-                        version="1.0.0",
-                        description="继续检索可用工具",
-                        input_schema={
-                            "type": "object",
-                            "properties": {"query": {"type": "string"}},
-                            "required": ["query"],
-                        },
-                    )
-                ]
-            raise AssertionError(tool_names)
+            raise AssertionError("Planner 不应检索普通工具")
 
     registry = Registry()
-    tool_search = ToolSearch()
     llm = RecordingLlmClient(
-        {
-            "tasks": [
-                {
-                    "id": "market",
-                    "task_goal": "查询海能达近期行情",
-                    "tool_name": daily.tool_name,
-                }
-            ]
-        }
+        {"tasks": [{"id": "market", "task_goal": "查询海能达近期行情"}]}
     )
     state = create_initial_state(
         session_id="planner-node",
         tenant_id="tenant-1",
         user_id="user-1",
         user_message="分析一下海能达近期表现",
-        permission_scopes=["mcp:market"],
     )
     state["intent"] = {
         "intent_type": "financial_research",
@@ -269,23 +278,120 @@ def test_planner_node_discovers_capabilities_from_goal_and_stores_task_dag():
     result = build_planner_agent_node(
         llm_client=llm,
         skill_registry=registry,
-        tool_search_service=tool_search,
+        tool_search_service=ToolSearch(),
     )(state)
 
-    assert registry.calls == [
-        {"domain": "equity_research", "subdomain": "company_research"}
-    ]
-    assert tool_search.queries == ["分析海能达近期表现"]
+    assert registry.calls == [{"domain": "equity_research", "subdomain": "company_research"}]
     assert result["plan"] == {
         "tasks": [
             {
-                "id": "market",
-                "task_goal": "查询海能达近期行情",
-                "depends_on": [],
+                    "id": "market",
+                    "task_goal": "查询海能达近期行情",
+                    "tool_search_query": None,
+                    "execution_type": "tool",
+                    "completion_criteria": [],
+                    "evidence_task_ids": [],
+                    "depends_on": [],
                 "skill_name": None,
-                "tool_name": daily.tool_name,
             }
         ]
     }
     assert result["planner_iteration"] == 1
-    assert result["disclosed_tool_names"] == [daily.tool_name, "search_tool"]
+    planner_payload = json.loads(llm.calls[0]["user_prompt"])
+    assert "tools" not in planner_payload
+
+
+def test_planner_discloses_all_scoped_skills_in_stable_order():
+    class Registry:
+        def discover(self, **kwargs):
+            assert kwargs == {
+                "domain": "equity_research",
+                "subdomain": "company_research",
+            }
+            return [_skill("zeta_skill"), _skill("alpha_skill")]
+
+    llm = RecordingLlmClient(
+        {"tasks": [{"id": "analyze", "task_goal": "分析公司经营情况"}]}
+    )
+    state = create_initial_state(
+        session_id="planner-skill-disclosure",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析公司经营情况",
+    )
+    state["intent"] = {
+        "intent_type": "financial_research",
+        "domain": "equity_research",
+        "subdomain": "company_research",
+        "goal": "分析公司经营情况",
+        "confidence": 0.95,
+    }
+
+    build_planner_agent_node(
+        llm_client=llm,
+        skill_registry=Registry(),
+    )(state)
+
+    planner_payload = json.loads(llm.calls[0]["user_prompt"])
+    assert [card["name"] for card in planner_payload["skills"]] == [
+        "alpha_skill",
+        "zeta_skill",
+    ]
+
+
+def test_planner_node_streams_native_planning_reasoning():
+    class NativeStreamingLlm(RecordingLlmClient):
+        def __init__(self) -> None:
+            super().__init__({"tasks": [{"id": "analyze", "task_goal": "分析市场下跌原因"}]})
+            self.used_native_stream = False
+
+        async def complete_streamed(self, *, on_delta, **kwargs):
+            self.used_native_stream = True
+            on_delta(
+                LlmStreamDelta(
+                    kind="reasoning",
+                    delta="Need emit required_schema JSON with tasks.",
+                )
+            )
+            return await self.complete(**kwargs)
+
+
+
+    llm = NativeStreamingLlm()
+    state = create_initial_state(
+        session_id="planner-node",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="为什么今天 A 股跌得这么多？",
+    )
+    state["intent"] = {
+        "intent_type": "financial_research",
+        "domain": "a_share_equity_research",
+        "subdomain": "general_research",
+        "goal": "分析当日 A 股市场下跌的可能原因",
+        "confidence": 0.95,
+    }
+
+    build_planner_agent_node(llm_client=llm)(state)
+
+    assert llm.used_native_stream is True
+
+
+def test_namespace_preserves_discovery_fields():
+    from app.graph.nodes.planner_agent import _namespace_replanned_tasks
+    plan = PlanModel(tasks=[{"id": "facts", "task_goal": "查询公告", "tool_search_query": "监管披露"}])
+    revised = _namespace_replanned_tasks(plan, revision=1)
+    assert revised.tasks[0].tool_search_query == "监管披露"
+
+
+def test_planner_repairs_undisclosed_skill_once():
+    class Client(RecordingLlmClient):
+        async def complete(self, **kwargs):
+            result = await super().complete(**kwargs)
+            if len(self.calls) == 1:
+                return result
+            return result.model_copy(update={"content": json.dumps({"tasks": [{"id": "facts", "task_goal": "核实已有资料"}]})})
+    llm = Client({"tasks": [{"id": "facts", "task_goal": "核实资料", "skill_name": "unknown"}]})
+    plan = LlmTaskPlanner(llm_client=llm).plan(goal="分析", intent_type="research", domain="equity", subdomain="company", capabilities=PlannerCapabilities(), task_results=(), remaining_iterations=1)
+    assert plan.tasks[0].skill_name is None
+    assert len(llm.calls) == 2

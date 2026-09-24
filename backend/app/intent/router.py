@@ -1,7 +1,10 @@
+from collections.abc import Callable
+
 from app.intent.catalog import BusinessIntentCatalog
 from app.intent.classifiers import LlmIntentClassifier
 from app.intent.schemas import IntentDecisionModel
 from app.llm.factory import LlmClient
+from app.llm.schemas import LlmStreamDelta
 
 
 class IntentClassificationError(RuntimeError):
@@ -37,6 +40,7 @@ class HybridIntentRouter:
         tenant_id: str,
         user_id: str,
         context: dict | None = None,
+        on_delta: Callable[[LlmStreamDelta], None] | None = None,
     ) -> IntentDecisionModel:
         del tenant_id, user_id
         if self._llm_client is None:
@@ -49,7 +53,7 @@ class HybridIntentRouter:
             decision = LlmIntentClassifier(
                 llm_client=self._llm_client,
                 catalog=self._catalog,
-            ).classify(message=message, context=context)
+            ).classify(message=message, context=context, on_delta=on_delta)
         except Exception as exc:
             raise IntentClassificationError(
                 code="intent_classifier_failed",

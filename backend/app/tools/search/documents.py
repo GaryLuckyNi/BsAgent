@@ -15,6 +15,7 @@ class ToolSearchDocument:
     description: str
     search_text: str
     tokens: tuple[str, ...]
+    schema_tokens: tuple[str, ...]
     required_arguments: tuple[str, ...]
     permission_scopes: tuple[str, ...]
 
@@ -43,14 +44,8 @@ def tokenize_tool_text(text: str) -> tuple[str, ...]:
 
 def build_tool_search_document(spec: ToolSpec) -> ToolSearchDocument:
     search_parts = [spec.name, *spec.name.split(".")[:2], spec.description]
-    properties = spec.input_schema.get("properties", {})
-    if isinstance(properties, dict):
-        for argument_name, argument_schema in properties.items():
-            search_parts.append(argument_name)
-            if isinstance(argument_schema, dict):
-                description: Any = argument_schema.get("description")
-                if isinstance(description, str):
-                    search_parts.append(description)
+    schema_parts = _schema_search_parts(spec.input_schema)
+    search_parts.extend(schema_parts)
     search_parts.extend(spec.permission_scope)
     search_parts.append(spec.risk_level)
     search_text = " ".join(search_parts)
@@ -68,6 +63,45 @@ def build_tool_search_document(spec: ToolSpec) -> ToolSearchDocument:
         description=spec.description,
         search_text=search_text,
         tokens=tokenize_tool_text(search_text),
+        schema_tokens=tokenize_tool_text(" ".join(schema_parts)),
         required_arguments=required_arguments,
         permission_scopes=tuple(spec.permission_scope),
     )
+
+
+def _schema_search_parts(schema: object) -> list[str]:
+    """提取 JSON Schema 中稳定且不包含运行时值的检索文本。"""
+    if not isinstance(schema, dict):
+        return []
+
+    parts: list[str] = []
+    for key in ("title", "description", "type", "format"):
+        value: Any = schema.get(key)
+        if isinstance(value, str) and value.strip():
+            parts.append(value)
+
+    enum = schema.get("enum")
+    if isinstance(enum, list):
+        parts.extend(
+            str(value)
+            for value in enum[:32]
+            if isinstance(value, str | int | float | bool)
+        )
+
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        for property_name, property_schema in properties.items():
+            parts.append(str(property_name))
+            parts.extend(_schema_search_parts(property_schema))
+
+    items = schema.get("items")
+    if items is not None:
+        parts.extend(_schema_search_parts(items))
+
+    for combinator in ("allOf", "anyOf", "oneOf"):
+        alternatives = schema.get(combinator)
+        if isinstance(alternatives, list):
+            for alternative in alternatives:
+                parts.extend(_schema_search_parts(alternative))
+
+    return parts

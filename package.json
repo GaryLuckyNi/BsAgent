@@ -11,7 +11,7 @@
     "dev:stop:dry-run": "node scripts/dev.mjs --stop --dry-run",
     "dev:postgres": "docker compose -f compose.local-postgres.yml up -d --wait postgres",
     "dev:postgres:stop": "docker compose -f compose.local-postgres.yml stop postgres",
-    "dev:backend": "node scripts/dev.mjs mcp backend",
+    "dev:backend": "node scripts/dev.mjs backend",
     "dev:mcp": "node scripts/dev.mjs mcp",
     "dev:frontend": "node scripts/dev.mjs frontend",
     "dev:admin": "node scripts/dev.mjs admin-backend admin-frontend",

@@ -128,12 +128,28 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .message-content ul { padding-left: 20px; }
 .message-content li { margin: 7px 0; }
 .message-content li::marker { color: #b48a54; }
-.reasoning { margin-bottom: 12px; padding: 8px 11px; border-left: 2px solid #c1a175; background: #faf9f7; }
-.reasoning button { width: 100%; display: flex; align-items: center; gap: 7px; border: 0; background: transparent; color: #697383; font-size: 11px; text-align: left; }
-.reasoning button span { flex: 1; }
-.reasoning svg { transition: transform .2s ease; }
-.reasoning svg.rotate { transform: rotate(180deg); }
-.reasoning p { margin: 9px 0 2px; padding-top: 8px; border-top: 1px solid #ebe7e0; color: #737d8c; font-size: 11px; line-height: 1.7; }
+.reasoning { margin-bottom: 16px; color: #697383; }
+.reasoning .reasoning-trigger { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #697383; font-size: 13px; text-align: left; }
+.reasoning-trigger > svg { flex: 0 0 auto; }
+.reasoning-trigger p { margin: 0; }
+.reasoning-stream { display: flex; flex-direction: column; gap: 18px; margin-top: 8px; }
+.reasoning-narrative { position: relative; margin-left: 7px; padding-left: 20px; border-left: 1px solid #dfe3e8; color: #697383; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.reasoning-narrative::before { content: ''; position: absolute; left: -3px; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: #9098a3; }
+.reasoning-narrative p { margin: 0 0 10px; color: inherit; font-size: inherit; line-height: inherit; }
+.reasoning-narrative p:last-child { margin-bottom: 0; }
+.reasoning-narrative :is(ul, ol) { padding-left: 22px; }
+.reasoning-narrative li { margin: 6px 0; }
+.reasoning-narrative :is(h1, h2, h3, h4) { margin: 12px 0 8px; font-size: 1em; font-weight: 600; }
+.reasoning-activity { display: flex; align-items: flex-start; gap: 12px; color: #697383; font-size: 13px; line-height: 1.8; }
+.reasoning-activity svg { flex: 0 0 auto; margin-top: 4px; }
+.reasoning-activity span { min-width: 0; overflow-wrap: anywhere; }
+.reasoning-activity__content { min-width: 0; }
+.reasoning-activity__details { margin-top: 4px; color: #87909d; }
+.reasoning-activity__details summary { cursor: pointer; user-select: none; }
+.reasoning-activity__details ul { margin: 5px 0 0; padding-left: 18px; }
+.reasoning-activity[data-status="completed"] svg { color: #718b7b; }
+.reasoning-activity__spinner { animation: reasoning-spin .9s linear infinite; }
+@keyframes reasoning-spin { to { transform: rotate(360deg); } }
 .citation-row { display: flex; align-items: center; gap: 7px; margin-top: 16px; padding-top: 12px; border-top: 1px solid #edf0f2; }
 .citation-row > span { margin-right: 2px; color: #8d95a0; font-size: 10px; }
 .citation-row button { width: 24px; height: 24px; padding: 0; border: 1px solid #d9dde3; border-radius: 50%; background: #eef0f3; color: #5b6675; font-size: 10px; font-weight: 700; transition: .15s ease; }

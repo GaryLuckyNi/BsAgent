@@ -42,6 +42,8 @@ const services = {
     cwd: 'backend',
     env: {
       BS_AGENT_DATABASE_URL: backendDatabaseUrl,
+      BS_AGENT_RECOVER_ORPHANED_RUNS_ON_STARTUP: 'true',
+      BS_AGENT_PREWARM_TOOL_CATALOG_ON_STARTUP: 'true',
       BS_AGENT_GRAPH_CHECKPOINTER_BACKEND: 'postgres',
       BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL: graphCheckpointPostgresUrl,
       BS_AGENT_MEMORY_STORE_POSTGRES_URL: memoryStorePostgresUrl,

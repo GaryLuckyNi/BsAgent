@@ -39,6 +39,7 @@ class ToolSearchService:
             spec.name
             for spec in self._registry.specs()
             if spec.name != "search_tool"
+            and spec.name not in context.excluded_tools
             and has_required_scopes(
                 granted=context.permission_scopes,
                 required=spec.permission_scope,

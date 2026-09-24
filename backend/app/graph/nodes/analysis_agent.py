@@ -1,12 +1,13 @@
-import asyncio
 import json
 from typing import Any
 
 from langchain_core.messages import AIMessage
 
+from app.graph.planning.context import task_evidence, user_materials
 from app.graph.planning.contracts import SubTaskModel, TaskResultModel
+from app.graph.public_events import build_public_llm_stream_handler
 from app.graph.state import AgentState
-from app.llm.factory import LlmClient
+from app.llm.factory import LlmClient, invoke_llm_completion
 
 
 def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
@@ -14,25 +15,31 @@ def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
         task = _active_analysis_task(state)
         if llm_client is None:
             return _terminal_failure(task, "analysis_llm_required", "分析模型未配置。")
-        completion = asyncio.run(
-            llm_client.complete(
-                system_prompt=(
-                    "你是投研任务执行器。只完成当前 task_goal，不生成最终答复。"
-                    "只能基于用户原始问题与 dependencies 中已有事实推理；不得补造外部事实、"
-                    "实时数据或来源。证据不足时明确说明缺口。输出简洁专业的中文分析。"
-                ),
-                user_prompt=json.dumps(
-                    {
-                        "user_message": state["user_message"],
-                        "task_goal": task.task_goal,
-                        "dependencies": _dependency_results(state, task),
-                    },
-                    ensure_ascii=False,
-                ),
-                temperature=0.1,
-                max_tokens=1_024,
-                thinking=False,
-            )
+        completion = invoke_llm_completion(
+            llm_client,
+            system_prompt=(
+                "你是投研任务执行器。只完成当前 task_goal，不生成最终答复。"
+                "只能基于用户原始问题与 dependencies 中已有事实推理；不得补造外部事实、"
+                "实时数据或来源。证据不足时明确说明缺口。输出简洁专业的中文分析。"
+            ),
+            user_prompt=json.dumps(
+                {
+                    "user_message": state["user_message"],
+                    "task_goal": task.task_goal,
+                    "completion_criteria": task.completion_criteria,
+                    "user_materials": user_materials(state),
+                    "dependencies": _dependency_results(state, task),
+                },
+                ensure_ascii=False,
+            ),
+            temperature=0.1,
+            max_tokens=2_048,
+            thinking=True,
+            on_delta=build_public_llm_stream_handler(
+                "analysis_agent",
+                state,
+            ),
+            retry_without_thinking_on_empty=True,
         )
         content = completion.content.strip()
         if not content:
@@ -48,8 +55,8 @@ def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
 
 def _active_analysis_task(state: AgentState) -> SubTaskModel:
     task = SubTaskModel.model_validate(state.get("active_task"))
-    if task.skill_name is not None or task.tool_name is not None:
-        raise ValueError("Analysis Agent 只能执行无 Skill/Tool 的推理子任务。")
+    if task.skill_name is not None:
+        raise ValueError("Analysis Agent 只能执行无 Skill 的推理子任务。")
     return task
 
 
@@ -57,12 +64,7 @@ def _dependency_results(
     state: AgentState,
     task: SubTaskModel,
 ) -> list[dict[str, Any]]:
-    dependency_ids = set(task.depends_on)
-    return [
-        dict(result)
-        for result in state["task_results"]
-        if result.get("task_id") in dependency_ids
-    ]
+    return task_evidence(state, task)
 
 
 def _success_update(
@@ -79,7 +81,7 @@ def _success_update(
                 additional_kwargs={"task_id": task.id, "task_role": "analysis"},
             )
         ],
-        "task_results": [result.model_dump(mode="python")],
+        "task_results": [result.model_dump(mode="python", exclude={"tool_name"})],
     }
 
 
@@ -94,7 +96,7 @@ def _terminal_failure(
         content=content,
         error_code=code,
     )
-    return {"task_results": [result.model_dump(mode="python")]}
+    return {"task_results": [result.model_dump(mode="python", exclude={"tool_name"})]}
 
 
 analysis_agent_node = build_analysis_agent_node()

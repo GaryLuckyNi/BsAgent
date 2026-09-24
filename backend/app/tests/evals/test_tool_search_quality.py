@@ -1,20 +1,15 @@
 import json
+import math
 import os
 from pathlib import Path
 from time import perf_counter
 
-import numpy as np
 import pytest
 
 from app.schemas.tools import ToolSpec
-from app.tools.search.embedding import (
-    CachingToolTextEmbedder,
-    FastEmbedToolTextEmbedder,
-)
 from app.tools.search.index import ToolSearchIndex
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
 CASES_PATH = Path(__file__).with_name("tool_search_cases.json")
 CATALOG_DIGEST = "tool-search-eval-v1"
 RUN_EVAL = os.getenv("BS_AGENT_RUN_TOOL_SEARCH_EVAL", "").lower() in {
@@ -75,29 +70,9 @@ def _tool_specs() -> list[ToolSpec]:
 
 @pytest.fixture(scope="module")
 def search_index() -> ToolSearchIndex:
-    cache_dir = os.getenv(
-        "BS_AGENT_TOOL_SEARCH_EMBEDDING_CACHE_DIR",
-        str(PROJECT_ROOT / "data" / "models" / "fastembed"),
-    )
-    local_files_only = os.getenv(
-        "BS_AGENT_TOOL_SEARCH_LOCAL_FILES_ONLY", "false"
-    ).lower() in {"1", "true", "yes"}
-    embedder = CachingToolTextEmbedder(
-        FastEmbedToolTextEmbedder(
-            model_name=os.getenv(
-                "BS_AGENT_TOOL_SEARCH_EMBEDDING_MODEL",
-                "BAAI/bge-small-zh-v1.5",
-            ),
-            cache_dir=cache_dir,
-            local_files_only=local_files_only,
-        ),
-        catalog_digest=CATALOG_DIGEST,
-        max_entries=256,
-    )
     return ToolSearchIndex.build(
         specs=_tool_specs(),
         catalog_digest=CATALOG_DIGEST,
-        embedder=embedder,
     )
 
 
@@ -118,7 +93,7 @@ def test_tool_search_eval_dataset_has_100_valid_chinese_cases():
 @pytest.mark.tool_search_eval
 @pytest.mark.skipif(
     not RUN_EVAL,
-    reason="设置 BS_AGENT_RUN_TOOL_SEARCH_EVAL=true 后运行向量检索评测。",
+    reason="设置 BS_AGENT_RUN_TOOL_SEARCH_EVAL=true 后运行工具检索评测。",
 )
 def test_tool_search_recall_at_5_is_at_least_95_percent(search_index):
     cases = _load_cases()
@@ -135,7 +110,7 @@ def test_tool_search_recall_at_5_is_at_least_95_percent(search_index):
 @pytest.mark.tool_search_eval
 @pytest.mark.skipif(
     not RUN_EVAL,
-    reason="设置 BS_AGENT_RUN_TOOL_SEARCH_EVAL=true 后运行向量检索评测。",
+    reason="设置 BS_AGENT_RUN_TOOL_SEARCH_EVAL=true 后运行工具检索评测。",
 )
 def test_warm_tool_search_p95_is_at_most_150_ms(search_index):
     cases = _load_cases()
@@ -149,5 +124,6 @@ def test_warm_tool_search_p95_is_at_most_150_ms(search_index):
             search_index.search(case["query"], top_k=5, candidate_k=12)
             elapsed_ms.append((perf_counter() - started) * 1000)
 
-    p95_ms = float(np.percentile(elapsed_ms, 95))
+    elapsed_ms.sort()
+    p95_ms = elapsed_ms[max(0, math.ceil(len(elapsed_ms) * 0.95) - 1)]
     assert p95_ms <= 150, f"工具检索 warm p95={p95_ms:.2f}ms，超过 150ms 门槛。"

@@ -11,7 +11,7 @@ from app.graph.state import create_initial_state
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.node_runner import NodeRunner
 from app.harness.tracing import InMemoryTraceStore
-from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
+from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError
 
 
 NODE_SPAN_ATTRIBUTES = {
@@ -259,6 +259,42 @@ def test_node_runner_does_not_import_deepcopy():
     import app.harness.node_runner as node_runner_module
 
     assert not hasattr(node_runner_module, "deepcopy")
+
+
+def test_tool_trace_exposes_only_safe_mcp_failure_category():
+    from app.harness.tracing import _tool_execution_summary
+
+    state = create_initial_state(session_id="s1", tenant_id="t1", user_id="u1", user_message="查询")
+    record = ToolCallRecord(
+        request=ToolCallRequest(
+            tool_name="mcp.mock.echo",
+            tool_version="mcp-http-v1",
+            arguments={},
+            purpose="查询",
+        ),
+        result=ToolCallResult(
+            tool_call_id="tool_failed",
+            tool_name="mcp.mock.echo",
+            status="failed",
+            trace_id=state["trace_id"],
+            error=ToolError(
+                code="mcp_tool_execution_failed",
+                message="MCP 工具执行失败。",
+                details={
+                    "failure_stage": "client_exception",
+                    "exception_type": "RuntimeError",
+                    "raw_message": "Authorization: Bearer secret-token",
+                },
+            ),
+        ),
+    )
+    summary = _tool_execution_summary(
+        input_state=state, output_state={**state, "tool_calls": [record]}
+    )
+    item = summary["records"][0]
+    assert item["failure_stage"] == "client_exception"
+    assert item["exception_type"] == "RuntimeError"
+    assert "secret-token" not in str(summary)
 
 
 def test_node_runner_records_error_and_reraises_unknown_exception():

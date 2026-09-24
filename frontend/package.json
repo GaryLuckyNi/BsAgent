@@ -10,6 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.10",
+    "@langchain/langgraph-sdk": "^1.10.2",
     "@radix-ui/react-use-controllable-state": "^1.2.6",
     "@streamdown/cjk": "^1.0.3",
     "ai": "^7.0.84",

@@ -169,9 +169,13 @@ def merge_disclosed_tool_names(
     existing: list[str],
     incoming: list[str],
     *,
-    limit: int,
+    limit: int = 64,
 ) -> list[str]:
     return list(dict.fromkeys([*existing, *incoming]))[:limit]
+
+
+def merge_discovery_events(existing: dict | None, incoming: dict | None) -> dict:
+    return {**(existing or {}), **(incoming or {})}
 
 
 def merge_task_results(
@@ -236,7 +240,8 @@ class AgentState(TypedDict):
     request_id: str
     trace_id: str
     tool_catalog_digest: str
-    disclosed_tool_names: list[str]
+    disclosed_tool_names: Annotated[list[str], merge_disclosed_tool_names]
+    tool_discovery_events: Annotated[dict[str, Any], merge_discovery_events]
     tool_search_count: int
     user_message: str
     assistant_message_id: str
@@ -245,8 +250,15 @@ class AgentState(TypedDict):
     image_analyses: list[ImageAnalysisSummary]
     intent: IntentDecision | None
     planner_iteration: int
+    planner_policy_version: NotRequired[str]
+    planner_stop_reason: NotRequired[str]
+    planner_feedback_count: NotRequired[int]
+    planner_reviewed_signature: NotRequired[str]
+    planner_decision: NotRequired[dict[str, Any]]
+    plan_history: NotRequired[list[dict[str, Any]]]
     plan: PlanDecision | None
     active_task: NotRequired[dict[str, Any]]
+    web_search_allowed: NotRequired[bool]
     task_results: Annotated[list[dict[str, Any]], merge_task_results]
     tool_calls: Annotated[list[ToolCallRecord], merge_tool_call_records]
     evidence: EvidencePackage | None
@@ -311,6 +323,7 @@ def create_initial_state(
         "trace_id": trace_id,
         "tool_catalog_digest": tool_catalog_digest,
         "disclosed_tool_names": [],
+        "tool_discovery_events": {},
         "tool_search_count": 0,
         "user_message": user_message,
         "assistant_message_id": assistant_message_id,
@@ -321,6 +334,11 @@ def create_initial_state(
         "image_analyses": [],
         "intent": None,
         "planner_iteration": 0,
+        "planner_policy_version": "model-feedback-v1",
+        "planner_feedback_count": 0,
+        "planner_reviewed_signature": "",
+        "planner_decision": {},
+        "plan_history": [],
         "plan": None,
         "task_results": [],
         "tool_calls": [],

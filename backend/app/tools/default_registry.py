@@ -10,8 +10,6 @@ from app.tools.mcp_gateway import McpGateway, McpServerConfig
 from app.tools.registry import ToolRegistry
 from app.tools.rag_search import build_default_rag_search_registration
 from app.tools.search import (
-    CachingToolTextEmbedder,
-    FastEmbedToolTextEmbedder,
     SearchTool,
     ToolSearchIndex,
     ToolSearchService,
@@ -107,19 +105,9 @@ def _http_status_code(exc: Exception) -> int | None:
 
 
 def _build_default_tool_search_service(registry: ToolRegistry) -> ToolSearchService:
-    embedder = CachingToolTextEmbedder(
-        FastEmbedToolTextEmbedder(
-            model_name=settings.tool_search_embedding_model,
-            cache_dir=settings.tool_search_embedding_cache_dir,
-            local_files_only=settings.tool_search_local_files_only,
-        ),
-        catalog_digest=registry.catalog_digest,
-        max_entries=settings.tool_search_query_cache_size,
-    )
     index = ToolSearchIndex.build(
         specs=[spec for spec in registry.specs() if spec.name != SearchTool.name],
         catalog_digest=registry.catalog_digest,
-        embedder=embedder,
     )
     return ToolSearchService(
         registry=registry,

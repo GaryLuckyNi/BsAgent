@@ -35,6 +35,8 @@ class WorkflowTestLlm:
                     "confidence": 1.0,
                 }
             content = json.dumps(payload, ensure_ascii=False)
+        elif "计划反馈决策器" in system_prompt:
+            content = json.dumps({"action": "finish", "reason": "完成本次研究，保留证据限制"}, ensure_ascii=False)
         elif "投研任务 Planner" in system_prompt:
             content = json.dumps(
                 {
@@ -44,7 +46,6 @@ class WorkflowTestLlm:
                             "task_goal": user_prompt["goal"],
                             "depends_on": [],
                             "skill_name": None,
-                            "tool_name": None,
                         }
                     ]
                 },

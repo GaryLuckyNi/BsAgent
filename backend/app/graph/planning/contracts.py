@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 
 MAX_PLAN_TASKS = 12
+MAX_TASK_RESULT_CONTENT_CHARS = 8_000
 
 
 class SubTaskModel(BaseModel):
@@ -11,11 +12,20 @@ class SubTaskModel(BaseModel):
 
     id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,63}$")
     task_goal: str = Field(min_length=1, max_length=500)
+    execution_type: Literal["tool", "analysis"] = "tool"
+    completion_criteria: list[str] = Field(default_factory=list, max_length=8)
+    tool_search_query: str | None = Field(default=None, min_length=1, max_length=500)
+    evidence_task_ids: list[str] = Field(default_factory=list, max_length=24)
     depends_on: list[str] = Field(default_factory=list, max_length=16)
     skill_name: str | None = None
-    tool_name: str | None = None
 
-    @field_validator("task_goal", "skill_name", "tool_name", mode="before")
+    @model_validator(mode="after")
+    def validate_execution_capability(self):
+        if self.execution_type == "analysis" and self.skill_name is not None:
+            raise ValueError("纯分析任务不能同时绑定 Skill。")
+        return self
+
+    @field_validator("task_goal", "tool_search_query", "skill_name", mode="before")
     @classmethod
     def normalize_optional_text(cls, value: object) -> object:
         if isinstance(value, str):
@@ -23,23 +33,18 @@ class SubTaskModel(BaseModel):
             return normalized or None
         return value
 
-    @field_validator("depends_on")
+    @field_validator("depends_on", "evidence_task_ids")
     @classmethod
     def reject_duplicate_dependencies(cls, value: list[str]) -> list[str]:
         if len(value) != len(set(value)):
             raise ValueError("任务依赖不能重复。")
         return value
 
-    @model_validator(mode="after")
-    def reject_multiple_capability_types(self):
-        if self.skill_name is not None and self.tool_name is not None:
-            raise ValueError("同一任务不能同时选择 Skill 和 Tool。")
-        return self
-
 
 class PlanModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    public_summary: str | None = Field(default=None, min_length=1, max_length=300)
     tasks: list[SubTaskModel] = Field(min_length=1, max_length=MAX_PLAN_TASKS)
 
     @model_validator(mode="after")
@@ -81,6 +86,21 @@ class TaskResultModel(BaseModel):
 
     task_id: str
     status: Literal["success", "business_failure", "terminal_failure"]
-    content: str = Field(max_length=8_000)
+    content: str = Field(max_length=MAX_TASK_RESULT_CONTENT_CHARS)
     error_code: str | None = None
+    tool_name: str | None = None
 
+
+class PlannerFeedback(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["continue", "revise", "finish"]
+    reason: str = Field(min_length=1, max_length=800)
+    plan: PlanModel | None = None
+    unresolved_questions: list[str] = Field(default_factory=list, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_action(self):
+        if (self.action == "revise") != (self.plan is not None):
+            raise ValueError("仅 revise 必须携带 plan；continue 和 finish 不得携带计划。")
+        return self

@@ -7,7 +7,7 @@ from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.state import create_initial_state
 from app.intent.router import HybridIntentRouter, IntentClassificationError
 from app.intent.schemas import IntentDecisionModel
-from app.llm.schemas import LlmCompletionResult
+from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
 
 
 class FakeLlmClient:
@@ -45,10 +45,7 @@ def test_business_intent_catalog_has_no_local_file_or_keyword_router(
     business_intent_catalog,
 ):
     removed_names = ("load_default", "load_from_path", "match_by_keywords")
-    assert all(
-        not hasattr(type(business_intent_catalog), name)
-        for name in removed_names
-    )
+    assert all(not hasattr(type(business_intent_catalog), name) for name in removed_names)
 
 
 def test_hybrid_intent_router_requires_explicit_catalog_and_llm(
@@ -103,6 +100,8 @@ def test_llm_intent_router_returns_only_taxonomy_and_goal(
     }
     payload = json.loads(llm.calls[0]["user_prompt"])
     assert payload["message"] == "海能达现在是否值得关注"
+    assert llm.calls[0]["thinking"] is False
+    assert llm.calls[0]["max_tokens"] == 512
     assert "available_skills" not in payload
     assert "available_tools" not in payload
     assert "task_brief" not in payload
@@ -168,9 +167,7 @@ def test_router_rejects_partial_out_of_scope_payload(
 ):
     router = HybridIntentRouter(
         catalog=business_intent_catalog,
-        llm_client=FakeLlmClient(
-            _decision(intent_type=None, domain="a_share_equity_research")
-        ),
+        llm_client=FakeLlmClient(_decision(intent_type=None, domain="a_share_equity_research")),
     )
 
     with pytest.raises(IntentClassificationError) as exc_info:
@@ -227,6 +224,42 @@ def test_intent_router_node_passes_safe_image_summary_and_sets_state(
     assert "OCR 原文" not in str(payload["context"])
     assert result["intent"]["goal"] == "分析用户上传图片中的财务信息"
     assert "task_brief" not in result
+
+
+def test_intent_router_node_streams_native_classifier_reasoning(
+    business_intent_catalog,
+):
+    class NativeStreamingLlm(FakeLlmClient):
+        def __init__(self) -> None:
+            super().__init__(_decision())
+            self.used_native_stream = False
+
+        async def complete_streamed(self, *, on_delta, **kwargs):
+            self.used_native_stream = True
+            on_delta(
+                LlmStreamDelta(
+                    kind="reasoning",
+                    delta="Need output single-line JSON with allowed_taxonomy.",
+                )
+            )
+            return await self.complete(**kwargs)
+
+    llm = NativeStreamingLlm()
+    state = create_initial_state(
+        session_id="session-1",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="为什么今天 A 股跌得这么多？",
+    )
+
+    build_intent_router_node(
+        catalog=business_intent_catalog,
+        llm_client=llm,
+    )(state)
+
+    assert llm.used_native_stream is True
+    assert llm.calls[0]["max_tokens"] == 512
+    assert llm.calls[0]["thinking"] is False
 
 
 def test_classifier_prompt_contains_admin_taxonomy_and_semantic_guard(

@@ -79,6 +79,7 @@ export const Reasoning = memo(
 
     const hasEverStreamedRef = useRef(isStreaming);
     const [hasAutoClosed, setHasAutoClosed] = useState(false);
+    const [hasUserToggled, setHasUserToggled] = useState(false);
     const startTimeRef = useRef<number | null>(null);
 
     // Track when streaming starts and compute duration
@@ -96,10 +97,10 @@ export const Reasoning = memo(
 
     // Auto-open when streaming starts (unless explicitly closed)
     useEffect(() => {
-      if (isStreaming && !isOpen && !isExplicitlyClosed) {
+      if (isStreaming && !isOpen && !isExplicitlyClosed && !hasUserToggled) {
         setIsOpen(true);
       }
-    }, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed]);
+    }, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed, hasUserToggled]);
 
     // Auto-close when streaming ends (once only, and only if it ever streamed)
     useEffect(() => {
@@ -107,6 +108,7 @@ export const Reasoning = memo(
         hasEverStreamedRef.current &&
         !isStreaming &&
         isOpen &&
+        !hasUserToggled &&
         !hasAutoClosed
       ) {
         const timer = setTimeout(() => {
@@ -116,10 +118,11 @@ export const Reasoning = memo(
 
         return () => clearTimeout(timer);
       }
-    }, [isStreaming, isOpen, setIsOpen, hasAutoClosed]);
+    }, [isStreaming, isOpen, setIsOpen, hasAutoClosed, hasUserToggled]);
 
     const handleOpenChange = useCallback(
       (newOpen: boolean) => {
+        setHasUserToggled(true);
         setIsOpen(newOpen);
       },
       [setIsOpen]
@@ -152,13 +155,13 @@ export type ReasoningTriggerProps = ComponentProps<
 };
 
 const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
-  if (isStreaming || duration === 0) {
-    return <Shimmer duration={1}>Thinking...</Shimmer>;
+  if (isStreaming) {
+    return <Shimmer duration={1}>正在思考…</Shimmer>;
   }
   if (duration === undefined) {
-    return <p>Thought for a few seconds</p>;
+    return <p>已思考片刻</p>;
   }
-  return <p>Thought for {duration} seconds</p>;
+  return <p>已思考 {duration} 秒</p>;
 };
 
 export const ReasoningTrigger = memo(
@@ -198,10 +201,14 @@ export const ReasoningTrigger = memo(
 export type ReasoningContentProps = ComponentProps<
   typeof CollapsibleContent
 > & {
-  children: string;
+  children: ReactNode;
 };
 
 const streamdownPlugins = { cjk };
+
+export const ReasoningText = memo(({ children }: { children: string }) => (
+  <Streamdown plugins={streamdownPlugins}>{children}</Streamdown>
+));
 
 export const ReasoningContent = memo(
   ({ className, children, ...props }: ReasoningContentProps) => (
@@ -213,7 +220,9 @@ export const ReasoningContent = memo(
       )}
       {...props}
     >
-      <Streamdown plugins={streamdownPlugins}>{children}</Streamdown>
+      {typeof children === "string" ? (
+        <Streamdown plugins={streamdownPlugins}>{children}</Streamdown>
+      ) : children}
     </CollapsibleContent>
   )
 );
@@ -221,3 +230,4 @@ export const ReasoningContent = memo(
 Reasoning.displayName = "Reasoning";
 ReasoningTrigger.displayName = "ReasoningTrigger";
 ReasoningContent.displayName = "ReasoningContent";
+ReasoningText.displayName = "ReasoningText";

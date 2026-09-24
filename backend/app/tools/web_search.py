@@ -40,7 +40,10 @@ class WebSearchTool(Tool[WebSearchInput]):
     name = "web_search"
     version = "1.0.0"
     input_model = WebSearchInput
-    description = "联网检索公开网页，返回带来源的实体发现证据"
+    description = (
+        "联网检索带来源的公开信息，用于当日市场涨跌原因、政策、新闻、公告、行业动态、"
+        "事实核验和公司实体关系等需要新鲜或外部证据的投研任务。"
+    )
     permission_scope = ["web:search"]
     risk_level = "low"
     timeout_ms = 30_000
@@ -78,11 +81,7 @@ class WebSearchTool(Tool[WebSearchInput]):
                 max_results=input_data.max_results,
             )
         except WebSearchProviderError as exc:
-            code = (
-                exc.code
-                if exc.code in WEB_SEARCH_ERROR_MESSAGES
-                else "web_search_unavailable"
-            )
+            code = exc.code if exc.code in WEB_SEARCH_ERROR_MESSAGES else "web_search_unavailable"
             return ToolCallResult(
                 tool_call_id=f"tool_{uuid4().hex}",
                 tool_name=self.name,
@@ -102,9 +101,7 @@ class WebSearchTool(Tool[WebSearchInput]):
             result={
                 "query": response.query,
                 "answer": response.answer,
-                "results": [
-                    item.model_dump(mode="json") for item in response.results
-                ],
+                "results": [item.model_dump(mode="json") for item in response.results],
             },
             trace_id=f"trace_{uuid4().hex}",
         )

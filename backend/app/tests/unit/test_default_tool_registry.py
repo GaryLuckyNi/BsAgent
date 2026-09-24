@@ -1,4 +1,3 @@
-import numpy as np
 import pytest
 from types import SimpleNamespace
 
@@ -8,14 +7,6 @@ from app.tools.mcp_gateway import McpServerConfig
 from app.tools.search import ToolSearchIndex, ToolSearchService
 
 
-class _ZeroEmbedder:
-    def embed_documents(self, texts):
-        return np.zeros((len(texts), 2), dtype=np.float32)
-
-    def embed_query(self, text):
-        return np.zeros(2, dtype=np.float32)
-
-
 @pytest.fixture(autouse=True)
 def use_fast_test_search_service(monkeypatch):
     def build(registry):
@@ -23,7 +14,6 @@ def use_fast_test_search_service(monkeypatch):
         index = ToolSearchIndex.build(
             specs=specs,
             catalog_digest=registry.catalog_digest,
-            embedder=_ZeroEmbedder(),
         )
         return ToolSearchService(registry=registry, index=index, candidate_k=20)
 
