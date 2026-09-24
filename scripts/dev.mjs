@@ -3,6 +3,10 @@ import { execFile, spawn } from 'node:child_process'
 import process from 'node:process'
 import { promisify } from 'node:util'
 
+import { loadLocalEnvironment } from './local-env.mjs'
+
+loadLocalEnvironment()
+
 const execFileAsync = promisify(execFile)
 const python = process.env.PYTHON || '/opt/anaconda3/bin/python3'
 const host = process.env.BS_AGENT_DEV_HOST || '0.0.0.0'
