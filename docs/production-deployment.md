@@ -160,6 +160,8 @@ OpenTelemetry Trace 经内部 Collector 发送到 `OBSERVABILITY_OTLP_ENDPOINT`�
 
 Message、Trace 和 OTel 均不保存模型私有思维链。`agent_messages` 只保存用户可见正文；Trace 和 Span 不保存完整 Prompt、工具参数/结果、回答正文、凭证或原始异常。
 
+Langfuse Cloud 当前只用于本地最小验证，生产 Compose 不注入 Langfuse key，也不把 Langfuse 加入 readiness。后续如启用生产观测，`BS_AGENT_LANGFUSE_PUBLIC_KEY` 和 `BS_AGENT_LANGFUSE_SECRET_KEY` 必须由 Secret Manager 或部署平台 Secret 注入；Cloud 不可达不能阻断 Agent 请求或触发实例摘流。允许上传字段、禁止上传字段和 Cloud Japan 验收步骤见 [Langfuse Cloud 观测说明](langfuse-cloud-observability.md)。
+
 ## 10. 备份与恢复
 
 至少备份以下数据：

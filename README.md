@@ -83,6 +83,14 @@ export BS_AGENT_WEB_SEARCH_ENABLED=true
 npm run dev
 ```
 
+本地开发也可以使用根目录 `.env.local` 管理敏感环境变量。启动脚本会自动加载该文件，同时保留 shell 中已经设置的值：
+
+```bash
+cp .env.example .env.local
+```
+
+Langfuse Cloud 最小验证只需在 `.env.local` 中启用开关并填写 Cloud Japan 项目的 public/secret key。Japan endpoint、`local` environment 和 100% 本地采样均有安全默认值。完整操作与数据边界见 [Langfuse Cloud 观测说明](docs/langfuse-cloud-observability.md)。`.env.local` 已被 Git 忽略，不得提交真实密钥。
+
 `BS_AGENT_MCP_SERVER_URL` 只用于额外的通用 Agent MCP Server，默认不配置，也不会作为 Tushare 的备用地址。`npm run dev:mcp` 仅用于单独启动仓库内的学习示例，不在 `npm run dev` 或 `npm run dev:backend` 的依赖链中；只有运行该学习示例时才需要 `TUSHARE_TOKEN`。
 
 Tushare MCP URL 中包含 MCP Key。Admin 的公开列表和详情接口只返回脱敏地址，完整地址仅通过内部控制面接口提供给 Agent。部署时应限制 Admin Backend 的网络访问范围，不要把内部接口直接暴露到公网。
