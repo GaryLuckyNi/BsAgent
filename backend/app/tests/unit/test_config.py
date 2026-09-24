@@ -275,6 +275,56 @@ def test_otel_requires_trace_endpoint_when_enabled():
     assert "otel_exporter_otlp_traces_endpoint" in str(exc_info.value)
 
 
+def test_langfuse_defaults_to_disabled_japan_cloud():
+    runtime = Settings(_env_file=None)
+
+    assert runtime.langfuse_enabled is False
+    assert runtime.langfuse_public_key == ""
+    assert runtime.langfuse_secret_key == ""
+    assert runtime.langfuse_base_url == "https://jp.cloud.langfuse.com"
+    assert runtime.langfuse_sample_rate == 1.0
+
+
+@pytest.mark.parametrize(
+    ("public_key", "secret_key", "expected_field"),
+    [
+        ("", "sk-test", "langfuse_public_key"),
+        ("pk-test", "", "langfuse_secret_key"),
+    ],
+)
+def test_langfuse_requires_both_keys_when_enabled(
+    public_key,
+    secret_key,
+    expected_field,
+):
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            _env_file=None,
+            langfuse_enabled=True,
+            langfuse_public_key=public_key,
+            langfuse_secret_key=secret_key,
+        )
+
+    assert expected_field in str(exc_info.value)
+
+
+def test_langfuse_requires_https_base_url_when_enabled():
+    with pytest.raises(ValidationError, match="langfuse_base_url"):
+        Settings(
+            _env_file=None,
+            langfuse_enabled=True,
+            langfuse_public_key="pk-test",
+            langfuse_secret_key="sk-test",
+            langfuse_base_url="http://jp.cloud.langfuse.com",
+        )
+
+
+@pytest.mark.parametrize("sample_rate", [-0.1, 1.1])
+def test_langfuse_sample_rate_enforces_bounds(sample_rate):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, langfuse_sample_rate=sample_rate)
+
+
 def test_trace_detailed_ratio_cannot_exceed_success_ratio():
     with pytest.raises(ValidationError) as exc_info:
         Settings(

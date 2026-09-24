@@ -8,6 +8,7 @@ annotated-types==0.8.0
 anyio==4.14.2
 asgiref==3.12.1
 attrs==26.1.0
+backoff==2.2.1
 billiard==4.2.4
 bm25s==0.3.11
 boto3==1.40.76
@@ -43,6 +44,7 @@ langchain-core==1.5.1
 langchain-openai==1.2.2
 langchain-mcp-adapters==0.3.2
 langchain-protocol==0.0.18
+langfuse==4.15.4
 langgraph==1.2.9
 langgraph-checkpoint==4.1.1
 langgraph-checkpoint-postgres==3.1.0

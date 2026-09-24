@@ -179,6 +179,9 @@ def test_python_images_install_reproducible_lock_files():
     assert "ocr-service/requirements.lock" in ocr_dockerfile
     assert "pip install --requirement requirements.lock" in ocr_dockerfile
     assert "pip check" in ocr_dockerfile
+    assert "langfuse==" in (
+        PROJECT_ROOT / "backend" / "requirements.lock"
+    ).read_text(encoding="utf-8")
 
 
 def test_backend_image_uses_lightweight_bm25_tool_search():

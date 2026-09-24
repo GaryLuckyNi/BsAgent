@@ -108,6 +108,11 @@ class Settings(BaseSettings):
     otel_enabled: bool = False
     otel_exporter_otlp_traces_endpoint: str | None = None
     otel_trace_sample_ratio: float = Field(default=0.1, ge=0, le=1)
+    langfuse_enabled: bool = False
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = "https://jp.cloud.langfuse.com"
+    langfuse_sample_rate: float = Field(default=1.0, ge=0, le=1)
     trace_backend: Literal["none", "memory", "database"] = "memory"
     trace_success_sample_ratio: float = Field(default=0.1, ge=0, le=1)
     trace_detailed_sample_ratio: float = Field(default=0.01, ge=0, le=1)
@@ -135,6 +140,21 @@ class Settings(BaseSettings):
                 "启用 OpenTelemetry 时必须配置 "
                 "otel_exporter_otlp_traces_endpoint"
             )
+        if self.langfuse_enabled:
+            missing = [
+                field_name
+                for field_name, value in (
+                    ("langfuse_public_key", self.langfuse_public_key),
+                    ("langfuse_secret_key", self.langfuse_secret_key),
+                )
+                if not _has_text(value)
+            ]
+            if missing:
+                raise ValueError(
+                    "启用 Langfuse 时必须配置 " + ", ".join(missing)
+                )
+            if urlparse(self.langfuse_base_url).scheme != "https":
+                raise ValueError("langfuse_base_url 必须使用 HTTPS")
         if not _is_postgres_url(self.memory_store_postgres_url):
             raise ValueError("memory_store_postgres_url 必须是 PostgreSQL URL")
         if self.tool_search_top_k > self.tool_search_candidate_k:
