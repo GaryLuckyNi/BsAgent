@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -6,8 +6,9 @@ from pydantic import BaseModel, Field
 
 @dataclass(frozen=True)
 class LlmStreamDelta:
-    kind: Literal["reasoning", "content", "finish"]
+    kind: Literal["reasoning", "content", "finish", "usage"]
     delta: str = ""
+    usage: dict[str, int] = field(default_factory=dict)
 
 
 class LlmCompletionResult(BaseModel):

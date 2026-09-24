@@ -1,11 +1,12 @@
 import asyncio
 import json
+from contextlib import contextmanager
+from typing import ClassVar
 
-import pytest
 import httpx
-
+import pytest
 from app.llm import deepseek as deepseek_module
-from app.llm.deepseek import DeepSeekClient, LlmConfigurationError
+from app.llm.deepseek import DeepSeekClient, LlmConfigurationError, LlmProviderError
 
 
 def test_deepseek_client_sends_openai_compatible_chat_completion_request():
@@ -95,7 +96,7 @@ def test_deepseek_callback_completion_enables_thinking_for_graph_stream(monkeypa
 
     class FakeResponse:
         content = "最终内容"
-        usage_metadata = {"output_tokens": 4}
+        usage_metadata: ClassVar = {"output_tokens": 4}
 
     class FakeBoundModel:
         def invoke(self, messages):
@@ -315,3 +316,195 @@ def test_stream_packet_preserves_both_fields_and_finish():
     assert [(e.kind, e.delta) for e in asyncio.run(run())] == [
         ("reasoning", "比较。"), ("content", "结论。"), ("finish", "stop")
     ]
+
+
+def test_direct_completion_records_only_model_parameters_and_usage(monkeypatch):
+    observations = []
+    updates = []
+    generation = object()
+
+    @contextmanager
+    def observe_generation(**kwargs):
+        observations.append(kwargs)
+        yield generation
+
+    monkeypatch.setattr(
+        deepseek_module,
+        "langfuse_generation",
+        observe_generation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        deepseek_module,
+        "update_langfuse_generation",
+        lambda target, **kwargs: updates.append((target, kwargs)),
+        raising=False,
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "pong"}}],
+                "usage": {
+                    "prompt_tokens": 12,
+                    "completion_tokens": 7,
+                    "total_tokens": 19,
+                    "ignored_provider_field": 99,
+                },
+            },
+        )
+
+    async def run_completion():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.deepseek.com",
+        ) as http_client:
+            return await DeepSeekClient(
+                api_key="test_key",
+                model="deepseek-v4-flash",
+                http_client=http_client,
+            ).complete(
+                system_prompt="secret system prompt",
+                user_prompt="secret user prompt",
+                temperature=0.2,
+                max_tokens=128,
+                thinking=False,
+            )
+
+    result = asyncio.run(run_completion())
+
+    assert result.content == "pong"
+    assert observations == [
+        {
+            "name": "deepseek.chat.completions",
+            "model": "deepseek-v4-flash",
+            "model_parameters": {
+                "temperature": 0.2,
+                "max_tokens": 128,
+                "thinking": False,
+            },
+        }
+    ]
+    assert updates == [
+        (
+            generation,
+            {"usage_details": {"input": 12, "output": 7, "total": 19}},
+        )
+    ]
+    assert "secret" not in str(observations)
+    assert "secret" not in str(updates)
+
+
+def test_streamed_completion_requests_and_records_usage_without_forwarding_it(
+    monkeypatch,
+):
+    captured = {}
+    updates = []
+    generation = object()
+
+    @contextmanager
+    def observe_generation(**_kwargs):
+        yield generation
+
+    monkeypatch.setattr(
+        deepseek_module,
+        "langfuse_generation",
+        observe_generation,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        deepseek_module,
+        "update_langfuse_generation",
+        lambda target, **kwargs: updates.append((target, kwargs)),
+        raising=False,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.read())
+        body = (
+            'data: {"choices":[{"delta":{"content":"答案"},"finish_reason":"stop"}]}\n\n'
+            'data: {"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}}\n\n'
+            "data: [DONE]\n\n"
+        )
+        return httpx.Response(
+            200,
+            content=body.encode("utf-8"),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    async def run_completion():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.deepseek.com",
+        ) as http_client:
+            deltas = []
+            result = await DeepSeekClient(
+                api_key="test_key",
+                model="deepseek-v4-flash",
+                http_client=http_client,
+            ).complete_streamed(
+                system_prompt="system",
+                user_prompt="user",
+                on_delta=deltas.append,
+            )
+            return result, deltas
+
+    result, deltas = asyncio.run(run_completion())
+
+    assert captured["payload"]["stream_options"] == {"include_usage": True}
+    assert result.usage == {
+        "prompt_tokens": 8,
+        "completion_tokens": 2,
+        "total_tokens": 10,
+    }
+    assert [(delta.kind, delta.delta) for delta in deltas] == [
+        ("content", "答案")
+    ]
+    assert updates == [
+        (
+            generation,
+            {"usage_details": {"input": 8, "output": 2, "total": 10}},
+        )
+    ]
+
+
+def test_direct_completion_records_only_stable_provider_error_code(monkeypatch):
+    updates = []
+    generation = object()
+
+    @contextmanager
+    def observe_generation(**_kwargs):
+        yield generation
+
+    monkeypatch.setattr(deepseek_module, "langfuse_generation", observe_generation)
+    monkeypatch.setattr(
+        deepseek_module,
+        "update_langfuse_generation",
+        lambda target, **kwargs: updates.append((target, kwargs)),
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, text="provider-secret-error")
+
+    async def run_completion():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.deepseek.com",
+        ) as http_client:
+            return await DeepSeekClient(
+                api_key="test_key",
+                model="deepseek-v4-flash",
+                http_client=http_client,
+            ).complete(system_prompt="system", user_prompt="user")
+
+    with pytest.raises(LlmProviderError, match="provider-secret-error"):
+        asyncio.run(run_completion())
+
+    assert updates == [
+        (
+            generation,
+            {"level": "ERROR", "status_message": "llm_http_error"},
+        )
+    ]
+    assert "provider-secret-error" not in str(updates)
