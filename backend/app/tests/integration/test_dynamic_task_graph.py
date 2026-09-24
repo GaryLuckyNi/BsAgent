@@ -1,7 +1,6 @@
 import json
-
-from langchain_core.messages import AIMessage, ToolMessage
-from pydantic import BaseModel
+from contextlib import contextmanager
+from types import SimpleNamespace
 
 from app.graph.runtime import run_question_answer_graph
 from app.llm.schemas import LlmCompletionResult
@@ -9,6 +8,175 @@ from app.schemas.tools import ToolCallResult
 from app.tools.base import Tool
 from app.tools.registry import ToolRegistry
 from app.tools.search import ToolSearchIndex, ToolSearchService
+from langchain_core.messages import AIMessage, ToolMessage
+from pydantic import BaseModel
+
+
+def test_graph_run_attaches_langfuse_callback_inside_root_context(monkeypatch):
+    from app.graph import runtime as runtime_module
+
+    callback = object()
+    active = []
+    captured = {}
+    state = {
+        "trace_id": "trace-1",
+        "session_key": "session-key-1",
+        "tenant_id": "tenant-1",
+    }
+
+    class Graph:
+        def invoke(self, value, *, config):
+            assert active == [True]
+            captured["config"] = config
+            return value
+
+    @contextmanager
+    def agent_run(**kwargs):
+        captured["context"] = kwargs
+        active.append(True)
+        try:
+            yield (callback,)
+        finally:
+            active.pop()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_prepare_question_answer_run",
+        lambda **_kwargs: (state, Graph(), {"recursion_limit": 8}),
+    )
+    monkeypatch.setattr(runtime_module, "langfuse_agent_run", agent_run)
+
+    result = runtime_module.run_question_answer_graph(
+        business_intent_catalog=object(),
+        session_id="session-1",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="hello",
+    )
+
+    assert result is state
+    assert captured["config"]["callbacks"] == [callback]
+    assert captured["context"] == {
+        "business_trace_id": "trace-1",
+        "session_key": "session-key-1",
+        "tenant_id": "tenant-1",
+        "execution_segment": "initial",
+    }
+    assert active == []
+
+
+def test_graph_stream_keeps_langfuse_root_context_open(monkeypatch):
+    from app.graph import runtime as runtime_module
+
+    callback = object()
+    active = []
+    state = {
+        "trace_id": "trace-2",
+        "session_key": "session-key-2",
+        "tenant_id": "tenant-2",
+    }
+
+    class Graph:
+        def stream(self, value, *, config, stream_mode):
+            assert active == [True]
+            assert config["callbacks"] == [callback]
+            assert stream_mode == ["updates", "messages", "custom"]
+            yield "custom", {"status": "working"}
+
+    @contextmanager
+    def agent_run(**_kwargs):
+        active.append(True)
+        try:
+            yield (callback,)
+        finally:
+            active.pop()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_prepare_question_answer_run",
+        lambda **_kwargs: (state, Graph(), {"recursion_limit": 8}),
+    )
+    monkeypatch.setattr(runtime_module, "langfuse_agent_run", agent_run)
+
+    updates = list(
+        runtime_module.stream_question_answer_graph(
+            business_intent_catalog=object(),
+            session_id="session-2",
+            tenant_id="tenant-2",
+            user_id="user-2",
+            user_message="hello",
+        )
+    )
+
+    assert updates[0].event == "custom"
+    assert active == []
+
+
+def test_graph_resume_reuses_business_trace_and_marks_resume_segment(monkeypatch):
+    from app.graph import runtime as runtime_module
+
+    callback = object()
+    captured = {}
+    snapshot = SimpleNamespace(
+        values={
+            "trace_id": "trace-resume",
+            "session_key": "session-key-resume",
+            "tenant_id": "tenant-resume",
+            "planner_policy_version": runtime_module.PLANNER_POLICY_VERSION,
+            "tool_catalog_digest": "catalog-1",
+        },
+        tasks=(),
+    )
+
+    class Graph:
+        def get_state(self, _config):
+            return snapshot
+
+        def invoke(self, command, *, config):
+            captured["config"] = config
+            captured["command"] = command
+            return snapshot.values
+
+    @contextmanager
+    def agent_run(**kwargs):
+        captured["context"] = kwargs
+        yield (callback,)
+
+    monkeypatch.setattr(runtime_module, "build_question_answer_graph", lambda **_kwargs: Graph())
+    monkeypatch.setattr(
+        runtime_module,
+        "_runtime_registry_snapshot",
+        lambda **_kwargs: SimpleNamespace(catalog_digest="catalog-1"),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "_find_interrupt_payload",
+        lambda *_args, **_kwargs: {
+            "approval_id": "approval-1",
+            "action_digest": "digest-1",
+        },
+    )
+    monkeypatch.setattr(runtime_module, "langfuse_agent_run", agent_run)
+
+    result = runtime_module.resume_question_answer_graph(
+        business_intent_catalog=object(),
+        checkpoint_thread_id="cpr1_" + "a" * 64,
+        checkpoint_id="checkpoint-1",
+        interrupt_id="interrupt-1",
+        action_digest="digest-1",
+        approval_decision={"approval_id": "approval-1"},
+        checkpointer=object(),
+        tool_registry_factory=lambda: object(),
+    )
+
+    assert result is snapshot.values
+    assert captured["config"]["callbacks"] == [callback]
+    assert captured["context"] == {
+        "business_trace_id": "trace-resume",
+        "session_key": "session-key-resume",
+        "tenant_id": "tenant-resume",
+        "execution_segment": "resume",
+    }
 
 
 class WorkflowLlm:

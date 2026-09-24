@@ -1,7 +1,7 @@
-from collections.abc import Callable, Iterator
 import json
-from dataclasses import dataclass
 import re
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage
@@ -12,41 +12,41 @@ from langgraph.types import Checkpointer, Command, RetryPolicy, Send
 
 from app.core.config import settings
 from app.graph.nodes.analysis_agent import build_analysis_agent_node
-from app.graph.nodes.attachment_analyzer import (
-    AttachmentContextResolver,
-    build_attachment_analyzer_node,
-)
+from app.graph.nodes.approval_coordinator import approval_coordinator_node
 from app.graph.nodes.approval_gate import (
     ApprovalPayloadMismatchError,
     build_approval_gate_node,
 )
-from app.graph.nodes.approval_coordinator import approval_coordinator_node
+from app.graph.nodes.attachment_analyzer import (
+    AttachmentContextResolver,
+    build_attachment_analyzer_node,
+)
 from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.nodes.verifier import verifier_node
-from app.graph.state import (
-    AgentState,
-    build_checkpoint_thread_id,
-    create_initial_state,
-)
 from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
-from app.graph.planning.scheduler import ready_tasks
 from app.graph.planning.policy import (
     MAX_PLANNER_FEEDBACKS,
     MAX_WEB_SEARCH_TASKS,
     PLANNER_POLICY_VERSION,
     observation_signature,
 )
+from app.graph.planning.scheduler import ready_tasks
 from app.graph.public_events import emit_public_progress
+from app.graph.state import (
+    AgentState,
+    build_checkpoint_thread_id,
+    create_initial_state,
+)
 from app.harness.error_boundary import (
-    build_safe_error_record,
     build_node_error_handler,
+    build_safe_error_record,
     classify_recoverable_error,
-    is_terminal_recoverable_code,
     is_retryable_recoverable_error,
+    is_terminal_recoverable_code,
     should_route_recoverable_error_to_synthesizer,
 )
 from app.harness.node_runner import NodeRunner
@@ -55,18 +55,18 @@ from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
 from app.llm.factory import LlmClient
+from app.operations.langfuse_observability import langfuse_agent_run
 from app.schemas.messages import Message
 from app.skills.factory import build_default_skill_registry
 from app.skills.registry import SkillRegistry
+from app.tools.call_budget import SearchCallBudget
+from app.tools.candidate_resolver import ToolCandidateResolver
 from app.tools.default_registry import (
     get_default_tool_catalog_runtime,
     get_default_tool_registry,
 )
 from app.tools.registry import ToolCatalogChangedError, ToolRegistry
-from app.tools.call_budget import SearchCallBudget
-from app.tools.candidate_resolver import ToolCandidateResolver
 from app.tools.search import ToolSearchService
-
 
 _DEFAULT_TOOL_REGISTRY_FACTORY = get_default_tool_registry
 
@@ -657,7 +657,16 @@ def run_question_answer_graph(
         attachment_ids=attachment_ids,
         attachment_resolver=attachment_resolver,
     )
-    return graph.invoke(state, config=config)
+    with langfuse_agent_run(
+        business_trace_id=state["trace_id"],
+        session_key=state.get("session_key") or session_id,
+        tenant_id=state["tenant_id"],
+        execution_segment="initial",
+    ) as callbacks:
+        return graph.invoke(
+            state,
+            config=_config_with_callbacks(config, callbacks),
+        )
 
 
 def stream_question_answer_graph(
@@ -713,19 +722,25 @@ def stream_question_answer_graph(
         attachment_ids=attachment_ids,
         attachment_resolver=attachment_resolver,
     )
-    latest_state = state
-    for mode, update in graph.stream(
-        state,
-        config=config,
-        stream_mode=["updates", "messages", "custom"],
-    ):
-        if mode in {"messages", "custom"}:
-            yield AgentGraphStreamEvent(event=mode, data=update)
-            continue
-        next_state = _state_from_stream_update(update, fallback=latest_state)
-        if next_state is not None:
-            latest_state = next_state
-            yield latest_state
+    with langfuse_agent_run(
+        business_trace_id=state["trace_id"],
+        session_key=state.get("session_key") or session_id,
+        tenant_id=state["tenant_id"],
+        execution_segment="initial",
+    ) as callbacks:
+        latest_state = state
+        for mode, update in graph.stream(
+            state,
+            config=_config_with_callbacks(config, callbacks),
+            stream_mode=["updates", "messages", "custom"],
+        ):
+            if mode in {"messages", "custom"}:
+                yield AgentGraphStreamEvent(event=mode, data=update)
+                continue
+            next_state = _state_from_stream_update(update, fallback=latest_state)
+            if next_state is not None:
+                latest_state = next_state
+                yield latest_state
 
 
 def _prepare_question_answer_run(
@@ -819,6 +834,17 @@ def _checkpoint_config(state: AgentState | dict, *, enabled: bool) -> dict:
         "checkpoint_ns": "",
     }
     return config
+
+
+def _config_with_callbacks(
+    config: dict | None,
+    callbacks: tuple[Any, ...],
+) -> dict | None:
+    if not callbacks:
+        return config
+    merged = dict(config or {})
+    merged["callbacks"] = [*merged.get("callbacks", ()), *callbacks]
+    return merged
 
 
 def _state_from_stream_update(
@@ -916,7 +942,16 @@ def resume_question_answer_graph(
             code="tool_catalog_changed",
             http_status=409,
         )
-    return graph.invoke(Command(resume=approval_decision), config=config)
+    with langfuse_agent_run(
+        business_trace_id=snapshot.values["trace_id"],
+        session_key=snapshot.values["session_key"],
+        tenant_id=snapshot.values["tenant_id"],
+        execution_segment="resume",
+    ) as callbacks:
+        return graph.invoke(
+            Command(resume=approval_decision),
+            config=_config_with_callbacks(config, callbacks),
+        )
 
 
 def _find_interrupt_payload(snapshot: Any, *, interrupt_id: str) -> dict[str, Any] | None:
