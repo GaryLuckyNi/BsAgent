@@ -13,6 +13,19 @@ BsAgent 是面向 A 股公司投研场景的多 Agent 底座。系统以 LangGra
 
 ## 本地开发
 
+首次启动或 `backend/requirements.lock` 更新后，使用 Python 3.11 创建项目独立环境并同步锁定依赖：
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.lock
+```
+
+在 `.env.local` 中设置该解释器的绝对路径，避免污染或误用全局 Python 环境：
+
+```dotenv
+PYTHON=/你的仓库绝对路径/BsAgent/.venv/bin/python
+```
+
 顶层一键启动脚本会先通过 `compose.local-postgres.yml` 启动 PostgreSQL，等待健康检查通过，再执行业务迁移和启动各服务：
 
 ```bash
@@ -75,7 +88,7 @@ BS_AGENT_SKILL_REGISTRY_BASE_URL=http://127.0.0.1:8002
 
 Admin 后端启动前会自动执行 `alembic upgrade head`，用于修复本地配置库的历史 schema。Agent 不连接仓库内的示例 MCP Server。请在 Admin 的“市场数据源”页面保存并激活完整的 Tushare 官方 MCP URL；Agent 从 Admin 获取当前连接后，通过 Streamable HTTP 直接发现和调用工具。
 
-DeepSeek Key 仍通过启动 shell 注入：
+DeepSeek Key 可以通过启动 shell 注入：
 
 ```bash
 export BS_AGENT_DEEPSEEK_API_KEY=你的DeepSeekApiKey
@@ -88,6 +101,8 @@ npm run dev
 ```bash
 cp .env.example .env.local
 ```
+
+复制后至少填写 `BS_AGENT_DEEPSEEK_API_KEY`；启动后端时它是必需项。
 
 Langfuse Cloud 最小验证只需在 `.env.local` 中启用开关并填写 Cloud Japan 项目的 public/secret key。Japan endpoint、`local` environment 和 100% 本地采样均有安全默认值。完整操作与数据边界见 [Langfuse Cloud 观测说明](docs/langfuse-cloud-observability.md)。`.env.local` 已被 Git 忽略，不得提交真实密钥。
 

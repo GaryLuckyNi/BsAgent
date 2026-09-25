@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
+import { fileURLToPath } from 'node:url'
 
 import { loadLocalEnvironment } from './local-env.mjs'
+
+const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 
 const managedKeys = [
   'BS_AGENT_LANGFUSE_ENABLED',
@@ -64,4 +68,34 @@ test('does not override a value provided by the shell', () => {
       rmSync(directory, { recursive: true, force: true })
     }
   })
+})
+
+test('the local environment template includes the required backend key', () => {
+  const template = readFileSync(join(projectRoot, '.env.example'), 'utf8')
+
+  assert.match(template, /^BS_AGENT_DEEPSEEK_API_KEY=$/m)
+})
+
+test('a missing backend key points users to the local environment file', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'bs-agent-env-'))
+  const env = { ...process.env }
+  delete env.BS_AGENT_DEEPSEEK_API_KEY
+
+  try {
+    assert.throws(
+      () =>
+        execFileSync(
+          process.execPath,
+          [join(projectRoot, 'scripts/dev.mjs'), 'backend'],
+          { cwd: directory, env, encoding: 'utf8', stdio: 'pipe' }
+        ),
+      (error) => {
+        assert.match(error.stderr, /\.env\.local/)
+        assert.match(error.stderr, /BS_AGENT_DEEPSEEK_API_KEY=/)
+        return true
+      }
+    )
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })

@@ -375,17 +375,17 @@ function validateRequiredEnvironment(selectedServices) {
     return
   }
   console.error(`本地开发缺少必需环境变量：${missing.join('、')}`)
-  console.error('\n启动前请先执行：')
+  console.error('\n请在仓库根目录的 .env.local 中填写：')
   if (missing.includes('BS_AGENT_DEEPSEEK_API_KEY')) {
-    console.error('  export BS_AGENT_DEEPSEEK_API_KEY=你的DeepSeekApiKey')
+    console.error('  BS_AGENT_DEEPSEEK_API_KEY=你的DeepSeekApiKey')
   }
   if (missing.includes('TUSHARE_TOKEN')) {
-    console.error('  export TUSHARE_TOKEN=你的TushareToken')
+    console.error('  TUSHARE_TOKEN=你的TushareToken')
   }
   if (missing.includes('MCP_TUSHARE_ENABLED_API_NAMES')) {
-    console.error('  export MCP_TUSHARE_ENABLED_API_NAMES=stock_basic,daily,daily_basic')
+    console.error('  MCP_TUSHARE_ENABLED_API_NAMES=stock_basic,daily,daily_basic')
   }
-  console.error('  npm run dev')
+  console.error('\n然后重新执行当前启动命令。shell 中已 export 的变量仍会优先于文件。')
   console.error('\n如果只启动 Admin 或前端，可使用 npm run dev:admin 或 npm run dev:frontend。')
   process.exit(1)
 }
