@@ -1,5 +1,6 @@
 import json
 from collections.abc import AsyncIterator, Callable, Iterator
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -18,10 +19,18 @@ class LlmConfigurationError(RuntimeError):
 
 
 class LlmProviderError(RuntimeError):
-    def __init__(self, *, code: str, message: str, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        code: str,
+        message: str,
+        status_code: int | None = None,
+        timeout_phase: str | None = None,
+    ) -> None:
         self.code = code
         self.message = message
         self.status_code = status_code
+        self.timeout_phase = timeout_phase
         super().__init__(message)
 
 
@@ -120,6 +129,12 @@ class DeepSeekClient:
         if thinking is not None:
             payload["thinking"] = {"type": "enabled" if thinking else "disabled"}
 
+        generation_metadata = _generation_request_metadata(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            request_mode="non_streaming",
+            timeout_seconds=self._timeout_seconds,
+        )
         with langfuse_generation(
             name="deepseek.chat.completions",
             model=self._model,
@@ -128,6 +143,7 @@ class DeepSeekClient:
                 "max_tokens": max_tokens,
                 "thinking": bool(thinking),
             },
+            metadata=generation_metadata,
         ) as generation:
             try:
                 if self._http_client is not None:
@@ -145,10 +161,18 @@ class DeepSeekClient:
                 update_langfuse_generation(
                     generation,
                     level="ERROR",
-                    status_message=exc.code,
+                    status_message=_error_status_message(exc),
                 )
                 raise
-            _record_langfuse_usage(generation, result.usage)
+            _record_langfuse_result(
+                generation,
+                result=result,
+                metadata={
+                    **generation_metadata,
+                    "response_chars": len(result.content),
+                    "finish_reason": result.finish_reason,
+                },
+            )
             return result
 
     async def _complete_with_client(
@@ -170,7 +194,11 @@ class DeepSeekClient:
                 status_code=exc.response.status_code,
             ) from exc
         except httpx.TimeoutException as exc:
-            raise LlmProviderError(code="llm_timeout", message=str(exc)) from exc
+            raise LlmProviderError(
+                code="llm_timeout",
+                message=str(exc),
+                timeout_phase=_timeout_phase(exc),
+            ) from exc
         except httpx.HTTPError as exc:
             raise LlmProviderError(code="llm_unreachable", message=str(exc)) from exc
 
@@ -265,6 +293,12 @@ class DeepSeekClient:
         thinking: bool = True,
         on_delta: Callable[[LlmStreamDelta], None],
     ) -> LlmCompletionResult:
+        generation_metadata = _generation_request_metadata(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            request_mode="streaming",
+            timeout_seconds=self._timeout_seconds,
+        )
         with langfuse_generation(
             name="deepseek.chat.completions",
             model=self._model,
@@ -273,11 +307,13 @@ class DeepSeekClient:
                 "max_tokens": max_tokens,
                 "thinking": thinking,
             },
+            metadata=generation_metadata,
         ) as generation:
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
             finish_reason: str | None = None
             usage: dict[str, int] = {}
+            first_token_received = False
             try:
                 async for event in self.stream_complete_events(
                     system_prompt=system_prompt,
@@ -292,6 +328,17 @@ class DeepSeekClient:
                     if event.kind == "usage":
                         usage = event.usage
                         continue
+                    if not first_token_received and event.kind in {"content", "reasoning"}:
+                        first_token_received = True
+                        update_langfuse_generation(
+                            generation,
+                            completion_start_time=datetime.now(timezone.utc),
+                            metadata={
+                                **generation_metadata,
+                                "first_token_received": True,
+                                "first_token_kind": event.kind,
+                            },
+                        )
                     on_delta(event)
                     if event.kind == "content":
                         content_parts.append(event.delta)
@@ -301,7 +348,17 @@ class DeepSeekClient:
                 update_langfuse_generation(
                     generation,
                     level="ERROR",
-                    status_message=exc.code,
+                    status_message=_error_status_message(
+                        exc,
+                        first_token_received=first_token_received,
+                    ),
+                    metadata={
+                        **generation_metadata,
+                        "first_token_received": first_token_received,
+                        "content_chars": sum(len(part) for part in content_parts),
+                        "reasoning_chars": sum(len(part) for part in reasoning_parts),
+                        "timeout_phase": exc.timeout_phase,
+                    },
                 )
                 raise
             result = LlmCompletionResult(
@@ -312,7 +369,17 @@ class DeepSeekClient:
                 usage=usage,
                 finish_reason=finish_reason,
             )
-            _record_langfuse_usage(generation, usage)
+            _record_langfuse_result(
+                generation,
+                result=result,
+                metadata={
+                    **generation_metadata,
+                    "first_token_received": first_token_received,
+                    "content_chars": len(result.content),
+                    "reasoning_chars": len(result.reasoning_content),
+                    "finish_reason": finish_reason,
+                },
+            )
             return result
 
     async def _stream_events_with_client(
@@ -338,7 +405,11 @@ class DeepSeekClient:
                 status_code=exc.response.status_code,
             ) from exc
         except httpx.TimeoutException as exc:
-            raise LlmProviderError(code="llm_timeout", message=str(exc)) from exc
+            raise LlmProviderError(
+                code="llm_timeout",
+                message=str(exc),
+                timeout_phase=_timeout_phase(exc),
+            ) from exc
         except httpx.HTTPError as exc:
             raise LlmProviderError(code="llm_unreachable", message=str(exc)) from exc
 
@@ -385,13 +456,58 @@ def _parse_openai_stream_events(line: str) -> Iterator[LlmStreamDelta]:
     return
 
 
-def _record_langfuse_usage(generation: Any | None, usage: dict[str, Any]) -> None:
-    usage_details = _langfuse_usage_details(usage)
+def _generation_request_metadata(
+    *,
+    system_prompt: str,
+    user_prompt: str,
+    request_mode: str,
+    timeout_seconds: float,
+) -> dict[str, str | int | float]:
+    return {
+        "request_mode": request_mode,
+        "system_prompt_chars": len(system_prompt),
+        "user_prompt_chars": len(user_prompt),
+        "input_chars": len(system_prompt) + len(user_prompt),
+        "timeout_seconds": timeout_seconds,
+    }
+
+
+def _record_langfuse_result(
+    generation: Any | None,
+    *,
+    result: LlmCompletionResult,
+    metadata: dict[str, Any],
+) -> None:
+    attributes: dict[str, Any] = {"metadata": metadata}
+    usage_details = _langfuse_usage_details(result.usage)
     if usage_details:
-        update_langfuse_generation(
-            generation,
-            usage_details=usage_details,
-        )
+        attributes["usage_details"] = usage_details
+    update_langfuse_generation(generation, **attributes)
+
+
+def _timeout_phase(error: httpx.TimeoutException) -> str:
+    if isinstance(error, httpx.ConnectTimeout):
+        return "connect"
+    if isinstance(error, httpx.ReadTimeout):
+        return "read"
+    if isinstance(error, httpx.WriteTimeout):
+        return "write"
+    if isinstance(error, httpx.PoolTimeout):
+        return "pool"
+    return "unknown"
+
+
+def _error_status_message(
+    error: LlmProviderError,
+    *,
+    first_token_received: bool | None = None,
+) -> str:
+    parts = [error.code]
+    if error.timeout_phase:
+        parts.append(error.timeout_phase)
+    if first_token_received is not None:
+        parts.append("after_first_token" if first_token_received else "before_first_token")
+    return ":".join(parts)
 
 
 def _langfuse_usage_details(usage: dict[str, Any]) -> dict[str, int]:

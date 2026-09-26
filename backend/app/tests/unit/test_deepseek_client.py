@@ -1,6 +1,7 @@
 import asyncio
 import json
 from contextlib import contextmanager
+from datetime import datetime
 from typing import ClassVar
 
 import httpx
@@ -384,12 +385,30 @@ def test_direct_completion_records_only_model_parameters_and_usage(monkeypatch):
                 "max_tokens": 128,
                 "thinking": False,
             },
+            "metadata": {
+                "request_mode": "non_streaming",
+                "system_prompt_chars": 20,
+                "user_prompt_chars": 18,
+                "input_chars": 38,
+                "timeout_seconds": 30.0,
+            },
         }
     ]
     assert updates == [
         (
             generation,
-            {"usage_details": {"input": 12, "output": 7, "total": 19}},
+            {
+                "metadata": {
+                    "request_mode": "non_streaming",
+                    "system_prompt_chars": 20,
+                    "user_prompt_chars": 18,
+                    "input_chars": 38,
+                    "timeout_seconds": 30.0,
+                    "response_chars": 4,
+                    "finish_reason": None,
+                },
+                "usage_details": {"input": 12, "output": 7, "total": 19},
+            },
         )
     ]
     assert "secret" not in str(observations)
@@ -461,10 +480,86 @@ def test_streamed_completion_requests_and_records_usage_without_forwarding_it(
     assert [(delta.kind, delta.delta) for delta in deltas] == [
         ("content", "答案")
     ]
+    assert len(updates) == 2
+    assert updates[0][0] is generation
+    assert isinstance(updates[0][1]["completion_start_time"], datetime)
+    assert updates[0][1]["metadata"]["first_token_received"] is True
+    assert updates[0][1]["metadata"]["first_token_kind"] == "content"
+    assert updates[1] == (
+        generation,
+        {
+            "metadata": {
+                "request_mode": "streaming",
+                "system_prompt_chars": 6,
+                "user_prompt_chars": 4,
+                "input_chars": 10,
+                "timeout_seconds": 30.0,
+                "first_token_received": True,
+                "content_chars": 2,
+                "reasoning_chars": 0,
+                "finish_reason": "stop",
+            },
+            "usage_details": {"input": 8, "output": 2, "total": 10},
+        },
+    )
+
+
+def test_streamed_timeout_records_phase_and_whether_first_token_arrived(monkeypatch):
+    updates = []
+    generation = object()
+
+    @contextmanager
+    def observe_generation(**_kwargs):
+        yield generation
+
+    monkeypatch.setattr(deepseek_module, "langfuse_generation", observe_generation)
+    monkeypatch.setattr(
+        deepseek_module,
+        "update_langfuse_generation",
+        lambda target, **kwargs: updates.append((target, kwargs)),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("provider read stalled", request=request)
+
+    async def run_completion():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.deepseek.com",
+        ) as http_client:
+            return await DeepSeekClient(
+                api_key="test_key",
+                model="deepseek-v4-flash",
+                http_client=http_client,
+            ).complete_streamed(
+                system_prompt="system",
+                user_prompt="user",
+                on_delta=lambda _delta: None,
+            )
+
+    with pytest.raises(LlmProviderError) as exc_info:
+        asyncio.run(run_completion())
+
+    assert exc_info.value.code == "llm_timeout"
+    assert exc_info.value.timeout_phase == "read"
     assert updates == [
         (
             generation,
-            {"usage_details": {"input": 8, "output": 2, "total": 10}},
+            {
+                "level": "ERROR",
+                "status_message": "llm_timeout:read:before_first_token",
+                "metadata": {
+                    "request_mode": "streaming",
+                    "system_prompt_chars": 6,
+                    "user_prompt_chars": 4,
+                    "input_chars": 10,
+                    "timeout_seconds": 30.0,
+                    "first_token_received": False,
+                    "content_chars": 0,
+                    "reasoning_chars": 0,
+                    "timeout_phase": "read",
+                },
+            },
         )
     ]
 

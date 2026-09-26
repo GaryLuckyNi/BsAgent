@@ -225,6 +225,7 @@ def langfuse_generation(
     name: str,
     model: str,
     model_parameters: Mapping[str, str | int | float | bool | None],
+    metadata: Mapping[str, Any] | None = None,
 ) -> Iterator[Any | None]:
     runtime = _active_runtime
     if runtime is None:
@@ -236,6 +237,7 @@ def langfuse_generation(
             name=name,
             model=model,
             model_parameters=dict(model_parameters),
+            metadata=dict(metadata or {}),
         )
         generation = manager.__enter__()
     except Exception as exc:  # noqa: BLE001 - 观测故障不能中断业务执行

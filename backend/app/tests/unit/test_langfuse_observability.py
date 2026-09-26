@@ -135,12 +135,17 @@ def test_langfuse_generation_does_not_capture_io():
         name="deepseek.chat.completions",
         model="deepseek-v4-flash",
         model_parameters={"temperature": 0.0, "max_tokens": 256},
+        metadata={"request_mode": "streaming", "input_chars": 42},
     ) as generation:
         assert generation is not None
 
     observation = client.observations[0]
     assert observation["as_type"] == "generation"
     assert observation["model"] == "deepseek-v4-flash"
+    assert observation["metadata"] == {
+        "request_mode": "streaming",
+        "input_chars": 42,
+    }
     assert "input" not in observation
     assert "output" not in observation
     assert runtime is not None

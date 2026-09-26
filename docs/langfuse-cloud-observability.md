@@ -52,7 +52,7 @@ npm run dev:backend
 
 1. 一个 AgentRun 对应一个 `bs-agent.run` 根 observation。
 2. 根节点下能看到 LangGraph/LLM 子 observation。
-3. Generation 显示精确模型名、耗时以及 `input`、`output`、`total` Token。
+3. Generation 显示精确模型名、耗时、TTFT 以及 `input`、`output`、`total` Token；非流式调用通过 `request_mode` 明确标记，不伪造 TTFT。
 4. session ID 是 64 位摘要，不是原始 session key。
 5. 普通执行标记为 `execution_segment=initial`；审批恢复标记为 `execution_segment=resume`，并复用同一业务 trace ID 生成的确定性 Langfuse trace ID。
 6. 所有 observation 的 input/output 中都没有 prompt、用户问题、回答正文或 reasoning。
@@ -70,6 +70,7 @@ SDK 使用后台批处理。关闭应用时先执行 5 秒超时的 force flush�
 - `initial` 或 `resume` 执行段；
 - 模型名和非敏感模型参数，例如 temperature、max tokens、thinking 开关；
 - input/output/total Token、耗时、状态和稳定错误码；
+- 输入字符数、响应字符数、是否收到首 token、首 token 类型、finish reason 和超时阶段；
 - LangGraph 节点名和工具名。
 
 禁止上传的字段：
@@ -81,9 +82,25 @@ SDK 使用后台批处理。关闭应用时先执行 5 秒超时的 force flush�
 - 原始异常文本、请求头和响应体；
 - 原始 tenant ID、user ID 和 session key。
 
-项目使用 Langfuse 官方 `mask_otel_spans` 在导出前删除最终 span 中的 input、output、prompt、completion、message 和 reasoning 内容属性。直连 DeepSeek HTTP 的 Generation 从创建时就不设置 input/output，只写模型、参数和 usage。该双层约束用于防止官方 LangChain callback 或第三方 instrumentation 自动捕获正文。
+项目使用 Langfuse 官方 `mask_otel_spans` 在导出前删除最终 span 中的 input、output、prompt、completion、message 和 reasoning 内容属性。直连 DeepSeek HTTP 的 Generation 从创建时就不设置 input/output，只写模型、参数、usage 和非内容诊断计数。该双层约束用于防止官方 LangChain callback 或第三方 instrumentation 自动捕获正文。
 
-## 5. Token 与成本
+## 5. 长 Trace 定位
+
+点开耗时最长的 Generation 后，按以下字段判断瓶颈：
+
+| 字段 | 含义 |
+| --- | --- |
+| `timeToFirstToken` | 流式请求从开始到第一条 content/reasoning delta 的等待时间 |
+| `latency - timeToFirstToken` | 首 token 之后的生成和传输时间 |
+| `input_chars`、`usage.input` | 输入规模，用于判断上下文是否膨胀 |
+| `content_chars`、`reasoning_chars`、`usage.output` | 实际生成规模 |
+| `first_token_received` | 超时前是否已经开始生成 |
+| `timeout_phase` | HTTPX 的 `connect`、`read`、`write`、`pool` 或 `unknown` 阶段 |
+| `statusMessage` | 例如 `llm_timeout:read:before_first_token`，用于直接识别慢在首包还是流中断 |
+
+Graph 自动重试会产生多次同名 Generation；前面的 ERROR observation 是失败尝试，最后的成功 observation 是恢复后的尝试。所有诊断字段仅包含类型、计数和阶段，不包含 Prompt、回答或 reasoning 正文。
+
+## 6. Token 与成本
 
 直连 DeepSeek HTTP 返回的 OpenAI 兼容 usage 按以下规则上传：
 
@@ -97,7 +114,7 @@ SDK 使用后台批处理。关闭应用时先执行 5 秒超时的 force flush�
 
 如果 Generation 有 Token 但成本为空，在 Langfuse Project Settings > Models 中增加与运行时模型名完全匹配的模型定义，例如 `deepseek-v4-flash`，并配置 `input`、`output` 的价格。随后再发一条请求验证成本推断。
 
-## 6. 停用与排障
+## 7. 停用与排障
 
 停用只需修改并重启后端：
 
