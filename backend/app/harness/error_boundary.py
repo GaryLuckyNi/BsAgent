@@ -101,6 +101,12 @@ _RECOVERABLE_ERROR_DEFINITIONS: Mapping[str, RecoverableErrorDefinition] = {
         http_status=503,
         retryable=True,
     ),
+    "llm_timeout": RecoverableErrorDefinition(
+        code="llm_timeout",
+        message="模型响应超时，请稍后重试。",
+        http_status=504,
+        retryable=True,
+    ),
     "provider_rate_limited": RecoverableErrorDefinition(
         code="provider_rate_limited",
         message="市场数据服务访问频繁，请稍后重试。",

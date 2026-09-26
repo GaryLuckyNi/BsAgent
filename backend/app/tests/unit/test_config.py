@@ -16,6 +16,10 @@ def test_market_data_provider_refresh_defaults_to_thirty_seconds():
     assert Settings(_env_file=None).market_data_provider_refresh_seconds == 30
 
 
+def test_llm_timeout_defaults_to_sixty_seconds():
+    assert Settings(_env_file=None).llm_timeout_seconds == 60
+
+
 def test_orphaned_run_recovery_requires_explicit_local_opt_in():
     assert Settings(_env_file=None).recover_orphaned_runs_on_startup is False
     assert Settings(_env_file=None).prewarm_tool_catalog_on_startup is False

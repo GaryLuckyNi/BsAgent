@@ -11,10 +11,12 @@ BS_AGENT_LLM_PROVIDER=deepseek
 BS_AGENT_DEEPSEEK_API_KEY=...
 BS_AGENT_DEEPSEEK_BASE_URL=https://api.deepseek.com
 BS_AGENT_DEEPSEEK_MODEL=deepseek-v4-flash
-BS_AGENT_LLM_TIMEOUT_SECONDS=30
+BS_AGENT_LLM_TIMEOUT_SECONDS=60
 ```
 
 缺少有效 LLM 配置时显式失败，不允许以 `none` 或默认 RAG 路由静默降级。
+
+默认等待模型响应 60 秒，可通过 `BS_AGENT_LLM_TIMEOUT_SECONDS` 调整，取值需大于 0 且不超过 300 秒。模型响应超时会被归一化为可重试的 `llm_timeout`，并由现有错误边界返回安全提示，不自动重放模型请求。
 
 ## Graph 接入点
 

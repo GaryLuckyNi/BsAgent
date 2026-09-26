@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
-    llm_timeout_seconds: float = 30.0
+    llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
     web_search_enabled: bool = True
     web_search_provider: Literal["deepseek"] = "deepseek"
     web_search_timeout_seconds: float = Field(default=30.0, gt=0, le=120)

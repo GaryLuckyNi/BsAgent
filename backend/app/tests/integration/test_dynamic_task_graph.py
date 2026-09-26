@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 from app.graph.runtime import run_question_answer_graph
+from app.llm.deepseek import LlmProviderError
 from app.llm.schemas import LlmCompletionResult
 from app.schemas.tools import ToolCallResult
 from app.tools.base import Tool
@@ -347,6 +348,41 @@ def test_full_graph_executes_dynamic_analysis_task(business_intent_catalog):
     assert result["verification"]["verdict"] == "pass"
     assert "## 分析结论" in result["final_response"]["content"]
     assert "不构成投资建议" in result["final_response"]["content"]
+
+
+def test_planner_llm_timeout_returns_safe_retryable_response(business_intent_catalog):
+    class PlannerTimeoutLlm(WorkflowLlm):
+        async def complete(self, **kwargs):
+            if "投研任务 Planner" in kwargs["system_prompt"]:
+                raise LlmProviderError(
+                    code="llm_timeout",
+                    message="raw upstream timeout detail",
+                )
+            return await super().complete(**kwargs)
+
+    result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
+        session_id="session-timeout",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="春光集团怎么样",
+        skill_agent_node=lambda state: state,
+        tool_registry_factory=lambda: ToolRegistry().snapshot(),
+        llm_client=PlannerTimeoutLlm(),
+    )
+
+    assert result["errors"][-1] == {
+        "node": "planner_agent",
+        "message": "模型响应超时，请稍后重试。",
+        "code": "llm_timeout",
+        "http_status": 504,
+        "handled": True,
+        "retryable": True,
+    }
+    assert result["final_response"]["content"] == "模型响应超时，请稍后重试。"
+    assert result["final_response"]["response_type"] == "execution_error_response"
+    assert result["final_response"]["business_error_code"] == "llm_timeout"
+    assert "raw upstream timeout detail" not in repr(result)
 
 
 def test_full_graph_discovers_and_executes_dynamic_tool_task(
