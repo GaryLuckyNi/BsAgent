@@ -16,7 +16,9 @@ BS_AGENT_LLM_TIMEOUT_SECONDS=60
 
 缺少有效 LLM 配置时显式失败，不允许以 `none` 或默认 RAG 路由静默降级。
 
-默认等待模型响应 60 秒，可通过 `BS_AGENT_LLM_TIMEOUT_SECONDS` 调整，取值需大于 0 且不超过 300 秒。模型响应超时会被归一化为可重试的 `llm_timeout`，并由现有错误边界返回安全提示，不自动重放模型请求。
+默认等待模型响应 60 秒，可通过 `BS_AGENT_LLM_TIMEOUT_SECONDS` 调整，取值需大于 0 且不超过 300 秒。模型响应超时会被归一化为可重试的 `llm_timeout`；LLM Client 不自行重放请求，由 Graph 的统一重试策略负责，耗尽后由现有错误边界返回安全提示。
+
+Graph 通过 LangGraph `StateGraph.set_node_defaults(retry_policy=...)` 为节点统一配置可恢复错误重试，单次运行最多尝试 3 次。节点可通过 `add_node(..., retry_policy=...)` 覆盖默认值；`tool_agent` 显式禁用节点重放，避免外部工具已产生副作用但响应状态未知时重复执行。重试耗尽后才进入错误边界并生成安全失败响应。
 
 ## Graph 接入点
 

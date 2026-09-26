@@ -352,14 +352,18 @@ def test_full_graph_executes_dynamic_analysis_task(business_intent_catalog):
 
 def test_planner_llm_timeout_returns_safe_retryable_response(business_intent_catalog):
     class PlannerTimeoutLlm(WorkflowLlm):
+        planner_calls = 0
+
         async def complete(self, **kwargs):
             if "投研任务 Planner" in kwargs["system_prompt"]:
+                self.planner_calls += 1
                 raise LlmProviderError(
                     code="llm_timeout",
                     message="raw upstream timeout detail",
                 )
             return await super().complete(**kwargs)
 
+    llm = PlannerTimeoutLlm()
     result = run_question_answer_graph(
         business_intent_catalog=business_intent_catalog,
         session_id="session-timeout",
@@ -368,9 +372,10 @@ def test_planner_llm_timeout_returns_safe_retryable_response(business_intent_cat
         user_message="春光集团怎么样",
         skill_agent_node=lambda state: state,
         tool_registry_factory=lambda: ToolRegistry().snapshot(),
-        llm_client=PlannerTimeoutLlm(),
+        llm_client=llm,
     )
 
+    assert llm.planner_calls == 3
     assert result["errors"][-1] == {
         "node": "planner_agent",
         "message": "模型响应超时，请稍后重试。",
@@ -383,6 +388,79 @@ def test_planner_llm_timeout_returns_safe_retryable_response(business_intent_cat
     assert result["final_response"]["response_type"] == "execution_error_response"
     assert result["final_response"]["business_error_code"] == "llm_timeout"
     assert "raw upstream timeout detail" not in repr(result)
+
+
+def test_planner_retries_transient_llm_timeout_before_succeeding(business_intent_catalog):
+    class TransientPlannerTimeoutLlm(WorkflowLlm):
+        planner_calls = 0
+
+        async def complete(self, **kwargs):
+            if "投研任务 Planner" in kwargs["system_prompt"]:
+                self.planner_calls += 1
+                if self.planner_calls == 1:
+                    raise LlmProviderError(
+                        code="llm_timeout",
+                        message="transient upstream timeout",
+                    )
+            return await super().complete(**kwargs)
+
+    llm = TransientPlannerTimeoutLlm()
+    result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
+        session_id="session-transient-timeout",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="春光集团怎么样",
+        skill_agent_node=lambda state: state,
+        tool_agent_node=lambda state: {
+            "task_results": [
+                {
+                    "task_id": state["active_task"]["id"],
+                    "status": "success",
+                    "content": "当前没有外部经营数据，无法判断经营质量。",
+                }
+            ]
+        },
+        allow_test_tool_agent_override=True,
+        tool_registry_factory=lambda: ToolRegistry().snapshot(),
+        llm_client=llm,
+    )
+
+    assert llm.planner_calls == 2
+    assert result["errors"] == []
+    assert result["final_response"]["response_type"] == "research_answer"
+
+
+def test_tool_agent_overrides_global_retry_to_avoid_replaying_side_effects(
+    business_intent_catalog,
+):
+    class ToolTimeoutError(RuntimeError):
+        code = "mcp_tool_timeout"
+        http_status = 503
+
+    calls = 0
+
+    def timed_out_tool_agent(_state):
+        nonlocal calls
+        calls += 1
+        raise ToolTimeoutError("upstream result is unknown")
+
+    result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
+        session_id="session-tool-timeout",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析海能达的经营质量",
+        skill_agent_node=lambda state: state,
+        tool_agent_node=timed_out_tool_agent,
+        allow_test_tool_agent_override=True,
+        tool_registry_factory=lambda: ToolRegistry().snapshot(),
+        llm_client=WorkflowLlm(),
+    )
+
+    assert calls == 1
+    assert result["final_response"]["response_type"] == "execution_error_response"
+    assert result["final_response"]["business_error_code"] == "mcp_tool_timeout"
 
 
 def test_full_graph_discovers_and_executes_dynamic_tool_task(

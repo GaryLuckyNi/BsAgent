@@ -276,13 +276,6 @@ def _with_harness(
     return wrapped
 
 
-_OPERATIONAL_RETRY_NODE_NAMES = frozenset(
-    {
-        "attachment_analyzer",
-        "skill_agent",
-    }
-)
-
 _OPERATIONAL_RETRY_POLICY = RetryPolicy(
     initial_interval=0.2,
     backoff_factor=2.0,
@@ -292,9 +285,10 @@ _OPERATIONAL_RETRY_POLICY = RetryPolicy(
 )
 
 
-def _node_retry_policy(node_name: str) -> RetryPolicy | None:
-    if node_name in _OPERATIONAL_RETRY_NODE_NAMES:
-        return _OPERATIONAL_RETRY_POLICY
+def _node_retry_policy(node_name: str) -> tuple[RetryPolicy, ...] | None:
+    if node_name == "tool_agent":
+        # 工具调用可能已经在上游产生副作用，不能因响应超时而重放整个节点。
+        return ()
     return None
 
 
@@ -474,7 +468,9 @@ def build_question_answer_graph(
                 else None
             ),
         )
-    graph = StateGraph(AgentState)
+    graph = StateGraph(AgentState).set_node_defaults(
+        retry_policy=_OPERATIONAL_RETRY_POLICY,
+    )
     memory_recall_failure_trace = _memory_recall_failure_trace_callback(
         trace_buffer=trace_buffer,
         trace_store=trace_store,
