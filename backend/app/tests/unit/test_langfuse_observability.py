@@ -1,12 +1,16 @@
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+from app.operations import langfuse_observability
 from app.operations.langfuse_observability import (
+    LangfuseRunHandle,
     configure_langfuse,
     hash_langfuse_identifier,
     langfuse_agent_run,
     langfuse_generation,
+    langfuse_observation,
     mask_langfuse_otel_spans,
+    update_langfuse_generation,
 )
 from langfuse.types import (
     MaskOtelSpansParams,
@@ -20,8 +24,11 @@ def _config(**overrides):
         "langfuse_enabled": True,
         "langfuse_public_key": "pk-test",
         "langfuse_secret_key": "sk-test",
-        "langfuse_base_url": "https://jp.cloud.langfuse.com",
+        "langfuse_base_url": "https://cloud.langfuse.com",
         "langfuse_sample_rate": 1.0,
+        "langfuse_content_mode": "local_content",
+        "langfuse_capture_reasoning": False,
+        "langfuse_max_content_chars": 1000,
         "service_name": "bs-agent-service",
         "app_env": "test",
     }
@@ -55,15 +62,21 @@ class _Client:
 
     def start_as_current_observation(self, **kwargs):
         self.observations.append(kwargs)
+        observation_data = kwargs
 
         @contextmanager
-        def observation():
+        def observation_manager():
             try:
-                yield SimpleNamespace(update=lambda **_kwargs: None)
+                yield SimpleNamespace(
+                    id="observation-id",
+                    update=lambda **attributes: observation_data.setdefault(
+                        "updates", []
+                    ).append(attributes),
+                )
             finally:
                 self.observation_exit_calls += 1
 
-        return observation()
+        return observation_manager()
 
 
 def test_configure_langfuse_is_noop_when_disabled():
@@ -94,7 +107,7 @@ def test_configure_langfuse_passes_official_sdk_configuration():
     assert runtime is not None
     assert client_calls[0]["public_key"] == "pk-test"
     assert client_calls[0]["secret_key"] == "sk-test"
-    assert client_calls[0]["base_url"] == "https://jp.cloud.langfuse.com"
+    assert client_calls[0]["base_url"] == "https://cloud.langfuse.com"
     assert client_calls[0]["environment"] == "test"
     assert client_calls[0]["sample_rate"] == 1.0
     assert client_calls[0]["tracer_provider"] is provider
@@ -105,19 +118,22 @@ def test_configure_langfuse_passes_official_sdk_configuration():
         session_key="session-secret",
         tenant_id="tenant-secret",
         execution_segment="initial",
+        user_id="user-secret",
+        input={"prompt": "private prompt"},
     ) as callbacks:
         assert len(callbacks) == 1
+        assert callbacks.trace_id == "trace:business-trace"
+        assert callbacks.observation is not None
 
     assert handler_calls == [{"public_key": "pk-test"}]
-    assert client.observations[0]["trace_context"] == {
-        "trace_id": "trace:business-trace"
-    }
-    assert "input" not in client.observations[0]
-    assert "output" not in client.observations[0]
+    assert client.observations[0]["trace_context"] == {"trace_id": "trace:business-trace"}
+    assert client.observations[0]["input"] == {"prompt": "private prompt"}
+    assert client.observations[0]["as_type"] == "agent"
     assert client.observations[0]["metadata"] == {
         "business_trace_id": "business-trace",
         "execution_segment": "initial",
         "tenant_hash": hash_langfuse_identifier("tenant-secret"),
+        "content_policy_applied": True,
     }
     runtime.shutdown()
 
@@ -145,10 +161,165 @@ def test_langfuse_generation_does_not_capture_io():
     assert observation["metadata"] == {
         "request_mode": "streaming",
         "input_chars": 42,
+        "content_policy_applied": True,
     }
     assert "input" not in observation
     assert "output" not in observation
     assert runtime is not None
+    runtime.shutdown()
+
+
+def test_generation_sanitizes_prompt_and_answer_and_strips_reasoning():
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(),
+        client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+        handler_factory=lambda **_kwargs: object(),
+    )
+    with langfuse_generation(
+        name="generation",
+        model="deepseek",
+        model_parameters={},
+        system_prompt="system prompt",
+        user_prompt="user prompt",
+    ) as generation:
+        update_langfuse_generation(
+            generation,
+            output={"content": "answer", "reasoning_content": "private reasoning"}
+        )
+
+    assert client.observations[0]["input"] == {
+        "system_prompt": "system prompt",
+        "user_prompt": "user prompt",
+    }
+    assert client.observations[0]["updates"] == [
+        {
+            "output": {"content": "answer"},
+            "metadata": {"content_policy_applied": True},
+        }
+    ]
+    assert generation is not None
+    runtime.shutdown()
+
+
+def test_local_debug_content_policy_can_capture_reasoning():
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(
+            langfuse_content_mode="local_debug", langfuse_capture_reasoning=True
+        ),
+        client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+    )
+    with langfuse_generation(
+        name="generation",
+        model="deepseek",
+        model_parameters={},
+    ) as generation:
+        update_langfuse_generation(
+            generation,
+            output={"content": "answer", "reasoning_content": "reasoning"},
+        )
+    assert client.observations[0]["updates"] == [
+        {
+            "output": {"content": "answer", "reasoning_content": "reasoning"},
+            "metadata": {"content_policy_applied": True},
+        }
+    ]
+    runtime.shutdown()
+
+
+def test_langfuse_observation_sanitizes_input_and_isolates_failure():
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(),
+        client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+    )
+    with langfuse_observation(
+        as_type="tool", name="tool", input={"api_key": "secret", "value": "safe"}
+    ) as observation:
+        assert observation is not None
+    assert client.observations[0]["input"] == {"value": "safe"}
+    assert client.observations[0]["metadata"] == {"content_policy_applied": True}
+    runtime.shutdown()
+
+
+def test_observation_update_sanitizes_io_and_metadata_and_marks_policy():
+    assert hasattr(langfuse_observability, "update_langfuse_observation")
+    update_observation = langfuse_observability.update_langfuse_observation
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(),
+        client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+    )
+    with langfuse_observation(as_type="tool", name="tool") as observation:
+        update_observation(
+            observation,
+            input={"prompt": "send https://example.test/?token=secret"},
+            output={"api_key": "secret", "result": "done"},
+            metadata={"tool_result": "ordinary result", "auth": "Bearer secret"},
+            status_message="completed using Bearer secret",
+        )
+
+    assert client.observations[0]["updates"] == [
+        {
+            "input": {
+                "prompt": "send https://example.test/?token=[REDACTED]"
+            },
+            "output": {"result": "done"},
+            "metadata": {
+                "tool_result": "ordinary result",
+                "auth": "[REDACTED]",
+                "content_policy_applied": True,
+            },
+            "status_message": "completed using [REDACTED]",
+        }
+    ]
+    runtime.shutdown()
+
+
+def test_agent_run_propagates_only_hashed_identifiers_and_stable_trace_tag():
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(),
+        client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+        handler_factory=lambda **_kwargs: object(),
+    )
+    captured = {}
+
+    @contextmanager
+    def propagate(**kwargs):
+        captured.update(kwargs)
+        yield
+
+    runtime.propagate_factory = propagate
+    with langfuse_agent_run(
+        business_trace_id="business-trace",
+        session_key="session-secret",
+        tenant_id="tenant-secret",
+        user_id="user-secret",
+        execution_segment="resume",
+    ) as handle:
+        assert isinstance(handle, LangfuseRunHandle)
+        handle.update(output={"answer": "done", "api_key": "secret"})
+
+    assert captured["session_id"] == hash_langfuse_identifier("session-secret")
+    assert captured["user_id"] == hash_langfuse_identifier("user-secret")
+    assert captured["tags"] == [
+        f"business_trace_id:{hash_langfuse_identifier('business-trace')}"
+    ]
+    assert client.observations[0]["updates"] == [
+        {
+            "output": {"answer": "done"},
+            "metadata": {"content_policy_applied": True},
+        }
+    ]
+    assert "session-secret" not in str(captured)
+    assert "user-secret" not in str(captured)
     runtime.shutdown()
 
 
@@ -270,3 +441,130 @@ def test_mask_langfuse_otel_spans_removes_content_but_preserves_usage():
     assert "gen_ai.usage.input_tokens" not in patch.delete_attributes
     assert "gen_ai.usage.output_reasoning_tokens" not in patch.delete_attributes
     assert "gen_ai.response.model" not in patch.delete_attributes
+
+
+def test_mask_preserves_sanitized_langfuse_io_only_for_policy_managed_spans():
+    managed = OtelSpanIdentifier(trace_id="0" * 32, span_id="1" * 16)
+    unmanaged = OtelSpanIdentifier(trace_id="0" * 32, span_id="2" * 16)
+    attributes = {
+        "langfuse.observation.input": '{"prompt":"sanitized"}',
+        "langfuse.observation.output": '{"answer":"sanitized"}',
+        "langfuse.trace.input": '{"prompt":"sanitized"}',
+        "langfuse.trace.output": '{"answer":"sanitized"}',
+        "gen_ai.input.messages": '[{"content":"raw prompt"}]',
+        "gen_ai.output.messages": '[{"content":"raw answer"}]',
+        "langfuse.observation.metadata.arbitrary": "private metadata",
+    }
+    params = MaskOtelSpansParams(
+        spans={
+            managed: OtelSpanData(
+                trace_id=managed.trace_id,
+                span_id=managed.span_id,
+                parent_span_id=None,
+                name="managed",
+                instrumentation_scope_name="bs-agent",
+                instrumentation_scope_version=None,
+                attributes={
+                    **attributes,
+                    "langfuse.observation.metadata.content_policy_applied": True,
+                },
+                resource_attributes={},
+            ),
+            unmanaged: OtelSpanData(
+                trace_id=unmanaged.trace_id,
+                span_id=unmanaged.span_id,
+                parent_span_id=None,
+                name="callback",
+                instrumentation_scope_name="langchain",
+                instrumentation_scope_version=None,
+                attributes=attributes,
+                resource_attributes={},
+            ),
+        }
+    )
+
+    result = mask_langfuse_otel_spans(params=params)
+    managed_deleted = set(result.span_patches[managed].delete_attributes)
+    unmanaged_deleted = set(result.span_patches[unmanaged].delete_attributes)
+
+    assert not managed_deleted & {
+        "langfuse.observation.input",
+        "langfuse.observation.output",
+        "langfuse.trace.input",
+        "langfuse.trace.output",
+    }
+    assert {
+        "gen_ai.input.messages",
+        "gen_ai.output.messages",
+        "langfuse.observation.metadata.arbitrary",
+    } <= managed_deleted
+    assert {
+        "langfuse.observation.input",
+        "langfuse.observation.output",
+        "langfuse.trace.input",
+        "langfuse.trace.output",
+        "gen_ai.input.messages",
+        "gen_ai.output.messages",
+    } <= unmanaged_deleted
+
+
+def test_mask_blocks_trace_io_callback_metadata_and_raw_errors():
+    identifier = OtelSpanIdentifier(trace_id="0" * 32, span_id="1" * 16)
+    blocked = {
+        "langfuse.trace.input": "private prompt",
+        "langfuse.trace.output": "private answer",
+        "langfuse.observation.metadata.tool_result": '{"secret": "tool data"}',
+        "langfuse.observation.metadata.arbitrary": "private content",
+        "langfuse.trace.metadata": '{"prompt": "private prompt"}',
+        "langfuse.observation.status_message": "Error with private tool arguments",
+    }
+    allowed = {
+        "langfuse.observation.metadata.business_trace_id": "trace-smoke",
+        "langfuse.observation.metadata.execution_segment": "initial",
+        "langfuse.observation.metadata.reasoning_chars": 42,
+        "langfuse.observation.metadata.ttft_ms": 12.5,
+        "langfuse.observation.metadata.system_prompt_chars": 20,
+        "langfuse.observation.metadata.content_chars": 10,
+        "langfuse.observation.usage_details": '{"input":12,"output":8,"total":20}',
+        "langfuse.observation.model.name": "deepseek-v4-flash",
+    }
+    params = MaskOtelSpansParams(
+        spans={
+            identifier: OtelSpanData(
+                trace_id=identifier.trace_id,
+                span_id=identifier.span_id,
+                parent_span_id=None,
+                name="smoke",
+                instrumentation_scope_name="langfuse",
+                instrumentation_scope_version=None,
+                attributes={**blocked, **allowed},
+                resource_attributes={},
+            )
+        }
+    )
+    result = mask_langfuse_otel_spans(params=params)
+    deleted = set(result.span_patches[identifier].delete_attributes)
+    assert set(blocked) <= deleted
+    assert not set(allowed) & deleted
+
+
+def test_mask_preserves_only_stable_error_codes():
+    identifier = OtelSpanIdentifier(trace_id="0" * 32, span_id="1" * 16)
+    params = MaskOtelSpansParams(
+        spans={
+            identifier: OtelSpanData(
+                trace_id=identifier.trace_id,
+                span_id=identifier.span_id,
+                parent_span_id=None,
+                name="smoke",
+                instrumentation_scope_name="langfuse",
+                instrumentation_scope_version=None,
+                attributes={
+                    "langfuse.observation.status_message": "llm_timeout:read:before_first_token"
+                },
+                resource_attributes={},
+            )
+        }
+    )
+    result = mask_langfuse_otel_spans(params=params)
+    assert identifier not in result.span_patches

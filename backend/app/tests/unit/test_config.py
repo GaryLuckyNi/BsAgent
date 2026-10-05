@@ -1,7 +1,6 @@
 import pytest
-from pydantic import ValidationError
-
 from app.core.config import Settings
+from pydantic import ValidationError
 
 
 def test_approval_resume_claim_timeout_defaults_to_five_minutes():
@@ -279,13 +278,16 @@ def test_otel_requires_trace_endpoint_when_enabled():
     assert "otel_exporter_otlp_traces_endpoint" in str(exc_info.value)
 
 
-def test_langfuse_defaults_to_disabled_japan_cloud():
+def test_langfuse_defaults_to_local_content():
     runtime = Settings(_env_file=None)
 
     assert runtime.langfuse_enabled is False
     assert runtime.langfuse_public_key == ""
     assert runtime.langfuse_secret_key == ""
-    assert runtime.langfuse_base_url == "https://jp.cloud.langfuse.com"
+    assert runtime.langfuse_base_url == "http://localhost:3000"
+    assert runtime.langfuse_content_mode == "local_content"
+    assert runtime.langfuse_capture_reasoning is False
+    assert runtime.langfuse_max_content_chars == 20_000
     assert runtime.langfuse_sample_rate == 1.0
 
 
@@ -312,15 +314,92 @@ def test_langfuse_requires_both_keys_when_enabled(
     assert expected_field in str(exc_info.value)
 
 
-def test_langfuse_requires_https_base_url_when_enabled():
-    with pytest.raises(ValidationError, match="langfuse_base_url"):
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://cloud.langfuse.com",
+        "https://jp.cloud.langfuse.com",
+        "http://example.com:3000",
+        "ftp://localhost:3000",
+    ],
+)
+def test_langfuse_rejects_non_local_base_urls(url):
+    with pytest.raises(ValidationError, match="本地 Langfuse"):
         Settings(
             _env_file=None,
             langfuse_enabled=True,
             langfuse_public_key="pk-test",
             langfuse_secret_key="sk-test",
-            langfuse_base_url="http://jp.cloud.langfuse.com",
+            langfuse_base_url=url,
         )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://[::1]:3000",
+        "http://host.docker.internal:3000",
+        "http://langfuse-web:3000",
+    ],
+)
+def test_langfuse_accepts_local_base_urls(url):
+    Settings(
+        _env_file=None,
+        langfuse_enabled=True,
+        langfuse_public_key="pk-test",
+        langfuse_secret_key="sk-test",
+        langfuse_base_url=url,
+    )
+
+
+def test_local_debug_requires_reasoning_switch():
+    with pytest.raises(ValidationError, match="capture_reasoning"):
+        Settings(_env_file=None, langfuse_content_mode="local_debug")
+
+
+def test_local_debug_allows_reasoning_when_both_switches_are_enabled():
+    config = Settings(
+        _env_file=None,
+        langfuse_content_mode="local_debug",
+        langfuse_capture_reasoning=True,
+    )
+    assert config.langfuse_capture_reasoning is True
+
+
+def test_settings_env_file_ignores_unrelated_local_variables(tmp_path):
+    env_file = tmp_path / ".env.local"
+    env_file.write_text(
+        "PYTHON=/usr/bin/python3\nBS_AGENT_LANGFUSE_ENABLED=false\n",
+        encoding="utf-8",
+    )
+
+    config = Settings(_env_file=env_file)
+
+    assert config.langfuse_enabled is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("langfuse_max_content_chars", 999),
+        ("langfuse_max_content_chars", 200_001),
+        ("langfuse_deepseek_judge_timeout_seconds", 0),
+        ("langfuse_deepseek_judge_timeout_seconds", 121),
+        ("langfuse_answer_review_threshold", -0.01),
+        ("langfuse_answer_review_threshold", 1.01),
+        ("langfuse_selection_confidence_threshold", -0.01),
+        ("langfuse_selection_confidence_threshold", 1.01),
+        ("langfuse_annotation_sample_rate", -0.01),
+        ("langfuse_annotation_sample_rate", 1.01),
+        ("langfuse_annotation_retry_attempts", 0),
+        ("langfuse_annotation_retry_attempts", 6),
+    ],
+)
+def test_langfuse_policy_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
 
 
 @pytest.mark.parametrize("sample_rate", [-0.1, 1.1])

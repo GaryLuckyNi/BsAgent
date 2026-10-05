@@ -1,6 +1,8 @@
 import json
 from collections.abc import AsyncIterator, Callable, Iterator
-from datetime import datetime, timezone
+from contextvars import ContextVar
+from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any
 
 import httpx
@@ -11,6 +13,10 @@ from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
 from app.operations.langfuse_observability import (
     langfuse_generation,
     update_langfuse_generation,
+)
+
+_stream_response_model: ContextVar[str | None] = ContextVar(
+    "deepseek_stream_response_model", default=None
 )
 
 
@@ -144,6 +150,8 @@ class DeepSeekClient:
                 "thinking": bool(thinking),
             },
             metadata=generation_metadata,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
         ) as generation:
             try:
                 if self._http_client is not None:
@@ -220,7 +228,7 @@ class DeepSeekClient:
                 and isinstance(choice["message"].get("reasoning_content", ""), str)
                 else ""
             ),
-            model=self._model,
+            model=data.get("model") if isinstance(data.get("model"), str) else self._model,
             provider=self.provider,
             usage=data.get("usage", {}),
             finish_reason=choice.get("finish_reason"),
@@ -254,6 +262,7 @@ class DeepSeekClient:
         max_tokens: int = 256,
         thinking: bool | None = None,
     ) -> AsyncIterator[LlmStreamDelta]:
+        _stream_response_model.set(None)
         payload = {
             "model": self._model,
             "messages": [
@@ -308,12 +317,16 @@ class DeepSeekClient:
                 "thinking": thinking,
             },
             metadata=generation_metadata,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
         ) as generation:
+            stream_started = perf_counter()
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
             finish_reason: str | None = None
             usage: dict[str, int] = {}
             first_token_received = False
+            ttft_ms: float | None = None
             try:
                 async for event in self.stream_complete_events(
                     system_prompt=system_prompt,
@@ -330,13 +343,15 @@ class DeepSeekClient:
                         continue
                     if not first_token_received and event.kind in {"content", "reasoning"}:
                         first_token_received = True
+                        ttft_ms = round((perf_counter() - stream_started) * 1000, 3)
                         update_langfuse_generation(
                             generation,
-                            completion_start_time=datetime.now(timezone.utc),
+                            completion_start_time=datetime.now(UTC),
                             metadata={
                                 **generation_metadata,
                                 "first_token_received": True,
                                 "first_token_kind": event.kind,
+                                "ttft_ms": ttft_ms,
                             },
                         )
                     on_delta(event)
@@ -358,13 +373,14 @@ class DeepSeekClient:
                         "content_chars": sum(len(part) for part in content_parts),
                         "reasoning_chars": sum(len(part) for part in reasoning_parts),
                         "timeout_phase": exc.timeout_phase,
+                        **({"ttft_ms": ttft_ms} if ttft_ms is not None else {}),
                     },
                 )
                 raise
             result = LlmCompletionResult(
                 content="".join(content_parts),
                 reasoning_content="".join(reasoning_parts),
-                model=self._model,
+                model=_stream_response_model.get() or self._model,
                 provider=self.provider,
                 usage=usage,
                 finish_reason=finish_reason,
@@ -378,6 +394,7 @@ class DeepSeekClient:
                     "content_chars": len(result.content),
                     "reasoning_chars": len(result.reasoning_content),
                     "finish_reason": finish_reason,
+                    **({"ttft_ms": ttft_ms} if ttft_ms is not None else {}),
                 },
             )
             return result
@@ -396,6 +413,12 @@ class DeepSeekClient:
             ) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
+                    try:
+                        packet_model = json.loads(line.removeprefix("data:").strip()).get("model")
+                    except (TypeError, json.JSONDecodeError, AttributeError):
+                        packet_model = None
+                    if isinstance(packet_model, str):
+                        _stream_response_model.set(packet_model)
                     for event in _parse_openai_stream_events(line):
                         yield event
         except httpx.HTTPStatusError as exc:
@@ -430,7 +453,10 @@ def _parse_openai_stream_events(line: str) -> Iterator[LlmStreamDelta]:
             key: value
             for key, value in usage.items()
             if isinstance(key, str)
-            and isinstance(value, int)
+            and (
+                isinstance(value, int)
+                or (key.endswith("_cost") and isinstance(value, (int, float)))
+            )
             and not isinstance(value, bool)
         }
         if normalized_usage:
@@ -478,10 +504,18 @@ def _record_langfuse_result(
     result: LlmCompletionResult,
     metadata: dict[str, Any],
 ) -> None:
-    attributes: dict[str, Any] = {"metadata": metadata}
+    attributes: dict[str, Any] = {"metadata": metadata, "model": result.model}
+    attributes["output"] = {
+        "content": result.content,
+        "reasoning_content": result.reasoning_content,
+        "finish_reason": result.finish_reason,
+    }
     usage_details = _langfuse_usage_details(result.usage)
     if usage_details:
         attributes["usage_details"] = usage_details
+    cost_details = _langfuse_cost_details(result.usage)
+    if cost_details:
+        attributes["cost_details"] = cost_details
     update_langfuse_generation(generation, **attributes)
 
 
@@ -520,5 +554,21 @@ def _langfuse_usage_details(usage: dict[str, Any]) -> dict[str, int]:
         target: value
         for source, target in mapping.items()
         if isinstance((value := usage.get(source)), int)
+        and not isinstance(value, bool)
+    }
+
+
+def _langfuse_cost_details(usage: dict[str, Any]) -> dict[str, float]:
+    mapping = {
+        "input_cost": "input",
+        "prompt_cost": "input",
+        "output_cost": "output",
+        "completion_cost": "output",
+        "total_cost": "total",
+    }
+    return {
+        target: float(value)
+        for source, target in mapping.items()
+        if isinstance((value := usage.get(source)), (int, float))
         and not isinstance(value, bool)
     }

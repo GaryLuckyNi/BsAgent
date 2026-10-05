@@ -8,6 +8,7 @@ __pycache__/
 *.egg-info/
 build/
 data/
+langfuse-4.16.0/
 *.db
 *.sqlite
 *.sqlite-shm

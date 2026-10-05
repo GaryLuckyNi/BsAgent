@@ -1,16 +1,240 @@
+# ruff: noqa: RUF012
+
 import asyncio
+from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
-from jsonschema import Draft202012Validator as RealDraft202012Validator
-from pydantic import BaseModel, ValidationError, field_validator
-
-from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError
 from app.schemas.approvals import ApprovedToolCall
+from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError, ToolSpec
 from app.tools.agent import ToolAgentExecutor
 from app.tools.base import Tool
 from app.tools.execution_gateway import ToolExecutionContext
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolRegistry
+from jsonschema import Draft202012Validator as RealDraft202012Validator
+from langchain_core.messages import AIMessage
+from pydantic import BaseModel, ValidationError, field_validator
+
+
+def test_gateway_records_normalized_tool_observation_after_validation(monkeypatch):
+    from app.tools import execution_gateway as gateway_module
+
+    captured = {}
+
+    class Observation:
+        def update(self, **kwargs):
+            captured["output"] = kwargs
+
+    @contextmanager
+    def observation(**kwargs):
+        captured["input"] = kwargs
+        yield Observation()
+
+    monkeypatch.setattr(gateway_module, "langfuse_observation", observation)
+    result = asyncio.run(
+        _executor().execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证调用目的",
+            ),
+            trace_id="trace_1",
+            context=_context(),
+        )
+    )
+
+    assert captured["input"]["as_type"] == "tool"
+    assert captured["input"]["name"] == "echo"
+    assert captured["input"]["input"]["arguments"] == {"text": "hello"}
+    assert captured["input"]["input"]["purpose"] == "验证调用目的"
+    assert captured["output"]["output"]["status"] == "success"
+    assert captured["output"]["output"]["result"] == result.result
+    assert captured["output"]["metadata"]["content_policy_applied"] is True
+
+
+def test_gateway_observation_update_failure_does_not_repeat_side_effect(monkeypatch):
+    from app.tools import execution_gateway as gateway_module
+
+    calls = []
+
+    class CountingTool(EchoTool):
+        async def run(self, input_data: EchoInput) -> ToolCallResult:
+            calls.append(input_data.text)
+            return await super().run(input_data)
+
+    class Observation:
+        def update(self, **_kwargs):
+            raise RuntimeError("telemetry unavailable")
+
+    @contextmanager
+    def observation(**_kwargs):
+        yield Observation()
+
+    registry = ToolRegistry()
+    registry.register(CountingTool())
+    monkeypatch.setattr(gateway_module, "langfuse_observation", observation)
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="echo",
+                arguments={"text": "hello"},
+                purpose="验证观测故障隔离",
+            ),
+            trace_id="trace_1",
+            context=_context(),
+        )
+    )
+
+    assert result.status == "success"
+    assert result.result == {"text": "hello"}
+    assert calls == ["hello"]
+
+
+def test_gateway_cleans_tool_observation_output_with_content_policy(monkeypatch):
+    from app.operations import langfuse_observability
+    from app.operations.langfuse_content import LangfuseContentPolicy
+    from app.tools import execution_gateway as gateway_module
+
+    captured = {}
+
+    class SecretInput(BaseModel):
+        text: str
+
+    class SecretTool(Tool[SecretInput]):
+        name = "secret_echo"
+        version = "1.0.0"
+        input_model = SecretInput
+
+        async def run(self, input_data: SecretInput) -> ToolCallResult:
+            return ToolCallResult(
+                tool_call_id="secret-tool",
+                tool_name=self.name,
+                status="success",
+                result={"token": "secret-value", "text": "Bearer supersecret"},
+                trace_id="trace_secret",
+            )
+
+    class Observation:
+        def update(self, **kwargs):
+            captured.update(kwargs)
+
+    @contextmanager
+    def observation(**_kwargs):
+        yield Observation()
+
+    registry = ToolRegistry()
+    registry.register(SecretTool())
+    monkeypatch.setattr(gateway_module, "langfuse_observation", observation)
+    monkeypatch.setattr(
+        langfuse_observability,
+        "_active_runtime",
+        SimpleNamespace(content_policy=LangfuseContentPolicy()),
+    )
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="secret_echo",
+                arguments={"text": "safe"},
+                purpose="检查结果脱敏",
+            ),
+            trace_id="trace_secret",
+            context=_context(allowed_tools=["secret_echo"]),
+        )
+    )
+
+    assert result.status == "success"
+    assert result.result["token"] == "secret-value"
+    assert "token" not in captured["output"]["result"]
+    assert captured["output"]["result"]["text"] == "[REDACTED]"
+    assert captured["metadata"]["content_policy_applied"] is True
+
+
+def test_gateway_marks_rag_search_observation_as_retriever(monkeypatch):
+    from app.tools import execution_gateway as gateway_module
+
+    captured = {}
+
+    @contextmanager
+    def observation(**kwargs):
+        captured.update(kwargs)
+        yield None
+
+    class RagEchoTool(EchoTool):
+        name = "rag_search"
+
+    registry = ToolRegistry()
+    registry.register(RagEchoTool())
+    monkeypatch.setattr(gateway_module, "langfuse_observation", observation)
+    result = asyncio.run(
+        ToolAgentExecutor(registry=registry).execute(
+            ToolCallRequest(
+                tool_name="rag_search",
+                arguments={"text": "查找证据"},
+                purpose="检索知识库证据",
+            ),
+            trace_id="trace_rag",
+            context=_context(allowed_tools=["rag_search"]),
+        )
+    )
+
+    assert captured["as_type"] == "retriever"
+    assert result.status == "success"
+
+
+def test_tool_selection_emits_public_skill_selection_observation(monkeypatch):
+    from app.graph.nodes import tool_agent as node_module
+    from app.graph.planning.contracts import SubTaskModel
+    from app.tools.native_calls import NativeToolSelection
+
+    captured = {}
+    spec = ToolSpec(name="echo", version="1.0.0", description="echo")
+    selection = NativeToolSelection(message=AIMessage(content="", tool_calls=[]), selected_tool=spec)
+
+    class Observation:
+        id = "selection-observation-1"
+
+        def update(self, **kwargs):
+            captured["output"] = kwargs
+
+    @contextmanager
+    def observation(**kwargs):
+        captured["input"] = kwargs
+        yield Observation()
+
+    monkeypatch.setattr(node_module, "langfuse_observation", observation)
+    monkeypatch.setattr(node_module, "create_tool_call_message", lambda **_kwargs: selection)
+    resolution = SimpleNamespace(
+        candidates=(spec,),
+        hits=(SimpleNamespace(tool_name="echo", sources=("bm25",)),),
+        tool_choice="auto",
+        fallback_reason=None,
+    )
+
+    selection_trace = {}
+    result = node_module._generate_tool_selection(
+        llm_client=object(),
+        messages=[],
+        task=SubTaskModel(id="task_1", task_goal="查找资料"),
+        resolution=resolution,
+        selection_trace=selection_trace,
+    )
+
+    assert result is selection
+    assert captured["input"]["as_type"] == "span"
+    assert captured["input"]["name"] == "skill.selection"
+    assert captured["input"]["input"] == {"goal": "查找资料", "candidates": ["echo"]}
+    assert captured["output"]["output"] == {
+        "selected": "echo",
+        "fallback": None,
+        "candidate_source": [{"tool_name": "echo", "sources": ["bm25"]}],
+    }
+    assert captured["output"]["metadata"]["selection_status"] == "selected"
+    assert captured["output"]["metadata"]["content_policy_applied"] is True
+    assert selection_trace == {
+        "selection_observation_id": "selection-observation-1",
+        "selection_confidence": 0.75,
+    }
 
 
 class EchoInput(BaseModel):
@@ -31,6 +255,93 @@ class EchoTool(Tool[EchoInput]):
             latency_ms=1,
             trace_id="trace_tool",
         )
+
+
+def test_tool_agent_node_returns_selection_observation_state_for_finalizer(monkeypatch):
+    from app.graph.nodes import tool_agent as node_module
+    from app.graph.state import create_initial_state
+    from app.operations.langfuse_finalize import LangfuseRunFinalizer
+
+    class Observation:
+        id = "selection-observation-node"
+
+        def update(self, **_kwargs):
+            return None
+
+    @contextmanager
+    def observation(**_kwargs):
+        yield Observation()
+
+    class Client:
+        def bind_tools(self, *_args, **_kwargs):
+            return self
+
+        def invoke(self, _messages):
+            return AIMessage(
+                content="",
+                tool_calls=[{
+                    "id": "model-call",
+                    "name": "echo",
+                    "args": {"text": "hello"},
+                    "type": "tool_call",
+                }],
+            )
+
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    registry = registry.snapshot()
+    state = create_initial_state(
+        session_id="session-selection",
+        tenant_id="tenant-selection",
+        user_id="user-selection",
+        user_message="echo hello",
+        tool_catalog_digest=registry.catalog_digest,
+    )
+    state["active_task"] = {
+        "id": "echo_task",
+        "task_goal": "echo hello",
+        "depends_on": [],
+        "skill_name": None,
+        "tool_name": "echo",
+    }
+    monkeypatch.setattr(node_module, "langfuse_observation", observation)
+
+    update = node_module.build_tool_agent_node(
+        registry_factory=lambda: registry,
+        llm_client=Client(),
+    )(state)
+
+    assert update["selection_observation_id"] == "selection-observation-node"
+    assert update["selection_confidence"] == 0.5
+    assert update["tool_calls"][0].result.status == "success"
+
+    events = []
+    annotation = SimpleNamespace(
+        score_config_ids={},
+        enqueue=lambda queue, **kwargs: events.append(("queue", queue, kwargs)),
+    )
+    finalizer = LangfuseRunFinalizer(
+        client=SimpleNamespace(flush=lambda: None),
+        annotation_client=annotation,
+        score_config_ids={"selection_correctness": "cfg-selection"},
+        score_writer=lambda _client, **kwargs: events.append(("score", kwargs)),
+        review_policy=SimpleNamespace(
+            answer_reasons=lambda **_kwargs: (),
+            selection_reasons=lambda **_kwargs: ("sampled",),
+        ),
+        judge_enabled=False,
+    )
+    handle = SimpleNamespace(
+        trace_id="langfuse-trace-node",
+        update=lambda **_kwargs: None,
+    )
+    finalizer.finalize(handle, {**state, **update}, expected={"allowed_tools": ["echo"]})
+
+    selection_score = next(item[1] for item in events if item[0] == "score")
+    assert selection_score["observation_id"] == "selection-observation-node"
+    selection_queue = next(item for item in events if item[0] == "queue")
+    assert selection_queue[1] == "skill-tool-selection-review"
+    assert selection_queue[2]["object_id"] == "selection-observation-node"
 
 
 def _executor() -> ToolAgentExecutor:

@@ -32,6 +32,7 @@ def test_application_configures_and_closes_langfuse_once(
 
     calls = []
     langfuse_runtime = SimpleNamespace(
+        client=SimpleNamespace(flush=lambda: calls.append("flush")),
         shutdown=lambda: calls.append("shutdown")
     )
 
@@ -54,6 +55,7 @@ def test_application_configures_and_closes_langfuse_once(
             _env_file=None,
             app_env="test",
             langfuse_enabled=True,
+            langfuse_base_url="http://localhost:3000",
             langfuse_public_key="pk-test",
             langfuse_secret_key="sk-test",
         ),
@@ -64,7 +66,8 @@ def test_application_configures_and_closes_langfuse_once(
         assert client.get("/health/ready").status_code == 200
 
     assert calls == [
-        ("configure", "https://jp.cloud.langfuse.com"),
+        ("configure", "http://localhost:3000"),
         "shutdown",
     ]
+    assert app.state.langfuse_finalizer is not None
     assert app.state.readiness_service.check().components == {}

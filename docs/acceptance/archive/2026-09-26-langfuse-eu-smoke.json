@@ -1,0 +1,189 @@
+{
+  "region": "eu",
+  "business_trace_id": "trace_9c36c463086644c79a1d5e0bdcd912f5",
+  "trace_id": "ded57b0a1d77ec1892dc682efd8f3493",
+  "run_id": "run_fe2b263fba07f6155193cf8ed3442f21f6695271e48e6e6d800a895dde54",
+  "assertions": {
+    "agent_run_completed": true,
+    "single_agent_root": true,
+    "all_children_under_root": true,
+    "business_trace_id_matches": true,
+    "session_hashed": true,
+    "initial_segment": true,
+    "all_io_empty": true,
+    "private_values_absent": true,
+    "tool_probe_present": true,
+    "reasoning_generated_locally": true,
+    "usage_matches_provider": true,
+    "costs_positive": true,
+    "cost_matches_definition": true,
+    "model_matches": true,
+    "stream_ttft_present": true,
+    "generations_present": true
+  },
+  "observations": [
+    {
+      "id": "5042acb6be2be388",
+      "name": "deepseek.chat.completions",
+      "type": "GENERATION",
+      "parentObservationId": "3e13148e975aa386",
+      "model": "deepseek-v4-flash",
+      "usageDetails": {
+        "input": 75,
+        "output": 55,
+        "total": 130
+      },
+      "totalCost": 4.425e-05,
+      "latency": 0.897,
+      "timeToFirstToken": 0.72
+    },
+    {
+      "id": "f0aff517c5044b1e",
+      "name": "smoke_echo",
+      "type": "TOOL",
+      "parentObservationId": "3e13148e975aa386",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.002,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "3e13148e975aa386",
+      "name": "smoke.privacy_probe",
+      "type": "SPAN",
+      "parentObservationId": "771370b62594406c",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.91,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "089d569ac53a2d17",
+      "name": "final_response",
+      "type": "CHAIN",
+      "parentObservationId": "c27a9bd75b4c7e34",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.002,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "6e96b0645f0a090e",
+      "name": "approval_coordinator",
+      "type": "CHAIN",
+      "parentObservationId": "c27a9bd75b4c7e34",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.002,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "a403e446ddd54cbb",
+      "name": "verifier",
+      "type": "CHAIN",
+      "parentObservationId": "c27a9bd75b4c7e34",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.004,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "67a896bb0480c87e",
+      "name": "synthesizer",
+      "type": "CHAIN",
+      "parentObservationId": "c27a9bd75b4c7e34",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.002,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "f4a0682413b295a7",
+      "name": "_route_after_intent",
+      "type": "CHAIN",
+      "parentObservationId": "26bb0ab70c0485d5",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "92646afa6721cfab",
+      "name": "deepseek.chat.completions",
+      "type": "GENERATION",
+      "parentObservationId": "26bb0ab70c0485d5",
+      "model": "deepseek-v4-flash",
+      "usageDetails": {
+        "input": 223,
+        "output": 31,
+        "total": 254
+      },
+      "totalCost": 5.205e-05,
+      "latency": 0.693,
+      "timeToFirstToken": 0.54
+    },
+    {
+      "id": "26bb0ab70c0485d5",
+      "name": "intent_router",
+      "type": "CHAIN",
+      "parentObservationId": "c27a9bd75b4c7e34",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.696,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "b7534ce0900f0841",
+      "name": "attachment_analyzer",
+      "type": "CHAIN",
+      "parentObservationId": "c27a9bd75b4c7e34",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.001,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "d79a1a31ac477091",
+      "name": "catalog_guard",
+      "type": "CHAIN",
+      "parentObservationId": "c27a9bd75b4c7e34",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.001,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "c27a9bd75b4c7e34",
+      "name": "LangGraph",
+      "type": "CHAIN",
+      "parentObservationId": "771370b62594406c",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.711,
+      "timeToFirstToken": null
+    },
+    {
+      "id": "771370b62594406c",
+      "name": "bs-agent.run",
+      "type": "AGENT",
+      "parentObservationId": "dfbd22ad7360fd28",
+      "model": "",
+      "usageDetails": {},
+      "totalCost": null,
+      "latency": 0.713,
+      "timeToFirstToken": null
+    }
+  ],
+  "url": "https://cloud.langfuse.com/project/cmugaat1m02sgad0cutels028/traces/ded57b0a1d77ec1892dc682efd8f3493"
+}

@@ -4,6 +4,10 @@ from urllib.parse import urlparse
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_LANGFUSE_LOCAL_ALLOWED_HOSTS = frozenset(
+    {"localhost", "127.0.0.1", "::1", "host.docker.internal", "langfuse-web"}
+)
+
 
 class Settings(BaseSettings):
     service_name: str = "bs-agent-service"
@@ -111,8 +115,19 @@ class Settings(BaseSettings):
     langfuse_enabled: bool = False
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
-    langfuse_base_url: str = "https://jp.cloud.langfuse.com"
+    langfuse_base_url: str = "http://localhost:3000"
     langfuse_sample_rate: float = Field(default=1.0, ge=0, le=1)
+    langfuse_content_mode: Literal["local_content", "local_debug"] = "local_content"
+    langfuse_capture_reasoning: bool = False
+    langfuse_max_content_chars: int = Field(default=20_000, ge=1_000, le=200_000)
+    langfuse_evaluation_enabled: bool = True
+    langfuse_deepseek_judge_enabled: bool = True
+    langfuse_deepseek_judge_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    langfuse_annotation_enabled: bool = True
+    langfuse_answer_review_threshold: float = Field(default=0.7, ge=0, le=1)
+    langfuse_selection_confidence_threshold: float = Field(default=0.6, ge=0, le=1)
+    langfuse_annotation_sample_rate: float = Field(default=0.05, ge=0, le=1)
+    langfuse_annotation_retry_attempts: int = Field(default=3, ge=1, le=5)
     trace_backend: Literal["none", "memory", "database"] = "memory"
     trace_success_sample_ratio: float = Field(default=0.1, ge=0, le=1)
     trace_detailed_sample_ratio: float = Field(default=0.01, ge=0, le=1)
@@ -153,8 +168,18 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "启用 Langfuse 时必须配置 " + ", ".join(missing)
                 )
-            if urlparse(self.langfuse_base_url).scheme != "https":
-                raise ValueError("langfuse_base_url 必须使用 HTTPS")
+            parsed_url = urlparse(self.langfuse_base_url)
+            if (
+                parsed_url.scheme not in {"http", "https"}
+                or parsed_url.hostname not in _LANGFUSE_LOCAL_ALLOWED_HOSTS
+                or parsed_url.username is not None
+                or parsed_url.password is not None
+            ):
+                raise ValueError("启用 Langfuse 时必须使用本地 Langfuse 地址")
+        if self.langfuse_content_mode == "local_debug" and not self.langfuse_capture_reasoning:
+            raise ValueError(
+                "langfuse_content_mode=local_debug 必须同时启用 langfuse_capture_reasoning"
+            )
         if not _is_postgres_url(self.memory_store_postgres_url):
             raise ValueError("memory_store_postgres_url 必须是 PostgreSQL URL")
         if self.tool_search_top_k > self.tool_search_candidate_k:
@@ -251,7 +276,7 @@ class Settings(BaseSettings):
             raise ValueError(f"生产环境配置不完整或不安全: {fields}")
         return self
 
-    model_config = SettingsConfigDict(env_prefix="BS_AGENT_")
+    model_config = SettingsConfigDict(env_prefix="BS_AGENT_", extra="ignore")
 
 
 def _has_text(value: str | None) -> bool:
@@ -262,9 +287,7 @@ def _is_postgres_url(value: str | None) -> bool:
     if not _has_text(value):
         return False
     normalized = value.strip().lower()
-    return normalized.startswith("postgresql://") or normalized.startswith(
-        "postgres://"
-    )
+    return normalized.startswith(("postgresql://", "postgres://"))
 
 
 def _is_development_revision(value: str | None) -> bool:

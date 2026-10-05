@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.store.base import BaseStore
@@ -69,6 +69,24 @@ from app.tools.registry import ToolCatalogChangedError, ToolRegistry
 from app.tools.search import ToolSearchService
 
 _DEFAULT_TOOL_REGISTRY_FACTORY = get_default_tool_registry
+_active_langfuse_finalizer: Any | None = None
+
+
+def configure_langfuse_finalizer(finalizer: Any | None) -> None:
+    """Inject the application-scoped, best-effort run finalizer."""
+    global _active_langfuse_finalizer
+    _active_langfuse_finalizer = finalizer
+
+
+def _finalize_langfuse_run(handle: Any, state: Any) -> None:
+    finalizer = _active_langfuse_finalizer
+    if finalizer is None:
+        return
+    try:
+        finalizer.finalize(handle, state)
+    except Exception:  # noqa: BLE001 - telemetry must not alter business execution
+        # Telemetry is isolated from the business graph even for injected finalizers.
+        return
 
 
 class AgentGraphExecutionError(RuntimeError):
@@ -658,11 +676,23 @@ def run_question_answer_graph(
         session_key=state.get("session_key") or session_id,
         tenant_id=state["tenant_id"],
         execution_segment="initial",
+        user_id=user_id,
+        input=user_message,
     ) as callbacks:
-        return graph.invoke(
-            state,
-            config=_config_with_callbacks(config, callbacks),
-        )
+        try:
+            result = graph.invoke(
+                state,
+                config=_config_with_callbacks(config, callbacks),
+            )
+        except Exception:
+            _finalize_langfuse_run(callbacks, _langfuse_failure_snapshot(state))
+            raise
+        final_output = _langfuse_final_output(result)
+        if final_output is not None and _active_langfuse_finalizer is None:
+            callbacks.update(output=final_output)
+        if _has_terminal_run_state(result):
+            _finalize_langfuse_run(callbacks, result)
+        return result
 
 
 def stream_question_answer_graph(
@@ -723,20 +753,40 @@ def stream_question_answer_graph(
         session_key=state.get("session_key") or session_id,
         tenant_id=state["tenant_id"],
         execution_segment="initial",
+        user_id=user_id,
+        input=user_message,
     ) as callbacks:
         latest_state = state
-        for mode, update in graph.stream(
-            state,
-            config=_config_with_callbacks(config, callbacks),
-            stream_mode=["updates", "messages", "custom"],
+        state_emitted = False
+        finalized = False
+        try:
+            for mode, update in graph.stream(
+                state,
+                config=_config_with_callbacks(config, callbacks),
+                stream_mode=["updates", "messages", "custom"],
+            ):
+                if mode in {"messages", "custom"}:
+                    yield AgentGraphStreamEvent(event=mode, data=update)
+                    continue
+                next_state = _state_from_stream_update(update, fallback=latest_state)
+                if next_state is not None:
+                    latest_state = next_state
+                    state_emitted = True
+                    yield latest_state
+        except Exception:
+            _finalize_langfuse_run(callbacks, _langfuse_failure_snapshot(latest_state))
+            raise
+        if (
+            not finalized
+            and state_emitted
+            and not latest_state.get("__interrupt__")
+            and _has_terminal_run_state(latest_state)
         ):
-            if mode in {"messages", "custom"}:
-                yield AgentGraphStreamEvent(event=mode, data=update)
-                continue
-            next_state = _state_from_stream_update(update, fallback=latest_state)
-            if next_state is not None:
-                latest_state = next_state
-                yield latest_state
+            final_output = _langfuse_final_output(latest_state)
+            if final_output is not None and _active_langfuse_finalizer is None:
+                callbacks.update(output=final_output)
+            _finalize_langfuse_run(callbacks, latest_state)
+            finalized = True
 
 
 def _prepare_question_answer_run(
@@ -855,7 +905,7 @@ def _state_from_stream_update(
         return interrupted_state
     for node_update in update.values():
         if isinstance(node_update, dict) and "request_id" in node_update:
-            return node_update
+            return {**fallback, **node_update}
     return None
 
 
@@ -943,11 +993,81 @@ def resume_question_answer_graph(
         session_key=snapshot.values["session_key"],
         tenant_id=snapshot.values["tenant_id"],
         execution_segment="resume",
+        user_id=snapshot.values.get("user_id"),
+        input=_langfuse_root_input(snapshot.values),
     ) as callbacks:
-        return graph.invoke(
-            Command(resume=approval_decision),
-            config=_config_with_callbacks(config, callbacks),
-        )
+        try:
+            result = graph.invoke(
+                Command(resume=approval_decision),
+                config=_config_with_callbacks(config, callbacks),
+            )
+        except Exception:
+            _finalize_langfuse_run(
+                callbacks,
+                _langfuse_failure_snapshot(snapshot.values),
+            )
+            raise
+        final_output = _langfuse_final_output(result)
+        if final_output is not None and _active_langfuse_finalizer is None:
+            callbacks.update(output=final_output)
+        if _has_terminal_run_state(result):
+            _finalize_langfuse_run(callbacks, result)
+        return result
+
+
+def _langfuse_final_output(state: Any) -> Any:
+    if isinstance(state, dict):
+        final_response = state.get("final_response")
+        if final_response is not None:
+            return final_response
+        errors = state.get("errors")
+        if errors:
+            return {"errors": errors}
+    return None
+
+
+def _has_terminal_run_state(state: Any) -> bool:
+    return isinstance(state, dict) and (
+        state.get("final_response") is not None or bool(state.get("errors"))
+    )
+
+
+def _langfuse_failure_snapshot(state: Any) -> dict[str, Any]:
+    """Build a bounded failure record without copying exception text or private locals."""
+    source = state if isinstance(state, dict) else {}
+    allowed = (
+        "trace_id",
+        "request_id",
+        "user_message",
+        "messages",
+        "tool_calls",
+        "approval_requests",
+        "approved_tool_calls",
+        "approval_status",
+        "selection_observation_id",
+        "selection_confidence",
+    )
+    snapshot = {key: source[key] for key in allowed if key in source}
+    snapshot["errors"] = [
+        {
+            "node": "graph",
+            "code": "agent_graph_execution_failed",
+            "http_status": 500,
+            "handled": False,
+            "retryable": False,
+        }
+    ]
+    return snapshot
+
+
+def _langfuse_root_input(state: AgentState) -> Any:
+    messages = state.get("messages", [])
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return message.content
+        if isinstance(message, dict) and message.get("type") == "human":
+            return message.get("content")
+    return None
 
 
 def _find_interrupt_payload(snapshot: Any, *, interrupt_id: str) -> dict[str, Any] | None:

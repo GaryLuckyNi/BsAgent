@@ -2,7 +2,6 @@ from pathlib import Path
 
 import yaml
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -179,9 +178,15 @@ def test_python_images_install_reproducible_lock_files():
     assert "ocr-service/requirements.lock" in ocr_dockerfile
     assert "pip install --requirement requirements.lock" in ocr_dockerfile
     assert "pip check" in ocr_dockerfile
-    assert "langfuse==" in (
+    assert "langfuse==4.16.0" in (
         PROJECT_ROOT / "backend" / "requirements.lock"
     ).read_text(encoding="utf-8")
+    lock_text = (PROJECT_ROOT / "backend" / "requirements.lock").read_text(
+        encoding="utf-8"
+    )
+    assert "langchain==1.2.11" in lock_text
+    assert "langgraph==1.2.9" in lock_text
+    assert "langchain-mcp-adapters==0.3.2" in lock_text
 
 
 def test_backend_image_uses_lightweight_bm25_tool_search():

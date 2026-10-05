@@ -1,18 +1,24 @@
+# ruff: noqa: BLE001
+
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from time import perf_counter
+from typing import Any
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError, ToolSpec
+from app.operations.langfuse_observability import (
+    langfuse_observation,
+    update_langfuse_observation,
+)
 from app.schemas.approvals import ApprovedToolCall
+from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError, ToolSpec
 from app.tools.fingerprints import tool_call_fingerprint
-from app.tools.redaction import sanitize_untrusted_details
+from app.tools.redaction import redact_sensitive_data, sanitize_untrusted_details
 from app.tools.registry import ToolRegistry
-
 
 SAFE_TOOL_ERROR_MESSAGES = {
     "tool_execution_context_required": "缺少工具执行上下文。",
@@ -98,6 +104,7 @@ class ToolExecutionContext(BaseModel):
     tenant_id: str
     user_id: str
     session_id: str
+    business_trace_id: str | None = None
     allowed_tools: tuple[str, ...] = Field(default_factory=tuple)
     skill_name: str | None = None
     skill_allowed_tools: tuple[str, ...] | None = None
@@ -195,21 +202,60 @@ class ToolExecutionGateway:
                 start=start,
             )
 
+        observation_input = {
+            "arguments": redact_sensitive_data(
+                request.arguments,
+                schema=entry.spec.input_schema,
+            ),
+            "purpose": request.purpose,
+            "skill": context.skill_name,
+            "approval_required": request.approval_required or entry.spec.risk_level == "high",
+        }
+        observation_type = "retriever" if request.tool_name == "rag_search" else "tool"
+        with langfuse_observation(
+            as_type=observation_type,
+            name=request.tool_name,
+            input=observation_input,
+        ) as observation:
+            result = await self._execute_validated(
+                request=request,
+                trace_id=trace_id,
+                context=context,
+                entry=entry,
+                input_data=input_data,
+                start=start,
+            )
+            update_langfuse_observation(
+                observation,
+                output=result.model_dump(mode="json"),
+                metadata={
+                    "status": result.status,
+                    "error_code": result.error.code if result.error else None,
+                },
+            )
+            return result
+
+    async def _execute_validated(
+        self,
+        *,
+        request: ToolCallRequest,
+        trace_id: str,
+        context: ToolExecutionContext,
+        entry: Any,
+        input_data: Any,
+        start: float,
+    ) -> ToolCallResult:
         try:
-            if entry.execution_binding.provider != "local":
-                raw_result = await entry.executor.run(input_data)
+            contextual_runner = getattr(entry.executor, "run_with_context", None)
+            if callable(contextual_runner):
+                raw_result = await contextual_runner(input_data, context=context)
             else:
-                contextual_runner = getattr(entry.executor, "run_with_context", None)
-                if callable(contextual_runner):
-                    raw_result = await contextual_runner(input_data, context=context)
-                else:
-                    raw_result = await entry.executor.run(input_data)
+                raw_result = await entry.executor.run(input_data)
         except Exception as exc:
-            code = _exception_error_code(exc)
             return self._failure(
                 request,
                 trace_id=trace_id,
-                code=code,
+                code=_exception_error_code(exc),
                 start=start,
             )
 
@@ -223,7 +269,6 @@ class ToolExecutionGateway:
                 start=start,
             )
 
-        tool_spec = entry.spec
         if result.status != "success":
             return normalize_failed_tool_result(
                 result,
@@ -240,12 +285,11 @@ class ToolExecutionGateway:
                 "trace_id": trace_id,
             }
         )
-        if not tool_spec.output_schema:
+        if not entry.spec.output_schema:
             return result
-
         try:
-            validator = Draft202012Validator(tool_spec.output_schema)
-            validator.check_schema(tool_spec.output_schema)
+            validator = Draft202012Validator(entry.spec.output_schema)
+            validator.check_schema(entry.spec.output_schema)
         except Exception:
             return self._failure(
                 request,
@@ -255,13 +299,6 @@ class ToolExecutionGateway:
             )
         try:
             validator.validate(result.result)
-        except JsonSchemaValidationError:
-            return self._failure(
-                request,
-                trace_id=trace_id,
-                code="tool_output_validation_failed",
-                start=start,
-            )
         except Exception:
             return self._failure(
                 request,
@@ -326,8 +363,7 @@ def _policy_error(
         )
     call_hash = tool_call_fingerprint(request)
     approval_granted = any(
-        approval.call_id == request.call_id
-        and approval.arguments_hash == call_hash
+        approval.call_id == request.call_id and approval.arguments_hash == call_hash
         for approval in context.approved_tool_calls
     )
     if approval_required and not approval_granted:
@@ -348,9 +384,7 @@ def normalize_failed_tool_result(
     if result.status == "success":
         return result
     original_error = result.error
-    code = _safe_error_code(
-        original_error.code if original_error else "tool_execution_failed"
-    )
+    code = _safe_error_code(original_error.code if original_error else "tool_execution_failed")
     return ToolCallResult(
         tool_call_id=f"tool_{uuid4().hex}",
         tool_name=request.tool_name,
@@ -360,9 +394,7 @@ def normalize_failed_tool_result(
             code=code,
             message=_safe_error_message(code),
             details=sanitize_untrusted_details(
-                original_error.details
-                if original_error and code != "tool_execution_failed"
-                else {}
+                original_error.details if original_error and code != "tool_execution_failed" else {}
             ),
             retryable=original_error.retryable if original_error else False,
         ),

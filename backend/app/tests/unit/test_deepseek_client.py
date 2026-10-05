@@ -2,12 +2,14 @@ import asyncio
 import json
 from contextlib import contextmanager
 from datetime import datetime
+from types import SimpleNamespace
 from typing import ClassVar
 
 import httpx
 import pytest
 from app.llm import deepseek as deepseek_module
 from app.llm.deepseek import DeepSeekClient, LlmConfigurationError, LlmProviderError
+from app.operations.langfuse_observability import configure_langfuse
 
 
 def test_deepseek_client_sends_openai_compatible_chat_completion_request():
@@ -27,6 +29,7 @@ def test_deepseek_client_sends_openai_compatible_chat_completion_request():
                         }
                     }
                 ],
+                "model": "deepseek-v4-flash-actual",
                 "usage": {
                     "prompt_tokens": 3,
                     "completion_tokens": 1,
@@ -55,7 +58,7 @@ def test_deepseek_client_sends_openai_compatible_chat_completion_request():
     result = asyncio.run(run_completion())
 
     assert result.content == "pong"
-    assert result.model == "deepseek-v4-flash"
+    assert result.model == "deepseek-v4-flash-actual"
     assert result.usage == {
         "prompt_tokens": 3,
         "completion_tokens": 1,
@@ -73,6 +76,100 @@ def test_deepseek_client_requires_api_key():
         DeepSeekClient(api_key="", model="deepseek-v4-flash")
 
     assert "api key" in str(exc_info.value).lower()
+
+
+@pytest.mark.parametrize(
+    ("mode", "capture_reasoning", "expected_reasoning"),
+    [
+        ("local_content", False, False),
+        ("local_debug", True, True),
+    ],
+)
+def test_deepseek_langfuse_output_obeys_content_policy(
+    mode, capture_reasoning, expected_reasoning
+):
+    observations = []
+
+    class Provider:
+        def force_flush(self, **_kwargs):
+            pass
+
+        def shutdown(self):
+            pass
+
+    class Client:
+        def start_as_current_observation(self, **kwargs):
+            observation = {**kwargs, "updates": []}
+            observations.append(observation)
+
+            @contextmanager
+            def manager():
+                yield SimpleNamespace(
+                    update=lambda **attributes: observation["updates"].append(
+                        attributes
+                    )
+                )
+
+            return manager()
+
+        def shutdown(self):
+            pass
+
+    runtime = configure_langfuse(
+        config=SimpleNamespace(
+            langfuse_enabled=True,
+            langfuse_public_key="pk-test",
+            langfuse_secret_key="sk-test",
+            langfuse_base_url="https://langfuse.test",
+            langfuse_sample_rate=1.0,
+            langfuse_content_mode=mode,
+            langfuse_capture_reasoning=capture_reasoning,
+            langfuse_max_content_chars=1000,
+            service_name="test",
+            app_env="test",
+        ),
+        client_factory=lambda **_kwargs: Client(),
+        provider_factory=lambda **_kwargs: Provider(),
+        handler_factory=lambda **_kwargs: object(),
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": "answer",
+                            "reasoning_content": "private reasoning",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {},
+            },
+        )
+
+    async def complete():
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler),
+            base_url="https://api.deepseek.com",
+        ) as http_client:
+            return await DeepSeekClient(
+                api_key="test_key",
+                model="deepseek-v4-flash",
+                http_client=http_client,
+            ).complete(system_prompt="system", user_prompt="user")
+
+    try:
+        asyncio.run(complete())
+        output = observations[0]["updates"][-1]["output"]
+        assert output["content"] == "answer"
+        assert ("reasoning_content" in output) is expected_reasoning
+        assert observations[0]["metadata"]["content_policy_applied"] is True
+    finally:
+        if runtime is not None:
+            runtime.shutdown()
 
 
 def test_deepseek_tool_calling_explicitly_disables_thinking(monkeypatch):
@@ -392,6 +489,8 @@ def test_direct_completion_records_only_model_parameters_and_usage(monkeypatch):
                 "input_chars": 38,
                 "timeout_seconds": 30.0,
             },
+            "system_prompt": "secret system prompt",
+            "user_prompt": "secret user prompt",
         }
     ]
     assert updates == [
@@ -407,11 +506,16 @@ def test_direct_completion_records_only_model_parameters_and_usage(monkeypatch):
                     "response_chars": 4,
                     "finish_reason": None,
                 },
+                "model": "deepseek-v4-flash",
+                "output": {
+                    "content": "pong",
+                    "reasoning_content": "",
+                    "finish_reason": None,
+                },
                 "usage_details": {"input": 12, "output": 7, "total": 19},
             },
         )
     ]
-    assert "secret" not in str(observations)
     assert "secret" not in str(updates)
 
 
@@ -442,7 +546,7 @@ def test_streamed_completion_requests_and_records_usage_without_forwarding_it(
     def handler(request: httpx.Request) -> httpx.Response:
         captured["payload"] = json.loads(request.read())
         body = (
-            'data: {"choices":[{"delta":{"content":"答案"},"finish_reason":"stop"}]}\n\n'
+            'data: {"model":"deepseek-v4-flash-actual","choices":[{"delta":{"content":"答案"},"finish_reason":"stop"}]}\n\n'
             'data: {"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":2,"total_tokens":10}}\n\n'
             "data: [DONE]\n\n"
         )
@@ -477,6 +581,7 @@ def test_streamed_completion_requests_and_records_usage_without_forwarding_it(
         "completion_tokens": 2,
         "total_tokens": 10,
     }
+    assert result.model == "deepseek-v4-flash-actual"
     assert [(delta.kind, delta.delta) for delta in deltas] == [
         ("content", "答案")
     ]
@@ -485,9 +590,8 @@ def test_streamed_completion_requests_and_records_usage_without_forwarding_it(
     assert isinstance(updates[0][1]["completion_start_time"], datetime)
     assert updates[0][1]["metadata"]["first_token_received"] is True
     assert updates[0][1]["metadata"]["first_token_kind"] == "content"
-    assert updates[1] == (
-        generation,
-        {
+    assert updates[1][0] is generation
+    assert updates[1][1] == {
             "metadata": {
                 "request_mode": "streaming",
                 "system_prompt_chars": 6,
@@ -498,10 +602,17 @@ def test_streamed_completion_requests_and_records_usage_without_forwarding_it(
                 "content_chars": 2,
                 "reasoning_chars": 0,
                 "finish_reason": "stop",
+                "ttft_ms": updates[1][1]["metadata"]["ttft_ms"],
+            },
+            "model": "deepseek-v4-flash-actual",
+            "output": {
+                "content": "答案",
+                "reasoning_content": "",
+                "finish_reason": "stop",
             },
             "usage_details": {"input": 8, "output": 2, "total": 10},
-        },
-    )
+        }
+    assert updates[1][1]["metadata"]["ttft_ms"] >= 0
 
 
 def test_streamed_timeout_records_phase_and_whether_first_token_arrived(monkeypatch):

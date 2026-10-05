@@ -104,7 +104,7 @@ cp .env.example .env.local
 
 复制后至少填写 `BS_AGENT_DEEPSEEK_API_KEY`；启动后端时它是必需项。
 
-Langfuse Cloud 最小验证只需在 `.env.local` 中启用开关并填写 Cloud Japan 项目的 public/secret key。Japan endpoint、`local` environment 和 100% 本地采样均有安全默认值。完整操作与数据边界见 [Langfuse Cloud 观测说明](docs/langfuse-cloud-observability.md)。`.env.local` 已被 Git 忽略，不得提交真实密钥。
+本地观测使用 Langfuse 4.16.0，endpoint 为 `http://localhost:3000`，Python SDK 为 4.16.0。请在 `.env.local` 中启用开关并配置本地项目 public/secret key；该文件已被 Git 忽略，不得提交真实密钥。启动、Trace 内容边界与验收流程见 [Langfuse 本地观测说明](docs/langfuse-local-observability.md)。Agent/RAG 使用、七类 Score、规则与 DeepSeek evaluator、双人工复核队列及 Prompt/Dataset/Experiment 优化闭环见 [Langfuse 使用与优化指南](docs/langfuse-usage-and-optimization.md)。
 
 `BS_AGENT_MCP_SERVER_URL` 只用于额外的通用 Agent MCP Server，默认不配置，也不会作为 Tushare 的备用地址。`npm run dev:mcp` 仅用于单独启动仓库内的学习示例，不在 `npm run dev` 或 `npm run dev:backend` 的依赖链中；只有运行该学习示例时才需要 `TUSHARE_TOKEN`。
 

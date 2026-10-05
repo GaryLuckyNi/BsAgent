@@ -6,18 +6,22 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 
-from app.tools.call_budget import SearchCallBudget
-from app.graph.planning.policy import MAX_WEB_SEARCH_TASKS
 from app.graph.planning.context import task_evidence, user_materials
 from app.graph.planning.contracts import (
     MAX_TASK_RESULT_CONTENT_CHARS,
     SubTaskModel,
     TaskResultModel,
 )
+from app.graph.planning.policy import MAX_WEB_SEARCH_TASKS
 from app.graph.state import AgentState
 from app.llm.factory import ToolCallingLlmClient
+from app.operations.langfuse_observability import (
+    langfuse_observation,
+    update_langfuse_observation,
+)
 from app.schemas.approvals import PendingToolApproval
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError, ToolSpec
+from app.tools.call_budget import SearchCallBudget
 from app.tools.candidate_resolver import ToolCandidateResolution, ToolCandidateResolver
 from app.tools.default_registry import get_default_tool_registry
 from app.tools.execution_gateway import (
@@ -39,7 +43,6 @@ from app.tools.redaction import (
     reject_server_injected_arguments,
 )
 from app.tools.registry import ToolCatalogChangedError, ToolRegistry
-
 
 BUSINESS_FAILURE_CODES = {
     "invalid_field_request",
@@ -71,6 +74,7 @@ def build_tool_agent_node(
         _validate_tool_catalog(state, registry)
         staged = _staged_request(state, task)
         discovery_update: dict[str, Any] = {}
+        selection_update: dict[str, Any] = {}
 
         if staged is not None:
             request = staged
@@ -100,9 +104,10 @@ def build_tool_agent_node(
                     messages=_tool_call_messages(state, task),
                     task=task,
                     resolution=resolution,
+                    selection_trace=selection_update,
                 )
                 if isinstance(generated, dict):
-                    return {**discovery_update, **generated}
+                    return {**discovery_update, **selection_update, **generated}
                 selection = generated
 
             if selection.selected_tool is None:
@@ -121,6 +126,7 @@ def build_tool_agent_node(
                 )
                 return {
                     **discovery_update,
+                    **selection_update,
                     "messages": [selection.message],
                     "task_results": [result.model_dump(mode="python")],
                 }
@@ -132,7 +138,7 @@ def build_tool_agent_node(
                 selection=selection,
             )
             if isinstance(selection, dict):
-                return {**discovery_update, **selection}
+                return {**discovery_update, **selection_update, **selection}
             tool_spec = selection.selected_tool
             assert tool_spec is not None
             request, trusted_message = _trusted_request(
@@ -147,6 +153,7 @@ def build_tool_agent_node(
         if _requires_approval(tool_spec) and not _is_approved(state, request):
             return {
                 **discovery_update,
+                **selection_update,
                 "messages": new_messages,
                 "tool_calls": [record],
                 "pending_tool_approval": _pending_approval(task, request, tool_spec),
@@ -195,6 +202,7 @@ def build_tool_agent_node(
         )
         return {
             **discovery_update,
+            **selection_update,
             "messages": [*new_messages, tool_message],
             "tool_calls": [record],
             "task_results": [task_result.model_dump(mode="python")],
@@ -263,6 +271,93 @@ def _discovery_update(
 
 
 def _generate_tool_selection(
+    *,
+    llm_client: ToolCallingLlmClient,
+    messages: list[AnyMessage],
+    task: SubTaskModel,
+    resolution: ToolCandidateResolution,
+    selection_trace: dict[str, Any] | None = None,
+) -> NativeToolSelection | dict[str, Any]:
+    with langfuse_observation(
+        as_type="span",
+        name="skill.selection",
+        input={
+            "goal": task.task_goal,
+            "candidates": [spec.name for spec in resolution.candidates],
+        },
+    ) as observation:
+        result = _generate_tool_selection_attempts(
+            llm_client=llm_client,
+            messages=messages,
+            task=task,
+            resolution=resolution,
+        )
+        if observation is not None:
+            selected = (
+                result.selected_tool.name
+                if isinstance(result, NativeToolSelection) and result.selected_tool
+                else None
+            )
+            fallback = resolution.fallback_reason
+            if selected is None and isinstance(result, dict):
+                task_results = result.get("task_results", [])
+                fallback = next(
+                    (
+                        item.get("error_code")
+                        for item in task_results
+                        if isinstance(item, dict) and item.get("error_code")
+                    ),
+                    fallback,
+                )
+            update_langfuse_observation(
+                observation,
+                output={
+                    "selected": selected,
+                    "fallback": fallback if selected is None else None,
+                    "candidate_source": [
+                        {"tool_name": hit.tool_name, "sources": list(hit.sources)}
+                        for hit in resolution.hits
+                    ],
+                },
+                metadata={
+                    "selection_status": "selected" if selected is not None else "fallback",
+                    "selection_confidence": _selection_confidence(selected, resolution),
+                },
+            )
+            if selection_trace is not None:
+                observation_id = getattr(observation, "id", None)
+                if isinstance(observation_id, str) and observation_id:
+                    selection_trace["selection_observation_id"] = observation_id
+                    selection_trace["selection_confidence"] = _selection_confidence(
+                        selected, resolution
+                    )
+        return result
+
+
+def _selection_confidence(
+    selected_tool: str | None,
+    resolution: ToolCandidateResolution,
+) -> float:
+    """Return a deterministic confidence for review routing.
+
+    Exact catalog matches are 1.0, qualified BM25 matches are 0.75, selected
+    fallback/platform candidates are 0.5, and no selection is 0.0.
+    """
+    if selected_tool is None:
+        return 0.0
+    hit = next(
+        (item for item in resolution.hits if item.tool_name == selected_tool),
+        None,
+    )
+    sources = set(getattr(hit, "sources", ())) if hit is not None else set()
+    if "exact" in sources:
+        return 1.0
+    if "bm25" in sources:
+        return 0.75
+    return 0.5
+
+
+def _generate_tool_selection_attempts(
     *,
     llm_client: ToolCallingLlmClient,
     messages: list[AnyMessage],
@@ -474,6 +569,7 @@ def _execution_context(state, task, request):
         tenant_id=state["tenant_id"],
         user_id=state["user_id"],
         session_id=state["session_id"],
+        business_trace_id=state["trace_id"],
         allowed_tools=(request.tool_name,),
         permission_scopes=tuple(state["permission_scopes"]),
         approved_tool_calls=tuple(state["approved_tool_calls"]),
