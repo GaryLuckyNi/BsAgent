@@ -59,6 +59,9 @@ def test_local_dev_starts_and_stops_langfuse_with_backend():
     assert "LANGFUSE_INIT_PROJECT_SECRET_KEY" in dev_script
     assert "BS_AGENT_LANGFUSE_ENABLED" in dev_script
     assert "stopLocalLangfuse" in dev_script
+    assert "isLangfuseRegistryNetworkFailure" in dev_script
+    assert "BS_AGENT_DEV_LANGFUSE_REQUIRED" in dev_script
+    assert "process.env.BS_AGENT_LANGFUSE_ENABLED = 'false'" in dev_script
 
 
 def test_api_waits_for_migrations_and_healthy_stateful_dependencies():

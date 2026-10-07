@@ -36,6 +36,8 @@ docker compose --project-directory langfuse -f langfuse/compose.yaml up -d --wai
 
 日常本地开发可直接使用 `npm run dev`：启动器会自动执行上述初始化和 Compose 启动，再将生成的本地项目 key 注入 Backend 进程。`npm run dev:stop` 会停止 Langfuse 容器并保留数据卷。
 
+当启动器确认 Docker 镜像仓库发生 EOF、DNS 或 TLS 超时时，默认会继续启动其他服务，并仅在本次 Backend 进程中设置 `BS_AGENT_LANGFUSE_ENABLED=false`。配置错误、鉴权错误和端口冲突仍会终止启动。如需任何 Langfuse 失败都终止开发环境，设置 `BS_AGENT_DEV_LANGFUSE_REQUIRED=true`。
+
 打开 `http://localhost:3000`。启动 Agent 后端并发起合成或经授权的本地请求：
 
 ```bash

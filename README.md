@@ -107,6 +107,8 @@ cp .env.example .env.local
 
 本地观测使用 Langfuse 4.16.0，endpoint 为 `http://localhost:3000`，Python SDK 为 4.16.0。`npm run dev` 会自动初始化 `langfuse/.env`、启动 Langfuse Compose，并将本地项目 key 安全注入 Backend 进程；Shell 或 `.env.local` 中的显式配置优先。密钥文件已被 Git 忽略，不得提交。启动、Trace 内容边界与验收流程见 [Langfuse 本地观测说明](docs/langfuse-local-observability.md)。Agent/RAG 使用、七类 Score、规则与 DeepSeek evaluator、双人工复核队列及 Prompt/Dataset/Experiment 优化闭环见 [Langfuse 使用与优化指南](docs/langfuse-usage-and-optimization.md)。
 
+如首次启动时 Docker 镜像仓库暂时不可达，启动器会明确提示并继续启动其他开发服务，本次 Backend 禁用 Langfuse 上报。网络恢复后再次执行 `npm run dev` 即会补启 Langfuse。需要 Langfuse 未就绪时直接终止所有启动，可设置 `BS_AGENT_DEV_LANGFUSE_REQUIRED=true`。
+
 `BS_AGENT_MCP_SERVER_URL` 只用于额外的通用 Agent MCP Server，默认不配置，也不会作为 Tushare 的备用地址。`npm run dev:mcp` 仅用于单独启动仓库内的学习示例，不在 `npm run dev` 或 `npm run dev:backend` 的依赖链中；只有运行该学习示例时才需要 `TUSHARE_TOKEN`。
 
 Tushare MCP URL 中包含 MCP Key。Admin 的公开列表和详情接口只返回脱敏地址，完整地址仅通过内部控制面接口提供给 Agent。部署时应限制 Admin Backend 的网络访问范围，不要把内部接口直接暴露到公网。

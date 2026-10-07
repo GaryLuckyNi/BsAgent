@@ -1,9 +1,13 @@
 import net from 'node:net'
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import process from 'node:process'
 import { promisify } from 'node:util'
 
+import {
+  isLangfuseRegistryNetworkFailure,
+  parseEnvironmentFile
+} from './langfuse-dev.mjs'
 import { loadLocalEnvironment } from './local-env.mjs'
 
 loadLocalEnvironment()
@@ -266,9 +270,13 @@ if (checkOnly) {
   process.exit(0)
 }
 
-await runStartupTasks(selectedServices)
+const startupFailures = await runStartupTasks(selectedServices)
 
-if (!configureLangfuseBackendEnvironment(selectedServices)) {
+if (
+  !configureLangfuseBackendEnvironment(selectedServices, {
+    available: !startupFailures.has('langfuse')
+  })
+) {
   process.exit(1)
 }
 
@@ -419,11 +427,19 @@ async function stopLocalLangfuse({ dryRun }) {
   }
 }
 
-function configureLangfuseBackendEnvironment(selectedServices) {
+function configureLangfuseBackendEnvironment(
+  selectedServices,
+  { available = true } = {}
+) {
   const needsBackend = selectedServices.some(
     (service) => service.label === 'backend'
   )
   if (!needsBackend) {
+    return true
+  }
+  if (!available) {
+    process.env.BS_AGENT_LANGFUSE_ENABLED = 'false'
+    console.warn('[langfuse] Backend 将在本次开发会话中禁用 Langfuse 上报')
     return true
   }
   if (!existsSync(langfuseEnvFile)) {
@@ -448,18 +464,6 @@ function configureLangfuseBackendEnvironment(selectedServices) {
   setEnvironmentDefault('BS_AGENT_LANGFUSE_PUBLIC_KEY', publicKey)
   setEnvironmentDefault('BS_AGENT_LANGFUSE_SECRET_KEY', secretKey)
   return true
-}
-
-function parseEnvironmentFile(path) {
-  const values = {}
-  for (const rawLine of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const line = rawLine.trim()
-    if (!line || line.startsWith('#')) continue
-    const separator = line.indexOf('=')
-    if (separator <= 0) continue
-    values[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
-  }
-  return values
 }
 
 function setEnvironmentDefault(name, value) {
@@ -502,6 +506,7 @@ function validateRequiredEnvironment(selectedServices) {
 
 async function runStartupTasks(selectedServices) {
   const tasks = selectedServices.flatMap((service) => service.startupTasks ?? [])
+  const failedOptionalTasks = new Set()
   for (const task of tasks) {
     console.log(`[${task.label}] 执行: ${task.command} ${task.args.join(' ')}`)
     try {
@@ -526,9 +531,30 @@ async function runStartupTasks(selectedServices) {
         console.error(`[${task.label}] ${error.stderr.trim()}`)
       }
       console.error(`[${task.label}] 启动前置任务失败。`)
+      if (
+        task.label === 'langfuse' &&
+        !environmentFlagEnabled('BS_AGENT_DEV_LANGFUSE_REQUIRED') &&
+        isLangfuseRegistryNetworkFailure(error)
+      ) {
+        failedOptionalTasks.add(task.label)
+        console.warn(
+          '[langfuse] 镜像仓库网络不可用，将继续启动其他开发服务。'
+        )
+        console.warn(
+          '[langfuse] 网络恢复后重新运行 npm run dev；如需严格启动，设置 BS_AGENT_DEV_LANGFUSE_REQUIRED=true。'
+        )
+        continue
+      }
       process.exit(1)
     }
   }
+  return failedOptionalTasks
+}
+
+function environmentFlagEnabled(name) {
+  return ['1', 'true', 'yes', 'on'].includes(
+    process.env[name]?.trim().toLowerCase()
+  )
 }
 
 async function listenPids(port) {
@@ -622,6 +648,7 @@ BsAgent 本地开发启动器
   BS_AGENT_LANGFUSE_BASE_URL
   BS_AGENT_LANGFUSE_PUBLIC_KEY
   BS_AGENT_LANGFUSE_SECRET_KEY
+  BS_AGENT_DEV_LANGFUSE_REQUIRED    设为 true 时 Langfuse 启动失败会终止 dev
 
 启动器会自动设置:
   BS_AGENT_DATABASE_URL=postgresql+psycopg://...@127.0.0.1:55432/bs_agent
