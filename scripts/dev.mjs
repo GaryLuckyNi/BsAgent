@@ -1,5 +1,6 @@
 import net from 'node:net'
 import { execFile, spawn } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import process from 'node:process'
 import { promisify } from 'node:util'
 
@@ -11,6 +12,8 @@ const execFileAsync = promisify(execFile)
 const python = process.env.PYTHON || '/opt/anaconda3/bin/python3'
 const host = process.env.BS_AGENT_DEV_HOST || '0.0.0.0'
 const localPostgresComposeFile = 'compose.local-postgres.yml'
+const langfuseComposeFile = 'langfuse/compose.yaml'
+const langfuseEnvFile = 'langfuse/.env'
 const localPostgresUrl =
   'postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent'
 const backendDatabaseUrl =
@@ -63,6 +66,27 @@ const services = {
     },
     port: ports.backend,
     startupTasks: [
+      {
+        label: 'langfuse-init',
+        command: python,
+        args: ['langfuse/init.py'],
+        cwd: '.'
+      },
+      {
+        label: 'langfuse',
+        command: 'docker',
+        args: [
+          'compose',
+          '--env-file',
+          langfuseEnvFile,
+          '-f',
+          langfuseComposeFile,
+          'up',
+          '-d',
+          '--wait'
+        ],
+        cwd: '.'
+      },
       {
         label: 'local-postgres',
         command: 'docker',
@@ -211,7 +235,9 @@ if (stopOnly) {
     exitCode === 0 &&
     selectedServices.some((service) => service.label === 'backend')
   ) {
-    exitCode = await stopLocalPostgres({ dryRun })
+    const postgresExitCode = await stopLocalPostgres({ dryRun })
+    const langfuseExitCode = await stopLocalLangfuse({ dryRun })
+    exitCode = Math.max(postgresExitCode, langfuseExitCode)
   }
   process.exit(exitCode)
 }
@@ -241,6 +267,10 @@ if (checkOnly) {
 }
 
 await runStartupTasks(selectedServices)
+
+if (!configureLangfuseBackendEnvironment(selectedServices)) {
+  process.exit(1)
+}
 
 const children = selectedServices.map((service) => startService(service))
 
@@ -355,6 +385,86 @@ async function stopLocalPostgres({ dryRun }) {
   } catch (error) {
     console.error(`[local-postgres] 停止失败: ${error.message}`)
     return 1
+  }
+}
+
+async function stopLocalLangfuse({ dryRun }) {
+  if (dryRun) {
+    console.log(`[langfuse] 将停止 ${langfuseComposeFile} 中的本地服务`)
+    return 0
+  }
+  if (!existsSync(langfuseEnvFile)) {
+    console.log(`[langfuse] 未找到 ${langfuseEnvFile}，无需停止`)
+    return 0
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync('docker', [
+      'compose',
+      '--env-file',
+      langfuseEnvFile,
+      '-f',
+      langfuseComposeFile,
+      'stop'
+    ])
+    if (stdout.trim()) {
+      console.log(`[langfuse] ${stdout.trim()}`)
+    }
+    if (stderr.trim()) {
+      console.log(`[langfuse] ${stderr.trim()}`)
+    }
+    return 0
+  } catch (error) {
+    console.error(`[langfuse] 停止失败: ${error.message}`)
+    return 1
+  }
+}
+
+function configureLangfuseBackendEnvironment(selectedServices) {
+  const needsBackend = selectedServices.some(
+    (service) => service.label === 'backend'
+  )
+  if (!needsBackend) {
+    return true
+  }
+  if (!existsSync(langfuseEnvFile)) {
+    console.error(`[langfuse] 未找到 ${langfuseEnvFile}，无法为 Backend 配置本地观测`)
+    return false
+  }
+
+  const values = parseEnvironmentFile(langfuseEnvFile)
+  const publicKey =
+    process.env.BS_AGENT_LANGFUSE_PUBLIC_KEY?.trim() ||
+    values.LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+  const secretKey =
+    process.env.BS_AGENT_LANGFUSE_SECRET_KEY?.trim() ||
+    values.LANGFUSE_INIT_PROJECT_SECRET_KEY
+  if (!publicKey || !secretKey) {
+    console.error('[langfuse] 本地项目 key 不完整，请重新执行 python langfuse/init.py')
+    return false
+  }
+
+  setEnvironmentDefault('BS_AGENT_LANGFUSE_ENABLED', 'true')
+  setEnvironmentDefault('BS_AGENT_LANGFUSE_BASE_URL', 'http://localhost:3000')
+  setEnvironmentDefault('BS_AGENT_LANGFUSE_PUBLIC_KEY', publicKey)
+  setEnvironmentDefault('BS_AGENT_LANGFUSE_SECRET_KEY', secretKey)
+  return true
+}
+
+function parseEnvironmentFile(path) {
+  const values = {}
+  for (const rawLine of readFileSync(path, 'utf8').split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const separator = line.indexOf('=')
+    if (separator <= 0) continue
+    values[line.slice(0, separator).trim()] = line.slice(separator + 1).trim()
+  }
+  return values
+}
+
+function setEnvironmentDefault(name, value) {
+  if (!process.env[name]?.trim()) {
+    process.env[name] = value
   }
 }
 
@@ -491,6 +601,7 @@ BsAgent 本地开发启动器
   frontend        http://127.0.0.1:${ports.frontend}
   admin-backend   http://127.0.0.1:${ports['admin-backend']}
   admin-frontend  http://127.0.0.1:${ports['admin-frontend']}
+  langfuse        http://127.0.0.1:3000
 
 环境变量:
   PYTHON          Python 解释器路径，默认 /opt/anaconda3/bin/python3
@@ -507,6 +618,10 @@ BsAgent 本地开发启动器
   BS_AGENT_DATABASE_URL
   BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL
   BS_AGENT_MEMORY_STORE_POSTGRES_URL
+  BS_AGENT_LANGFUSE_ENABLED
+  BS_AGENT_LANGFUSE_BASE_URL
+  BS_AGENT_LANGFUSE_PUBLIC_KEY
+  BS_AGENT_LANGFUSE_SECRET_KEY
 
 启动器会自动设置:
   BS_AGENT_DATABASE_URL=postgresql+psycopg://...@127.0.0.1:55432/bs_agent
@@ -515,6 +630,9 @@ BsAgent 本地开发启动器
   BS_AGENT_ADMIN_BASE_URL=http://127.0.0.1:<admin-backend-port>
   BS_AGENT_SKILL_REGISTRY_BASE_URL=http://127.0.0.1:<admin-backend-port>
   BS_AGENT_MCP_SERVER_NAME=agent-mcp
+  BS_AGENT_LANGFUSE_ENABLED=true
+  BS_AGENT_LANGFUSE_BASE_URL=http://localhost:3000
+  BS_AGENT_LANGFUSE_PUBLIC_KEY/SECRET_KEY=来自 langfuse/.env（不输出密钥）
 
 Tushare MCP 完整地址请在 Admin 的“市场数据源”页面配置。
 `)

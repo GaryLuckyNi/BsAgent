@@ -34,6 +34,7 @@ npm run dev
 
 该命令会同时启动：
 
+- Langfuse 4.16.0：`http://127.0.0.1:3000`
 - Agent 后端：`http://127.0.0.1:8000`
 - Agent 前端：`http://127.0.0.1:5175`
 - Admin 后端：`http://127.0.0.1:8002`
@@ -67,7 +68,7 @@ npm run dev:stop:dry-run
 npm run dev:stop
 ```
 
-`dev:stop:dry-run` 只显示将要关闭的监听进程和本地 PostgreSQL；`dev:stop` 会向默认开发端口对应的进程发送 `SIGTERM`，并停止本项目的 PostgreSQL 容器。如启动时通过环境变量改过端口，关闭时也需要带上同样的端口变量。
+`dev:stop:dry-run` 只显示将要关闭的监听进程、本地 PostgreSQL 和 Langfuse；`dev:stop` 会向默认开发端口对应的进程发送 `SIGTERM`，并停止本项目的 PostgreSQL 与 Langfuse 容器。容器数据卷会保留。如启动时通过环境变量改过端口，关闭时也需要带上同样的端口变量。
 
 本地 Backend 默认显式注入三类 PostgreSQL DSN：
 
@@ -104,7 +105,7 @@ cp .env.example .env.local
 
 复制后至少填写 `BS_AGENT_DEEPSEEK_API_KEY`；启动后端时它是必需项。
 
-本地观测使用 Langfuse 4.16.0，endpoint 为 `http://localhost:3000`，Python SDK 为 4.16.0。请在 `.env.local` 中启用开关并配置本地项目 public/secret key；该文件已被 Git 忽略，不得提交真实密钥。启动、Trace 内容边界与验收流程见 [Langfuse 本地观测说明](docs/langfuse-local-observability.md)。Agent/RAG 使用、七类 Score、规则与 DeepSeek evaluator、双人工复核队列及 Prompt/Dataset/Experiment 优化闭环见 [Langfuse 使用与优化指南](docs/langfuse-usage-and-optimization.md)。
+本地观测使用 Langfuse 4.16.0，endpoint 为 `http://localhost:3000`，Python SDK 为 4.16.0。`npm run dev` 会自动初始化 `langfuse/.env`、启动 Langfuse Compose，并将本地项目 key 安全注入 Backend 进程；Shell 或 `.env.local` 中的显式配置优先。密钥文件已被 Git 忽略，不得提交。启动、Trace 内容边界与验收流程见 [Langfuse 本地观测说明](docs/langfuse-local-observability.md)。Agent/RAG 使用、七类 Score、规则与 DeepSeek evaluator、双人工复核队列及 Prompt/Dataset/Experiment 优化闭环见 [Langfuse 使用与优化指南](docs/langfuse-usage-and-optimization.md)。
 
 `BS_AGENT_MCP_SERVER_URL` 只用于额外的通用 Agent MCP Server，默认不配置，也不会作为 Tushare 的备用地址。`npm run dev:mcp` 仅用于单独启动仓库内的学习示例，不在 `npm run dev` 或 `npm run dev:backend` 的依赖链中；只有运行该学习示例时才需要 `TUSHARE_TOKEN`。
 

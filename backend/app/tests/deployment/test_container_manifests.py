@@ -49,6 +49,18 @@ def test_agent_loads_tushare_from_admin_and_keeps_generic_mcp_optional():
     assert "const defaultServiceNames = ['admin-backend', 'backend', 'frontend', 'admin-frontend']" in dev_script
 
 
+def test_local_dev_starts_and_stops_langfuse_with_backend():
+    dev_script = (PROJECT_ROOT / "scripts" / "dev.mjs").read_text(encoding="utf-8")
+
+    assert "langfuse/init.py" in dev_script
+    assert "'--env-file',\n          langfuseEnvFile" in dev_script
+    assert "'up',\n          '-d',\n          '--wait'" in dev_script
+    assert "LANGFUSE_INIT_PROJECT_PUBLIC_KEY" in dev_script
+    assert "LANGFUSE_INIT_PROJECT_SECRET_KEY" in dev_script
+    assert "BS_AGENT_LANGFUSE_ENABLED" in dev_script
+    assert "stopLocalLangfuse" in dev_script
+
+
 def test_api_waits_for_migrations_and_healthy_stateful_dependencies():
     api = _compose()["services"]["api"]
 

@@ -34,6 +34,8 @@ python3 langfuse/init.py
 docker compose --project-directory langfuse -f langfuse/compose.yaml up -d --wait
 ```
 
+日常本地开发可直接使用 `npm run dev`：启动器会自动执行上述初始化和 Compose 启动，再将生成的本地项目 key 注入 Backend 进程。`npm run dev:stop` 会停止 Langfuse 容器并保留数据卷。
+
 打开 `http://localhost:3000`。启动 Agent 后端并发起合成或经授权的本地请求：
 
 ```bash
