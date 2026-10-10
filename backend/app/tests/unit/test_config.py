@@ -1,7 +1,37 @@
 import pytest
+from app.core.config import Settings
 from pydantic import ValidationError
 
-from app.core.config import Settings
+
+def test_context_compaction_defaults_are_conservative_and_disabled():
+    settings = Settings(_env_file=None)
+
+    assert settings.context_compaction_enabled is False
+    assert settings.llm_context_window_tokens == 131_072
+    assert settings.context_compaction_target_ratio == 0.50
+    assert settings.context_compaction_soft_ratio == 0.70
+    assert settings.context_compaction_hard_ratio == 0.85
+    assert settings.context_compaction_keep_turns == 3
+    assert settings.context_compaction_min_keep_turns == 1
+    assert settings.context_summary_target_tokens == 2_000
+    assert settings.context_summary_max_tokens == 3_000
+    assert settings.context_non_history_reserve_tokens == 24_000
+    assert settings.context_compaction_next_user_reserve_tokens == 2_048
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"context_compaction_target_ratio": 0.70},
+        {"context_compaction_soft_ratio": 0.85},
+        {"context_compaction_target_ratio": 0.90},
+        {"context_compaction_min_keep_turns": 4},
+        {"context_summary_target_tokens": 3_001},
+    ],
+)
+def test_context_compaction_rejects_invalid_cross_field_settings(overrides):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
 
 
 def test_approval_resume_claim_timeout_defaults_to_five_minutes():

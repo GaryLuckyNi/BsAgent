@@ -43,6 +43,20 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
     llm_timeout_seconds: float = 30.0
+    context_compaction_enabled: bool = False
+    llm_context_window_tokens: int = Field(default=131_072, ge=8_192)
+    context_compaction_target_ratio: float = Field(default=0.50, gt=0, lt=1)
+    context_compaction_soft_ratio: float = Field(default=0.70, gt=0, lt=1)
+    context_compaction_hard_ratio: float = Field(default=0.85, gt=0, lt=1)
+    context_compaction_keep_turns: int = Field(default=3, ge=1)
+    context_compaction_min_keep_turns: int = Field(default=1, ge=1)
+    context_summary_target_tokens: int = Field(default=2_000, ge=1)
+    context_summary_max_tokens: int = Field(default=3_000, ge=1)
+    context_non_history_reserve_tokens: int = Field(default=24_000, ge=1_024)
+    context_compaction_next_user_reserve_tokens: int = Field(
+        default=2_048,
+        ge=256,
+    )
     web_search_enabled: bool = True
     web_search_provider: Literal["deepseek"] = "deepseek"
     web_search_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
@@ -123,6 +137,22 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_configuration(self):
+        if not (
+            self.context_compaction_target_ratio
+            < self.context_compaction_soft_ratio
+            < self.context_compaction_hard_ratio
+        ):
+            raise ValueError("上下文压缩水位必须满足 target < soft < hard")
+        if self.context_compaction_min_keep_turns > self.context_compaction_keep_turns:
+            raise ValueError(
+                "context_compaction_min_keep_turns 不能大于 "
+                "context_compaction_keep_turns"
+            )
+        if self.context_summary_target_tokens > self.context_summary_max_tokens:
+            raise ValueError(
+                "context_summary_target_tokens 不能大于 "
+                "context_summary_max_tokens"
+            )
         if self.trace_detailed_sample_ratio > self.trace_success_sample_ratio:
             raise ValueError(
                 "trace_detailed_sample_ratio 不能大于 "
@@ -242,9 +272,7 @@ def _is_postgres_url(value: str | None) -> bool:
     if not _has_text(value):
         return False
     normalized = value.strip().lower()
-    return normalized.startswith("postgresql://") or normalized.startswith(
-        "postgres://"
-    )
+    return normalized.startswith(("postgresql://", "postgres://"))
 
 
 def _is_development_revision(value: str | None) -> bool:
