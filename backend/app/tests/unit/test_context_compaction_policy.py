@@ -1,3 +1,5 @@
+from typing import Literal, get_type_hints
+
 import pytest
 from app.context_compaction.contracts import (
     ActivationResult,
@@ -5,15 +7,21 @@ from app.context_compaction.contracts import (
     CompactionRunResult,
     CompactionSourceItem,
     ContextSummary,
+    EffectiveContext,
     SourceMessage,
     SummaryGeneration,
 )
-from app.context_compaction.errors import MessageContextTooLarge
+from app.context_compaction.errors import (
+    ContextCompactionError,
+    MessageContextTooLarge,
+    RetryableContextCompactionError,
+)
 from app.context_compaction.policy import (
     POLICY_VERSION,
     ConservativeTokenEstimator,
     ContextBudgetPolicy,
 )
+from app.schemas.messages import Message
 
 
 def _message(
@@ -62,9 +70,9 @@ def _policy(**overrides) -> ContextBudgetPolicy:
         "context_compaction_target_ratio": 0.50,
         "context_compaction_soft_ratio": 0.70,
         "context_compaction_hard_ratio": 0.85,
-        "context_compaction_keep_turns": 3,
-        "context_compaction_min_keep_turns": 1,
-        "context_summary_max_tokens": 20,
+        "context_compaction_keep_recent_turns": 3,
+        "context_compaction_min_recent_turns": 1,
+        "context_compaction_summary_max_tokens": 20,
         "context_non_history_reserve_tokens": 10,
         "context_compaction_next_user_reserve_tokens": 0,
     }
@@ -119,7 +127,7 @@ def test_compaction_contracts_expose_stable_generation_and_activation_fields():
         source_digest="sha256:source",
         source_tokens=1_200,
         summary_tokens=200,
-        trigger="soft",
+        trigger="soft_async",
         model=generation.model,
         prompt_version="context-summary-v1",
         policy_version=POLICY_VERSION,
@@ -133,6 +141,75 @@ def test_compaction_contracts_expose_stable_generation_and_activation_fields():
         version=1,
     ).reason == "activated"
     assert CompactionRunResult(status="below_threshold").compaction_id is None
+
+
+def test_effective_context_accepts_summary_messages_with_compaction_metadata():
+    summary_message = Message(
+        message_id="compaction:compaction-1",
+        role="system",
+        content="Conversation summary",
+        metadata={
+            "kind": "context_compaction_summary",
+            "compaction_id": "compaction-1",
+            "summary_through_sequence_no": 12,
+        },
+    )
+
+    context = EffectiveContext(
+        messages=(summary_message,),
+        compaction_id="compaction-1",
+        status="compacted",
+        projected_tokens=240,
+    )
+
+    assert context.messages == (summary_message,)
+    assert context.messages[0].metadata["compaction_id"] == "compaction-1"
+    assert get_type_hints(EffectiveContext)["messages"] == tuple[Message, ...]
+
+
+@pytest.mark.parametrize("trigger", ["soft_async", "hard_sync"])
+def test_compaction_candidate_uses_execution_mode_trigger_values(trigger):
+    candidate = CompactionCandidate(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        session_key="session-1",
+        previous_compaction_id=None,
+        summary=ContextSummary(goal="candidate trigger"),
+        summary_through_message_id="message-2",
+        observed_through_message_id="message-2",
+        summary_through_sequence_no=2,
+        observed_through_sequence_no=2,
+        source_manifest=(),
+        source_digest="sha256:source",
+        source_tokens=100,
+        summary_tokens=20,
+        trigger=trigger,
+        model="deepseek-v4-flash",
+        prompt_version="context-summary-v1",
+        policy_version=POLICY_VERSION,
+    )
+
+    assert candidate.trigger == trigger
+    assert get_type_hints(CompactionCandidate)["trigger"] == Literal[
+        "soft_async",
+        "hard_sync",
+    ]
+
+
+@pytest.mark.parametrize("reason", ["active_changed", "source_changed", "duplicate"])
+def test_non_activated_result_allows_empty_id_and_version(reason):
+    result = ActivationResult(
+        activated=False,
+        reason=reason,
+        compaction_id=None,
+        version=None,
+    )
+
+    assert result.compaction_id is None
+    assert result.version is None
+    annotations = get_type_hints(ActivationResult)
+    assert annotations["compaction_id"] == str | None
+    assert annotations["version"] == int | None
 
 
 def test_compaction_candidate_requires_a_complete_audit_record():
@@ -198,7 +275,7 @@ def test_boundary_reduces_retained_turns_to_one_when_target_requires_it():
     current = _message(9, "user", "next", request_id="request-5", run_id="run-5")
     policy = _policy(
         llm_context_window_tokens=1_000,
-        context_summary_max_tokens=50,
+        context_compaction_summary_max_tokens=50,
     )
 
     decision = policy.select_boundary(history, current)
@@ -240,6 +317,25 @@ def test_incomplete_and_mismatched_messages_are_not_counted_as_turns():
     turns = _policy().complete_turns([*complete, *mismatched, trailing_user])
 
     assert turns == ((complete[0], complete[1]),)
+
+
+def test_sequence_gap_and_isolated_messages_are_not_complete_turns():
+    gap_pair = [
+        _message(1, "user", "question", request_id="request-1", run_id="run-1"),
+        _message(3, "assistant", "answer", request_id="request-1", run_id="run-1"),
+    ]
+    isolated_assistant = _message(
+        4,
+        "assistant",
+        "orphan",
+        request_id="request-2",
+        run_id="run-2",
+    )
+
+    turns = _policy().complete_turns([*gap_pair, isolated_assistant])
+
+    assert turns == ()
+    assert "completed" in (SourceMessage.__doc__ or "").lower()
 
 
 def test_no_boundary_when_no_complete_turn_can_be_compacted():
@@ -289,5 +385,19 @@ def test_current_message_over_fixed_budget_raises_typed_error():
     assert exc_info.value.code == "message_context_too_large"
 
 
+def test_compaction_error_codes_are_stable():
+    assert ContextCompactionError.code == "context_compaction_failed"
+    assert RetryableContextCompactionError.code == "context_compaction_retryable"
+
+
 def test_policy_version_is_stable():
     assert POLICY_VERSION == "context-budget-v1"
+
+
+def test_policy_uses_the_same_compaction_field_names_as_settings():
+    policy = ContextBudgetPolicy()
+
+    assert policy.context_compaction_keep_recent_turns == 3
+    assert policy.context_compaction_min_recent_turns == 1
+    assert policy.context_compaction_summary_target_tokens == 2_000
+    assert policy.context_compaction_summary_max_tokens == 3_000

@@ -32,9 +32,10 @@ class ContextBudgetPolicy:
     context_compaction_target_ratio: float = 0.50
     context_compaction_soft_ratio: float = 0.70
     context_compaction_hard_ratio: float = 0.85
-    context_compaction_keep_turns: int = 3
-    context_compaction_min_keep_turns: int = 1
-    context_summary_max_tokens: int = 3_000
+    context_compaction_keep_recent_turns: int = 3
+    context_compaction_min_recent_turns: int = 1
+    context_compaction_summary_target_tokens: int = 2_000
+    context_compaction_summary_max_tokens: int = 3_000
     context_non_history_reserve_tokens: int = 24_000
     context_compaction_next_user_reserve_tokens: int = 2_048
     estimator: ConservativeTokenEstimator = field(
@@ -83,6 +84,7 @@ class ContextBudgetPolicy:
                 and assistant_message.role == "assistant"
                 and user_message.request_id == assistant_message.request_id
                 and user_message.run_id == assistant_message.run_id
+                and assistant_message.sequence_no == user_message.sequence_no + 1
             ):
                 turns.append((user_message, assistant_message))
                 index += 2
@@ -122,7 +124,7 @@ class ContextBudgetPolicy:
             current_message=current_message,
         )
 
-        if trigger == "none" or len(turns) <= self.context_compaction_min_keep_turns:
+        if trigger == "none" or len(turns) <= self.context_compaction_min_recent_turns:
             return BudgetDecision(
                 projected_tokens=projected_tokens,
                 ratio=ratio,
@@ -132,7 +134,10 @@ class ContextBudgetPolicy:
                 retained_messages=retained_history,
             )
 
-        initial_keep = min(self.context_compaction_keep_turns, len(turns) - 1)
+        initial_keep = min(
+            self.context_compaction_keep_recent_turns,
+            len(turns) - 1,
+        )
         target_tokens = int(
             self.llm_context_window_tokens
             * self.context_compaction_target_ratio
@@ -141,7 +146,7 @@ class ContextBudgetPolicy:
 
         for keep_count in range(
             initial_keep,
-            self.context_compaction_min_keep_turns - 1,
+            self.context_compaction_min_recent_turns - 1,
             -1,
         ):
             boundary = turns[-keep_count - 1][1]
@@ -151,7 +156,7 @@ class ContextBudgetPolicy:
                 if message.sequence_no > boundary.sequence_no
             )
             compacted_tokens = (
-                self.context_summary_max_tokens
+                self.context_compaction_summary_max_tokens
                 + self._messages_tokens(tail)
                 + current_tokens
                 + self.context_non_history_reserve_tokens

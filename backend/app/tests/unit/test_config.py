@@ -11,10 +11,10 @@ def test_context_compaction_defaults_are_conservative_and_disabled():
     assert settings.context_compaction_target_ratio == 0.50
     assert settings.context_compaction_soft_ratio == 0.70
     assert settings.context_compaction_hard_ratio == 0.85
-    assert settings.context_compaction_keep_turns == 3
-    assert settings.context_compaction_min_keep_turns == 1
-    assert settings.context_summary_target_tokens == 2_000
-    assert settings.context_summary_max_tokens == 3_000
+    assert settings.context_compaction_keep_recent_turns == 3
+    assert settings.context_compaction_min_recent_turns == 1
+    assert settings.context_compaction_summary_target_tokens == 2_000
+    assert settings.context_compaction_summary_max_tokens == 3_000
     assert settings.context_non_history_reserve_tokens == 24_000
     assert settings.context_compaction_next_user_reserve_tokens == 2_048
 
@@ -25,13 +25,31 @@ def test_context_compaction_defaults_are_conservative_and_disabled():
         {"context_compaction_target_ratio": 0.70},
         {"context_compaction_soft_ratio": 0.85},
         {"context_compaction_target_ratio": 0.90},
-        {"context_compaction_min_keep_turns": 4},
-        {"context_summary_target_tokens": 3_001},
+        {"context_compaction_min_recent_turns": 4},
+        {"context_compaction_summary_target_tokens": 3_001},
     ],
 )
 def test_context_compaction_rejects_invalid_cross_field_settings(overrides):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **overrides)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("context_compaction_keep_recent_turns", 0),
+        ("context_compaction_keep_recent_turns", 21),
+        ("context_compaction_min_recent_turns", 0),
+        ("context_compaction_min_recent_turns", 21),
+        ("context_compaction_summary_target_tokens", 255),
+        ("context_compaction_summary_target_tokens", 8_193),
+        ("context_compaction_summary_max_tokens", 255),
+        ("context_compaction_summary_max_tokens", 8_193),
+    ],
+)
+def test_context_compaction_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
 
 
 def test_approval_resume_claim_timeout_defaults_to_five_minutes():

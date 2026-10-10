@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.messages import Message
+
 
 class ContextSummary(BaseModel):
     goal: str
@@ -24,6 +26,8 @@ class CompactionSourceItem(BaseModel):
 
 @dataclass(frozen=True)
 class SourceMessage:
+    """Completed-only user/assistant message projection for compaction policy."""
+
     message_id: str
     request_id: str
     run_id: str
@@ -56,7 +60,7 @@ class BudgetDecision:
 
 @dataclass(frozen=True)
 class EffectiveContext:
-    messages: tuple[SourceMessage, ...]
+    messages: tuple[Message, ...]
     compaction_id: str | None
     status: Literal["full", "compacted", "degraded"]
     projected_tokens: int
@@ -86,7 +90,7 @@ class CompactionCandidate:
     source_digest: str
     source_tokens: int
     summary_tokens: int
-    trigger: Literal["soft", "hard"]
+    trigger: Literal["soft_async", "hard_sync"]
     model: str
     prompt_version: str
     policy_version: str
@@ -96,8 +100,8 @@ class CompactionCandidate:
 class ActivationResult:
     activated: bool
     reason: Literal["activated", "active_changed", "source_changed", "duplicate"]
-    compaction_id: str
-    version: int
+    compaction_id: str | None
+    version: int | None
 
 
 @dataclass(frozen=True)

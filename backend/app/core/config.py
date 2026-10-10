@@ -48,10 +48,18 @@ class Settings(BaseSettings):
     context_compaction_target_ratio: float = Field(default=0.50, gt=0, lt=1)
     context_compaction_soft_ratio: float = Field(default=0.70, gt=0, lt=1)
     context_compaction_hard_ratio: float = Field(default=0.85, gt=0, lt=1)
-    context_compaction_keep_turns: int = Field(default=3, ge=1)
-    context_compaction_min_keep_turns: int = Field(default=1, ge=1)
-    context_summary_target_tokens: int = Field(default=2_000, ge=1)
-    context_summary_max_tokens: int = Field(default=3_000, ge=1)
+    context_compaction_keep_recent_turns: int = Field(default=3, ge=1, le=20)
+    context_compaction_min_recent_turns: int = Field(default=1, ge=1, le=20)
+    context_compaction_summary_target_tokens: int = Field(
+        default=2_000,
+        ge=256,
+        le=8_192,
+    )
+    context_compaction_summary_max_tokens: int = Field(
+        default=3_000,
+        ge=256,
+        le=8_192,
+    )
     context_non_history_reserve_tokens: int = Field(default=24_000, ge=1_024)
     context_compaction_next_user_reserve_tokens: int = Field(
         default=2_048,
@@ -143,15 +151,21 @@ class Settings(BaseSettings):
             < self.context_compaction_hard_ratio
         ):
             raise ValueError("上下文压缩水位必须满足 target < soft < hard")
-        if self.context_compaction_min_keep_turns > self.context_compaction_keep_turns:
+        if (
+            self.context_compaction_min_recent_turns
+            > self.context_compaction_keep_recent_turns
+        ):
             raise ValueError(
-                "context_compaction_min_keep_turns 不能大于 "
-                "context_compaction_keep_turns"
+                "context_compaction_min_recent_turns 不能大于 "
+                "context_compaction_keep_recent_turns"
             )
-        if self.context_summary_target_tokens > self.context_summary_max_tokens:
+        if (
+            self.context_compaction_summary_target_tokens
+            > self.context_compaction_summary_max_tokens
+        ):
             raise ValueError(
-                "context_summary_target_tokens 不能大于 "
-                "context_summary_max_tokens"
+                "context_compaction_summary_target_tokens 不能大于 "
+                "context_compaction_summary_max_tokens"
             )
         if self.trace_detailed_sample_ratio > self.trace_success_sample_ratio:
             raise ValueError(

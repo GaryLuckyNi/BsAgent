@@ -1,5 +1,5 @@
 class ContextCompactionError(Exception):
-    code = "context_compaction_error"
+    code = "context_compaction_failed"
 
 
 class MessageContextTooLarge(ContextCompactionError):
@@ -15,4 +15,4 @@ class ContextSummaryInvalid(ContextCompactionError):
 
 
 class RetryableContextCompactionError(ContextCompactionError):
-    code = "retryable_context_compaction_error"
+    code = "context_compaction_retryable"
