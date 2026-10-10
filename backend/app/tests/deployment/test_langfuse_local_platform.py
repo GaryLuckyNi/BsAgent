@@ -57,6 +57,15 @@ def test_langfuse_compose_pins_images_and_limits_host_ports():
         assert volume in compose["volumes"]
 
 
+def test_langfuse_healthchecks_use_the_container_hostname():
+    compose = yaml.safe_load(COMPOSE_PATH.read_text(encoding="utf-8"))
+
+    for name in ("langfuse-web", "langfuse-worker"):
+        command = compose["services"][name]["healthcheck"]["test"][-1]
+        assert "require('os').hostname()" in command
+        assert "127.0.0.1" not in command
+
+
 def test_langfuse_root_gitignore_excludes_pinned_data_directory():
     assert (
         "langfuse-4.16.0/" in (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
