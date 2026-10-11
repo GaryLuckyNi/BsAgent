@@ -2,25 +2,20 @@ import asyncio
 import inspect
 import json
 import re
-from types import SimpleNamespace
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
-from fastapi import Request
-from fastapi.testclient import TestClient
-from langgraph.checkpoint.memory import InMemorySaver
 import pytest
-from langgraph.types import Interrupt
-from sqlalchemy import select
-from sqlalchemy import create_engine
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from app.api import approvals, sessions
+from app.context_compaction.contracts import EffectiveContext
+from app.context_compaction.errors import (
+    ContextBudgetUnrecoverable,
+    MessageContextTooLarge,
+)
 from app.conversations.service import BeginTurn, ConversationService
-from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.graph import runtime
 from app.graph.runtime import AgentGraphExecutionError, AgentGraphStreamEvent
+from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
@@ -30,21 +25,29 @@ from app.main import create_app
 from app.memory.dependencies import get_memory_store
 from app.schemas.approvals import ApprovalRequest, ApprovalStatus
 from app.schemas.memory import MemoryCandidate
+from app.schemas.messages import Message
 from app.security.dependencies import get_current_principal
 from app.security.principal import Principal
 from app.storage.database import get_db
 from app.storage.models import (
-    AgentRun,
     AgentMessage,
+    AgentRun,
     AgentSession,
     AgentTraceEvent,
     ApprovalRecord,
     Base,
     MemoryCandidateRecord,
 )
-from app.tools.registry import ToolRegistry
 from app.tests.support.workflow_llm import WorkflowTestLlm
-
+from app.tools.registry import ToolRegistry
+from fastapi import Request
+from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Interrupt
+from sqlalchemy import create_engine, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 TEST_MEMORY_STORE = object()
 EMPTY_BUSINESS_INTENT_CATALOG = BusinessIntentCatalog([])
@@ -96,6 +99,9 @@ def test_api_modules_and_repository_expose_only_native_store_contract():
     assert tuple(inspect.signature(sessions._ExecutionSnapshot).parameters) == (
         "history",
         "attachment_resolver",
+        "context_compaction_id",
+        "context_status",
+        "projected_context_tokens",
     )
     assert "store=memory_store" in inspect.getsource(approvals.decide_approval)
 
@@ -400,12 +406,29 @@ def test_post_message_returns_safe_503_when_intent_catalog_is_unavailable(monkey
 
 def test_post_message_replays_idempotency_key_without_running_graph_twice(monkeypatch):
     graph_calls = []
+    compaction_calls = []
+
+    class FakeCompactionService:
+        def prepare_for_request(self, **kwargs):
+            compaction_calls.append(kwargs)
+            return EffectiveContext(
+                messages=(),
+                compaction_id=None,
+                status="full",
+                projected_tokens=1,
+            )
 
     def fake_graph(**kwargs):
         graph_calls.append(kwargs)
         return _completed_graph_state(kwargs, content="同一个回答")
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
+    monkeypatch.setattr(sessions.settings, "context_compaction_enabled", True)
+    monkeypatch.setattr(
+        sessions,
+        "build_context_compaction_service",
+        lambda **_kwargs: FakeCompactionService(),
+    )
     app, _ = create_test_app_with_database()
     client = TestClient(app)
     headers = {"Idempotency-Key": "request-replay-1"}
@@ -416,6 +439,7 @@ def test_post_message_replays_idempotency_key_without_running_graph_twice(monkey
     assert first.status_code == second.status_code == 200
     assert second.json() == first.json()
     assert len(graph_calls) == 1
+    assert len(compaction_calls) == 1
 
 
 def test_get_messages_returns_404_for_cross_tenant_session(monkeypatch):
@@ -584,6 +608,190 @@ def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
         == 1
     )
     assert all("checkpoint" not in message.content for message in captured["history"])
+
+
+@pytest.mark.parametrize(
+    ("path", "payload", "streaming"),
+    [
+        ("/api/sessions/s1/messages", {"message": "当前问题"}, False),
+        ("/api/sessions/s1/messages/stream", {"message": "当前问题"}, True),
+        (
+            "/api/sessions/s1/messages/protocol-stream",
+            {
+                "input": {
+                    "messages": [{"type": "human", "content": "当前问题"}],
+                    "attachment_ids": [],
+                    "request_id": "compaction-protocol-1",
+                }
+            },
+            True,
+        ),
+    ],
+)
+def test_message_endpoints_share_effective_compacted_context(
+    monkeypatch,
+    path,
+    payload,
+    streaming,
+):
+    observed = {}
+    effective_history = (
+        Message(
+            message_id="context-compaction:cmp-1",
+            role="assistant",
+            content="历史摘要",
+            metadata={"context_compaction_id": "cmp-1"},
+        ),
+        Message(message_id="tail-user", role="user", content="最近问题"),
+        Message(message_id="tail-assistant", role="assistant", content="最近回答"),
+    )
+
+    def record_session(db):
+        observed["api_db"] = db
+
+    app, testing_session_local = create_test_app_with_database(on_session=record_session)
+
+    class FakeCompactionService:
+        def prepare_for_request(self, **kwargs):
+            observed["prepare"] = kwargs
+            assert not observed["api_db"].in_transaction()
+            with testing_session_local() as verification_db:
+                run = verification_db.scalars(select(AgentRun)).one()
+                messages = list(verification_db.scalars(select(AgentMessage)))
+            assert run.status == "running"
+            assert [message.status for message in messages] == ["completed", "pending"]
+            return EffectiveContext(
+                messages=effective_history,
+                compaction_id="cmp-1",
+                status="degraded",
+                projected_tokens=321,
+            )
+
+    def fake_graph(**kwargs):
+        observed["graph"] = kwargs
+        return _completed_graph_state(kwargs)
+
+    def fake_stream(**kwargs):
+        observed["graph"] = kwargs
+        yield _completed_graph_state(kwargs)
+
+    monkeypatch.setattr(sessions.settings, "context_compaction_enabled", True)
+    monkeypatch.setattr(
+        sessions,
+        "build_context_compaction_service",
+        lambda **_kwargs: FakeCompactionService(),
+    )
+    monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+
+    response = TestClient(app).post(path, json=payload)
+
+    assert response.status_code == 200
+    assert tuple(observed["graph"]["history"]) == effective_history
+    assert observed["graph"]["user_message"] == "当前问题"
+    assert all(message.content != "当前问题" for message in observed["graph"]["history"])
+    assert observed["prepare"]["current_user_message"] == "当前问题"
+    with testing_session_local() as db:
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+    assert assistant.metadata_json["context_degraded"] is True
+    assert assistant.metadata_json["context_compaction_id"] == "cmp-1"
+    assert assistant.metadata_json["projected_context_tokens"] == 321
+    assert ("event:" in response.text) is streaming
+
+
+@pytest.mark.parametrize(
+    ("error_type", "expected_status"),
+    [(MessageContextTooLarge, 413), (ContextBudgetUnrecoverable, 503)],
+)
+def test_post_message_maps_context_budget_errors_and_fails_turn(
+    monkeypatch,
+    error_type,
+    expected_status,
+):
+    graph_calls = []
+
+    class FailingCompactionService:
+        def prepare_for_request(self, **_kwargs):
+            raise error_type("budget error")
+
+    monkeypatch.setattr(sessions.settings, "context_compaction_enabled", True)
+    monkeypatch.setattr(
+        sessions,
+        "build_context_compaction_service",
+        lambda **_kwargs: FailingCompactionService(),
+    )
+    monkeypatch.setattr(
+        sessions,
+        "run_question_answer_graph",
+        lambda **kwargs: graph_calls.append(kwargs),
+    )
+    app, testing_session_local = create_test_app_with_database()
+
+    response = TestClient(app, raise_server_exceptions=False).post(
+        "/api/sessions/s1/messages",
+        json={"message": "当前问题"},
+    )
+
+    assert response.status_code == expected_status
+    assert response.json() == {"detail": {"code": error_type.code}}
+    assert graph_calls == []
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+        session_record = db.scalars(select(AgentSession)).one()
+    assert run.status == assistant.status == "failed"
+    assert assistant.metadata_json["error_code"] == error_type.code
+    assert session_record.active_run_id is None
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [MessageContextTooLarge, ContextBudgetUnrecoverable],
+)
+def test_stream_maps_context_budget_errors_and_fails_turn(monkeypatch, error_type):
+    class FailingCompactionService:
+        def prepare_for_request(self, **_kwargs):
+            raise error_type("budget error")
+
+    monkeypatch.setattr(sessions.settings, "context_compaction_enabled", True)
+    monkeypatch.setattr(
+        sessions,
+        "build_context_compaction_service",
+        lambda **_kwargs: FailingCompactionService(),
+    )
+    app, testing_session_local = create_test_app_with_database()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/stream",
+        json={"message": "当前问题"},
+    )
+
+    error = next(
+        json.loads(block.split("data: ", 1)[1])
+        for block in response.text.split("\n\n")
+        if block.startswith("event: error")
+    )
+    done = next(
+        json.loads(block.split("data: ", 1)[1])
+        for block in response.text.split("\n\n")
+        if block.startswith("event: done")
+    )
+    assert error["code"] == error_type.code
+    assert error["http_status"] == (
+        413 if error_type is MessageContextTooLarge else 503
+    )
+    assert done["ok"] is False
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+    assert run.status == assistant.status == "failed"
+    assert assistant.metadata_json["error_code"] == error_type.code
 
 
 def test_post_message_releases_turn_transaction_before_graph(monkeypatch):

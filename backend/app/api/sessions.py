@@ -13,9 +13,15 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import iterate_in_threadpool
 
-from app.approvals.repository import ApprovalRepository
 from app.api.assets import get_asset_service
+from app.approvals.repository import ApprovalRepository
 from app.assets.service import AssetService
+from app.context_compaction.errors import (
+    ContextBudgetUnrecoverable,
+    ContextCompactionError,
+    MessageContextTooLarge,
+)
+from app.context_compaction.factory import build_context_compaction_service
 from app.conversations.repository import (
     ConversationConflictError,
     ConversationRepository,
@@ -30,8 +36,8 @@ from app.conversations.service import (
 from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import (
-    AgentGraphStreamEvent,
     AgentGraphExecutionError,
+    AgentGraphStreamEvent,
     run_question_answer_graph,
     stream_question_answer_graph,
 )
@@ -50,9 +56,9 @@ from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
 from app.memory.synchronizer import sync_committed_run
 from app.operations.rate_limit import RateLimitPolicy, require_rate_limit
+from app.schemas.messages import Message
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
-from app.schemas.messages import Message
 from app.storage.database import get_db
 from app.storage.repositories import persist_agent_run
 from app.vision.context import VisionAttachmentContextResolver
@@ -108,6 +114,9 @@ class _AttachmentContextSnapshotResolver:
 class _ExecutionSnapshot:
     history: tuple[Message, ...]
     attachment_resolver: _AttachmentContextSnapshotResolver
+    context_compaction_id: str | None
+    context_status: str
+    projected_context_tokens: int
 
 
 @dataclass
@@ -263,6 +272,10 @@ def post_message(
             status_code=409,
             detail={"code": str(exc)},
         ) from exc
+    except MessageContextTooLarge as exc:
+        raise HTTPException(status_code=413, detail={"code": exc.code}) from exc
+    except ContextBudgetUnrecoverable as exc:
+        raise HTTPException(status_code=503, detail={"code": exc.code}) from exc
 
 
 @router.get("/{session_id}/messages", response_model=SessionMessagePage)
@@ -389,23 +402,52 @@ def _load_execution_snapshot(
     request: SessionMessageRequest,
     handle: TurnHandle,
     attachment_resolver: VisionAttachmentContextResolver,
+    llm_client,
 ) -> _ExecutionSnapshot:
-    history_records = ConversationRepository(db).list_context_messages(
-        tenant_id=principal.tenant_id,
-        user_id=principal.user_id,
-        session_key=handle.session_key,
-        exclude_request_id=handle.request_id,
-        limit=CONVERSATION_HISTORY_LIMIT,
-    )
-    history = tuple(
-        Message(
-            message_id=record.message_id,
-            role=record.role,
-            content=record.content,
-            metadata={"request_id": record.request_id},
+    if not settings.context_compaction_enabled:
+        history_records = ConversationRepository(db).list_context_messages(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            session_key=handle.session_key,
+            exclude_request_id=handle.request_id,
+            limit=CONVERSATION_HISTORY_LIMIT,
         )
-        for record in history_records
-    )
+        history = tuple(
+            Message(
+                message_id=record.message_id,
+                role=record.role,
+                content=record.content,
+                metadata={"request_id": record.request_id},
+            )
+            for record in history_records
+        )
+        attachment_contexts = (
+            attachment_resolver.resolve(
+                request.attachments,
+                principal=principal,
+                session_id=session_id,
+            )
+            if request.attachments
+            else []
+        )
+        attachment_json = tuple(
+            json.dumps(context, ensure_ascii=False, sort_keys=True)
+            for context in attachment_contexts
+        )
+        return _ExecutionSnapshot(
+            history=history,
+            attachment_resolver=_AttachmentContextSnapshotResolver(
+                tenant_id=principal.tenant_id,
+                user_id=principal.user_id,
+                session_id=session_id,
+                asset_ids=tuple(request.attachments),
+                contexts_json=attachment_json,
+            ),
+            context_compaction_id=None,
+            context_status="full",
+            projected_context_tokens=0,
+        )
+
     attachment_contexts = (
         attachment_resolver.resolve(
             request.attachments,
@@ -415,18 +457,36 @@ def _load_execution_snapshot(
         if request.attachments
         else []
     )
+    # 附件解析可能使用 API Session；压缩模型调用前先结束该事务。
+    if db.in_transaction():
+        db.commit()
+    attachment_json = tuple(
+        json.dumps(context, ensure_ascii=False, sort_keys=True)
+        for context in attachment_contexts
+    )
+    effective = build_context_compaction_service(
+        db=db,
+        llm_client=llm_client,
+    ).prepare_for_request(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_key=handle.session_key,
+        request_id=handle.request_id,
+        current_user_message=request.message,
+        attachment_texts=attachment_json,
+    )
     return _ExecutionSnapshot(
-        history=history,
+        history=effective.messages,
         attachment_resolver=_AttachmentContextSnapshotResolver(
             tenant_id=principal.tenant_id,
             user_id=principal.user_id,
             session_id=session_id,
             asset_ids=tuple(request.attachments),
-            contexts_json=tuple(
-                json.dumps(context, ensure_ascii=False, sort_keys=True)
-                for context in attachment_contexts
-            ),
+            contexts_json=attachment_json,
         ),
+        context_compaction_id=effective.compaction_id,
+        context_status=effective.status,
+        projected_context_tokens=effective.projected_tokens,
     )
 
 
@@ -474,6 +534,7 @@ def _run_and_persist_agent_message(
 
     trace_buffer = TraceBuffer()
     try:
+        llm_client = maybe_build_llm_client()
         snapshot = _load_execution_snapshot(
             db=db,
             principal=principal,
@@ -481,11 +542,11 @@ def _run_and_persist_agent_message(
             request=request,
             handle=handle,
             attachment_resolver=attachment_resolver,
+            llm_client=llm_client,
         )
         db.commit()
 
         checkpointer = build_graph_checkpointer()
-        llm_client = maybe_build_llm_client()
         state = run_question_answer_graph(
             business_intent_catalog=business_intent_catalog,
             session_id=session_id,
@@ -527,10 +588,34 @@ def _run_and_persist_agent_message(
                 tenant_id=principal.tenant_id,
                 run_id=handle.run_id,
                 content=final_response.get("content", ""),
-                metadata=_assistant_response_metadata(final_response),
+                metadata=_assistant_response_metadata(
+                    final_response,
+                    execution_snapshot=snapshot,
+                ),
             )
         db.commit()
         sync_committed_run(db=db, store=memory_store, run_id=handle.run_id)
+    except ContextCompactionError as exc:
+        db.rollback()
+        try:
+            _fail_turn_after_error(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+                error_code=exc.code,
+            )
+        except SQLAlchemyError as persistence_error:
+            raise ConversationPersistenceUnavailable from persistence_error
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=True,
+        )
+        raise
     except SQLAlchemyError as exc:
         db.rollback()
         try:
@@ -589,12 +674,13 @@ def _fail_turn_after_error(
     conversation_service: ConversationService,
     principal: Principal,
     handle: TurnHandle,
+    error_code: str = "agent_execution_failed",
 ) -> None:
     try:
         conversation_service.fail_turn(
             tenant_id=principal.tenant_id,
             run_id=handle.run_id,
-            error_code="agent_execution_failed",
+            error_code=error_code,
         )
         db.commit()
     except ConversationConflictError:
@@ -659,6 +745,7 @@ def _stream_agent_message(
             return
 
         trace_buffer = TraceBuffer()
+        llm_client = maybe_build_llm_client()
         snapshot = _load_execution_snapshot(
             db=db,
             principal=principal,
@@ -666,6 +753,7 @@ def _stream_agent_message(
             request=request,
             handle=handle,
             attachment_resolver=attachment_resolver,
+            llm_client=llm_client,
         )
         db.commit()
         identity = _stream_identity(handle)
@@ -680,7 +768,6 @@ def _stream_agent_message(
                 },
             )
 
-        llm_client = maybe_build_llm_client()
         emitted_event_count = 0
         emitted_progress_stages = {"planning"}
         answer_streamed = False
@@ -791,7 +878,29 @@ def _stream_agent_message(
             trace_lifecycle=trace_lifecycle,
             answer_streamed=answer_streamed,
             research_process=research_process,
+            execution_snapshot=snapshot,
         )
+    except ContextCompactionError as exc:
+        status = 413 if isinstance(exc, MessageContextTooLarge) else 503
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+            error_code=exc.code,
+        )
+        yield _sse(
+            "error",
+            {
+                "code": exc.code,
+                "node": "context_compaction",
+                "message": "请求上下文超出模型预算。",
+                "http_status": status,
+                **_stream_identity(handle),
+            },
+        )
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
+        return
     except AgentGraphExecutionError as exc:
         finalized = _fail_stream_turn(
             db=db,
@@ -895,6 +1004,7 @@ def _emit_stream_result(
     trace_lifecycle: _TraceLifecycle,
     answer_streamed: bool = False,
     research_process: list[dict] | None = None,
+    execution_snapshot: _ExecutionSnapshot,
 ) -> Generator[str, None, bool]:
     identity = _stream_identity(handle)
     if state["image_analyses"]:
@@ -955,6 +1065,7 @@ def _emit_stream_result(
         metadata=_assistant_response_metadata(
             final_response,
             research_process=research_process,
+            execution_snapshot=execution_snapshot,
         ),
     )
     db.commit()
@@ -980,6 +1091,7 @@ def _fail_stream_turn(
     conversation_service: ConversationService,
     principal: Principal,
     handle: TurnHandle | None,
+    error_code: str = "agent_execution_failed",
 ) -> bool:
     if handle is None or handle.replayed:
         db.rollback()
@@ -991,6 +1103,7 @@ def _fail_stream_turn(
             conversation_service=conversation_service,
             principal=principal,
             handle=handle,
+            error_code=error_code,
         )
     except SQLAlchemyError:
         logger.exception("agent_stream_failure_finalization_error")
@@ -1348,6 +1461,7 @@ def _assistant_response_metadata(
     final_response: dict,
     *,
     research_process: list[dict] | None = None,
+    execution_snapshot: _ExecutionSnapshot | None = None,
 ) -> dict:
     metadata = {
         "cited_evidence_ids": list(final_response.get("cited_evidence_ids", [])),
@@ -1357,6 +1471,12 @@ def _assistant_response_metadata(
     }
     if research_process:
         metadata["research_process"] = research_process[:32]
+    if execution_snapshot is not None and execution_snapshot.context_status == "degraded":
+        metadata.update(
+            context_degraded=True,
+            context_compaction_id=execution_snapshot.context_compaction_id,
+            projected_context_tokens=execution_snapshot.projected_context_tokens,
+        )
     return metadata
 
 
