@@ -2,8 +2,6 @@ import json
 import re
 from typing import Protocol
 
-from pydantic import ValidationError
-
 from app.context_compaction.contracts import (
     ContextSummary,
     GenerationSnapshot,
@@ -28,7 +26,6 @@ _REPAIR_SYSTEM_PROMPT = """\
 删除不安全内容，不添加事实。只输出 JSON object，不得输出 Markdown 围栏或解释。
 """
 
-_PURE_JSON_FENCE = re.compile(r"\A```(?:json)?\s*(\{.*\})\s*```\Z", re.DOTALL)
 _SUMMARY_FIELDS = tuple(ContextSummary.model_fields)
 _UNSAFE_PATTERNS = (
     re.compile(r"-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----", re.IGNORECASE),
@@ -53,34 +50,29 @@ class TokenEstimator(Protocol):
     def text_tokens(self, text: str) -> int: ...
 
 
-class _InvalidSummary(ValueError):
-    pass
-
-
-def _object_without_duplicate_keys(pairs: list[tuple[str, object]]) -> dict:
+def _object_without_duplicate_keys(
+    pairs: list[tuple[str, object]],
+) -> dict | None:
     result = {}
     for key, value in pairs:
         if key in result:
-            raise _InvalidSummary
+            return None
         result[key] = value
     return result
 
 
-def extract_json_object(text: str) -> dict:
-    """严格提取单个 JSON object，仅额外容许纯 JSON Markdown 围栏。"""
+def extract_json_object(text: str) -> dict | None:
+    """严格提取单个纯 JSON object，屏蔽解析细节。"""
     candidate = text.strip()
-    fence_match = _PURE_JSON_FENCE.fullmatch(candidate)
-    if fence_match is not None:
-        candidate = fence_match.group(1)
     try:
         value = json.loads(
             candidate,
             object_pairs_hook=_object_without_duplicate_keys,
         )
-    except (json.JSONDecodeError, TypeError) as exc:
-        raise _InvalidSummary from exc
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
     if not isinstance(value, dict):
-        raise _InvalidSummary
+        return None
     return value
 
 
@@ -112,37 +104,38 @@ class ContextSummarizer:
             system_prompt=_SUMMARY_SYSTEM_PROMPT,
             user_prompt=first_user_prompt,
         )
-        try:
-            summary, summary_tokens = self._validate(first_completion.content)
-        except _InvalidSummary:
-            repair_user_prompt = json.dumps(
-                {
-                    "invalid_output": first_completion.content,
-                    "required_schema": self._required_schema,
-                },
-                ensure_ascii=False,
-            )
-            repair_completion = self._complete(
-                system_prompt=_REPAIR_SYSTEM_PROMPT,
-                user_prompt=repair_user_prompt,
-            )
-            try:
-                summary, summary_tokens = self._validate(repair_completion.content)
-            except _InvalidSummary:
-                raise ContextSummaryInvalid("上下文摘要无效") from None
+        first_validation = self._validate(first_completion.content)
+        if first_validation is not None:
+            summary, summary_tokens = first_validation
             return SummaryGeneration(
                 summary=summary,
-                model=repair_completion.model,
+                model=first_completion.model,
                 source_tokens=source_tokens,
                 summary_tokens=summary_tokens,
-                calls=2,
+                calls=1,
             )
+
+        repair_user_prompt = json.dumps(
+            {
+                "invalid_output": first_completion.content,
+                "required_schema": self._required_schema,
+            },
+            ensure_ascii=False,
+        )
+        repair_completion = self._complete(
+            system_prompt=_REPAIR_SYSTEM_PROMPT,
+            user_prompt=repair_user_prompt,
+        )
+        repair_validation = self._validate(repair_completion.content)
+        if repair_validation is None:
+            raise ContextSummaryInvalid("上下文摘要无效")
+        summary, summary_tokens = repair_validation
         return SummaryGeneration(
             summary=summary,
-            model=first_completion.model,
+            model=repair_completion.model,
             source_tokens=source_tokens,
             summary_tokens=summary_tokens,
-            calls=1,
+            calls=2,
         )
 
     def _build_first_user_prompt(self, snapshot: GenerationSnapshot) -> str:
@@ -178,26 +171,27 @@ class ContextSummarizer:
             thinking=False,
         )
 
-    def _validate(self, output: str) -> tuple[ContextSummary, int]:
-        payload = extract_json_object(output)
-        if set(payload) != set(_SUMMARY_FIELDS):
-            raise _InvalidSummary
+    def _validate(self, output: str) -> tuple[ContextSummary, int] | None:
         try:
+            payload = extract_json_object(output)
+            if payload is None or set(payload) != set(_SUMMARY_FIELDS):
+                return None
             summary = ContextSummary.model_validate(payload)
-        except ValidationError as exc:
-            raise _InvalidSummary from exc
-        canonical = json.dumps(
-            summary.model_dump(mode="json"),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        if any(pattern.search(canonical) is not None for pattern in _UNSAFE_PATTERNS):
-            raise _InvalidSummary
-        summary_tokens = self._estimator.text_tokens(canonical)
-        if summary_tokens > self.max_tokens:
-            raise _InvalidSummary
-        return summary, summary_tokens
+            canonical = json.dumps(
+                summary.model_dump(mode="json"),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if any(pattern.search(canonical) is not None for pattern in _UNSAFE_PATTERNS):
+                return None
+            summary_tokens = self._estimator.text_tokens(canonical)
+            if summary_tokens > self.max_tokens:
+                return None
+            return summary, summary_tokens
+        except Exception:
+            # 验证异常可能带模型正文，不向上层传递其实例。
+            return None
 
     def _source_tokens(
         self,

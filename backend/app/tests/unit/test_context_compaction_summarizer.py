@@ -2,8 +2,6 @@ import json
 import logging
 
 import pytest
-from pydantic import ValidationError
-
 from app.context_compaction.contracts import (
     ContextSummary,
     GenerationSnapshot,
@@ -15,7 +13,7 @@ from app.context_compaction.summarizer import (
     ContextSummarizer,
 )
 from app.llm.schemas import LlmCompletionResult
-
+from pydantic import ValidationError
 
 SUMMARY_PAYLOAD = {
     "goal": "生成可靠的上下文摘要",
@@ -172,6 +170,7 @@ def test_first_prompt_contains_safe_full_state_projection_and_untrusted_data_rul
         '{"goal":"first","goal":"second"}',
         f"{_json()} {_json()}",
         json.dumps([SUMMARY_PAYLOAD], ensure_ascii=False),
+        f"```json\n{_json()}\n```",
         f"{_json()} trailing explanation",
     ],
 )
@@ -241,11 +240,13 @@ def test_unsafe_output_must_be_repaired(unsafe_value):
     assert generation.summary.facts == SUMMARY_PAYLOAD["facts"]
 
 
-def test_second_invalid_output_raises_fixed_error_without_sensitive_leak(caplog):
-    source_secret = "source-should-not-leak"
-    output_secret = "password=output-should-not-leak"
-    invalid = _json({**SUMMARY_PAYLOAD, "facts": [output_secret]})
-    client = FakeClient(_completion(invalid), _completion(invalid))
+def test_second_invalid_output_has_no_sensitive_exception_chain_or_log_leak(caplog):
+    source_secret = "SOURCE-SECRET-UNIQUE-4109"
+    first_secret = "FIRST-OUTPUT-SECRET-UNIQUE-7312"
+    repair_secret = "REPAIR-OUTPUT-SECRET-UNIQUE-8526"
+    first_invalid = _json({**SUMMARY_PAYLOAD, "facts": [{"secret": first_secret}]})
+    repair_invalid = _json({**SUMMARY_PAYLOAD, "facts": [{"secret": repair_secret}]})
+    client = FakeClient(_completion(first_invalid), _completion(repair_invalid))
 
     with caplog.at_level(logging.DEBUG), pytest.raises(ContextSummaryInvalid) as exc_info:
         ContextSummarizer(client, max_tokens=10_000).summarize(
@@ -254,10 +255,26 @@ def test_second_invalid_output_raises_fixed_error_without_sensitive_leak(caplog)
 
     assert str(exc_info.value) == "上下文摘要无效"
     assert exc_info.value.__cause__ is None
+    assert exc_info.value.__context__ is None
     assert len(client.calls) == 2
-    observed = str(exc_info.value) + caplog.text
+    chain_text = []
+    pending = [exc_info.value]
+    seen = set()
+    while pending:
+        error = pending.pop()
+        if id(error) in seen:
+            continue
+        seen.add(id(error))
+        chain_text.extend((str(error), repr(error)))
+        pending.extend(
+            linked
+            for linked in (error.__context__, error.__cause__)
+            if linked is not None
+        )
+    observed = "\n".join(chain_text) + caplog.text
     assert source_secret not in observed
-    assert output_secret not in observed
+    assert first_secret not in observed
+    assert repair_secret not in observed
 
 
 class CanonicalSizeEstimator:
@@ -348,6 +365,23 @@ def test_provider_exception_propagates_without_repair():
         ContextSummarizer(client, max_tokens=10_000).summarize(_snapshot())
 
     assert len(client.calls) == 1
+
+
+def test_repair_provider_exception_is_propagated_without_a_third_call():
+    failure = RuntimeError("repair provider unavailable")
+    client = FakeClient(
+        _completion("invalid"),
+        failure,
+        _completion(_json()),
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        ContextSummarizer(client, max_tokens=10_000).summarize(_snapshot())
+
+    assert exc_info.value is failure
+    assert failure.__context__ is None
+    assert failure.__cause__ is None
+    assert len(client.calls) == 2
 
 
 @pytest.mark.parametrize("max_tokens", [0, -1, True, 1.5, "100"])
