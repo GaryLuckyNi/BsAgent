@@ -217,6 +217,32 @@ class ConversationRepository:
         records.reverse()
         return records
 
+    def list_context_messages_after(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        session_key: str,
+        exclude_request_id: str,
+        after_sequence_no: int = 0,
+    ) -> list[AgentMessage]:
+        return list(
+            self._session.scalars(
+                select(AgentMessage)
+                .where(
+                    AgentMessage.tenant_id == tenant_id,
+                    AgentMessage.user_id == user_id,
+                    AgentMessage.session_key == session_key,
+                    AgentMessage.sequence_no > after_sequence_no,
+                    AgentMessage.request_id != exclude_request_id,
+                    AgentMessage.status == "completed",
+                    AgentMessage.deleted_at.is_(None),
+                    AgentMessage.role.in_(("user", "assistant")),
+                )
+                .order_by(AgentMessage.sequence_no.asc())
+            )
+        )
+
     def list_message_page(
         self,
         *,

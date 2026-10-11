@@ -8,7 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from pydantic import ValidationError
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -92,6 +92,107 @@ class ContextCompactionRepository:
             )
         )
 
+    def get_active_pointer(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        session_key: str,
+    ) -> str | None:
+        owner = self._session.scalar(
+            select(AgentSession).where(
+                AgentSession.tenant_id == tenant_id,
+                AgentSession.user_id == user_id,
+                AgentSession.session_key == session_key,
+            )
+        )
+        if owner is None:
+            raise RepositoryNotFoundError("session_not_found")
+        return owner.active_context_compaction_id
+
+    def next_version(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        session_key: str,
+    ) -> int:
+        maximum = self._session.scalar(
+            select(func.max(AgentContextCompaction.version)).where(
+                AgentContextCompaction.tenant_id == tenant_id,
+                AgentContextCompaction.user_id == user_id,
+                AgentContextCompaction.session_key == session_key,
+            )
+        )
+        return (maximum or 0) + 1
+
+    def load_validated_active(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        session_key: str,
+    ) -> tuple[AgentContextCompaction | None, ContextSummary | None]:
+        owner = self._session.scalar(
+            select(AgentSession).where(
+                AgentSession.tenant_id == tenant_id,
+                AgentSession.user_id == user_id,
+                AgentSession.session_key == session_key,
+            )
+        )
+        if owner is None:
+            raise RepositoryNotFoundError("session_not_found")
+        if owner.active_context_compaction_id is None:
+            return None, None
+        active = self._load_owned_compaction(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_key=session_key,
+            compaction_id=owner.active_context_compaction_id,
+        )
+        if active is None:
+            raise ActiveContextInvalidError("active_context_compaction_missing")
+        return active, self._validate_active_chain(active)
+
+    def clear_invalid_active_if_current(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        session_key: str,
+        expected_active_compaction_id: str,
+    ) -> bool:
+        owner = self._session.scalar(
+            select(AgentSession)
+            .where(
+                AgentSession.tenant_id == tenant_id,
+                AgentSession.user_id == user_id,
+                AgentSession.session_key == session_key,
+            )
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if owner is None:
+            raise RepositoryNotFoundError("session_not_found")
+        if owner.active_context_compaction_id != expected_active_compaction_id:
+            return False
+        active = self._load_owned_compaction(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_key=session_key,
+            compaction_id=expected_active_compaction_id,
+        )
+        if active is not None:
+            try:
+                self._validate_active_chain(active)
+            except ActiveContextInvalidError:
+                pass
+            else:
+                return False
+        owner.active_context_compaction_id = None
+        self._session.flush()
+        return True
+
     def list_context_tail(
         self,
         *,
@@ -126,25 +227,11 @@ class ContextCompactionRepository:
         session_key: str,
         exclude_request_id: str,
     ) -> GenerationSnapshot | None:
-        owner = self._session.scalar(
-            select(AgentSession).where(
-                AgentSession.tenant_id == tenant_id,
-                AgentSession.user_id == user_id,
-                AgentSession.session_key == session_key,
-            )
+        active, previous_summary = self.load_validated_active(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_key=session_key,
         )
-        if owner is None:
-            raise RepositoryNotFoundError("session_not_found")
-
-        active = self.get_active(tenant_id, user_id, session_key)
-        if owner.active_context_compaction_id is not None and active is None:
-            raise ActiveContextInvalidError("active_context_compaction_missing")
-        previous_summary = None
-        if active is not None:
-            try:
-                previous_summary = ContextSummary.model_validate(active.summary_payload)
-            except ValidationError as error:
-                raise ActiveContextInvalidError("active_context_summary_invalid") from error
         boundary = active.summary_through_sequence_no if active is not None else 0
         tail = self.list_context_tail(
             tenant_id=tenant_id,
@@ -206,7 +293,11 @@ class ContextCompactionRepository:
         if compute_source_digest(previous, candidate.source_manifest) != candidate.source_digest:
             return self._discarded("source_changed")
 
-        version = previous.version + 1 if previous is not None else 1
+        version = self.next_version(
+            tenant_id=candidate.tenant_id,
+            user_id=candidate.user_id,
+            session_key=candidate.session_key,
+        )
         record = AgentContextCompaction(
             compaction_id=f"cmp_{uuid4().hex}",
             tenant_id=candidate.tenant_id,
@@ -263,6 +354,180 @@ class ContextCompactionRepository:
                 AgentContextCompaction.user_id == candidate.user_id,
                 AgentContextCompaction.session_key == candidate.session_key,
             )
+        )
+
+    def _load_owned_compaction(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        session_key: str,
+        compaction_id: str,
+    ) -> AgentContextCompaction | None:
+        return self._session.scalar(
+            select(AgentContextCompaction).where(
+                AgentContextCompaction.compaction_id == compaction_id,
+                AgentContextCompaction.tenant_id == tenant_id,
+                AgentContextCompaction.user_id == user_id,
+                AgentContextCompaction.session_key == session_key,
+            )
+        )
+
+    def _validate_active_chain(
+        self,
+        active: AgentContextCompaction,
+    ) -> ContextSummary:
+        chain: list[AgentContextCompaction] = []
+        seen_compactions: set[str] = set()
+        current: AgentContextCompaction | None = active
+        while current is not None:
+            if current.compaction_id in seen_compactions:
+                raise ActiveContextInvalidError("active_context_lineage_invalid")
+            seen_compactions.add(current.compaction_id)
+            chain.append(current)
+            if current.previous_compaction_id is None:
+                break
+            current = self._load_owned_compaction(
+                tenant_id=active.tenant_id,
+                user_id=active.user_id,
+                session_key=active.session_key,
+                compaction_id=current.previous_compaction_id,
+            )
+            if current is None:
+                raise ActiveContextInvalidError("active_context_lineage_invalid")
+
+        previous: AgentContextCompaction | None = None
+        lineage_message_ids: set[str] = set()
+        active_summary: ContextSummary | None = None
+        for record in reversed(chain):
+            try:
+                summary = ContextSummary.model_validate(record.summary_payload)
+                manifest = tuple(
+                    CompactionSourceItem.model_validate(item)
+                    for item in record.source_manifest
+                )
+            except (ValidationError, TypeError):
+                raise ActiveContextInvalidError(
+                    "active_context_contract_invalid"
+                ) from None
+            if not manifest or not self._manifest_has_complete_turns(manifest):
+                raise ActiveContextInvalidError("active_context_manifest_invalid")
+            if record.previous_compaction_id != (
+                previous.compaction_id if previous is not None else None
+            ):
+                raise ActiveContextInvalidError("active_context_lineage_invalid")
+            previous_boundary = (
+                previous.summary_through_sequence_no if previous is not None else 0
+            )
+            if (
+                record.summary_through_sequence_no <= previous_boundary
+                or any(item.sequence_no <= previous_boundary for item in manifest)
+            ):
+                raise ActiveContextInvalidError("active_context_boundary_invalid")
+            if any(item.message_id in lineage_message_ids for item in manifest):
+                raise ActiveContextInvalidError("active_context_manifest_invalid")
+            messages = self._reload_record_manifest(record, manifest)
+            if messages is None:
+                raise ActiveContextInvalidError("active_context_source_invalid")
+            expected_ids = self._completed_range_ids(
+                record,
+                after_sequence_no=previous_boundary,
+            )
+            if expected_ids != tuple(item.message_id for item in manifest):
+                raise ActiveContextInvalidError("active_context_source_invalid")
+            boundary = messages[-1]
+            if (
+                boundary.role != "assistant"
+                or boundary.message_id != record.summary_through_message_id
+                or boundary.sequence_no != record.summary_through_sequence_no
+            ):
+                raise ActiveContextInvalidError("active_context_boundary_invalid")
+            observed = self._session.scalar(
+                select(AgentMessage).where(
+                    AgentMessage.tenant_id == record.tenant_id,
+                    AgentMessage.user_id == record.user_id,
+                    AgentMessage.session_key == record.session_key,
+                    AgentMessage.message_id == record.observed_through_message_id,
+                    AgentMessage.sequence_no == record.observed_through_sequence_no,
+                    AgentMessage.role == "assistant",
+                    AgentMessage.status == "completed",
+                    AgentMessage.deleted_at.is_(None),
+                )
+            )
+            if (
+                observed is None
+                or record.observed_through_sequence_no
+                < record.summary_through_sequence_no
+                or compute_source_digest(previous, manifest) != record.source_digest
+            ):
+                raise ActiveContextInvalidError("active_context_source_invalid")
+            lineage_message_ids.update(item.message_id for item in manifest)
+            previous = record
+            active_summary = summary
+        if active_summary is None:
+            raise ActiveContextInvalidError("active_context_contract_invalid")
+        return active_summary
+
+    def _reload_record_manifest(
+        self,
+        record: AgentContextCompaction,
+        manifest: Sequence[CompactionSourceItem],
+    ) -> tuple[AgentMessage, ...] | None:
+        message_ids = [item.message_id for item in manifest]
+        if len(message_ids) != len(set(message_ids)):
+            return None
+        messages = tuple(
+            self._session.scalars(
+                select(AgentMessage)
+                .where(
+                    AgentMessage.tenant_id == record.tenant_id,
+                    AgentMessage.user_id == record.user_id,
+                    AgentMessage.session_key == record.session_key,
+                    AgentMessage.message_id.in_(message_ids),
+                )
+                .order_by(AgentMessage.sequence_no.asc())
+            )
+        )
+        if len(messages) != len(manifest):
+            return None
+        for item, message in zip(manifest, messages, strict=True):
+            if (
+                item.message_id != message.message_id
+                or item.role != message.role
+                or item.sequence_no != message.sequence_no
+                or message.status != "completed"
+                or message.deleted_at is not None
+                or content_digest(message.content) != item.content_digest
+            ):
+                return None
+        if not self._messages_are_complete_turns(messages):
+            return None
+        return messages
+
+    def _completed_range_ids(
+        self,
+        record: AgentContextCompaction,
+        *,
+        after_sequence_no: int,
+    ) -> tuple[str, ...]:
+        records = tuple(
+            self._session.scalars(
+                select(AgentMessage)
+                .where(
+                    AgentMessage.tenant_id == record.tenant_id,
+                    AgentMessage.user_id == record.user_id,
+                    AgentMessage.session_key == record.session_key,
+                    AgentMessage.sequence_no > after_sequence_no,
+                    AgentMessage.sequence_no <= record.summary_through_sequence_no,
+                    AgentMessage.status == "completed",
+                    AgentMessage.deleted_at.is_(None),
+                    AgentMessage.role.in_(("user", "assistant")),
+                )
+                .order_by(AgentMessage.sequence_no.asc())
+            )
+        )
+        return tuple(
+            message.message_id for message in self._complete_turn_messages(records)
         )
 
     def _reload_manifest_messages(

@@ -19,7 +19,6 @@ from app.context_compaction.repository import (
 )
 from app.storage.models import AgentContextCompaction, AgentMessage, AgentSession, Base
 from sqlalchemy import create_engine, func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 
@@ -822,7 +821,7 @@ def test_exact_duplicate_uses_savepoint_and_keeps_outer_transaction_usable(db: S
     assert owner.status == "still-usable"
 
 
-def test_non_duplicate_integrity_error_is_not_swallowed(db: Session):
+def test_new_root_uses_session_max_version_when_old_compactions_are_retained(db: Session):
     owner = _session(db)
     messages = (_message(db, 1, "user"), _message(db, 2, "assistant"))
     candidate = _candidate(messages)
@@ -850,9 +849,8 @@ def test_non_duplicate_integrity_error_is_not_swallowed(db: Session):
     db.add(different_source)
     db.flush()
 
-    with pytest.raises(IntegrityError):
-        ContextCompactionRepository(db).activate_if_current(candidate, None)
+    result = ContextCompactionRepository(db).activate_if_current(candidate, None)
 
-    owner.status = "outer-transaction-usable"
-    db.flush()
-    assert owner.status == "outer-transaction-usable"
+    assert result.activated is True
+    assert result.version == 2
+    assert owner.active_context_compaction_id == result.compaction_id
