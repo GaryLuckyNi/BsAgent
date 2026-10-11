@@ -13,9 +13,16 @@ depends_on = None
 
 COMPACTION_JSON = sa.JSON().with_variant(JSONB(), "postgresql")
 _MESSAGE_SESSION_UNIQUE = "uq_agent_messages_session_message"
+_SESSION_OWNER_UNIQUE = "uq_agent_sessions_owner_key"
 
 
-def _message_session_unique_exists(connection) -> bool:
+def _unique_constraint_exists(
+    connection,
+    *,
+    table_name: str,
+    constraint_name: str,
+    expected_definition: str,
+) -> bool:
     context = op.get_context()
     if context.as_sql:
         return False
@@ -25,48 +32,69 @@ def _message_session_unique_exists(connection) -> bool:
             SELECT pg_get_constraintdef(oid, true)
             FROM pg_constraint
             WHERE conname = :constraint_name
-              AND conrelid = 'agent_messages'::regclass
+              AND conrelid = to_regclass(:table_name)
               AND contype = 'u'
             """
         ),
-        {"constraint_name": _MESSAGE_SESSION_UNIQUE},
+        {
+            "constraint_name": constraint_name,
+            "table_name": table_name,
+        },
     ).scalar_one_or_none()
     if definition is None:
         return False
-    if definition.lower() != "unique (session_key, message_id)":
-        raise RuntimeError(
-            "agent_messages.uq_agent_messages_session_message 约束契约不匹配。"
-        )
+    if definition.lower() != expected_definition.lower():
+        raise RuntimeError(f"{table_name}.{constraint_name} 约束契约不匹配。")
     return True
 
 
-def _ensure_message_session_unique(connection) -> None:
-    if _message_session_unique_exists(connection):
+def _message_session_unique_exists(connection) -> bool:
+    return _unique_constraint_exists(
+        connection,
+        table_name="agent_messages",
+        constraint_name=_MESSAGE_SESSION_UNIQUE,
+        expected_definition="UNIQUE (session_key, message_id)",
+    )
+
+
+def _ensure_concurrent_unique(
+    connection,
+    *,
+    table_name: str,
+    constraint_name: str,
+    columns: tuple[str, ...],
+) -> None:
+    definition = f"UNIQUE ({', '.join(columns)})"
+    if _unique_constraint_exists(
+        connection,
+        table_name=table_name,
+        constraint_name=constraint_name,
+        expected_definition=definition,
+    ):
         return
 
     # CONCURRENTLY 失败可能留下 invalid index。重试时先在非事务块中清理，
-    # 再重建并立即绑定为约束，避免长时间持有 agent_messages 强锁。
+    # 再重建并立即绑定为约束，避免长时间持有大表强锁。
+    columns_sql = ", ".join(columns)
     with op.get_context().autocommit_block():
         op.execute(sa.text("SET lock_timeout TO '5s'"))
         op.execute(
             sa.text(
                 "DROP INDEX CONCURRENTLY IF EXISTS "
-                f"{_MESSAGE_SESSION_UNIQUE}"
+                f"{constraint_name}"
             )
         )
         op.execute(
             sa.text(
                 "CREATE UNIQUE INDEX CONCURRENTLY "
-                f"{_MESSAGE_SESSION_UNIQUE} "
-                "ON agent_messages(session_key, message_id)"
+                f"{constraint_name} ON {table_name}({columns_sql})"
             )
         )
     op.execute(sa.text("SET lock_timeout TO '5s'"))
     op.execute(
         sa.text(
-            "ALTER TABLE agent_messages ADD CONSTRAINT "
-            f"{_MESSAGE_SESSION_UNIQUE} UNIQUE USING INDEX "
-            f"{_MESSAGE_SESSION_UNIQUE}"
+            f"ALTER TABLE {table_name} ADD CONSTRAINT "
+            f"{constraint_name} UNIQUE USING INDEX {constraint_name}"
         )
     )
 
@@ -77,11 +105,17 @@ def upgrade() -> None:
         raise RuntimeError("0014 上下文压缩迁移仅支持 PostgreSQL。")
 
     op.execute(sa.text("SET lock_timeout TO '5s'"))
-    _ensure_message_session_unique(connection)
-    op.create_unique_constraint(
-        "uq_agent_sessions_owner_key",
-        "agent_sessions",
-        ["tenant_id", "user_id", "session_key"],
+    _ensure_concurrent_unique(
+        connection,
+        table_name="agent_messages",
+        constraint_name=_MESSAGE_SESSION_UNIQUE,
+        columns=("session_key", "message_id"),
+    )
+    _ensure_concurrent_unique(
+        connection,
+        table_name="agent_sessions",
+        constraint_name=_SESSION_OWNER_UNIQUE,
+        columns=("tenant_id", "user_id", "session_key"),
     )
     op.create_table(
         "agent_context_compactions",
@@ -225,7 +259,7 @@ def downgrade() -> None:
     )
     op.drop_table("agent_context_compactions")
     op.drop_constraint(
-        "uq_agent_sessions_owner_key",
+        _SESSION_OWNER_UNIQUE,
         "agent_sessions",
         type_="unique",
     )

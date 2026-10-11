@@ -293,7 +293,7 @@ def _render_postgresql_migration_downgrade_ddl(monkeypatch):
 
 def _assert_postgresql_compaction_ddl(ddl):
     normalized = " ".join(ddl.lower().split())
-    assert normalized.count("set lock_timeout to '5s'") >= 2
+    assert normalized.count("set lock_timeout to '5s'") >= 3
     assert (
         "commit; set lock_timeout to '5s'; drop index concurrently if exists "
         "uq_agent_messages_session_message; create unique index concurrently "
@@ -314,8 +314,16 @@ def _assert_postgresql_compaction_ddl(ddl):
         "uq_agent_messages_session_message"
     ) in normalized
     assert (
-        "constraint uq_agent_sessions_owner_key unique "
-        "(tenant_id, user_id, session_key)"
+        "drop index concurrently if exists uq_agent_sessions_owner_key"
+    ) in normalized
+    assert (
+        "create unique index concurrently uq_agent_sessions_owner_key "
+        "on agent_sessions(tenant_id, user_id, session_key)"
+    ) in normalized
+    assert (
+        "alter table agent_sessions add constraint "
+        "uq_agent_sessions_owner_key unique using index "
+        "uq_agent_sessions_owner_key"
     ) in normalized
     assert "create table agent_context_compactions" in normalized
     assert "summary_payload jsonb not null" in normalized
@@ -399,6 +407,19 @@ def test_context_compaction_migration_validates_existing_message_constraint():
         migration._message_session_unique_exists(
             connection_with("UNIQUE (message_id, session_key)")
         )
+    assert migration._unique_constraint_exists(
+        connection_with("UNIQUE (tenant_id, user_id, session_key)"),
+        table_name="agent_sessions",
+        constraint_name="uq_agent_sessions_owner_key",
+        expected_definition="UNIQUE (tenant_id, user_id, session_key)",
+    )
+    with pytest.raises(RuntimeError, match="约束契约不匹配"):
+        migration._unique_constraint_exists(
+            connection_with("UNIQUE (session_key, tenant_id, user_id)"),
+            table_name="agent_sessions",
+            constraint_name="uq_agent_sessions_owner_key",
+            expected_definition="UNIQUE (tenant_id, user_id, session_key)",
+        )
 
 
 def test_context_compaction_live_fixture_fails_in_ci_without_postgresql_url(
@@ -445,18 +466,42 @@ def test_context_compaction_migration_operation_order_matches_orm_contract():
         name == "execute" and "UNIQUE USING INDEX" in str(args[0])
         for name, args, _kwargs in recorder.calls
     )
-    owner_unique_call = next(
-        args
+    concurrent_statements = [
+        str(args[0])
         for name, args, _kwargs in recorder.calls
-        if name == "create_unique_constraint"
-    )
-    assert owner_unique_call == (
-        "uq_agent_sessions_owner_key",
-        "agent_sessions",
-        ["tenant_id", "user_id", "session_key"],
-    )
-    assert call_names.index("create_unique_constraint") < call_names.index(
-        "create_table"
+        if name == "execute" and "CREATE UNIQUE INDEX CONCURRENTLY" in str(args[0])
+    ]
+    assert concurrent_statements == [
+        (
+            "CREATE UNIQUE INDEX CONCURRENTLY uq_agent_messages_session_message "
+            "ON agent_messages(session_key, message_id)"
+        ),
+        (
+            "CREATE UNIQUE INDEX CONCURRENTLY uq_agent_sessions_owner_key "
+            "ON agent_sessions(tenant_id, user_id, session_key)"
+        ),
+    ]
+    using_index_statements = [
+        str(args[0])
+        for name, args, _kwargs in recorder.calls
+        if name == "execute" and "UNIQUE USING INDEX" in str(args[0])
+    ]
+    assert using_index_statements == [
+        (
+            "ALTER TABLE agent_messages ADD CONSTRAINT "
+            "uq_agent_messages_session_message UNIQUE USING INDEX "
+            "uq_agent_messages_session_message"
+        ),
+        (
+            "ALTER TABLE agent_sessions ADD CONSTRAINT "
+            "uq_agent_sessions_owner_key UNIQUE USING INDEX "
+            "uq_agent_sessions_owner_key"
+        ),
+    ]
+    assert call_names.index("create_table") > max(
+        index
+        for index, (name, args, _kwargs) in enumerate(recorder.calls)
+        if name == "execute" and "UNIQUE USING INDEX" in str(args[0])
     )
     assert [name for name, _args, _kwargs in recorder.calls[-2:]] == [
         "add_column",
@@ -946,6 +991,71 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
         assert "active_context_compaction_id" not in {
             column["name"] for column in downgraded.get_columns("agent_sessions")
         }
+        assert "uq_agent_messages_session_message" not in {
+            constraint["name"]
+            for constraint in downgraded.get_unique_constraints("agent_messages")
+        }
+        assert "uq_agent_sessions_owner_key" not in {
+            constraint["name"]
+            for constraint in downgraded.get_unique_constraints("agent_sessions")
+        }
+        assert _session_snapshot(engine) == before_sessions
+        assert _message_snapshot(engine) == before_messages
+
+
+def test_context_compaction_upgrade_repairs_partial_unique_indexes(monkeypatch):
+    with _live_migration_database(monkeypatch) as (config, engine):
+        _upgrade_baseline(config)
+        _insert_legacy_conversation_rows(engine)
+        before_sessions = _session_snapshot(engine)
+        before_messages = _message_snapshot(engine)
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX uq_agent_messages_session_message
+                    ON agent_messages(session_key, message_id)
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    CREATE UNIQUE INDEX uq_agent_sessions_owner_key
+                    ON agent_sessions(session_key, tenant_id, user_id)
+                    """
+                )
+            )
+
+        command.upgrade(config, "20261010_0014")
+        inspector = inspect_database(engine)
+        message_uniques = {
+            constraint["name"]: tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("agent_messages")
+        }
+        session_uniques = {
+            constraint["name"]: tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("agent_sessions")
+        }
+        assert message_uniques["uq_agent_messages_session_message"] == (
+            "session_key",
+            "message_id",
+        )
+        assert session_uniques["uq_agent_sessions_owner_key"] == (
+            "tenant_id",
+            "user_id",
+            "session_key",
+        )
+        _assert_rejected(
+            engine,
+            compaction_id="partial_state_owner_mismatch",
+            tenant_id="tenant_b",
+            user_id="user_b",
+            source_digest="partial_state_owner_mismatch",
+        )
+
+        command.downgrade(config, "20260901_0013")
+        downgraded = inspect_database(engine)
         assert "uq_agent_messages_session_message" not in {
             constraint["name"]
             for constraint in downgraded.get_unique_constraints("agent_messages")
