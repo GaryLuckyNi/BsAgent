@@ -1,6 +1,7 @@
 import os
 from contextlib import contextmanager
 from importlib.util import module_from_spec, spec_from_file_location
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -159,6 +160,20 @@ def _message_snapshot(engine):
         ).all()
 
 
+def _session_snapshot(engine):
+    with engine.connect() as connection:
+        return connection.execute(
+            text(
+                """
+                SELECT session_key, session_id, tenant_id, user_id, status,
+                       active_run_id, next_sequence_no, created_at, updated_at
+                FROM agent_sessions
+                ORDER BY session_key
+                """
+            )
+        ).all()
+
+
 def _insert_compaction(engine, **overrides):
     values = {
         "compaction_id": "compaction_1",
@@ -214,6 +229,59 @@ def _assert_rejected(engine, **overrides):
         _insert_compaction(engine, **overrides)
 
 
+def _render_postgresql_migration_ddl(monkeypatch):
+    project_root = Path(__file__).resolve().parents[4]
+    output = StringIO()
+    monkeypatch.setattr(
+        settings,
+        "database_url",
+        "postgresql+psycopg://ddl_user:ddl_password@localhost/ddl_database",
+    )
+    config = Config(str(project_root / "alembic.ini"), output_buffer=output)
+    config.set_main_option("script_location", str(project_root / "alembic"))
+
+    command.upgrade(
+        config,
+        "20260901_0013:20261010_0014",
+        sql=True,
+    )
+    return output.getvalue()
+
+
+def _assert_postgresql_compaction_ddl(ddl):
+    normalized = " ".join(ddl.lower().split())
+    assert "create table agent_context_compactions" in normalized
+    assert "summary_payload jsonb not null" in normalized
+    assert "source_manifest jsonb not null" in normalized
+    assert (
+        "constraint fk_agent_context_compactions_summary_message "
+        "foreign key(session_key, summary_through_message_id) "
+        "references agent_messages (session_key, message_id) on delete restrict"
+    ) in normalized
+    assert (
+        "constraint fk_agent_context_compactions_observed_message "
+        "foreign key(session_key, observed_through_message_id) "
+        "references agent_messages (session_key, message_id) on delete restrict"
+    ) in normalized
+    assert (
+        "constraint fk_agent_context_compactions_previous "
+        "foreign key(session_key, previous_compaction_id) "
+        "references agent_context_compactions (session_key, compaction_id) "
+        "on delete restrict"
+    ) in normalized
+    assert (
+        "create unique index ux_agent_context_compactions_source_identity "
+        "on agent_context_compactions (session_key, "
+        "coalesce(previous_compaction_id, ''), summary_through_sequence_no, "
+        "source_digest, prompt_version)"
+    ) in normalized
+    assert (
+        "constraint fk_agent_sessions_active_context_compaction "
+        "foreign key(session_key, active_context_compaction_id) references "
+        "agent_context_compactions (session_key, compaction_id) on delete restrict"
+    ) in normalized
+
+
 def test_context_compaction_migration_rejects_non_postgresql():
     migration = _load_migration_module()
     migration.op = _MigrationOperationsRecorder("sqlite")
@@ -256,6 +324,26 @@ def test_context_compaction_migration_operation_order_matches_orm_contract():
         index.name for index in models.AgentContextCompaction.__table__.indexes
     }
     assert migration_index_names == orm_index_names
+
+
+def test_context_compaction_migration_compiles_real_postgresql_ddl(monkeypatch):
+    ddl = _render_postgresql_migration_ddl(monkeypatch)
+
+    _assert_postgresql_compaction_ddl(ddl)
+
+
+def test_context_compaction_postgresql_ddl_check_rejects_wrong_expression_index(
+    monkeypatch,
+):
+    ddl = _render_postgresql_migration_ddl(monkeypatch)
+    broken_ddl = ddl.replace(
+        "COALESCE(previous_compaction_id, '')",
+        "previous_compaction_id",
+    )
+
+    assert broken_ddl != ddl
+    with pytest.raises(AssertionError):
+        _assert_postgresql_compaction_ddl(broken_ddl)
 
 
 def test_context_compaction_orm_metadata_contract():
@@ -372,6 +460,7 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
     with _live_migration_database(monkeypatch) as (config, engine):
         _upgrade_baseline(config)
         _insert_legacy_conversation_rows(engine)
+        before_sessions = _session_snapshot(engine)
         before_messages = _message_snapshot(engine)
 
         command.upgrade(config, "20261010_0014")
@@ -633,4 +722,5 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
             constraint["name"]
             for constraint in downgraded.get_unique_constraints("agent_messages")
         }
+        assert _session_snapshot(engine) == before_sessions
         assert _message_snapshot(engine) == before_messages
