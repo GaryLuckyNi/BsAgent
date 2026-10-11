@@ -331,7 +331,10 @@ class ContextCompactionRepository:
             for item in current.source_manifest:
                 if not isinstance(item, dict) or not isinstance(item.get("message_id"), str):
                     return None
-                message_ids.add(item["message_id"])
+                message_id = item["message_id"]
+                if message_id in message_ids:
+                    return None
+                message_ids.add(message_id)
             if current.previous_compaction_id is None:
                 break
             current = self._session.scalar(

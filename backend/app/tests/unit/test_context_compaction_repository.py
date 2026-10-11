@@ -546,6 +546,54 @@ def test_activation_rejects_message_id_already_recorded_in_previous_chain(db: Se
     assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
 
 
+def test_activation_rejects_duplicate_id_within_historical_manifest(db: Session):
+    owner = _session(db)
+    first_messages = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    repository = ContextCompactionRepository(db)
+    first = repository.activate_if_current(_candidate(first_messages), None)
+    previous = repository.get_active("tenant-1", "user-1", "session-1")
+    assert previous is not None
+    previous.source_manifest = [*previous.source_manifest, previous.source_manifest[0]]
+    db.flush()
+    later = (_message(db, 3, "user"), _message(db, 4, "assistant"))
+    candidate = _candidate(later, previous=previous)
+
+    result = repository.activate_if_current(candidate, first.compaction_id)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id == first.compaction_id
+    assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
+
+
+def test_activation_rejects_duplicate_id_across_historical_versions(db: Session):
+    owner = _session(db)
+    first_messages = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    repository = ContextCompactionRepository(db)
+    first = repository.activate_if_current(_candidate(first_messages), None)
+    first_row = repository.get_active("tenant-1", "user-1", "session-1")
+    assert first_row is not None
+    second_messages = (_message(db, 3, "user"), _message(db, 4, "assistant"))
+    second = repository.activate_if_current(
+        _candidate(second_messages, previous=first_row),
+        first.compaction_id,
+    )
+    second_row = repository.get_active("tenant-1", "user-1", "session-1")
+    assert second_row is not None
+    second_row.source_manifest = [
+        *second_row.source_manifest,
+        first_row.source_manifest[0],
+    ]
+    db.flush()
+    later = (_message(db, 5, "user"), _message(db, 6, "assistant"))
+    candidate = _candidate(later, previous=second_row)
+
+    result = repository.activate_if_current(candidate, second.compaction_id)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id == second.compaction_id
+    assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 2
+
+
 def test_activation_rechecks_previous_summary_digest(db: Session):
     _session(db)
     first_messages = (_message(db, 1, "user"), _message(db, 2, "assistant"))
