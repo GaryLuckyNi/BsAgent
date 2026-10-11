@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.messages import Message
 
 
 class ContextSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
     goal: str
     constraints: list[str] = Field(default_factory=list)
     decisions: list[str] = Field(default_factory=list)

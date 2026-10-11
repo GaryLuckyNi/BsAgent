@@ -25,9 +25,14 @@ from app.context_compaction.policy import (
     ConservativeTokenEstimator,
     ContextBudgetPolicy,
 )
+from app.context_compaction.summarizer import (
+    SUMMARY_PROMPT_VERSION,
+    ContextSummarizer,
+)
 
 __all__ = [
     "POLICY_VERSION",
+    "SUMMARY_PROMPT_VERSION",
     "ActivationResult",
     "ActiveContextInvalidError",
     "BudgetDecision",
@@ -40,6 +45,7 @@ __all__ = [
     "ContextCompactionError",
     "ContextSummary",
     "ContextSummaryInvalid",
+    "ContextSummarizer",
     "EffectiveContext",
     "GenerationSnapshot",
     "MessageContextTooLarge",
