@@ -52,9 +52,9 @@ def compute_source_digest(
         previous_compaction_id = previous.compaction_id
         previous_summary_digest = sha256(canonical_json(previous.summary_payload)).hexdigest()
     payload = {
+        "manifest": [item.model_dump(mode="json") for item in manifest],
         "previous_compaction_id": previous_compaction_id,
         "previous_summary_digest": previous_summary_digest,
-        "source_manifest": [item.model_dump(mode="json") for item in manifest],
     }
     return sha256(canonical_json(payload)).hexdigest()
 
@@ -193,6 +193,8 @@ class ContextCompactionRepository:
         previous = self._load_previous(candidate, expected_active_compaction_id)
         if expected_active_compaction_id is not None and previous is None:
             return self._discarded("source_changed")
+        if previous is not None and not self._source_extends_previous(candidate, previous):
+            return self._discarded("source_changed")
 
         messages = self._reload_manifest_messages(candidate)
         if messages is None or not self._candidate_boundaries_are_valid(candidate, messages):
@@ -296,6 +298,53 @@ class ContextCompactionRepository:
         if not self._messages_are_complete_turns(records):
             return None
         return records
+
+    def _source_extends_previous(
+        self,
+        candidate: CompactionCandidate,
+        previous: AgentContextCompaction,
+    ) -> bool:
+        boundary = previous.summary_through_sequence_no
+        if candidate.summary_through_sequence_no <= boundary:
+            return False
+        if any(item.sequence_no <= boundary for item in candidate.source_manifest):
+            return False
+        lineage_ids = self._lineage_message_ids(candidate, previous)
+        if lineage_ids is None:
+            return False
+        return lineage_ids.isdisjoint(item.message_id for item in candidate.source_manifest)
+
+    def _lineage_message_ids(
+        self,
+        candidate: CompactionCandidate,
+        previous: AgentContextCompaction,
+    ) -> set[str] | None:
+        message_ids: set[str] = set()
+        seen_compactions: set[str] = set()
+        current: AgentContextCompaction | None = previous
+        while current is not None:
+            if current.compaction_id in seen_compactions:
+                return None
+            seen_compactions.add(current.compaction_id)
+            if not isinstance(current.source_manifest, list):
+                return None
+            for item in current.source_manifest:
+                if not isinstance(item, dict) or not isinstance(item.get("message_id"), str):
+                    return None
+                message_ids.add(item["message_id"])
+            if current.previous_compaction_id is None:
+                break
+            current = self._session.scalar(
+                select(AgentContextCompaction).where(
+                    AgentContextCompaction.compaction_id == current.previous_compaction_id,
+                    AgentContextCompaction.tenant_id == candidate.tenant_id,
+                    AgentContextCompaction.user_id == candidate.user_id,
+                    AgentContextCompaction.session_key == candidate.session_key,
+                )
+            )
+            if current is None:
+                return None
+        return message_ids
 
     def _candidate_boundaries_are_valid(
         self,

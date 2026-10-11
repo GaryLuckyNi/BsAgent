@@ -17,7 +17,7 @@ from app.context_compaction.repository import (
     content_digest,
 )
 from app.storage.models import AgentContextCompaction, AgentMessage, AgentSession, Base
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -163,6 +163,27 @@ def test_source_digest_is_key_order_stable_but_manifest_order_sensitive():
     )
     assert compute_source_digest(None, (first, second)) != compute_source_digest(
         None, (second, first)
+    )
+
+
+def test_source_digest_has_a_fixed_canonical_payload_vector():
+    manifest = (
+        CompactionSourceItem(
+            message_id="m-1",
+            role="user",
+            sequence_no=1,
+            content_digest="a" * 64,
+        ),
+        CompactionSourceItem(
+            message_id="m-2",
+            role="assistant",
+            sequence_no=2,
+            content_digest="b" * 64,
+        ),
+    )
+
+    assert compute_source_digest(None, manifest) == (
+        "85af9451b89b278f5e22e78281d63e8597d5a060ceba9f748ab8b248bf3ca8c6"
     )
 
 
@@ -367,16 +388,12 @@ def test_activation_rejects_source_drift_without_writes(
     assert db.scalars(select(AgentContextCompaction)).all() == []
 
 
-def test_activation_rejects_active_previous_owner_and_boundary_mismatches(db: Session):
+def test_activation_rejects_active_owner_and_boundary_mismatches(db: Session):
     owner = _session(db)
     messages = (_message(db, 1, "user"), _message(db, 2, "assistant"))
     repository = ContextCompactionRepository(db)
 
     wrong_active = repository.activate_if_current(_candidate(messages), "missing")
-    wrong_previous = repository.activate_if_current(
-        _candidate(messages, previous=None),
-        expected_active_compaction_id="missing",
-    )
     with pytest.raises(RepositoryNotFoundError):
         repository.activate_if_current(
             _candidate(messages, tenant_id="other"),
@@ -387,9 +404,26 @@ def test_activation_rejects_active_previous_owner_and_boundary_mismatches(db: Se
     boundary_result = repository.activate_if_current(bad_boundary, None)
 
     assert wrong_active.reason == "active_changed"
-    assert wrong_previous.reason == "active_changed"
     assert boundary_result.reason == "source_changed"
     assert owner.active_context_compaction_id is None
+
+
+def test_activation_rejects_candidate_previous_mismatch_after_active_c1(db: Session):
+    owner = _session(db)
+    first_messages = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    repository = ContextCompactionRepository(db)
+    first = repository.activate_if_current(_candidate(first_messages), None)
+    previous = repository.get_active("tenant-1", "user-1", "session-1")
+    assert previous is not None
+    later = (_message(db, 3, "user"), _message(db, 4, "assistant"))
+    candidate = _candidate(later, previous=previous)
+    object.__setattr__(candidate, "previous_compaction_id", "cmp-wrong")
+
+    result = repository.activate_if_current(candidate, first.compaction_id)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id == first.compaction_id
+    assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
 
 
 def test_activation_raises_stable_not_found_for_unknown_owned_session(db: Session):
@@ -423,10 +457,93 @@ def test_activation_versions_chain_and_manifest_trace_all_ids_without_content(db
     ).all()
     assert (first.version, second.version) == (1, 2)
     assert rows[1].previous_compaction_id == rows[0].compaction_id
-    assert [item["message_id"] for row in rows for item in row.source_manifest] == [
+    lineage_ids = [item["message_id"] for row in rows for item in row.source_manifest]
+    assert lineage_ids == [
         message.message_id for message in (*first_messages, *second_messages)
     ]
+    assert len(lineage_ids) == len(set(lineage_ids))
     assert all("content" not in item for row in rows for item in row.source_manifest)
+
+
+def test_activation_rejects_summary_boundary_before_previous_boundary(db: Session):
+    owner = _session(db)
+    messages = (
+        _message(db, 1, "user"),
+        _message(db, 2, "assistant"),
+        _message(db, 3, "user"),
+        _message(db, 4, "assistant"),
+    )
+    repository = ContextCompactionRepository(db)
+    first = repository.activate_if_current(_candidate(messages), None)
+    previous = repository.get_active("tenant-1", "user-1", "session-1")
+    assert previous is not None
+    candidate = _candidate(messages[:2], previous=previous)
+
+    result = repository.activate_if_current(candidate, first.compaction_id)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id == first.compaction_id
+    assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
+
+
+def test_activation_rejects_summary_boundary_equal_to_previous_boundary(db: Session):
+    owner = _session(db)
+    first_turn = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    second_turn = (_message(db, 3, "user"), _message(db, 4, "assistant"))
+    repository = ContextCompactionRepository(db)
+    first = repository.activate_if_current(_candidate((*first_turn, *second_turn)), None)
+    previous = repository.get_active("tenant-1", "user-1", "session-1")
+    assert previous is not None
+    candidate = _candidate(second_turn, previous=previous)
+
+    result = repository.activate_if_current(candidate, first.compaction_id)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id == first.compaction_id
+    assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
+
+
+def test_activation_rejects_manifest_that_mixes_old_and_new_messages(db: Session):
+    owner = _session(db)
+    old = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    repository = ContextCompactionRepository(db)
+    first = repository.activate_if_current(_candidate(old), None)
+    previous = repository.get_active("tenant-1", "user-1", "session-1")
+    assert previous is not None
+    new = (_message(db, 3, "user"), _message(db, 4, "assistant"))
+    candidate = _candidate((*old, *new), previous=previous)
+
+    result = repository.activate_if_current(candidate, first.compaction_id)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id == first.compaction_id
+    rows = db.scalars(select(AgentContextCompaction)).all()
+    assert len(rows) == 1
+    assert [item["message_id"] for item in rows[0].source_manifest] == [
+        message.message_id for message in old
+    ]
+
+
+def test_activation_rejects_message_id_already_recorded_in_previous_chain(db: Session):
+    owner = _session(db)
+    old = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    repository = ContextCompactionRepository(db)
+    first = repository.activate_if_current(_candidate(old), None)
+    previous = repository.get_active("tenant-1", "user-1", "session-1")
+    assert previous is not None
+    new = (_message(db, 3, "user"), _message(db, 4, "assistant"))
+    previous.source_manifest = [
+        *previous.source_manifest,
+        *[item.model_dump(mode="json") for item in _manifest(*new)],
+    ]
+    db.flush()
+    candidate = _candidate(new, previous=previous)
+
+    result = repository.activate_if_current(candidate, first.compaction_id)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id == first.compaction_id
+    assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
 
 
 def test_activation_rechecks_previous_summary_digest(db: Session):
