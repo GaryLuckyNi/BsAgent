@@ -5,14 +5,18 @@ from app.core.config import settings
 from app.operations.observability import configure_logging, configure_worker_telemetry
 from app.storage.database import engine
 
-
 _worker_telemetry_runtime = None
 
 
 celery_app = Celery(
     "bs_agent",
     broker=settings.celery_broker_url,
-    include=["app.vision.tasks", "app.assets.tasks", "app.harness.tasks"],
+    include=[
+        "app.vision.tasks",
+        "app.assets.tasks",
+        "app.harness.tasks",
+        "app.context_compaction.tasks",
+    ],
 )
 celery_app.conf.update(
     task_serializer="json",
@@ -29,6 +33,9 @@ celery_app.conf.update(
         "bs_agent.vision.analyze_asset": {"queue": "image-analysis"},
         "bs_agent.assets.purge_expired": {"queue": "maintenance"},
         "bs_agent.traces.purge_expired": {"queue": "maintenance"},
+        "bs_agent.context_compaction.compact_session": {
+            "queue": "context-compaction"
+        },
     },
     beat_schedule={
         "purge-expired-assets": {

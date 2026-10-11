@@ -10,7 +10,10 @@ from app.context_compaction.contracts import (
     CompactionSourceItem,
     ContextSummary,
 )
-from app.context_compaction.errors import MessageContextTooLarge
+from app.context_compaction.errors import (
+    MessageContextTooLarge,
+    RetryableContextCompactionError,
+)
 from app.context_compaction.policy import POLICY_VERSION
 from app.context_compaction.repository import (
     ContextCompactionRepository,
@@ -161,12 +164,20 @@ def _seed_turns(session_factory, count: int, *, size: int = 220, start: int = 1)
             )
 
 
-def _service(session_factory, client, *, config=None, observer=None):
+def _service(
+    session_factory,
+    client,
+    *,
+    config=None,
+    observer=None,
+    propagate_retryable_failures=False,
+):
     return ContextCompactionService(
         session_factory=session_factory,
         llm_client=client,
         config=config or _config(),
         observer=observer,
+        propagate_retryable_failures=propagate_retryable_failures,
     )
 
 
@@ -417,6 +428,24 @@ def test_soft_compaction_reports_activated_and_failed_without_replacing_old_acti
     assert failed.status == "failed"
     with session_factory() as db:
         assert db.get(AgentSession, "session-1").active_context_compaction_id == active_before
+
+
+def test_worker_mode_surfaces_transient_soft_compaction_failure_for_retry(
+    session_factory,
+):
+    _seed_turns(session_factory, 5)
+    service = _service(
+        session_factory,
+        FakeClient(RuntimeError("provider unavailable")),
+        propagate_retryable_failures=True,
+    )
+
+    with pytest.raises(RetryableContextCompactionError):
+        service.compact_if_soft_limit_reached(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            session_key="session-1",
+        )
 
 
 def test_current_message_and_attachments_must_fit_without_truncation(session_factory):

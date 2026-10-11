@@ -111,6 +111,11 @@ def isolate_session_api_tests_from_external_mcp(monkeypatch):
     monkeypatch.setattr(runtime, "get_default_tool_registry", ToolRegistry)
     monkeypatch.setattr(sessions, "build_graph_checkpointer", InMemorySaver)
     monkeypatch.setattr(approvals, "build_graph_checkpointer", InMemorySaver)
+    monkeypatch.setattr(
+        sessions,
+        "dispatch_context_compaction",
+        lambda **_kwargs: True,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -794,6 +799,56 @@ def test_stream_maps_context_budget_errors_and_fails_turn(monkeypatch, error_typ
     assert assistant.metadata_json["error_code"] == error_type.code
 
 
+@pytest.mark.parametrize(
+    ("path", "streaming"),
+    [
+        ("/api/sessions/s1/messages", False),
+        ("/api/sessions/s1/messages/stream", True),
+    ],
+)
+def test_completed_message_dispatches_after_commit_without_rolling_back_answer(
+    monkeypatch,
+    path,
+    streaming,
+):
+    observed = {"dispatches": []}
+
+    def record_session(db):
+        observed["db"] = db
+
+    def fake_dispatch(**kwargs):
+        assert not observed["db"].in_transaction()
+        observed["dispatches"].append(kwargs)
+        return False
+
+    def fake_graph(**kwargs):
+        return _completed_graph_state(kwargs, content="已提交回答")
+
+    def fake_stream(**kwargs):
+        yield _completed_graph_state(kwargs, content="已提交回答")
+
+    monkeypatch.setattr(sessions, "dispatch_context_compaction", fake_dispatch)
+    monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+    app, testing_session_local = create_test_app_with_database(on_session=record_session)
+
+    response = TestClient(app).post(path, json={"message": "当前问题"})
+
+    assert response.status_code == 200
+    assert len(observed["dispatches"]) == 1
+    assert observed["dispatches"][0]["tenant_id"] == "tenant_1"
+    assert observed["dispatches"][0]["user_id"] == "user_1"
+    with testing_session_local() as db:
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+        run = db.scalars(select(AgentRun)).one()
+    assert assistant.status == run.status == "completed"
+    assert assistant.content == "已提交回答"
+    assert observed["dispatches"][0]["session_key"] == run.session_key
+    assert ("event:" in response.text) is streaming
+
+
 def test_post_message_releases_turn_transaction_before_graph(monkeypatch):
     observed = {}
 
@@ -1417,6 +1472,7 @@ def test_approval_api_returns_minimal_projection_without_sensitive_payload():
 
 
 def test_post_session_message_persists_pending_tool_approval(monkeypatch):
+    dispatches = []
     def interrupted_graph(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         state["intent"] = {
@@ -1448,6 +1504,11 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
         return state
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", interrupted_graph)
+    monkeypatch.setattr(
+        sessions,
+        "dispatch_context_compaction",
+        lambda **kwargs: dispatches.append(kwargs) or True,
+    )
     monkeypatch.setattr(
         sessions,
         "_interrupt_payloads",
@@ -1494,6 +1555,7 @@ def test_post_session_message_persists_pending_tool_approval(monkeypatch):
     assert approval.run_id == run.run_id
     assert approval.checkpoint_thread_id.startswith("cpr1_")
     assert run.status == "interrupted"
+    assert dispatches == []
 
 
 def test_approver_decision_preserves_checkpoint_request_user_scopes(monkeypatch):
@@ -3069,6 +3131,7 @@ def test_in_progress_stream_replay_returns_stable_sse_conflict(monkeypatch):
 
 
 def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
+    dispatches = []
     def interrupted_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         state["__interrupt__"] = [
@@ -3099,6 +3162,11 @@ def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
         yield state
 
     monkeypatch.setattr(sessions, "stream_question_answer_graph", interrupted_stream)
+    monkeypatch.setattr(
+        sessions,
+        "dispatch_context_compaction",
+        lambda **kwargs: dispatches.append(kwargs) or True,
+    )
     monkeypatch.setattr(
         sessions,
         "_interrupt_payloads",
@@ -3146,6 +3214,7 @@ def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
     assert approval_event["run_id"] == run.run_id
     assert approval_event["request_id"] == "stream-interrupt-1"
     assert approval_event["message_id"] == assistant.message_id
+    assert dispatches == []
 
 
 def test_stream_passes_completed_history_to_next_turn(monkeypatch):

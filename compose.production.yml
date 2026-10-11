@@ -42,6 +42,8 @@ x-backend-environment: &backend-environment
   BS_AGENT_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
   BS_AGENT_DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
   BS_AGENT_DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
+  BS_AGENT_CONTEXT_COMPACTION_ENABLED: ${BS_AGENT_CONTEXT_COMPACTION_ENABLED:-false}
+  BS_AGENT_LLM_CONTEXT_WINDOW_TOKENS: ${BS_AGENT_LLM_CONTEXT_WINDOW_TOKENS:-131072}
   BS_AGENT_ASSET_STORE_BACKEND: s3
   BS_AGENT_ASSET_S3_ENDPOINT_URL: http://minio:9000
   BS_AGENT_ASSET_S3_BUCKET: bs-agent-private-assets
@@ -230,6 +232,22 @@ services:
       minio:
         condition: service_healthy
       ocr:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      release-gate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend]
+
+  context-compaction-worker:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues", "context-compaction"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       migrate:
         condition: service_completed_successfully

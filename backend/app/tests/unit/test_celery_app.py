@@ -9,6 +9,7 @@ def test_celery_app_uses_json_and_reliable_worker_defaults():
     assert celery_app.conf.task_ignore_result is True
     assert "app.assets.tasks" in celery_app.conf.include
     assert "app.harness.tasks" in celery_app.conf.include
+    assert "app.context_compaction.tasks" in celery_app.conf.include
     assert celery_app.conf.task_routes["bs_agent.assets.purge_expired"] == {
         "queue": "maintenance"
     }
@@ -18,6 +19,9 @@ def test_celery_app_uses_json_and_reliable_worker_defaults():
     assert celery_app.conf.task_routes["bs_agent.traces.purge_expired"] == {
         "queue": "maintenance"
     }
+    assert celery_app.conf.task_routes[
+        "bs_agent.context_compaction.compact_session"
+    ] == {"queue": "context-compaction"}
     trace_schedule = celery_app.conf.beat_schedule["purge-expired-traces"]
     assert trace_schedule == {
         "task": "bs_agent.traces.purge_expired",

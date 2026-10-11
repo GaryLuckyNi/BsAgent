@@ -16,6 +16,7 @@ from starlette.concurrency import iterate_in_threadpool
 from app.api.assets import get_asset_service
 from app.approvals.repository import ApprovalRepository
 from app.assets.service import AssetService
+from app.context_compaction.dispatcher import dispatch_context_compaction
 from app.context_compaction.errors import (
     ContextBudgetUnrecoverable,
     ContextCompactionError,
@@ -594,6 +595,12 @@ def _run_and_persist_agent_message(
                 ),
             )
         db.commit()
+        if not interrupt_payloads:
+            dispatch_context_compaction(
+                tenant_id=principal.tenant_id,
+                user_id=principal.user_id,
+                session_key=handle.session_key,
+            )
         sync_committed_run(db=db, store=memory_store, run_id=handle.run_id)
     except ContextCompactionError as exc:
         db.rollback()
@@ -1069,6 +1076,11 @@ def _emit_stream_result(
         ),
     )
     db.commit()
+    dispatch_context_compaction(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_key=handle.session_key,
+    )
     trace_lifecycle.failed = False
     yield _sse("final", {**final_response, **identity})
     yield _sse("done", {"ok": True, **identity})

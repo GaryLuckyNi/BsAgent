@@ -19,6 +19,8 @@ from app.context_compaction.contracts import (
 from app.context_compaction.errors import (
     ActiveContextInvalidError,
     ContextBudgetUnrecoverable,
+    ContextSummaryInvalid,
+    RetryableContextCompactionError,
 )
 from app.context_compaction.policy import POLICY_VERSION, ContextBudgetPolicy
 from app.context_compaction.repository import (
@@ -65,10 +67,12 @@ class ContextCompactionService:
         llm_client,
         config,
         observer=None,
+        propagate_retryable_failures: bool = False,
     ) -> None:
         self.session_factory = session_factory
         self.config = config
         self.observer = observer or _NoopObserver()
+        self.propagate_retryable_failures = propagate_retryable_failures
         policy_fields = ContextBudgetPolicy.__dataclass_fields__
         self.policy = ContextBudgetPolicy(
             **{
@@ -381,7 +385,13 @@ class ContextCompactionService:
         )
         try:
             generation = self.summarizer.summarize(generation_snapshot)
-        except Exception:  # noqa: BLE001 - 同步压缩失败必须降级，不能中断主请求。
+        except ContextSummaryInvalid:
+            return _GenerationOutcome(status="failed")
+        except Exception as exc:  # noqa: BLE001 - worker 将临时故障转换为受控重试。
+            if self.propagate_retryable_failures and trigger == "soft_async":
+                raise RetryableContextCompactionError(
+                    "上下文摘要生成暂时失败"
+                ) from exc
             return _GenerationOutcome(status="failed")
         manifest = tuple(
             CompactionSourceItem(
@@ -419,7 +429,11 @@ class ContextCompactionService:
                     previous.compaction_id if previous else None
                 ),
             )
-        except Exception:  # noqa: BLE001 - 激活失败不得破坏已可用的旧上下文。
+        except Exception as exc:  # noqa: BLE001 - worker 将临时故障转换为受控重试。
+            if self.propagate_retryable_failures and trigger == "soft_async":
+                raise RetryableContextCompactionError(
+                    "上下文摘要激活暂时失败"
+                ) from exc
             return _GenerationOutcome(status="failed")
         if result.activated:
             return _GenerationOutcome(

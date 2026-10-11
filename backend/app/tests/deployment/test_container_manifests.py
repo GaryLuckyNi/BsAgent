@@ -2,7 +2,6 @@ from pathlib import Path
 
 import yaml
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -24,6 +23,7 @@ def test_production_compose_contains_required_runtime_services():
         "release-gate",
         "api",
         "worker",
+        "context-compaction-worker",
         "maintenance-worker",
         "scheduler",
         "frontend",
@@ -108,6 +108,24 @@ def test_worker_uses_same_backend_image_and_dedicated_queue():
         "service_completed_successfully"
     )
 
+    context_worker = services["context-compaction-worker"]
+    assert context_worker["build"] == api["build"]
+    assert context_worker["command"][-1] == "context-compaction"
+    assert context_worker["depends_on"]["postgres"]["condition"] == "service_healthy"
+    assert context_worker["depends_on"]["redis"]["condition"] == "service_healthy"
+    assert context_worker["depends_on"]["migrate"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert context_worker["depends_on"]["release-gate"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert context_worker["environment"]["BS_AGENT_CONTEXT_COMPACTION_ENABLED"] == (
+        "${BS_AGENT_CONTEXT_COMPACTION_ENABLED:-false}"
+    )
+    assert context_worker["environment"]["BS_AGENT_LLM_CONTEXT_WINDOW_TOKENS"] == (
+        "${BS_AGENT_LLM_CONTEXT_WINDOW_TOKENS:-131072}"
+    )
+
     maintenance = services["maintenance-worker"]
     assert maintenance["build"] == api["build"]
     assert maintenance["command"][-1] == "maintenance"
@@ -141,7 +159,13 @@ def test_release_gate_blocks_runtime_services_until_database_is_drained():
         "service_completed_successfully"
     )
     assert gate["restart"] == "no"
-    for service_name in ("api", "worker", "maintenance-worker", "scheduler"):
+    for service_name in (
+        "api",
+        "worker",
+        "context-compaction-worker",
+        "maintenance-worker",
+        "scheduler",
+    ):
         assert services[service_name]["depends_on"]["release-gate"]["condition"] == (
             "service_completed_successfully"
         )
