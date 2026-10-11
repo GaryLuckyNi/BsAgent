@@ -14,6 +14,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy import inspect as inspect_database
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Mapped
 from sqlalchemy.sql.schema import CheckConstraint, ForeignKeyConstraint
 
 from alembic import command
@@ -42,6 +43,14 @@ EXPECTED_COLUMNS = {
 }
 
 
+class _RecorderMigrationContext:
+    as_sql = True
+
+    @contextmanager
+    def autocommit_block(self):
+        yield
+
+
 class _MigrationOperationsRecorder:
     def __init__(self, dialect_name):
         self.bind = SimpleNamespace(
@@ -51,6 +60,9 @@ class _MigrationOperationsRecorder:
 
     def get_bind(self):
         return self.bind
+
+    def get_context(self):
+        return _RecorderMigrationContext()
 
     def __getattr__(self, name):
         def record(*args, **kwargs):
@@ -72,11 +84,20 @@ def _load_migration_module():
     return module
 
 
+def _postgres_test_url():
+    postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL") or os.getenv(
+        "BS_AGENT_TEST_POSTGRES_CHECKPOINT_URL"
+    )
+    if postgres_url:
+        return postgres_url
+    if os.getenv("CI"):
+        pytest.fail("CI 未配置真实 PostgreSQL 迁移测试地址。")
+    pytest.skip("未配置真实 PostgreSQL 迁移测试地址。")
+
+
 @contextmanager
 def _live_migration_database(monkeypatch):
-    postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL")
-    if not postgres_url:
-        pytest.skip("未配置真实 PostgreSQL 迁移测试地址。")
+    postgres_url = _postgres_test_url()
 
     project_root = Path(__file__).resolve().parents[4]
     schema_name = f"context_compaction_{uuid4().hex}"
@@ -187,7 +208,10 @@ def _insert_compaction(engine, **overrides):
         "summary_through_sequence_no": 1,
         "observed_through_sequence_no": 2,
         "summary_payload": '{"summary":"A"}',
-        "source_manifest": '{"message_ids":["message_a1"]}',
+        "source_manifest": (
+            '[{"message_id":"message_a1","role":"user","sequence_no":1,'
+            '"content_digest":"content_digest_a1"}]'
+        ),
         "source_digest": "digest_a1",
         "source_tokens": 100,
         "summary_tokens": 20,
@@ -248,11 +272,60 @@ def _render_postgresql_migration_ddl(monkeypatch):
     return output.getvalue()
 
 
+def _render_postgresql_migration_downgrade_ddl(monkeypatch):
+    project_root = Path(__file__).resolve().parents[4]
+    output = StringIO()
+    monkeypatch.setattr(
+        settings,
+        "database_url",
+        "postgresql+psycopg://ddl_user:ddl_password@localhost/ddl_database",
+    )
+    config = Config(str(project_root / "alembic.ini"), output_buffer=output)
+    config.set_main_option("script_location", str(project_root / "alembic"))
+
+    command.downgrade(
+        config,
+        "20261010_0014:20260901_0013",
+        sql=True,
+    )
+    return output.getvalue()
+
+
 def _assert_postgresql_compaction_ddl(ddl):
     normalized = " ".join(ddl.lower().split())
+    assert normalized.count("set lock_timeout to '5s'") >= 2
+    assert (
+        "commit; set lock_timeout to '5s'; drop index concurrently if exists "
+        "uq_agent_messages_session_message; create unique index concurrently "
+        "uq_agent_messages_session_message on "
+        "agent_messages(session_key, message_id); begin;"
+    ) in normalized
+    assert (
+        "drop index concurrently if exists "
+        "uq_agent_messages_session_message"
+    ) in normalized
+    assert (
+        "create unique index concurrently uq_agent_messages_session_message "
+        "on agent_messages(session_key, message_id)"
+    ) in normalized
+    assert (
+        "alter table agent_messages add constraint "
+        "uq_agent_messages_session_message unique using index "
+        "uq_agent_messages_session_message"
+    ) in normalized
+    assert (
+        "constraint uq_agent_sessions_owner_key unique "
+        "(tenant_id, user_id, session_key)"
+    ) in normalized
     assert "create table agent_context_compactions" in normalized
     assert "summary_payload jsonb not null" in normalized
     assert "source_manifest jsonb not null" in normalized
+    assert (
+        "constraint fk_agent_context_compactions_owner_session "
+        "foreign key(tenant_id, user_id, session_key) "
+        "references agent_sessions (tenant_id, user_id, session_key) "
+        "on delete restrict"
+    ) in normalized
     assert (
         "constraint fk_agent_context_compactions_summary_message "
         "foreign key(session_key, summary_through_message_id) "
@@ -270,6 +343,11 @@ def _assert_postgresql_compaction_ddl(ddl):
         "on delete restrict"
     ) in normalized
     assert (
+        "create index ix_agent_context_compactions_owner_version "
+        "on agent_context_compactions (tenant_id, user_id, session_key, "
+        "version desc)"
+    ) in normalized
+    assert (
         "create unique index ux_agent_context_compactions_source_identity "
         "on agent_context_compactions (session_key, "
         "coalesce(previous_compaction_id, ''), summary_through_sequence_no, "
@@ -279,6 +357,18 @@ def _assert_postgresql_compaction_ddl(ddl):
         "constraint fk_agent_sessions_active_context_compaction "
         "foreign key(session_key, active_context_compaction_id) references "
         "agent_context_compactions (session_key, compaction_id) on delete restrict"
+    ) in normalized
+
+
+def _assert_postgresql_compaction_downgrade_ddl(ddl):
+    normalized = " ".join(ddl.lower().split())
+    assert "set lock_timeout to '5s'" in normalized
+    assert (
+        "alter table agent_messages drop constraint "
+        "uq_agent_messages_session_message"
+    ) in normalized
+    assert (
+        "alter table agent_sessions drop constraint uq_agent_sessions_owner_key"
     ) in normalized
 
 
@@ -292,6 +382,51 @@ def test_context_compaction_migration_rejects_non_postgresql():
         migration.downgrade()
 
 
+def test_context_compaction_migration_validates_existing_message_constraint():
+    migration = _load_migration_module()
+    migration.op = SimpleNamespace(
+        get_context=lambda: SimpleNamespace(as_sql=False),
+    )
+
+    def connection_with(definition):
+        result = SimpleNamespace(scalar_one_or_none=lambda: definition)
+        return SimpleNamespace(execute=lambda *_args, **_kwargs: result)
+
+    assert migration._message_session_unique_exists(
+        connection_with("UNIQUE (session_key, message_id)")
+    )
+    with pytest.raises(RuntimeError, match="约束契约不匹配"):
+        migration._message_session_unique_exists(
+            connection_with("UNIQUE (message_id, session_key)")
+        )
+
+
+def test_context_compaction_live_fixture_fails_in_ci_without_postgresql_url(
+    monkeypatch,
+):
+    monkeypatch.delenv("BS_AGENT_TEST_POSTGRES_URL", raising=False)
+    monkeypatch.delenv("BS_AGENT_TEST_POSTGRES_CHECKPOINT_URL", raising=False)
+    monkeypatch.setenv("CI", "true")
+
+    with (
+        pytest.raises(pytest.fail.Exception, match="PostgreSQL"),
+        _live_migration_database(monkeypatch),
+    ):
+        pass
+
+
+def test_context_compaction_live_fixture_uses_checkpoint_postgresql_url(monkeypatch):
+    monkeypatch.delenv("BS_AGENT_TEST_POSTGRES_URL", raising=False)
+    monkeypatch.setenv(
+        "BS_AGENT_TEST_POSTGRES_CHECKPOINT_URL",
+        "postgresql://checkpoint.example/context_compaction",
+    )
+
+    assert _postgres_test_url() == (
+        "postgresql://checkpoint.example/context_compaction"
+    )
+
+
 def test_context_compaction_migration_operation_order_matches_orm_contract():
     migration = _load_migration_module()
     recorder = _MigrationOperationsRecorder("postgresql")
@@ -299,16 +434,29 @@ def test_context_compaction_migration_operation_order_matches_orm_contract():
 
     migration.upgrade()
 
-    assert [name for name, _args, _kwargs in recorder.calls[:3]] == [
-        "execute",
-        "create_unique_constraint",
-        "create_table",
-    ]
+    call_names = [name for name, _args, _kwargs in recorder.calls]
+    assert call_names[0] == "execute"
     assert str(recorder.calls[0][1][0]) == "SET lock_timeout TO '5s'"
-    assert recorder.calls[1][1] == (
-        "uq_agent_messages_session_message",
-        "agent_messages",
-        ["session_key", "message_id"],
+    assert any(
+        name == "execute" and "CREATE UNIQUE INDEX CONCURRENTLY" in str(args[0])
+        for name, args, _kwargs in recorder.calls
+    )
+    assert any(
+        name == "execute" and "UNIQUE USING INDEX" in str(args[0])
+        for name, args, _kwargs in recorder.calls
+    )
+    owner_unique_call = next(
+        args
+        for name, args, _kwargs in recorder.calls
+        if name == "create_unique_constraint"
+    )
+    assert owner_unique_call == (
+        "uq_agent_sessions_owner_key",
+        "agent_sessions",
+        ["tenant_id", "user_id", "session_key"],
+    )
+    assert call_names.index("create_unique_constraint") < call_names.index(
+        "create_table"
     )
     assert [name for name, _args, _kwargs in recorder.calls[-2:]] == [
         "add_column",
@@ -330,6 +478,14 @@ def test_context_compaction_migration_compiles_real_postgresql_ddl(monkeypatch):
     ddl = _render_postgresql_migration_ddl(monkeypatch)
 
     _assert_postgresql_compaction_ddl(ddl)
+
+
+def test_context_compaction_downgrade_compiles_lock_timeout_and_constraint_drops(
+    monkeypatch,
+):
+    ddl = _render_postgresql_migration_downgrade_ddl(monkeypatch)
+
+    _assert_postgresql_compaction_downgrade_ddl(ddl)
 
 
 def test_context_compaction_postgresql_ddl_check_rejects_wrong_expression_index(
@@ -355,6 +511,9 @@ def test_context_compaction_orm_metadata_contract():
     assert table.c.compaction_id.primary_key
     assert not table.c.summary_payload.nullable
     assert not table.c.source_manifest.nullable
+    assert models.AgentContextCompaction.__annotations__["source_manifest"] == (
+        Mapped[list]
+    )
     assert models.AgentSession.__table__.c.active_context_compaction_id.nullable
 
     checks = {
@@ -380,9 +539,13 @@ def test_context_compaction_orm_metadata_contract():
         if isinstance(constraint, ForeignKeyConstraint)
     }
     assert foreign_keys == {
-        "fk_agent_context_compactions_session": (
-            ("session_key",),
-            ("agent_sessions.session_key",),
+        "fk_agent_context_compactions_owner_session": (
+            ("tenant_id", "user_id", "session_key"),
+            (
+                "agent_sessions.tenant_id",
+                "agent_sessions.user_id",
+                "agent_sessions.session_key",
+            ),
             "RESTRICT",
         ),
         "fk_agent_context_compactions_summary_message": (
@@ -411,6 +574,16 @@ def test_context_compaction_orm_metadata_contract():
     )
     assert session_foreign_key.use_alter
     assert session_foreign_key.ondelete == "RESTRICT"
+    session_uniques = {
+        constraint.name: tuple(column.name for column in constraint.columns)
+        for constraint in models.AgentSession.__table__.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+    assert session_uniques["uq_agent_sessions_owner_key"] == (
+        "tenant_id",
+        "user_id",
+        "session_key",
+    )
 
     unique_constraints = {
         constraint.name: tuple(column.name for column in constraint.columns)
@@ -433,12 +606,20 @@ def test_context_compaction_orm_metadata_contract():
 
     index_names = {index.name for index in table.indexes}
     assert index_names == {
-        "ix_agent_context_compactions_tenant_id",
-        "ix_agent_context_compactions_user_id",
-        "ix_agent_context_compactions_session_key",
-        "ix_agent_context_compactions_version",
+        "ix_agent_context_compactions_owner_version",
         "ux_agent_context_compactions_source_identity",
     }
+    owner_index = next(
+        index
+        for index in table.indexes
+        if index.name == "ix_agent_context_compactions_owner_version"
+    )
+    assert [str(expression) for expression in owner_index.expressions] == [
+        "agent_context_compactions.tenant_id",
+        "agent_context_compactions.user_id",
+        "agent_context_compactions.session_key",
+        "version DESC",
+    ]
     source_index = next(
         index
         for index in table.indexes
@@ -523,6 +704,15 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
             "session_key",
             "message_id",
         )
+        session_uniques = {
+            constraint["name"]: tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("agent_sessions")
+        }
+        assert session_uniques["uq_agent_sessions_owner_key"] == (
+            "tenant_id",
+            "user_id",
+            "session_key",
+        )
 
         foreign_keys = {
             foreign_key["name"]: (
@@ -536,10 +726,10 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
             )
         }
         assert foreign_keys == {
-            "fk_agent_context_compactions_session": (
-                ("session_key",),
+            "fk_agent_context_compactions_owner_session": (
+                ("tenant_id", "user_id", "session_key"),
                 "agent_sessions",
-                ("session_key",),
+                ("tenant_id", "user_id", "session_key"),
                 "RESTRICT",
             ),
             "fk_agent_context_compactions_summary_message": (
@@ -596,20 +786,18 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
             for index in inspector.get_indexes("agent_context_compactions")
         }
         assert {
-            "ix_agent_context_compactions_tenant_id",
-            "ix_agent_context_compactions_user_id",
-            "ix_agent_context_compactions_session_key",
-            "ix_agent_context_compactions_version",
+            "ix_agent_context_compactions_owner_version",
             "ux_agent_context_compactions_source_identity",
         }.issubset(indexes)
-        for index_name, column_name in (
-            ("ix_agent_context_compactions_tenant_id", "tenant_id"),
-            ("ix_agent_context_compactions_user_id", "user_id"),
-            ("ix_agent_context_compactions_session_key", "session_key"),
-            ("ix_agent_context_compactions_version", "version"),
-        ):
-            assert indexes[index_name]["column_names"] == [column_name]
-            assert not indexes[index_name]["unique"]
+        owner_index = indexes["ix_agent_context_compactions_owner_version"]
+        assert not owner_index["unique"]
+        assert owner_index["column_names"] == [
+            "tenant_id",
+            "user_id",
+            "session_key",
+            "version",
+        ]
+        assert "desc" in owner_index["column_sorting"]["version"]
         source_index = indexes["ux_agent_context_compactions_source_identity"]
         assert source_index["unique"]
         assert source_index["column_names"] == [
@@ -634,7 +822,20 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
             summary_through_message_id="message_a2",
             summary_through_sequence_no=2,
             source_digest="digest_a2",
-            source_manifest='{"message_ids":["message_a1","message_a2"]}',
+            source_manifest=(
+                '[{"message_id":"message_a1","role":"user",'
+                '"sequence_no":1,"content_digest":"content_digest_a1"},'
+                '{"message_id":"message_a2","role":"assistant",'
+                '"sequence_no":2,"content_digest":"content_digest_a2"}]'
+            ),
+        )
+        _assert_rejected(
+            engine,
+            compaction_id="owner_mismatch",
+            tenant_id="tenant_b",
+            user_id="user_b",
+            version=3,
+            source_digest="digest_owner_mismatch",
         )
         _assert_rejected(
             engine,
@@ -691,6 +892,33 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
             version=3,
         )
 
+        with engine.connect() as connection:
+            manifests = connection.scalars(
+                text(
+                    """
+                    SELECT source_manifest
+                    FROM agent_context_compactions
+                    ORDER BY version
+                    """
+                )
+            ).all()
+        assert all(isinstance(manifest, list) for manifest in manifests)
+        for manifest in manifests:
+            assert manifest
+            assert [item["sequence_no"] for item in manifest] == sorted(
+                item["sequence_no"] for item in manifest
+            )
+            assert all(
+                set(item) == {
+                    "message_id",
+                    "role",
+                    "sequence_no",
+                    "content_digest",
+                }
+                for item in manifest
+            )
+            assert all("content" not in item for item in manifest)
+
         with engine.begin() as connection:
             connection.execute(
                 text(
@@ -721,6 +949,10 @@ def test_context_compaction_upgrade_enforces_lineage_and_downgrade_preserves_mes
         assert "uq_agent_messages_session_message" not in {
             constraint["name"]
             for constraint in downgraded.get_unique_constraints("agent_messages")
+        }
+        assert "uq_agent_sessions_owner_key" not in {
+            constraint["name"]
+            for constraint in downgraded.get_unique_constraints("agent_sessions")
         }
         assert _session_snapshot(engine) == before_sessions
         assert _message_snapshot(engine) == before_messages

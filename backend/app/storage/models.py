@@ -40,6 +40,12 @@ class AgentSession(Base):
             "session_id",
             name="uq_agent_sessions_tenant_user_external",
         ),
+        UniqueConstraint(
+            "tenant_id",
+            "user_id",
+            "session_key",
+            name="uq_agent_sessions_owner_key",
+        ),
         Index(
             "ix_agent_sessions_tenant_active_run",
             "tenant_id",
@@ -185,9 +191,13 @@ class AgentContextCompaction(Base):
             name="ck_agent_context_compactions_trigger",
         ),
         ForeignKeyConstraint(
-            ["session_key"],
-            ["agent_sessions.session_key"],
-            name="fk_agent_context_compactions_session",
+            ["tenant_id", "user_id", "session_key"],
+            [
+                "agent_sessions.tenant_id",
+                "agent_sessions.user_id",
+                "agent_sessions.session_key",
+            ],
+            name="fk_agent_context_compactions_owner_session",
             ondelete="RESTRICT",
         ),
         ForeignKeyConstraint(
@@ -211,10 +221,13 @@ class AgentContextCompaction(Base):
             name="fk_agent_context_compactions_previous",
             ondelete="RESTRICT",
         ),
-        Index("ix_agent_context_compactions_tenant_id", "tenant_id"),
-        Index("ix_agent_context_compactions_user_id", "user_id"),
-        Index("ix_agent_context_compactions_session_key", "session_key"),
-        Index("ix_agent_context_compactions_version", "version"),
+        Index(
+            "ix_agent_context_compactions_owner_version",
+            "tenant_id",
+            "user_id",
+            "session_key",
+            text("version DESC"),
+        ),
         Index(
             "ux_agent_context_compactions_source_identity",
             "session_key",
@@ -252,7 +265,7 @@ class AgentContextCompaction(Base):
         nullable=False,
     )
     summary_payload: Mapped[dict] = mapped_column(TRACE_JSON, nullable=False)
-    source_manifest: Mapped[dict] = mapped_column(TRACE_JSON, nullable=False)
+    source_manifest: Mapped[list] = mapped_column(TRACE_JSON, nullable=False)
     source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     source_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
     summary_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
