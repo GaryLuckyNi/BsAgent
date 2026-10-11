@@ -1,13 +1,13 @@
 import json
 
 import pytest
-
 from app.graph.nodes import intent_router as intent_router_module
 from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.state import create_initial_state
 from app.intent.router import HybridIntentRouter, IntentClassificationError
 from app.intent.schemas import IntentDecisionModel
 from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
+from app.schemas.messages import Message
 
 
 class FakeLlmClient:
@@ -106,6 +106,51 @@ def test_llm_intent_router_returns_only_taxonomy_and_goal(
     assert "available_tools" not in payload
     assert "task_brief" not in payload
     assert "risk_level" not in llm.calls[0]["system_prompt"]
+
+
+def test_intent_router_passes_compaction_separately_from_recent_history(
+    business_intent_catalog,
+):
+    llm = FakeLlmClient(_decision())
+    summary_payload = {
+        "goal": "分析海能达",
+        "constraints": [],
+        "decisions": [],
+        "open_items": ["继续"],
+        "facts": [],
+        "evidence_refs": [],
+        "user_preferences": [],
+        "superseded": [],
+    }
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        request_id="current-request",
+        user_message="继续",
+        history=[
+            Message(
+                message_id="cmp-1",
+                role="assistant",
+                content=json.dumps(summary_payload, ensure_ascii=False),
+                metadata={"context_compaction": True},
+            ),
+            Message(message_id="prior-user", role="user", content="上一问"),
+            Message(message_id="prior-ai", role="assistant", content="上一答"),
+        ],
+    )
+
+    build_intent_router_node(catalog=business_intent_catalog, llm_client=llm)(state)
+
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert payload["context"]["context_summary"] == summary_payload
+    assert [item["content"] for item in payload["context"]["conversation_history"]] == [
+        "上一问",
+        "上一答",
+    ]
+    assert "继续" not in [
+        item["content"] for item in payload["context"]["conversation_history"]
+    ]
 
 
 def test_out_of_scope_is_represented_by_null_taxonomy(

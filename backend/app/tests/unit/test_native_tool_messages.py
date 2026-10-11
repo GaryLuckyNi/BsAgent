@@ -1,13 +1,10 @@
 import json
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langgraph.graph.message import add_messages
-from pydantic import BaseModel
-
 from app.graph.nodes.tool_agent import (
     _generate_tool_selection,
     _task_result,
+    _tool_call_messages,
     _tool_message_content,
     build_tool_agent_node,
 )
@@ -18,11 +15,18 @@ from app.schemas.messages import Message
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
 from app.tools.base import Tool
 from app.tools.candidate_resolver import ToolCandidateResolution, ToolCandidateResolver
-from app.tools.native_calls import create_tool_call_message, create_tool_result_message
-from app.tools.native_calls import ToolCallCountError, UnexpectedToolCallError
 from app.tools.fingerprints import tool_call_fingerprint
+from app.tools.native_calls import (
+    ToolCallCountError,
+    UnexpectedToolCallError,
+    create_tool_call_message,
+    create_tool_result_message,
+)
 from app.tools.registry import ToolRegistry
 from app.tools.search import ToolSearchHit, ToolSearchResponse
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.graph.message import add_messages
+from pydantic import BaseModel
 
 
 class BoundModel:
@@ -154,6 +158,42 @@ def test_native_tool_call_distinguishes_missing_call_from_wrong_tool():
             messages=[HumanMessage(content="查询海能达行情")],
             tool_spec=_spec(),
         )
+
+
+def test_tool_call_messages_keep_context_compaction_ai_message():
+    summary_payload = {
+        "goal": "长期目标",
+        "constraints": [],
+        "decisions": [],
+        "open_items": [],
+        "facts": [],
+        "evidence_refs": [],
+        "user_preferences": [],
+        "superseded": [],
+    }
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="继续",
+        history=[
+            Message(
+                message_id="cmp-1",
+                role="assistant",
+                content=json.dumps(summary_payload, ensure_ascii=False),
+                metadata={"context_compaction": True},
+            )
+        ],
+    )
+    task = SubTaskModel(id="facts", task_goal="核实事实")
+
+    messages = _tool_call_messages(state, task)
+
+    assert any(
+        isinstance(message, AIMessage)
+        and message.additional_kwargs.get("metadata", {}).get("context_compaction") is True
+        for message in messages
+    )
 
     with pytest.raises(UnexpectedToolCallError):
         create_tool_call_message(

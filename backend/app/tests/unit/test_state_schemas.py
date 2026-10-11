@@ -1,14 +1,19 @@
+import json
+
 import pytest
+from app.graph.state import (
+    context_compaction_payload,
+    create_initial_state,
+    is_context_compaction_message,
+)
+from app.intent.schemas import IntentDecisionModel
+from app.schemas.evidence import EvidenceItem, EvidencePackage
+from app.schemas.memory import MemoryCandidate
+from app.schemas.messages import Message
+from app.schemas.tools import ToolCallRequest, ToolCallResult
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import add_messages
 from pydantic import ValidationError
-
-from app.graph.state import create_initial_state
-from app.intent.schemas import IntentDecisionModel
-from app.schemas.messages import Message
-from app.schemas.evidence import EvidenceItem, EvidencePackage
-from app.schemas.memory import MemoryCandidate
-from app.schemas.tools import ToolCallRequest, ToolCallResult
 
 
 def test_create_initial_state_contains_trace_and_empty_collections():
@@ -138,6 +143,40 @@ def test_create_initial_state_normalizes_history_before_current_turn():
         "ai",
         "human",
     ]
+
+
+def test_create_initial_state_preserves_compaction_as_ai_message():
+    summary = Message(
+        message_id="cmp-1",
+        role="assistant",
+        content=json.dumps(
+            {
+                "goal": "继续研究",
+                "constraints": ["中文"],
+                "decisions": [],
+                "open_items": ["核实数据"],
+                "facts": [],
+                "evidence_refs": [],
+                "user_preferences": [],
+                "superseded": [],
+            },
+            ensure_ascii=False,
+        ),
+        metadata={"context_compaction": True, "context_compaction_id": "cmp-1"},
+    )
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="继续",
+        history=[summary],
+    )
+
+    message = state["messages"][0]
+    assert is_context_compaction_message(message)
+    assert message.type == "ai"
+    assert context_compaction_payload(message)["goal"] == "继续研究"
+    assert message.additional_kwargs["metadata"]["context_compaction_id"] == "cmp-1"
 
 
 def test_initial_state_preserves_attachment_refs_without_analysis_payload():

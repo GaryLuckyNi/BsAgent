@@ -1,5 +1,5 @@
-from hashlib import sha256
 import json
+from hashlib import sha256
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -12,6 +12,7 @@ from langchain_core.messages import (
 )
 from langgraph.graph.message import add_messages
 
+from app.context_compaction.contracts import ContextSummary
 from app.schemas.approvals import (
     ApprovalRequest,
     ApprovalStatus,
@@ -373,6 +374,25 @@ def _to_langchain_message(message: Message) -> AnyMessage:
         **common,
         tool_call_id=str(message.metadata.get("tool_call_id") or message.message_id),
     )
+
+
+def is_context_compaction_message(message: AnyMessage) -> bool:
+    metadata = message.additional_kwargs.get("metadata", {})
+    return (
+        isinstance(message, AIMessage)
+        and isinstance(metadata, dict)
+        and metadata.get("context_compaction") is True
+    )
+
+
+def context_compaction_payload(message: AnyMessage) -> dict | None:
+    if not is_context_compaction_message(message):
+        return None
+    try:
+        raw = json.loads(str(message.content))
+        return ContextSummary.model_validate(raw).model_dump(mode="json")
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
 
 
 def _compat_session_key(*, session_id: str, tenant_id: str, user_id: str) -> str:
