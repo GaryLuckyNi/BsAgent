@@ -14,5 +14,9 @@ class ContextSummaryInvalid(ContextCompactionError):
     code = "context_summary_invalid"
 
 
+class ActiveContextInvalidError(ContextCompactionError):
+    code = "active_context_compaction_invalid"
+
+
 class RetryableContextCompactionError(ContextCompactionError):
     code = "context_compaction_retryable"

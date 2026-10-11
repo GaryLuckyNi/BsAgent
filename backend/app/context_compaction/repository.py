@@ -20,6 +20,7 @@ from app.context_compaction.contracts import (
     GenerationSnapshot,
     SourceMessage,
 )
+from app.context_compaction.errors import ActiveContextInvalidError
 from app.storage.models import AgentContextCompaction, AgentMessage, AgentSession
 
 
@@ -133,11 +134,17 @@ class ContextCompactionRepository:
             )
         )
         if owner is None:
-            return None
+            raise RepositoryNotFoundError("session_not_found")
 
         active = self.get_active(tenant_id, user_id, session_key)
         if owner.active_context_compaction_id is not None and active is None:
-            return None
+            raise ActiveContextInvalidError("active_context_compaction_missing")
+        previous_summary = None
+        if active is not None:
+            try:
+                previous_summary = ContextSummary.model_validate(active.summary_payload)
+            except ValidationError as error:
+                raise ActiveContextInvalidError("active_context_summary_invalid") from error
         boundary = active.summary_through_sequence_no if active is not None else 0
         tail = self.list_context_tail(
             tenant_id=tenant_id,
@@ -150,12 +157,6 @@ class ContextCompactionRepository:
         if not complete:
             return None
 
-        previous_summary = None
-        if active is not None:
-            try:
-                previous_summary = ContextSummary.model_validate(active.summary_payload)
-            except ValidationError:
-                return None
         observed = complete[-1]
         return GenerationSnapshot(
             tenant_id=tenant_id,
@@ -194,6 +195,9 @@ class ContextCompactionRepository:
         if expected_active_compaction_id is not None and previous is None:
             return self._discarded("source_changed")
         if previous is not None and not self._source_extends_previous(candidate, previous):
+            return self._discarded("source_changed")
+        previous_boundary = previous.summary_through_sequence_no if previous is not None else 0
+        if not self._source_matches_completed_range(candidate, previous_boundary):
             return self._discarded("source_changed")
 
         messages = self._reload_manifest_messages(candidate)
@@ -313,6 +317,33 @@ class ContextCompactionRepository:
         if lineage_ids is None:
             return False
         return lineage_ids.isdisjoint(item.message_id for item in candidate.source_manifest)
+
+    def _source_matches_completed_range(
+        self,
+        candidate: CompactionCandidate,
+        previous_boundary: int,
+    ) -> bool:
+        records = tuple(
+            self._session.scalars(
+                select(AgentMessage)
+                .where(
+                    AgentMessage.tenant_id == candidate.tenant_id,
+                    AgentMessage.user_id == candidate.user_id,
+                    AgentMessage.session_key == candidate.session_key,
+                    AgentMessage.sequence_no > previous_boundary,
+                    AgentMessage.sequence_no <= candidate.summary_through_sequence_no,
+                    AgentMessage.status == "completed",
+                    AgentMessage.deleted_at.is_(None),
+                    AgentMessage.role.in_(("user", "assistant")),
+                )
+                .order_by(AgentMessage.sequence_no.asc())
+            )
+        )
+        expected_ids = tuple(
+            message.message_id for message in self._complete_turn_messages(records)
+        )
+        manifest_ids = tuple(item.message_id for item in candidate.source_manifest)
+        return expected_ids == manifest_ids
 
     def _lineage_message_ids(
         self,

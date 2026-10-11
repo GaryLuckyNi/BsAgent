@@ -9,6 +9,7 @@ from app.context_compaction.contracts import (
     CompactionSourceItem,
     ContextSummary,
 )
+from app.context_compaction.errors import ActiveContextInvalidError
 from app.context_compaction.repository import (
     ContextCompactionRepository,
     RepositoryNotFoundError,
@@ -313,6 +314,80 @@ def test_snapshot_returns_none_without_a_complete_turn(db: Session):
         )
         is None
     )
+
+
+def test_snapshot_raises_not_found_for_missing_or_unauthorized_owner(db: Session):
+    _session(db)
+    repository = ContextCompactionRepository(db)
+
+    with pytest.raises(RepositoryNotFoundError):
+        repository.load_generation_snapshot(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            session_key="missing",
+            exclude_request_id="current",
+        )
+    with pytest.raises(RepositoryNotFoundError):
+        repository.load_generation_snapshot(
+            tenant_id="other-tenant",
+            user_id="user-1",
+            session_key="session-1",
+            exclude_request_id="current",
+        )
+
+
+def test_snapshot_raises_invalid_for_dangling_active_pointer(db: Session):
+    owner = _session(db)
+    owner.active_context_compaction_id = "cmp-missing"
+    db.flush()
+
+    with pytest.raises(ActiveContextInvalidError) as error:
+        ContextCompactionRepository(db).load_generation_snapshot(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            session_key="session-1",
+            exclude_request_id="current",
+        )
+
+    assert error.value.code == "active_context_compaction_invalid"
+
+
+def test_snapshot_raises_invalid_for_malformed_active_summary(db: Session):
+    _session(db)
+    messages = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    repository = ContextCompactionRepository(db)
+    repository.activate_if_current(_candidate(messages), None)
+    active = repository.get_active("tenant-1", "user-1", "session-1")
+    assert active is not None
+    active.summary_payload = {}
+    db.flush()
+
+    with pytest.raises(ActiveContextInvalidError):
+        repository.load_generation_snapshot(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            session_key="session-1",
+            exclude_request_id="current",
+        )
+
+
+def test_snapshot_raises_invalid_when_active_compaction_owner_does_not_match(db: Session):
+    _session(db)
+    messages = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    repository = ContextCompactionRepository(db)
+    repository.activate_if_current(_candidate(messages), None)
+    active = repository.get_active("tenant-1", "user-1", "session-1")
+    assert active is not None
+    active.tenant_id = "other-tenant"
+    db.flush()
+
+    with pytest.raises(ActiveContextInvalidError):
+        repository.load_generation_snapshot(
+            tenant_id="tenant-1",
+            user_id="user-1",
+            session_key="session-1",
+            exclude_request_id="current",
+        )
 
 
 def test_get_active_and_tail_enforce_full_owner_scope(db: Session):
@@ -649,6 +724,64 @@ def test_activation_rejects_reordered_or_incomplete_manifest(db: Session):
 
     assert repository.activate_if_current(reordered, None).reason == "source_changed"
     assert repository.activate_if_current(incomplete, None).reason == "source_changed"
+
+
+def test_first_activation_rejects_manifest_that_skips_a_complete_middle_turn(db: Session):
+    owner = _session(db)
+    turns = (
+        _message(db, 1, "user"),
+        _message(db, 2, "assistant"),
+        _message(db, 3, "user"),
+        _message(db, 4, "assistant"),
+        _message(db, 5, "user"),
+        _message(db, 6, "assistant"),
+    )
+    candidate = _candidate((turns[0], turns[1], turns[4], turns[5]))
+
+    result = ContextCompactionRepository(db).activate_if_current(candidate, None)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id is None
+    assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 0
+
+
+def test_next_activation_rejects_manifest_that_skips_a_complete_middle_turn(db: Session):
+    owner = _session(db)
+    first_turn = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    repository = ContextCompactionRepository(db)
+    first = repository.activate_if_current(_candidate(first_turn), None)
+    previous = repository.get_active("tenant-1", "user-1", "session-1")
+    assert previous is not None
+    _message(db, 3, "user")
+    _message(db, 4, "assistant")
+    last_turn = (_message(db, 5, "user"), _message(db, 6, "assistant"))
+    candidate = _candidate(last_turn, previous=previous)
+
+    result = repository.activate_if_current(candidate, first.compaction_id)
+
+    assert result.reason == "source_changed"
+    assert owner.active_context_compaction_id == first.compaction_id
+    assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
+
+
+def test_activation_range_allows_non_completed_deleted_and_incomplete_messages(db: Session):
+    _session(db)
+    first = (_message(db, 1, "user"), _message(db, 2, "assistant"))
+    _message(db, 3, "user", status="pending")
+    _message(db, 4, "assistant", request_id="orphan-a", run_id="orphan-a")
+    _message(db, 5, "user", deleted=True, request_id="deleted", run_id="deleted")
+    _message(db, 6, "assistant", deleted=True, request_id="deleted", run_id="deleted")
+    _message(db, 7, "user", request_id="orphan-b", run_id="orphan-b")
+    _message(db, 8, "assistant", status="failed", request_id="failed", run_id="failed")
+    last = (
+        _message(db, 9, "user", request_id="last", run_id="last"),
+        _message(db, 10, "assistant", request_id="last", run_id="last"),
+    )
+    candidate = _candidate((*first, *last))
+
+    result = ContextCompactionRepository(db).activate_if_current(candidate, None)
+
+    assert result.reason == "activated"
 
 
 def test_exact_duplicate_uses_savepoint_and_keeps_outer_transaction_usable(db: Session):

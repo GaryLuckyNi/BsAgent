@@ -20,6 +20,7 @@ from app.context_compaction.repository import (
 from app.storage.models import AgentContextCompaction, AgentMessage, AgentSession, Base
 from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 
@@ -86,6 +87,76 @@ def _candidate(messages: tuple[AgentMessage, AgentMessage]) -> CompactionCandida
     )
 
 
+def _stored_compaction(
+    candidate: CompactionCandidate,
+    *,
+    compaction_id: str,
+    version: int,
+    source_digest: str | None = None,
+) -> AgentContextCompaction:
+    return AgentContextCompaction(
+        compaction_id=compaction_id,
+        tenant_id=candidate.tenant_id,
+        user_id=candidate.user_id,
+        session_key=candidate.session_key,
+        version=version,
+        previous_compaction_id=candidate.previous_compaction_id,
+        summary_through_message_id=candidate.summary_through_message_id,
+        observed_through_message_id=candidate.observed_through_message_id,
+        summary_through_sequence_no=candidate.summary_through_sequence_no,
+        observed_through_sequence_no=candidate.observed_through_sequence_no,
+        summary_payload=candidate.summary.model_dump(mode="json"),
+        source_manifest=[item.model_dump(mode="json") for item in candidate.source_manifest],
+        source_digest=source_digest or candidate.source_digest,
+        source_tokens=candidate.source_tokens,
+        summary_tokens=candidate.summary_tokens,
+        trigger=candidate.trigger,
+        model=candidate.model,
+        prompt_version=candidate.prompt_version,
+        policy_version=candidate.policy_version,
+    )
+
+
+def _seed_candidate(factory):
+    with factory.begin() as db:
+        db.add(
+            AgentSession(
+                session_key="session-1",
+                session_id="external-1",
+                tenant_id="tenant-1",
+                user_id="user-1",
+            )
+        )
+        rows = (
+            AgentMessage(
+                message_id="message-1",
+                tenant_id="tenant-1",
+                user_id="user-1",
+                session_key="session-1",
+                run_id="run-1",
+                request_id="request-1",
+                role="user",
+                status="completed",
+                content="问题",
+                sequence_no=1,
+            ),
+            AgentMessage(
+                message_id="message-2",
+                tenant_id="tenant-1",
+                user_id="user-1",
+                session_key="session-1",
+                run_id="run-1",
+                request_id="request-1",
+                role="assistant",
+                status="completed",
+                content="回答",
+                sequence_no=2,
+            ),
+        )
+        db.add_all(rows)
+    return _candidate(rows)
+
+
 def test_concurrent_activation_serializes_on_fresh_locked_session_state():
     with _live_sessions() as factory:
         with factory.begin() as db:
@@ -145,4 +216,60 @@ def test_concurrent_activation_serializes_on_fresh_locked_session_state():
             owner = db.get(AgentSession, "session-1")
             assert owner is not None
             assert owner.active_context_compaction_id is not None
+            assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
+
+
+def test_duplicate_source_identity_savepoint_keeps_outer_transaction_committable():
+    with _live_sessions() as factory:
+        candidate = _seed_candidate(factory)
+        with factory.begin() as db:
+            db.add(
+                _stored_compaction(
+                    candidate,
+                    compaction_id="cmp-existing",
+                    version=99,
+                )
+            )
+
+        with factory() as db, db.begin():
+            result = ContextCompactionRepository(db).activate_if_current(candidate, None)
+            assert result.reason == "duplicate"
+            owner = db.get(AgentSession, "session-1")
+            assert owner is not None
+            owner.status = "duplicate-outer-committed"
+
+        with factory() as db:
+            owner = db.get(AgentSession, "session-1")
+            assert owner is not None
+            assert owner.status == "duplicate-outer-committed"
+            assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1
+
+
+def test_non_target_integrity_error_propagates_and_outer_transaction_commits():
+    with _live_sessions() as factory:
+        candidate = _seed_candidate(factory)
+        with factory.begin() as db:
+            db.add(
+                _stored_compaction(
+                    candidate,
+                    compaction_id="cmp-version-conflict",
+                    version=1,
+                    source_digest="different-source",
+                )
+            )
+
+        with factory() as db, db.begin():
+            with pytest.raises(IntegrityError) as error:
+                ContextCompactionRepository(db).activate_if_current(candidate, None)
+            assert error.value.orig.diag.constraint_name == (
+                "uq_agent_context_compactions_session_version"
+            )
+            owner = db.get(AgentSession, "session-1")
+            assert owner is not None
+            owner.status = "integrity-outer-committed"
+
+        with factory() as db:
+            owner = db.get(AgentSession, "session-1")
+            assert owner is not None
+            assert owner.status == "integrity-outer-committed"
             assert db.scalar(select(func.count()).select_from(AgentContextCompaction)) == 1

@@ -13,6 +13,7 @@ from app.context_compaction.contracts import (
     SummaryGeneration,
 )
 from app.context_compaction.errors import (
+    ActiveContextInvalidError,
     ContextBudgetUnrecoverable,
     ContextCompactionError,
     ContextSummaryInvalid,
@@ -28,6 +29,7 @@ from app.context_compaction.policy import (
 __all__ = [
     "POLICY_VERSION",
     "ActivationResult",
+    "ActiveContextInvalidError",
     "BudgetDecision",
     "CompactionCandidate",
     "CompactionRunResult",
