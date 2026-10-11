@@ -290,6 +290,32 @@ class CanonicalSizeEstimator:
         return self.fallback_tokens
 
 
+class FailingEstimator:
+    def __init__(self, failure: Exception) -> None:
+        self.failure = failure
+
+    def text_tokens(self, _text: str) -> int:
+        raise self.failure
+
+
+def test_estimator_exception_propagates_without_repair():
+    failure = RuntimeError("estimator runtime bug")
+    client = FakeClient(
+        _completion(_json(), usage={"prompt_tokens": 123}),
+        _completion(_json()),
+    )
+
+    with pytest.raises(RuntimeError) as exc_info:
+        ContextSummarizer(
+            client,
+            max_tokens=10_000,
+            estimator=FailingEstimator(failure),
+        ).summarize(_snapshot())
+
+    assert exc_info.value is failure
+    assert len(client.calls) == 1
+
+
 def test_normalized_summary_over_limit_repairs_and_second_over_limit_fails():
     estimator = CanonicalSizeEstimator(summary_tokens=101)
     client = FakeClient(_completion(_json()), _completion(_json()))

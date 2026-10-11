@@ -2,6 +2,8 @@ import json
 import re
 from typing import Protocol
 
+from pydantic import ValidationError
+
 from app.context_compaction.contracts import (
     ContextSummary,
     GenerationSnapshot,
@@ -172,26 +174,25 @@ class ContextSummarizer:
         )
 
     def _validate(self, output: str) -> tuple[ContextSummary, int] | None:
-        try:
-            payload = extract_json_object(output)
-            if payload is None or set(payload) != set(_SUMMARY_FIELDS):
-                return None
-            summary = ContextSummary.model_validate(payload)
-            canonical = json.dumps(
-                summary.model_dump(mode="json"),
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            if any(pattern.search(canonical) is not None for pattern in _UNSAFE_PATTERNS):
-                return None
-            summary_tokens = self._estimator.text_tokens(canonical)
-            if summary_tokens > self.max_tokens:
-                return None
-            return summary, summary_tokens
-        except Exception:
-            # 验证异常可能带模型正文，不向上层传递其实例。
+        payload = extract_json_object(output)
+        if payload is None or set(payload) != set(_SUMMARY_FIELDS):
             return None
+        try:
+            summary = ContextSummary.model_validate(payload)
+        except ValidationError:
+            return None
+        canonical = json.dumps(
+            summary.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        if any(pattern.search(canonical) is not None for pattern in _UNSAFE_PATTERNS):
+            return None
+        summary_tokens = self._estimator.text_tokens(canonical)
+        if summary_tokens > self.max_tokens:
+            return None
+        return summary, summary_tokens
 
     def _source_tokens(
         self,
