@@ -1,6 +1,11 @@
-from app.graph.planning.contracts import PlanModel, TaskResultModel
-from app.graph.planning.scheduler import plan_status, ready_tasks, recovery_action
+import json
+
+from app.graph.nodes.analysis_agent import build_analysis_agent_node
 from app.graph.nodes.skill_agent import build_skill_agent_node
+from app.graph.nodes.skill_step_check import build_skill_step_check_node
+from app.graph.planning.contracts import PlanModel, TaskResultModel
+from app.graph.planning.policy import observation_signature
+from app.graph.planning.scheduler import plan_status, ready_tasks, recovery_action
 from app.graph.runtime import _dispatch_after_scheduler, task_scheduler_node
 from app.graph.state import AgentState, create_initial_state, merge_task_results
 from app.llm.schemas import LlmCompletionResult
@@ -59,9 +64,7 @@ def test_argument_generation_failure_keeps_independent_and_analysis_tasks_runnin
     assert [task.id for task in ready_tasks(_plan(), results=results)] == ["financial"]
     assert plan_status(_plan(), results=results) == "running"
 
-    results.append(
-        TaskResultModel(task_id="financial", status="success", content="财务")
-    )
+    results.append(TaskResultModel(task_id="financial", status="success", content="财务"))
     assert ready_tasks(_plan(), results=results) == []
     assert plan_status(_plan(), results=results) == "blocked"
 
@@ -110,10 +113,7 @@ def test_scheduler_does_not_preallocate_search_slots_by_task_position():
     )
     state["planner_iteration"] = 1
     state["plan"] = {
-        "tasks": [
-            {"id": f"search_{index}", "task_goal": f"搜索维度 {index}"}
-            for index in range(7)
-        ]
+        "tasks": [{"id": f"search_{index}", "task_goal": f"搜索维度 {index}"} for index in range(7)]
     }
 
     assert task_scheduler_node(state) == {}
@@ -121,7 +121,13 @@ def test_scheduler_does_not_preallocate_search_slots_by_task_position():
     assert isinstance(dispatch, list)
     assert len(dispatch) == 7
     assert [item.arg["web_search_allowed"] for item in dispatch] == [
-        True, True, True, True, True, True, True
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
+        True,
     ]
 
 
@@ -132,9 +138,10 @@ def test_results_from_previous_plan_do_not_block_replanned_tasks():
         content="旧计划失败",
     )
 
-    assert [
-        task.id for task in ready_tasks(_plan(), results=[previous_failure])
-    ] == ["market", "financial"]
+    assert [task.id for task in ready_tasks(_plan(), results=[previous_failure])] == [
+        "market",
+        "financial",
+    ]
     assert plan_status(_plan(), results=[previous_failure]) == "running"
 
 
@@ -256,13 +263,27 @@ class _ParallelSkillRegistry:
 class _ParallelSkillLlm:
     async def complete(self, **kwargs):
         return LlmCompletionResult(
-            content=kwargs["user_prompt"],
+            content=(
+                json.dumps(
+                    {
+                        "steps": [
+                            {
+                                "instruction": "分析",
+                                "source": json.loads(kwargs["user_prompt"])["summary"],
+                            }
+                        ],
+                        "output_requirement": "",
+                    }
+                )
+                if "工作流编译器" in kwargs["system_prompt"]
+                else "依据已有材料完成分析"
+            ),
             model="fake",
             provider="fake",
         )
 
 
-def test_langgraph_send_merges_two_real_skill_workers_without_scalar_conflict():
+def test_langgraph_runs_two_fixed_skills_without_scalar_conflict():
     graph = StateGraph(AgentState)
     graph.add_node("task_scheduler", task_scheduler_node)
     graph.add_node(
@@ -272,12 +293,25 @@ def test_langgraph_send_merges_two_real_skill_workers_without_scalar_conflict():
             llm_client=_ParallelSkillLlm(),
         ),
     )
+    graph.add_node("analysis_agent", build_analysis_agent_node(llm_client=_ParallelSkillLlm()))
+    graph.add_node("skill_step_check", build_skill_step_check_node(llm_client=_ParallelSkillLlm()))
+    graph.add_node(
+        "planner_agent",
+        lambda state: {
+            "planner_reviewed_signature": observation_signature(
+                PlanModel.model_validate(state["plan"]), state["task_results"]
+            )
+        },
+    )
+    graph.add_edge("analysis_agent", "task_scheduler")
+    graph.add_edge("skill_step_check", "task_scheduler")
+    graph.add_edge("planner_agent", "task_scheduler")
     graph.add_node("finish", lambda _state: {})
     graph.set_entry_point("task_scheduler")
     graph.add_conditional_edges(
         "task_scheduler",
         _dispatch_after_scheduler,
-        {"synthesizer": "finish", "planner_agent": "finish", "approval_gate": "finish"},
+        {"synthesizer": "finish", "planner_agent": "planner_agent", "approval_gate": "finish"},
     )
     graph.add_edge("skill_agent", "task_scheduler")
     graph.add_edge("finish", END)
@@ -295,9 +329,11 @@ def test_langgraph_send_merges_two_real_skill_workers_without_scalar_conflict():
         ]
     }
 
-    result = graph.compile().invoke(state)
+    result = graph.compile().invoke(state, {"recursion_limit": 128})
 
-    assert {item["task_id"] for item in result["task_results"]} == {
+    assert {
+        item["task_id"] for item in result["task_results"] if not item["task_id"].startswith("sw_")
+    } == {
         "quality",
         "risk",
     }

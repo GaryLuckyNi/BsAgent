@@ -1,6 +1,5 @@
 import httpx
 import pytest
-
 from app.skills.definitions import SkillCard, SkillDefinition, SkillExecutionGuide
 from app.skills.registry_client import (
     CachedSkillDefinitionProvider,
@@ -130,13 +129,6 @@ def test_admin_skill_provider_maps_admin_crud_api_to_runtime_definitions():
                             "supported_intents": ["task_workflow"],
                             "supported_domains": ["a_share_equity_research"],
                             "supported_sub_intents": ["company_snapshot"],
-                            "allowed_tools": [
-                                "mcp.mock.stock.resolve_company",
-                                "mcp.mock.stock.company_profile",
-                                "mcp.mock.stock.market_snapshot",
-                                "mcp.mock.stock.announcement_search",
-                                "rag_search",
-                            ],
                             "risk_level": "medium",
                             "enabled": True,
                         }
@@ -154,7 +146,6 @@ def test_admin_skill_provider_maps_admin_crud_api_to_runtime_definitions():
                     "supported_intents": ["task_workflow"],
                     "supported_domains": ["a_share_equity_research"],
                     "supported_sub_intents": ["company_snapshot"],
-                    "allowed_tools": ["mcp.mock.stock.resolve_company", "rag_search"],
                     "risk_level": "medium",
                     "enabled": True,
                 },
@@ -174,111 +165,11 @@ def test_admin_skill_provider_maps_admin_crud_api_to_runtime_definitions():
     assert cards[0].name == "company_snapshot"
     assert cards[0].domains == ["a_share_equity_research"]
     assert cards[0].subdomains == ["company_snapshot"]
-    assert definition.allowed_tools == ["mcp.mock.stock.resolve_company", "rag_search"]
+    assert definition.allowed_tools == []
     assert definition.evidence_contract.model_dump() == {"requirements": []}
     assert definition.evidence_contract_error is None
     assert "a_share_equity_research" in definition.input_contract["supported_domains"]
     assert guide.required_evidence_policy == "answer_prefers_cited_evidence"
-
-
-def test_admin_skill_provider_preserves_valid_evidence_contract():
-    from app.skills.admin_provider import AdminSkillDefinitionProvider
-
-    contract = {
-        "requirements": [
-            {
-                "capability": "stock.market_snapshot",
-                "required_fields": ["price"],
-                "optional_fields": ["pe_ttm"],
-            }
-        ]
-    }
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/skills/company_snapshot"
-        return httpx.Response(
-            200,
-            json={
-                "name": "company_snapshot",
-                "version": "1.0.0",
-                "summary": "生成 A 股公司速览",
-                "supported_intents": ["task_workflow"],
-                "supported_domains": ["a_share_equity_research"],
-                "supported_sub_intents": ["company_snapshot"],
-                "allowed_tools": ["mcp.tushare.stock.market_snapshot"],
-                "evidence_contract": contract,
-                "risk_level": "medium",
-                "enabled": True,
-            },
-        )
-
-    provider = AdminSkillDefinitionProvider(
-        client=httpx.Client(
-            base_url="http://admin.test",
-            transport=httpx.MockTransport(handler),
-        )
-    )
-
-    definition = provider.get_definition(name="company_snapshot")
-
-    assert definition.evidence_contract.model_dump() == contract
-    assert definition.evidence_contract_error is None
-
-
-@pytest.mark.parametrize(
-    "contract",
-    [
-        {"requiremets": []},
-        {
-            "requirements": [
-                {
-                    "capability": "stock.market_snapshot",
-                    "required_fields": ["price"],
-                    "optional_fields": [],
-                },
-                {
-                    "capability": "stock.market_snapshot",
-                    "required_fields": ["pe_ttm"],
-                    "optional_fields": [],
-                },
-            ]
-        },
-    ],
-)
-def test_admin_skill_provider_marks_invalid_evidence_contract_without_relaxing_it(
-    contract,
-):
-    from app.skills.admin_provider import AdminSkillDefinitionProvider
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/skills/company_snapshot"
-        return httpx.Response(
-            200,
-            json={
-                "name": "company_snapshot",
-                "version": "1.0.0",
-                "summary": "生成 A 股公司速览",
-                "supported_intents": ["task_workflow"],
-                "supported_domains": ["a_share_equity_research"],
-                "supported_sub_intents": ["company_snapshot"],
-                "allowed_tools": ["mcp.any.stock.market_snapshot"],
-                "evidence_contract": contract,
-                "risk_level": "medium",
-                "enabled": True,
-            },
-        )
-
-    provider = AdminSkillDefinitionProvider(
-        client=httpx.Client(
-            base_url="http://admin.test",
-            transport=httpx.MockTransport(handler),
-        )
-    )
-
-    definition = provider.get_definition(name="company_snapshot")
-
-    assert definition.evidence_contract.model_dump() == {"requirements": []}
-    assert definition.evidence_contract_error == "skill_evidence_contract_invalid"
 
 
 @pytest.mark.parametrize(
@@ -296,7 +187,6 @@ def test_admin_skill_provider_marks_invalid_evidence_contract_without_relaxing_i
                     "supported_intents": [],
                     "supported_domains": [],
                     "supported_sub_intents": [],
-                    "allowed_tools": [],
                     "risk_level": "medium",
                     "enabled": True,
                 }

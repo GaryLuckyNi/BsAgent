@@ -1,5 +1,5 @@
-from hashlib import sha256
 import json
+from hashlib import sha256
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -130,9 +130,7 @@ class DraftAnswer(TypedDict, total=False):
 
 
 class VerificationResult(TypedDict, total=False):
-    verdict: Literal[
-        "pass", "needs_revision", "needs_approval", "fail", "execution_error"
-    ]
+    verdict: Literal["pass", "needs_revision", "needs_approval", "fail", "execution_error"]
     faithfulness_score: float
     citation_errors: list[str]
     risk_flags: list[str]
@@ -158,9 +156,7 @@ class AgentResponse(TypedDict, total=False):
     business_error_code: str
 
 
-def build_checkpoint_thread_id(
-    *, tenant_id: str, session_key: str, request_id: str
-) -> str:
+def build_checkpoint_thread_id(*, tenant_id: str, session_key: str, request_id: str) -> str:
     identity = f"{tenant_id}\0{session_key}\0{request_id}".encode()
     return f"cpr1_{sha256(identity).hexdigest()}"
 
@@ -184,9 +180,7 @@ def merge_task_results(
 ) -> list[dict[str, Any]]:
     merged = [dict(item) for item in existing or []]
     positions = {
-        item.get("task_id"): index
-        for index, item in enumerate(merged)
-        if item.get("task_id")
+        item.get("task_id"): index for index, item in enumerate(merged) if item.get("task_id")
     }
     for item in incoming or []:
         value = dict(item)
@@ -257,6 +251,8 @@ class AgentState(TypedDict):
     planner_decision: NotRequired[dict[str, Any]]
     plan_history: NotRequired[list[dict[str, Any]]]
     plan: PlanDecision | None
+    skill_workflows: Annotated[dict[str, Any], merge_discovery_events]
+    active_skill_step: NotRequired[dict[str, Any] | None]
     active_task: NotRequired[dict[str, Any]]
     web_search_allowed: NotRequired[bool]
     task_results: Annotated[list[dict[str, Any]], merge_task_results]
@@ -328,9 +324,7 @@ def create_initial_state(
         "user_message": user_message,
         "assistant_message_id": assistant_message_id,
         "messages": messages,
-        "attachment_refs": [
-            {"asset_id": asset_id} for asset_id in attachment_ids or []
-        ],
+        "attachment_refs": [{"asset_id": asset_id} for asset_id in attachment_ids or []],
         "image_analyses": [],
         "intent": None,
         "planner_iteration": 0,
@@ -340,6 +334,7 @@ def create_initial_state(
         "planner_decision": {},
         "plan_history": [],
         "plan": None,
+        "skill_workflows": {},
         "task_results": [],
         "tool_calls": [],
         "evidence": None,

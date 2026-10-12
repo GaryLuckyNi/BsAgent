@@ -1,10 +1,11 @@
+import json
 from dataclasses import dataclass
 from hashlib import sha256
-import json
 from typing import Any, Literal
 
 from langgraph.types import interrupt
 
+from app.graph.planning.contracts import TaskResultModel
 from app.graph.state import AgentState, build_checkpoint_thread_id
 from app.schemas.approvals import (
     ApprovalRequest,
@@ -14,7 +15,6 @@ from app.schemas.approvals import (
 )
 from app.schemas.memory import MemoryCandidate
 from app.schemas.tools import ToolCallRequest
-from app.graph.planning.contracts import TaskResultModel
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.registry import ToolCatalogChangedError
 
@@ -202,6 +202,21 @@ def _apply_decision(state: AgentState, *, action: ApprovalAction, decision: dict
                 error_code="tool_approval_rejected",
             ).model_dump(mode="python", exclude={"tool_name"})
         )
+        for parent_id, workflow in state.get("skill_workflows", {}).items():
+            if any(step["task_id"] == descriptor.task_id for step in workflow["steps"]):
+                state["skill_workflows"] = {
+                    **state["skill_workflows"],
+                    parent_id: {**workflow, "status": "failed"},
+                }
+                state["task_results"].append(
+                    TaskResultModel(
+                        task_id=parent_id,
+                        status="terminal_failure",
+                        content="用户拒绝了 Skill 步骤的工具调用，后续依赖步骤未执行。",
+                        error_code="tool_approval_rejected",
+                    ).model_dump(exclude={"tool_name"})
+                )
+                break
         return
     approval = ApprovedToolCall(
         call_id=descriptor.call_id,

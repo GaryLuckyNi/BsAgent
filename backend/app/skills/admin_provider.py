@@ -1,6 +1,6 @@
 import hashlib
 import json
-from typing import Any, Literal
+from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -8,7 +8,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.skills.definitions import (
     SkillCard,
     SkillDefinition,
-    SkillEvidenceContract,
     SkillExecutionGuide,
 )
 from app.skills.registry_client import SkillDefinitionProviderError
@@ -23,8 +22,6 @@ class _AdminSkillPayload(BaseModel):
     supported_intents: list[str]
     supported_domains: list[str]
     supported_sub_intents: list[str]
-    allowed_tools: list[str]
-    evidence_contract: Any = None
     risk_level: Literal["low", "medium", "high"]
     enabled: bool
 
@@ -57,7 +54,6 @@ class AdminSkillDefinitionProvider:
 
     def get_definition(self, *, name: str) -> SkillDefinition:
         item = self._get_skill(name)
-        evidence_contract, evidence_contract_error = _parse_evidence_contract(item)
         return SkillDefinition(
             name=item.name,
             version=item.version,
@@ -68,16 +64,13 @@ class AdminSkillDefinitionProvider:
                 "supported_sub_intents": item.supported_sub_intents,
             },
             output_contract={"type": "object"},
-            allowed_tools=item.allowed_tools,
-            constraints=["遵守 Skill 配置的 allowed_tools 和 risk_level"],
+            constraints=["按 summary 中声明的步骤、指定工具和输出要求执行"],
             failure_modes=[
                 "missing_required_tool",
                 "tool_execution_failed",
                 "insufficient_evidence",
             ],
             risk_level=item.risk_level,
-            evidence_contract=evidence_contract,
-            evidence_contract_error=evidence_contract_error,
             definition_hash=_definition_hash(item),
         )
 
@@ -87,9 +80,7 @@ class AdminSkillDefinitionProvider:
             name=item.name,
             version=item.version,
             instructions=[
-                "根据用户问题和 intent 生成 allowed_tools 中的工具调用请求。",
-                "结构化金融数据只能通过 MCP stock tools 获取。",
-                "非结构化证据通过 rag_search 获取。",
+                item.summary,
             ],
             few_shot_examples=[],
             recovery_policy=["工具不可用时降级说明", "证据不足时明确不确定性"],
@@ -110,17 +101,6 @@ def _definition_hash(payload: _AdminSkillPayload) -> str:
     payload = payload.model_dump(mode="json", exclude_unset=True)
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-
-
-def _parse_evidence_contract(
-    item: _AdminSkillPayload,
-) -> tuple[SkillEvidenceContract, str | None]:
-    if "evidence_contract" not in item.model_fields_set:
-        return SkillEvidenceContract(), None
-    try:
-        return SkillEvidenceContract.model_validate(item.evidence_contract), None
-    except ValidationError:
-        return SkillEvidenceContract(), "skill_evidence_contract_invalid"
 
 
 def _validate_response_payload(response: httpx.Response, model_type: type[BaseModel]):

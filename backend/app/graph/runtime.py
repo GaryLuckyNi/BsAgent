@@ -1,7 +1,7 @@
-from collections.abc import Callable, Iterator
 import json
-from dataclasses import dataclass
 import re
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage
@@ -12,41 +12,43 @@ from langgraph.types import Checkpointer, Command, RetryPolicy, Send
 
 from app.core.config import settings
 from app.graph.nodes.analysis_agent import build_analysis_agent_node
-from app.graph.nodes.attachment_analyzer import (
-    AttachmentContextResolver,
-    build_attachment_analyzer_node,
-)
+from app.graph.nodes.approval_coordinator import approval_coordinator_node
 from app.graph.nodes.approval_gate import (
     ApprovalPayloadMismatchError,
     build_approval_gate_node,
 )
-from app.graph.nodes.approval_coordinator import approval_coordinator_node
+from app.graph.nodes.attachment_analyzer import (
+    AttachmentContextResolver,
+    build_attachment_analyzer_node,
+)
 from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.nodes.skill_agent import build_skill_agent_node
+from app.graph.nodes.skill_step_check import build_skill_step_check_node
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.nodes.verifier import verifier_node
-from app.graph.state import (
-    AgentState,
-    build_checkpoint_thread_id,
-    create_initial_state,
-)
 from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
-from app.graph.planning.scheduler import ready_tasks
 from app.graph.planning.policy import (
     MAX_PLANNER_FEEDBACKS,
     MAX_WEB_SEARCH_TASKS,
     PLANNER_POLICY_VERSION,
     observation_signature,
 )
+from app.graph.planning.scheduler import ready_tasks
+from app.graph.planning.skill_workflow import dispatch_workflow, workflow_failed
 from app.graph.public_events import emit_public_progress
+from app.graph.state import (
+    AgentState,
+    build_checkpoint_thread_id,
+    create_initial_state,
+)
 from app.harness.error_boundary import (
-    build_safe_error_record,
     build_node_error_handler,
+    build_safe_error_record,
     classify_recoverable_error,
-    is_terminal_recoverable_code,
     is_retryable_recoverable_error,
+    is_terminal_recoverable_code,
     should_route_recoverable_error_to_synthesizer,
 )
 from app.harness.node_runner import NodeRunner
@@ -58,15 +60,14 @@ from app.llm.factory import LlmClient
 from app.schemas.messages import Message
 from app.skills.factory import build_default_skill_registry
 from app.skills.registry import SkillRegistry
+from app.tools.call_budget import SearchCallBudget
+from app.tools.candidate_resolver import ToolCandidateResolver
 from app.tools.default_registry import (
     get_default_tool_catalog_runtime,
     get_default_tool_registry,
 )
 from app.tools.registry import ToolCatalogChangedError, ToolRegistry
-from app.tools.call_budget import SearchCallBudget
-from app.tools.candidate_resolver import ToolCandidateResolver
 from app.tools.search import ToolSearchService
-
 
 _DEFAULT_TOOL_REGISTRY_FACTORY = get_default_tool_registry
 
@@ -330,7 +331,11 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
     count = len(state.get("tool_discovery_events", {}))
     if count != state.get("tool_search_count", 0):
         update["tool_search_count"] = count
-    if state.get("plan") and state.get("planner_feedback_count", 0) >= MAX_PLANNER_FEEDBACKS:
+    if (
+        dispatch_workflow(state) is None
+        and state.get("plan")
+        and state.get("planner_feedback_count", 0) >= MAX_PLANNER_FEEDBACKS
+    ):
         signature = observation_signature(
             PlanModel.model_validate(state["plan"]), state.get("task_results", [])
         )
@@ -342,6 +347,11 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
 def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
     if _has_pending_memory_approval(state) or _has_pending_tool_approval(state):
         return "approval_gate"
+    if workflow_failed(state):
+        return "synthesizer"
+    workflow_dispatch = dispatch_workflow(state)
+    if workflow_dispatch is not None:
+        return workflow_dispatch
     if state.get("planner_stop_reason"):
         return "synthesizer"
     plan = PlanModel.model_validate(state.get("plan"))
@@ -368,9 +378,22 @@ def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
     )
     remaining_web_slots = max(0, MAX_WEB_SEARCH_TASKS - used_searches)
     sends: list[Send] = []
+    # 固定工作流串行启动，避免与其他任务并发审批或修改调度状态。
+    skill_task = next((task for task in ready if task.skill_name is not None), None)
+    if skill_task is not None:
+        return [
+            Send(
+                "skill_agent",
+                {**state, "active_task": skill_task.model_dump(), "active_skill_step": None},
+            )
+        ]
     for task in ready:
         worker = _worker_name(task)
-        payload = {**state, "active_task": task.model_dump(mode="python")}
+        payload = {
+            **state,
+            "active_task": task.model_dump(mode="python"),
+            "active_skill_step": None,
+        }
         if worker == "tool_agent":
             payload["web_search_allowed"] = remaining_web_slots > 0
         sends.append(Send(worker, payload))
@@ -457,6 +480,7 @@ def build_question_answer_graph(
     selected_skill_agent_node = skill_agent_node or build_skill_agent_node(
         registry=selected_skill_registry,
         llm_client=llm_client,
+        tool_registry=tool_registry_snapshot,
     )
     search_budget = SearchCallBudget(limit=MAX_WEB_SEARCH_TASKS)
     if tool_agent_node is not None and not getattr(tool_agent_node, "is_trusted_tool_agent", False):
@@ -515,6 +539,9 @@ def build_question_answer_graph(
         runtime_aware=True,
     )
     _add_harnessed_node(graph, "task_scheduler", task_scheduler_node, runner)
+    _add_harnessed_node(
+        graph, "skill_step_check", build_skill_step_check_node(llm_client=llm_client), runner
+    )
     _add_harnessed_node(
         graph,
         "skill_agent",
@@ -587,6 +614,7 @@ def build_question_answer_graph(
         },
     )
     graph.add_edge("skill_agent", "task_scheduler")
+    graph.add_edge("skill_step_check", "task_scheduler")
     graph.add_edge("tool_agent", "task_scheduler")
     graph.add_edge("analysis_agent", "task_scheduler")
     graph.add_conditional_edges(
@@ -760,10 +788,7 @@ def _prepare_question_answer_run(
         or getattr(tool_agent_node, "tool_registry_factory", None)
         or get_default_tool_registry
     )
-    if (
-        selected_registry_factory is _DEFAULT_TOOL_REGISTRY_FACTORY
-        and tool_search_service is None
-    ):
+    if selected_registry_factory is _DEFAULT_TOOL_REGISTRY_FACTORY and tool_search_service is None:
         catalog_snapshot, tool_search_service = (
             get_default_tool_catalog_runtime().snapshot_pair_for_run()
         )

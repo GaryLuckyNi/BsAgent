@@ -24,6 +24,21 @@ vi.mock('@/components/ai-elements/reasoning', () => ({
 }))
 
 describe('ResearchMessageItem', () => {
+  it('等待推理时不显示阶段占位，收到内容后直接展示', () => {
+    const message = {
+      id: 'direct', role: 'assistant' as const, content: '', createdAt: '',
+      status: 'streaming' as const, processStatus: '正在规划…'
+    }
+    const view = render(<ResearchMessageItem message={message} onCitation={vi.fn()} />)
+    expect(screen.queryByTestId('reasoning')).toBeNull()
+    view.rerender(<ResearchMessageItem message={{ ...message, reasoning: [
+      { id: 'plan', label: '规划', content: '先核验市场数据。' }
+    ] }} onCitation={vi.fn()} />)
+    expect(screen.getByText('先核验市场数据。')).toBeTruthy()
+    expect(screen.queryByText('研究过程')).toBeNull()
+    expect(screen.queryByText('正在规划…')).toBeNull()
+  })
+
   it('思考面板在模型推理后展示当前工具活动', () => {
     render(
       <ResearchMessageItem
@@ -106,7 +121,7 @@ describe('ResearchMessageItem', () => {
       />
     )
 
-    expect(screen.getByText('研究过程')).toBeTruthy()
+    expect(screen.queryByText('研究过程')).toBeNull()
     expect(screen.getByText('正在联网检索：核验近期政策与市场动态')).toBeTruthy()
     expect(screen.queryByText('正在整理研究结果…')).toBeNull()
   })

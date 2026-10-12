@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, JSON, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,10 +8,6 @@ from app.database import Base
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-def _empty_evidence_contract() -> dict[str, list]:
-    return {"requirements": []}
 
 
 class BusinessIntentProfileRecord(Base):
@@ -42,8 +38,6 @@ class SkillProfileRecord(Base):
     supported_intents: Mapped[list[str]] = mapped_column(JSON, default=list)
     supported_domains: Mapped[list[str]] = mapped_column(JSON, default=list)
     supported_sub_intents: Mapped[list[str]] = mapped_column(JSON, default=list)
-    allowed_tools: Mapped[list[str]] = mapped_column(JSON, default=list)
-    evidence_contract: Mapped[dict] = mapped_column(JSON, default=_empty_evidence_contract)
     risk_level: Mapped[str] = mapped_column(String(32), default="medium")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)

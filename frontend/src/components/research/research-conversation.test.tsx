@@ -19,9 +19,9 @@ vi.mock('./research-message-item', () => ({
 }))
 
 describe('ResearchConversation', () => {
-  it('首次渲染时不自动滚动到回答底部', () => {
+  it('首次渲染时立即定位最近记录', () => {
     render(<ResearchConversation messages={[]} onCitation={vi.fn()} />)
 
-    expect(screen.getByTestId('conversation').dataset.initial).toBe('false')
+    expect(screen.getByTestId('conversation').dataset.initial).toBe('instant')
   })
 })

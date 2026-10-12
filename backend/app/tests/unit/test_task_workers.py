@@ -59,8 +59,15 @@ def _state():
     return state
 
 
-def test_skill_worker_uses_full_definition_and_dependency_results():
-    llm = FakeLlmClient("盈利稳定，但现金流仍需核验。")
+def test_skill_worker_freezes_summary_then_aggregates_validated_results():
+    llm = FakeLlmClient(
+        json.dumps(
+            {
+                "steps": [{"instruction": "评估公司质量", "source": "评估公司质量"}],
+                "output_requirement": "",
+            }
+        )
+    )
     state = _state()
     state["active_task"] = {
         "id": "quality",
@@ -68,21 +75,23 @@ def test_skill_worker_uses_full_definition_and_dependency_results():
         "depends_on": ["financial"],
         "skill_name": "company_quality",
     }
-
-    update = build_skill_agent_node(
-        registry=FakeSkillRegistry(),
-        llm_client=llm,
-    )(state)
-
-    assert update["task_results"][0] == {
-        "task_id": "quality",
-        "status": "success",
-        "content": "盈利稳定，但现金流仍需核验。",
-        "error_code": None,
-    }
-    prompt = json.loads(llm.calls[0]["user_prompt"])
-    assert prompt["instructions"] == ["比较盈利质量与现金流"]
+    node = build_skill_agent_node(registry=FakeSkillRegistry(), llm_client=llm)
+    update = node(state)
+    assert "task_results" not in update
+    workflow = update["skill_workflows"]["quality"]
+    assert workflow["summary"] == "评估公司质量"
+    assert workflow["definition_hash"] == "definition-hash"
+    child_id = workflow["steps"][0]["task_id"]
+    workflow["checked_steps"] = [child_id]
+    state["skill_workflows"] = update["skill_workflows"]
+    state["task_results"].append({"task_id": child_id, "status": "success", "content": "盈利稳定"})
+    llm.content = "盈利稳定，但现金流仍需核验。"
+    completed = node(state)
+    assert completed["task_results"][0]["status"] == "success"
+    assert completed["skill_workflows"]["quality"]["status"] == "completed"
+    prompt = json.loads(llm.calls[-1]["user_prompt"])
     assert prompt["dependencies"][0]["task_id"] == "financial"
+    assert prompt["steps"][0]["task_id"] == child_id
 
 
 def test_analysis_worker_reasons_only_from_existing_context():
@@ -138,11 +147,18 @@ def test_analysis_worker_recovers_when_thinking_uses_budget_without_content():
 
 def test_analysis_sees_completion_conditions_history_and_image_materials():
     from langchain_core.messages import HumanMessage
+
     llm = FakeLlmClient("依据旧证据分析。")
     state = _state()
     state["messages"] = [HumanMessage(content="此前提供的财报材料")]
     state["image_analyses"] = [{"summary": "图片披露了年度收入"}]
-    state["active_task"] = {"id": "judge", "task_goal": "分析", "execution_type": "analysis", "completion_criteria": ["按年度口径"], "evidence_task_ids": ["financial"]}
+    state["active_task"] = {
+        "id": "judge",
+        "task_goal": "分析",
+        "execution_type": "analysis",
+        "completion_criteria": ["按年度口径"],
+        "evidence_task_ids": ["financial"],
+    }
     build_analysis_agent_node(llm_client=llm)(state)
     payload = json.loads(llm.calls[0]["user_prompt"])
     assert payload["completion_criteria"] == ["按年度口径"]

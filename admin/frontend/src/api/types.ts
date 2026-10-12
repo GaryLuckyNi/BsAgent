@@ -20,22 +20,10 @@ export interface SkillProfile {
   supported_intents: string[]
   supported_domains: string[]
   supported_sub_intents: string[]
-  allowed_tools: string[]
-  evidence_contract: SkillEvidenceContract
   risk_level: RiskLevel
   enabled: boolean
   created_at?: string
   updated_at?: string
-}
-
-export interface ToolEvidenceRequirement {
-  capability: string
-  required_fields: string[]
-  optional_fields: string[]
-}
-
-export interface SkillEvidenceContract {
-  requirements: ToolEvidenceRequirement[]
 }
 
 export type MarketDataProviderName = 'tushare'

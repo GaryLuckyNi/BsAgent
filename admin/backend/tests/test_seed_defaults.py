@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -7,7 +7,7 @@ from app.models import SkillProfileRecord
 from app.seed_defaults import seed_default_skills
 
 
-def test_default_research_skills_are_seeded_idempotently_without_overwriting_changes():
+def test_default_research_skills_are_summary_only_and_seeded_idempotently():
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -15,61 +15,29 @@ def test_default_research_skills_are_seeded_idempotently_without_overwriting_cha
     )
     Base.metadata.create_all(engine)
 
+    columns = {column["name"] for column in inspect(engine).get_columns("skill_profiles")}
+    assert "allowed_tools" not in columns
+    assert "evidence_contract" not in columns
+
     with Session(engine) as session:
         assert seed_default_skills(session) == 3
         company_snapshot = session.get(SkillProfileRecord, "company_snapshot")
         assert company_snapshot is not None
         assert company_snapshot.supported_intents == ["task_workflow"]
         assert company_snapshot.supported_sub_intents == ["company_snapshot"]
-        assert company_snapshot.allowed_tools[0] == "mcp.local.stock.resolve_company"
-        assert company_snapshot.allowed_tools[-1] == "rag_search"
-        requirements = {
-            requirement["capability"]: requirement
-            for requirement in company_snapshot.evidence_contract["requirements"]
-        }
-        assert requirements["stock.resolve_company"]["required_fields"] == [
-            "symbol",
-            "name",
-        ]
-        assert requirements["stock.company_profile"]["required_fields"] == [
-            "name",
-            "industry",
-            "main_business",
-        ]
-        assert requirements["stock.market_snapshot"]["required_fields"] == ["price"]
-        assert "pe_ttm" in requirements["stock.market_snapshot"]["optional_fields"]
-        assert requirements["stock.announcement_search"]["required_fields"] == []
-        assert requirements["stock.announcement_search"]["optional_fields"] == [
-            "announcements"
-        ]
+        assert "第 1 步：调用工具 `mcp.local.stock.resolve_company`" in company_snapshot.summary
+        assert "必须返回字段：symbol、name" in company_snapshot.summary
+        assert "调用工具 `rag_search`" in company_snapshot.summary
 
-        financial_analysis = session.get(
-            SkillProfileRecord, "financial_report_analysis"
-        )
+        financial_analysis = session.get(SkillProfileRecord, "financial_report_analysis")
         assert financial_analysis is not None
-        financial_requirements = {
-            requirement["capability"]: requirement
-            for requirement in financial_analysis.evidence_contract["requirements"]
-        }
-        assert financial_requirements["stock.financial_metrics"][
-            "required_fields"
-        ] == ["revenue", "net_profit_parent"]
-        assert financial_requirements["stock.announcement_search"] == {
-            "capability": "stock.announcement_search",
-            "required_fields": [],
-            "optional_fields": ["announcements"],
-        }
+        assert "mcp.local.stock.financial_metrics" in financial_analysis.summary
+        assert "revenue、net_profit_parent" in financial_analysis.summary
 
         risk_scan = session.get(SkillProfileRecord, "risk_scan")
         assert risk_scan is not None
-        assert not any(
-            tool_name.endswith(".stock.risk_events")
-            for tool_name in risk_scan.allowed_tools
-        )
-        assert {
-            requirement["capability"]
-            for requirement in risk_scan.evidence_contract["requirements"]
-        } == {"stock.resolve_company", "stock.announcement_search"}
+        assert "mcp.local.stock.risk_events" not in risk_scan.summary
+        assert "mcp.local.stock.announcement_search" in risk_scan.summary
 
         company_snapshot.summary = "管理员自定义说明"
         session.commit()
@@ -77,9 +45,4 @@ def test_default_research_skills_are_seeded_idempotently_without_overwriting_cha
 
         records = list(session.scalars(select(SkillProfileRecord)))
         assert len(records) == 3
-        assert session.get(SkillProfileRecord, "company_snapshot").summary == (
-            "管理员自定义说明"
-        )
-        assert session.get(
-            SkillProfileRecord, "company_snapshot"
-        ).evidence_contract == company_snapshot.evidence_contract
+        assert session.get(SkillProfileRecord, "company_snapshot").summary == ("管理员自定义说明")

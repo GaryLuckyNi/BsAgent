@@ -36,8 +36,7 @@ export function ResearchMessageItem({ message, onCitation }: {
   const processEntries = (message.progress || []).filter((item) => (
     item.kind === 'summary'
     || item.kind === 'activity'
-    || item.stage === 'tool_agent'
-    || item.stage === 'skill_agent'
+    || (!item.kind && (item.stage === 'tool_agent' || item.stage === 'skill_agent'))
   ))
   const timeline: Array<
     { kind: 'legacy-reasoning'; item: ResearchReasoning }
@@ -60,15 +59,11 @@ export function ResearchMessageItem({ message, onCitation }: {
       {message.role === 'assistant' && <div className="assistant-avatar"><Compass size={17} /></div>}
       <MessageContent className="message-body">
         {message.role === 'assistant' && <div className="message-author">InvestWise 研究助手 <span>{statusLabel}</span></div>}
-        {(message.status === 'streaming' || hasReasoningDetails) && (
+        {hasReasoningDetails && (
           <Reasoning className="reasoning" isStreaming={isResearching}>
-            <ReasoningTrigger
-              className="reasoning-trigger"
-              getThinkingMessage={(streaming, duration) => {
-                if (streaming) return message.processStatus || '正在研究…'
-                return duration === undefined ? '研究完成' : `研究完成（用时 ${duration} 秒）`
-              }}
-            />
+            {!isResearching && (
+              <ReasoningTrigger className="reasoning-trigger" getThinkingMessage={() => '查看思考过程'} />
+            )}
             {hasReasoningDetails && (
               <ReasoningContent>
                 <div className="reasoning-stream">
@@ -115,7 +110,7 @@ export function ResearchMessageItem({ message, onCitation }: {
           </Reasoning>
         )}
         {message.content && (
-          <MessageResponse className="message-content">{message.content}</MessageResponse>
+          <MessageResponse className="message-content" isAnimating={message.status === 'streaming'}>{message.content}</MessageResponse>
         )}
         {message.citations && message.citations.length > 0 && (
           <div className="citation-row">

@@ -5,10 +5,10 @@
       <el-button type="primary" :disabled="isBusy" @click="openCreate">新增 Skill</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="items" border height="calc(100vh - 220px)">
-      <el-table-column prop="name" label="Name" min-width="180" />
-      <el-table-column prop="version" label="Version" width="120" />
-      <el-table-column prop="summary" label="Summary" min-width="260" />
+    <el-table class="skills-table" v-loading="loading" :data="items" border height="calc(100vh - 220px)">
+      <el-table-column prop="name" label="Name" min-width="180" show-overflow-tooltip />
+      <el-table-column prop="version" label="Version" width="120" show-overflow-tooltip />
+      <el-table-column prop="summary" label="Summary" min-width="260" show-overflow-tooltip :tooltip-options="{ popperClass: 'skill-summary-tooltip' }" />
       <el-table-column prop="risk_level" label="Risk" width="100" />
       <el-table-column label="Enabled" width="110">
         <template #default="{ row }">
@@ -60,66 +60,34 @@
           <el-input v-model="form.version" />
         </el-form-item>
         <el-form-item label="Summary">
-          <el-input v-model="form.summary" type="textarea" :rows="3" />
+          <el-input v-model="form.summary" type="textarea" :rows="10"
+            placeholder="按顺序写明每一步使用的工具、参数要求、必需返回数据、缺失处理，以及最终输出格式。指定工具建议使用完整名称。" />
         </el-form-item>
-        <el-form-item label="Supported Intents">
-          <StringListInput v-model="form.supported_intents" />
+        <el-form-item v-if="catalogError" label="业务意图目录">
+          <span role="alert">{{ catalogError }}</span>
+          <el-button link type="primary" @click="loadCatalog">重新加载</el-button>
         </el-form-item>
-        <el-form-item label="Supported Domains">
-          <StringListInput v-model="form.supported_domains" />
+        <el-form-item label="Allowed Intent">
+          <el-select v-model="form.supported_intents" multiple filterable clearable
+            aria-label="Allowed Intent" placeholder="选择业务意图" :loading="catalogLoading"
+            :disabled="catalogLoading || Boolean(catalogError)" @change="onIntentsChange">
+            <el-option v-for="option in intentOptions" :key="option.value" v-bind="option" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="Supported Sub Intents">
-          <StringListInput v-model="form.supported_sub_intents" />
+        <el-form-item label="Allowed Domain">
+          <el-select v-model="form.supported_domains" multiple filterable clearable
+            aria-label="Allowed Domain" placeholder="先选择意图，再选择关联领域"
+            :disabled="catalogLoading || Boolean(catalogError) || !form.supported_intents.length"
+            @change="onDomainsChange">
+            <el-option v-for="option in domainOptions" :key="option.value" v-bind="option" />
+          </el-select>
         </el-form-item>
-        <el-form-item label="Allowed Tools">
-          <StringListInput v-model="form.allowed_tools" />
-        </el-form-item>
-        <el-form-item label="证据要求">
-          <div class="evidence-requirements">
-            <div class="evidence-requirements__table">
-              <el-table :data="evidenceRequirements" border size="small" style="min-width: 760px">
-                <el-table-column label="Capability" min-width="220">
-                  <template #default="{ row }">
-                    <el-input v-model="row.capability" placeholder="例如 stock.market_snapshot" />
-                  </template>
-                </el-table-column>
-                <el-table-column label="必需字段" min-width="220">
-                  <template #default="{ row }">
-                    <el-input v-model="row.requiredFields" placeholder="逗号分隔，例如 price, pe_ttm" />
-                  </template>
-                </el-table-column>
-                <el-table-column label="可选字段" min-width="220">
-                  <template #default="{ row }">
-                    <el-input v-model="row.optionalFields" placeholder="逗号分隔" />
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="72" align="center">
-                  <template #default="{ $index }">
-                    <el-tooltip content="删除该证据要求" placement="top">
-                      <el-button
-                        circle
-                        plain
-                        type="danger"
-                        :icon="Delete"
-                        aria-label="删除该证据要求"
-                        :disabled="submitting"
-                        @click="removeEvidenceRequirement($index)"
-                      />
-                    </el-tooltip>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
-            <el-button
-              plain
-              type="primary"
-              :icon="Plus"
-              :disabled="submitting"
-              @click="addEvidenceRequirement"
-            >
-              添加证据要求
-            </el-button>
-          </div>
+        <el-form-item label="Allowed Subdomain">
+          <el-select v-model="form.supported_sub_intents" multiple filterable clearable
+            aria-label="Allowed Subdomain" placeholder="先选择领域，再选择关联子领域"
+            :disabled="catalogLoading || Boolean(catalogError) || !form.supported_domains.length">
+            <el-option v-for="option in subdomainOptions" :key="option.value" v-bind="option" />
+          </el-select>
         </el-form-item>
         <el-form-item label="Risk">
           <el-select v-model="form.risk_level">
@@ -141,20 +109,16 @@
 </template>
 
 <script setup lang="ts">
-import { Delete, Plus } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { apiErrorMessage } from '../api/client'
+import { listBusinessIntents } from '../api/businessIntents'
 import { createSkill, deleteSkill, listSkills, updateSkill } from '../api/skills'
-import type { SkillEvidenceContract, SkillProfile, ToolEvidenceRequirement } from '../api/types'
-import StringListInput from '../components/StringListInput.vue'
+import type { BusinessIntentProfile, SkillProfile } from '../api/types'
 
-interface EvidenceRequirementDraft {
-  capability: string
-  requiredFields: string
-  optionalFields: string
-}
-
+const catalog = ref<BusinessIntentProfile[]>([])
+const catalogLoading = ref(false)
+const catalogError = ref('')
 const loading = ref(false)
 const query = ref('')
 const items = ref<SkillProfile[]>([])
@@ -162,7 +126,6 @@ const dialogVisible = ref(false)
 const editingName = ref<string | null>(null)
 const submitting = ref(false)
 const mutatingName = ref<string | null>(null)
-const evidenceRequirements = ref<EvidenceRequirementDraft[]>([])
 
 type SkillProfileForm = Omit<SkillProfile, 'created_at' | 'updated_at'>
 
@@ -173,12 +136,53 @@ const form = reactive<SkillProfileForm>({
   supported_intents: [],
   supported_domains: [],
   supported_sub_intents: [],
-  allowed_tools: [],
-  evidence_contract: { requirements: [] },
   risk_level: 'medium',
   enabled: true
 })
 const isBusy = computed(() => submitting.value || Boolean(mutatingName.value))
+const intentValues = computed(() => unique(catalog.value.map((item) => item.intent_type)))
+const relatedIntents = computed(() => catalog.value.filter((item) => form.supported_intents.includes(item.intent_type)))
+const domainValues = computed(() => unique(relatedIntents.value.map((item) => item.domain)))
+const subdomainValues = computed(() => unique(relatedIntents.value
+  .filter((item) => form.supported_domains.includes(item.domain))
+  .map((item) => item.subdomain)))
+const intentOptions = computed(() => selectionOptions(intentValues.value, form.supported_intents))
+const domainOptions = computed(() => selectionOptions(domainValues.value, form.supported_domains))
+const subdomainOptions = computed(() => selectionOptions(subdomainValues.value, form.supported_sub_intents))
+
+function unique(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))]
+}
+
+// 保留历史配置的可见性；仅在用户修改上级选择时清理失效的下级值。
+function selectionOptions(values: string[], selected: string[]) {
+  return unique([...values, ...selected]).map((value) => ({
+    value,
+    label: values.includes(value) ? value : `${value}（不在当前关联目录中）`,
+    disabled: !values.includes(value)
+  }))
+}
+
+function onIntentsChange() {
+  form.supported_domains = form.supported_domains.filter((value) => domainValues.value.includes(value))
+  onDomainsChange()
+}
+
+function onDomainsChange() {
+  form.supported_sub_intents = form.supported_sub_intents.filter((value) => subdomainValues.value.includes(value))
+}
+
+async function loadCatalog() {
+  catalogLoading.value = true
+  catalogError.value = ''
+  try {
+    catalog.value = (await listBusinessIntents()).items
+  } catch (error) {
+    catalogError.value = `意图目录加载失败：${apiErrorMessage(error)}`
+  } finally {
+    catalogLoading.value = false
+  }
+}
 
 let timer = 0
 watch(query, () => {
@@ -186,12 +190,15 @@ watch(query, () => {
   timer = window.setTimeout(load, 250)
 })
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadCatalog()
+})
 
 async function load() {
   loading.value = true
   try {
-    items.value = (await listSkills(query.value)).items.map(normalizeSkill)
+    items.value = (await listSkills(query.value)).items
   } catch (error) {
     ElMessage.error(apiErrorMessage(error))
   } finally {
@@ -207,12 +214,9 @@ function resetForm() {
     supported_intents: [],
     supported_domains: [],
     supported_sub_intents: [],
-    allowed_tools: [],
-    evidence_contract: { requirements: [] },
     risk_level: 'medium',
     enabled: true
   })
-  evidenceRequirements.value = []
 }
 
 function openCreate() {
@@ -225,7 +229,7 @@ function openCreate() {
 function openEdit(row: SkillProfile) {
   if (isBusy.value) return
   editingName.value = row.name
-  const skill = normalizeSkill(row)
+  const skill = row
   Object.assign(form, {
     name: skill.name,
     version: skill.version,
@@ -233,23 +237,14 @@ function openEdit(row: SkillProfile) {
     supported_intents: [...skill.supported_intents],
     supported_domains: [...skill.supported_domains],
     supported_sub_intents: [...skill.supported_sub_intents],
-    allowed_tools: [...skill.allowed_tools],
-    evidence_contract: { requirements: [...skill.evidence_contract.requirements] },
     risk_level: skill.risk_level,
     enabled: skill.enabled
   })
-  evidenceRequirements.value = skill.evidence_contract.requirements.map((requirement) => ({
-    capability: requirement.capability,
-    requiredFields: requirement.required_fields.join(', '),
-    optionalFields: requirement.optional_fields.join(', ')
-  }))
   dialogVisible.value = true
 }
 
 async function submit() {
   if (submitting.value) return
-  const evidenceContract = buildEvidenceContract()
-  if (!evidenceContract) return
   submitting.value = true
   const payload: SkillProfileForm = {
     name: form.name,
@@ -258,8 +253,6 @@ async function submit() {
     supported_intents: [...form.supported_intents],
     supported_domains: [...form.supported_domains],
     supported_sub_intents: [...form.supported_sub_intents],
-    allowed_tools: [...form.allowed_tools],
-    evidence_contract: evidenceContract,
     risk_level: form.risk_level,
     enabled: form.enabled
   }
@@ -313,111 +306,28 @@ async function remove(row: SkillProfile) {
   }
 }
 
-function addEvidenceRequirement() {
-  evidenceRequirements.value.push({
-    capability: '',
-    requiredFields: '',
-    optionalFields: ''
-  })
-}
-
-function removeEvidenceRequirement(index: number) {
-  evidenceRequirements.value.splice(index, 1)
-}
-
-function buildEvidenceContract(): SkillEvidenceContract | null {
-  const requirements: ToolEvidenceRequirement[] = []
-  const capabilities = new Set<string>()
-  for (const draft of evidenceRequirements.value) {
-    const capability = draft.capability.trim()
-    const requiredFields = normalizeFields(draft.requiredFields)
-    const optionalFields = normalizeFields(draft.optionalFields)
-    if (!capability) {
-      ElMessage.error('请填写证据 Capability')
-      return null
-    }
-    if (!/^stock\.[a-z0-9_]+$/.test(capability)) {
-      ElMessage.error('证据 Capability 必须符合 stock.xxx 格式')
-      return null
-    }
-    if (capabilities.has(capability)) {
-      ElMessage.error('同一证据契约中 Capability 不能重复')
-      return null
-    }
-    if (requiredFields.some((field) => optionalFields.includes(field))) {
-      ElMessage.error('必需字段与可选字段不能重复')
-      return null
-    }
-    capabilities.add(capability)
-    requirements.push({
-      capability,
-      required_fields: requiredFields,
-      optional_fields: optionalFields
-    })
-  }
-  return { requirements }
-}
-
-function normalizeFields(value: string): string[] {
-  const fields: string[] = []
-  const seen = new Set<string>()
-  for (const item of value.split(',')) {
-    const field = item.trim()
-    if (field && !seen.has(field)) {
-      fields.push(field)
-      seen.add(field)
-    }
-  }
-  return fields
-}
-
-function normalizeSkill(skill: SkillProfile): SkillProfile {
-  return {
-    ...skill,
-    evidence_contract: normalizeEvidenceContract(skill.evidence_contract)
-  }
-}
-
-function normalizeEvidenceContract(value: unknown): SkillEvidenceContract {
-  if (!isRecord(value) || !Array.isArray(value.requirements)) {
-    return { requirements: [] }
-  }
-  return {
-    requirements: value.requirements.flatMap((value) => {
-      if (!isRecord(value) || typeof value.capability !== 'string') return []
-      return [
-        {
-          capability: value.capability,
-          required_fields: normalizeStringArray(value.required_fields),
-          optional_fields: normalizeStringArray(value.optional_fields)
-        }
-      ]
-    })
-  }
-}
-
-function normalizeStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
 function handleDialogClose(done: () => void) {
   if (!submitting.value) done()
 }
 </script>
 
-<style scoped>
-.evidence-requirements {
-  display: grid;
-  width: 100%;
-  gap: 12px;
+<style>
+.skill-summary-tooltip {
+  max-width: min(560px, calc(100vw - 32px));
+  max-height: 50vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
 }
+</style>
 
-.evidence-requirements__table {
-  overflow-x: auto;
+<style scoped>
+.skills-table :deep(.el-table__row) { height: 52px; }
+.skills-table :deep(.el-table__body .cell) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .is-submitting {

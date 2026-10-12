@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../node_modules/streamdown/dist/*.js";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -19,6 +20,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-sidebar: var(--sidebar);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --radius-sm: calc(var(--radius) - 4px);
@@ -38,6 +40,7 @@
   --line: #e3e7ec;
   --muted: #6f7988;
   --background: oklch(1 0 0);
+  --sidebar: #f7f9fb;
   --foreground: oklch(0.21 0.025 255);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.21 0.025 255);
@@ -110,7 +113,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .status-chip span.online { background: #3a8c69; box-shadow: 0 0 0 3px #3a8c6918; }
 
 .conversation { min-height: 0; overflow: hidden; }
-.conversation > div:first-child { overscroll-behavior: contain; scroll-behavior: smooth; }
+.conversation > div:first-child { overscroll-behavior: contain; }
 .conversation-content { width: min(820px, calc(100% - 48px)); margin: 0 auto; padding: 34px 0 24px; }
 .message { display: flex; flex-direction: row; gap: 12px; margin-bottom: 32px; }
 .message--user { justify-content: flex-end; }
@@ -119,15 +122,35 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .message-body { min-width: 0; flex: 1; }
 .message-author { margin: 1px 0 12px; color: #1c2b41; font-size: 12px; font-weight: 700; }
 .message-author span { margin-left: 8px; color: #9da3ac; font-size: 10px; font-weight: 400; }
-.message-content { color: #334157; font-size: 14px; line-height: 1.85; }
+.message-content { color: #374151; font-size: 14px; font-weight: 400; line-height: 1.85; overflow-wrap: anywhere; -webkit-font-smoothing: antialiased; }
 .message-content > :first-child { margin-top: 0; }
 .message-content > :last-child { margin-bottom: 0; }
-.message-content h1,.message-content h2,.message-content h3 { font-family: Georgia,"Songti SC",serif; color: #15243a; }
-.message-content h3 { font-size: 18px; margin: 0 0 12px; }
-.message-content strong { color: #172943; }
-.message-content ul { padding-left: 20px; }
-.message-content li { margin: 7px 0; }
-.message-content li::marker { color: #b48a54; }
+.message-content :is(h1, h2, h3, h4, h5, h6) { font-family: inherit; color: #243247; font-weight: 600; line-height: 1.5; letter-spacing: normal; margin: 1.5em 0 .65em; border: 0; padding: 0; }
+.message-content h1 { font-size: 1.5em; }
+.message-content h2 { font-size: 1.3em; }
+.message-content h3 { font-size: 1.15em; }
+.message-content :is(h4, h5, h6) { font-size: 1em; }
+.message-content p { margin: 0 0 .85em; }
+.message-content strong, .reasoning-narrative strong { font-weight: 600; color: inherit; }
+.message-content :is(ul, ol) { padding-left: 1.5em; margin: .7em 0 1em; list-style-position: outside; }
+.message-content ul { list-style-type: disc; }
+.message-content ol { list-style-type: decimal; }
+.message-content li { margin: .35em 0; padding: 0 0 0 .15em; }
+.message-content li > p { margin: 0; }
+.message-content li::marker { color: #8792a2; }
+.message-content hr { height: 0; margin: 1.5em 0; border: 0; border-top: 1px solid #e8ecf0; }
+.message-content blockquote { margin: 1em 0; padding: .2em 0 .2em 1em; border-left: 2px solid #dce3eb; color: #687588; font-style: normal; }
+.message-content blockquote > p:last-child { margin-bottom: 0; }
+.message-content a { color: #486d99; text-decoration-color: #b9c9dc; text-underline-offset: 3px; }
+.message-content table { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 1.65; }
+.message-content :is(th, td) { padding: 10px 14px; border: 0; border-bottom: 1px solid #e8ecf0; }
+.message-content th { background: #f7f9fb; color: #46546a; font-weight: 600; }
+.message-content tr:last-child td { border-bottom: 0; }
+.message-content [data-streamdown="table"] { overflow-x: auto; border: 1px solid #e8ecf0; border-radius: 8px; }
+.message-content :not(pre) > code { padding: .15em .35em; border: 0; border-radius: 4px; background: #f3f5f8; font-size: .9em; font-weight: 400; }
+.message-content [data-streamdown="code-block"] { border-color: #e8ecf0; }
+.message-content [data-streamdown="code-block-body"] { border-color: #e8ecf0; }
+.message-content pre { overflow-x: auto; padding: 14px 16px; background: #f7f9fb; font-size: 12px; line-height: 1.7; }
 .reasoning { margin-bottom: 16px; color: #697383; }
 .reasoning .reasoning-trigger { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #697383; font-size: 13px; text-align: left; }
 .reasoning-trigger > svg { flex: 0 0 auto; }
