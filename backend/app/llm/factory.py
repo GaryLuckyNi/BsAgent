@@ -1,4 +1,5 @@
 import asyncio
+import json
 from collections.abc import AsyncIterator, Callable
 from threading import Lock
 from typing import Any, Protocol
@@ -8,7 +9,8 @@ from app.llm.deepseek import DeepSeekClient, LlmConfigurationError
 from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
 
 _REASONING_LANGUAGE_INSTRUCTION = (
-    "\n\n当模型生成 reasoning_content 时，必须使用中文表达；专有名词、代码标识符和原始字段名可以保留英文。"
+    "【推理语言硬性要求】reasoning_content 的自然语言句子必须全程使用简体中文，"
+    "不得使用英文句子；仅专有名词、证券代码、代码标识符和原始字段名可以保留英文。"
 )
 _client_lock = Lock()
 _cached_client: Any | None = None
@@ -51,22 +53,25 @@ def invoke_llm_completion(
     thinking: bool = True,
     on_delta: Callable[[LlmStreamDelta], None] | None = None,
     retry_without_thinking_on_empty: bool = False,
+    retry_without_thinking_on_length: bool = False,
 ) -> LlmCompletionResult:
-    request_system_prompt = (
-        f"{system_prompt}{_REASONING_LANGUAGE_INSTRUCTION}"
-        if thinking
-        else system_prompt
+    request_system_prompt, request_user_prompt = _localized_reasoning_prompts(
+        system_prompt,
+        user_prompt,
+        thinking=thinking,
     )
     result = _invoke_llm_completion_once(
         llm_client,
         system_prompt=request_system_prompt,
-        user_prompt=user_prompt,
+        user_prompt=request_user_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
         thinking=thinking,
         on_delta=on_delta,
     )
-    if retry_without_thinking_on_empty and thinking and not result.content.strip():
+    retry_empty = retry_without_thinking_on_empty and not result.content.strip()
+    retry_length = retry_without_thinking_on_length and result.finish_reason == "length"
+    if thinking and (retry_empty or retry_length):
         return _invoke_llm_completion_once(
             llm_client,
             system_prompt=system_prompt,
@@ -74,9 +79,39 @@ def invoke_llm_completion(
             temperature=temperature,
             max_tokens=max_tokens,
             thinking=False,
-            on_delta=on_delta,
+            on_delta=on_delta if retry_empty else None,
         )
     return result
+
+
+def _localized_reasoning_prompts(
+    system_prompt: str,
+    user_prompt: str,
+    *,
+    thinking: bool,
+) -> tuple[str, str]:
+    if not thinking:
+        return system_prompt, user_prompt
+    localized_system_prompt = (
+        f"{_REASONING_LANGUAGE_INSTRUCTION}\n\n{system_prompt}\n\n{_REASONING_LANGUAGE_INSTRUCTION}"
+    )
+    try:
+        payload = json.loads(user_prompt)
+    except (TypeError, json.JSONDecodeError):
+        localized_user_prompt = f"{_REASONING_LANGUAGE_INSTRUCTION}\n\n{user_prompt}"
+    else:
+        if isinstance(payload, dict):
+            localized_user_prompt = json.dumps(
+                {
+                    "reasoning_language": "简体中文",
+                    "reasoning_language_requirement": _REASONING_LANGUAGE_INSTRUCTION,
+                    **payload,
+                },
+                ensure_ascii=False,
+            )
+        else:
+            localized_user_prompt = f"{_REASONING_LANGUAGE_INSTRUCTION}\n\n{user_prompt}"
+    return localized_system_prompt, localized_user_prompt
 
 
 def _invoke_llm_completion_once(
@@ -143,10 +178,7 @@ def build_llm_client() -> LlmClient:
             settings.llm_timeout_seconds,
         )
         with _client_lock:
-            if (
-                _cached_client is not None
-                and _cached_client_fingerprint == fingerprint
-            ):
+            if _cached_client is not None and _cached_client_fingerprint == fingerprint:
                 return _cached_client
             _close_cached_client()
             _cached_client = DeepSeekClient(

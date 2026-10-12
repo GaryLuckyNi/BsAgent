@@ -68,6 +68,7 @@ PRODUCT_PROGRESS_MESSAGES = {
     "analyzing_evidence": "正在核对并分析已获得的证据",
     "composing_answer": "正在生成最终投研报告",
 }
+PERSISTED_REASONING_LIMIT = 64_000
 AGENT_INVOCATION_RATE_LIMIT = RateLimitPolicy(
     name="agent_invocation",
     requests_per_minute=settings.agent_rate_limit_per_minute,
@@ -722,6 +723,10 @@ def _stream_agent_message(
                     elif event_type == "thinking_delta":
                         content = str(public_event.get("content") or "")
                         if content:
+                            _collect_research_reasoning_delta(
+                                research_process,
+                                public_event,
+                            )
                             yield _sse(
                                 "thinking_delta",
                                 {
@@ -1413,6 +1418,38 @@ def _collect_research_process_event(events: list[dict], event: dict) -> None:
         return
     normalized["sequence"] = len(events)
     events.append(normalized)
+
+
+def _collect_research_reasoning_delta(events: list[dict], event: dict) -> None:
+    event_id = str(event.get("id") or event.get("stage") or "reasoning").strip()[:128]
+    content = event.get("content")
+    if not event_id or not isinstance(content, str) or not content:
+        return
+    existing_index = next(
+        (
+            index
+            for index, item in enumerate(events)
+            if item.get("kind") == "reasoning" and item.get("id") == event_id
+        ),
+        None,
+    )
+    if existing_index is not None:
+        existing = events[existing_index]
+        existing["content"] = (f"{existing.get('content', '')}{content}")[
+            :PERSISTED_REASONING_LIMIT
+        ]
+        return
+    if len(events) >= 32:
+        return
+    events.append(
+        {
+            "id": event_id,
+            "kind": "reasoning",
+            "label": str(event.get("label") or "思考").strip()[:80],
+            "content": content[:PERSISTED_REASONING_LIMIT],
+            "sequence": len(events),
+        }
+    )
 
 
 def _replayed_message_response(

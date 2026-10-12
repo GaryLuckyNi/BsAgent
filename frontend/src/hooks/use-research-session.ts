@@ -233,6 +233,7 @@ export function useResearchSession(identity: RequestIdentity) {
         content: item.content,
         createdAt: new Date().toISOString(),
         status: 'complete',
+        reasoning: item.reasoning,
         progress: restoreResearchProgress(item.researchProcess)
       }))
       setMessages(restored)
@@ -257,10 +258,9 @@ export function useResearchSession(identity: RequestIdentity) {
       && lastStreamedAnswer.content === content
     ) return
     lastStreamedAnswerRef.current = { assistantId, content }
-    setMessages((current) => updateMessage(current, assistantId, (message) => ({
-      ...message,
-      content
-    })))
+    setMessages((current) => updateMessage(current, assistantId, (message) => (
+      message.status === 'complete' ? message : { ...message, content }
+    )))
   }, [stream.messages])
 
   const sendMessage = useCallback(async (content: string, attachmentIds: string[] = []) => {

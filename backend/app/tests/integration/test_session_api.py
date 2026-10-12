@@ -921,8 +921,8 @@ def test_session_api_passes_attachment_refs_and_resolver_into_graph(monkeypatch)
 
     monkeypatch.setattr(sessions, "run_question_answer_graph", fake_graph)
     app, _ = create_test_app_with_database()
-    app.dependency_overrides[sessions.get_attachment_context_resolver] = (
-        lambda: AttachmentResolver()
+    app.dependency_overrides[sessions.get_attachment_context_resolver] = lambda: (
+        AttachmentResolver()
     )
     client = TestClient(app)
 
@@ -3219,20 +3219,30 @@ def test_post_session_message_stream_forwards_filtered_public_thinking(monkeypat
 
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
     app, _ = create_test_app_with_database()
+    client = TestClient(app)
 
-    body = (
-        TestClient(app)
-        .post(
-            "/api/sessions/s1/messages/stream",
-            json={"message": "A股是否临近变盘？"},
-        )
-        .text
-    )
+    body = client.post(
+        "/api/sessions/s1/messages/stream",
+        json={"message": "A股是否临近变盘？"},
+    ).text
+    persisted_messages = client.get(
+        "/api/sessions/s1/messages",
+    ).json()["items"]
+    assistant = next(item for item in persisted_messages if item["role"] == "assistant")
 
     assert "event: thinking_delta" in body
     assert '"stage": "synthesizer"' in body
     assert '"label": "分析证据"' in body
     assert "先比较量能与资金变化。" in body
+    assert assistant["metadata"]["research_process"] == [
+        {
+            "id": "synthesizer:reasoning",
+            "kind": "reasoning",
+            "label": "分析证据",
+            "content": "先比较量能与资金变化。",
+            "sequence": 0,
+        }
+    ]
 
 
 def test_post_session_message_stream_does_not_expose_private_model_reasoning(
@@ -3510,8 +3520,8 @@ def test_stream_emits_attachment_loading_and_analysis_loaded_stages(monkeypatch)
 
     monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
     app, _ = create_test_app_with_database()
-    app.dependency_overrides[sessions.get_attachment_context_resolver] = (
-        lambda: AttachmentResolver()
+    app.dependency_overrides[sessions.get_attachment_context_resolver] = lambda: (
+        AttachmentResolver()
     )
     client = TestClient(app)
 

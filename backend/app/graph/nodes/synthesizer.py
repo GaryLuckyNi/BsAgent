@@ -160,10 +160,11 @@ def _render_answer(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.2,
-            max_tokens=2_048,
+            max_tokens=16_384,
             thinking=True,
             on_delta=stream_handler,
             retry_without_thinking_on_empty=True,
+            retry_without_thinking_on_length=True,
         )
     finally:
         stream_handler.flush()

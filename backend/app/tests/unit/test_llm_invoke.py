@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from app.llm import factory as llm_factory
 from app.llm.factory import invoke_llm_completion
@@ -128,6 +129,7 @@ def test_thinking_request_asks_model_to_keep_raw_reasoning_in_chinese():
 
         async def complete(self, **kwargs):
             self.system_prompt = kwargs["system_prompt"]
+            self.user_prompt = kwargs["user_prompt"]
             return LlmCompletionResult(content="完成", model="test", provider="test")
 
     client = Client()
@@ -135,12 +137,56 @@ def test_thinking_request_asks_model_to_keep_raw_reasoning_in_chinese():
     invoke_llm_completion(
         client,
         system_prompt="你是研究助手。",
-        user_prompt="分析问题",
+        user_prompt=json.dumps({"question": "分析问题"}, ensure_ascii=False),
         thinking=True,
     )
 
     assert "reasoning_content" in client.system_prompt
-    assert "中文" in client.system_prompt
+    assert client.system_prompt.startswith("【推理语言硬性要求】")
+    assert json.loads(client.user_prompt)["reasoning_language"] == "简体中文"
+
+
+def test_invoke_llm_completion_retries_partial_length_output_without_streaming_duplicate():
+    class Client:
+        def __init__(self):
+            self.stream_calls = 0
+            self.complete_calls = []
+
+        def complete_streamed_sync(self, **kwargs):
+            self.stream_calls += 1
+            kwargs["on_delta"]("partial-delta")
+            return LlmCompletionResult(
+                content="半截回答",
+                model="test",
+                provider="test",
+                finish_reason="length",
+            )
+
+        async def complete(self, **kwargs):
+            self.complete_calls.append(kwargs)
+            return LlmCompletionResult(
+                content="完整回答",
+                model="test",
+                provider="test",
+                finish_reason="stop",
+            )
+
+    client = Client()
+    received = []
+
+    result = invoke_llm_completion(
+        client,
+        system_prompt="system",
+        user_prompt="user",
+        thinking=True,
+        on_delta=received.append,
+        retry_without_thinking_on_length=True,
+    )
+
+    assert result.content == "完整回答"
+    assert received == ["partial-delta"]
+    assert client.stream_calls == 1
+    assert [call["thinking"] for call in client.complete_calls] == [False]
 
 
 def test_llm_factory_reuses_client_until_runtime_is_closed(monkeypatch):

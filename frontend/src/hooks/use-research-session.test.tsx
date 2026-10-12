@@ -120,6 +120,31 @@ describe('useResearchSession', () => {
       .toBe('净息差会影响银行的利息净收入。')
   })
 
+  it('截断重试后的 final 完整正文不会被旧的流式快照覆盖', async () => {
+    const { result, rerender } = renderHook(() => useResearchSession({
+      tenantId: 'tenant-1',
+      userId: 'user-1'
+    }))
+    await act(async () => {
+      await result.current.sendMessage('分析连续涨停原因。')
+    })
+
+    act(() => {
+      sdk.options?.onCustomEvent?.({
+        type: 'final',
+        response: { content: '这是重试后生成的完整回答。' }
+      })
+    })
+    sdk.messages = [{
+      type: 'ai',
+      id: 'partial-stream-answer',
+      content: '这是被 token 上限截断的半截'
+    } as Message]
+    rerender()
+
+    expect(result.current.messages.at(-1)?.content).toBe('这是重试后生成的完整回答。')
+  })
+
   it('重复 token 和空白均原样累加，不按文本内容去重', async () => {
     const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
     await act(async () => { await result.current.sendMessage('测试推理流。') })

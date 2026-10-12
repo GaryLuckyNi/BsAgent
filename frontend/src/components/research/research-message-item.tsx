@@ -33,14 +33,20 @@ export function ResearchMessageItem({ message, onCitation }: {
   const reasoning: ResearchReasoning[] = message.reasoning?.length
     ? message.reasoning
     : message.thinking ? [{ id: 'legacy', label: '思考', content: message.thinking }] : []
-  const reasoningTexts = new Set(reasoning.map((item) => normalizeNarrative(item.content)))
-  const processEntries = (message.progress || []).filter((item) => (
-    item.kind === 'summary'
-    || item.kind === 'activity'
-    || (!item.kind && (item.stage === 'tool_agent' || item.stage === 'skill_agent'))
-  )).filter((item) => (
-    item.kind !== 'summary' || !reasoningTexts.has(normalizeNarrative(item.message))
-  ))
+  const seenNarratives = new Set(reasoning.map((item) => normalizeNarrative(item.content)))
+  const processEntries: ResearchProgress[] = []
+  for (const item of message.progress || []) {
+    const isProcessEntry = item.kind === 'summary'
+      || item.kind === 'activity'
+      || (!item.kind && (item.stage === 'tool_agent' || item.stage === 'skill_agent'))
+    if (!isProcessEntry) continue
+    if (item.kind === 'summary') {
+      const narrative = normalizeNarrative(item.message)
+      if (seenNarratives.has(narrative)) continue
+      seenNarratives.add(narrative)
+    }
+    processEntries.push(item)
+  }
   const timeline: Array<
     { kind: 'legacy-reasoning'; item: ResearchReasoning }
     | { kind: 'process'; item: ResearchProgress }
@@ -51,7 +57,7 @@ export function ResearchMessageItem({ message, onCitation }: {
   timeline.sort((a, b) => (a.item.sequence ?? 0) - (b.item.sequence ?? 0))
   const hasReasoningDetails = timeline.length > 0
   const isResearching = message.status === 'streaming' && !message.content
-  const showStreamCaret = message.role === 'assistant'
+  const showStreamLoader = message.role === 'assistant'
     && message.status === 'streaming'
     && !message.content
     && !hasReasoningDetails
@@ -116,8 +122,10 @@ export function ResearchMessageItem({ message, onCitation }: {
             )}
           </Reasoning>
         )}
-        {showStreamCaret && (
-          <span className="response-stream-caret" role="status" aria-label="回复生成中" />
+        {showStreamLoader && (
+          <span className="response-stream-loader" role="status" aria-label="回复生成中">
+            <span /><span /><span />
+          </span>
         )}
         {message.content && (
           <MessageResponse className="message-content" isAnimating={message.status === 'streaming'}>{message.content}</MessageResponse>

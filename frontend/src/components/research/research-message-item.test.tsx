@@ -24,7 +24,7 @@ vi.mock('@/components/ai-elements/reasoning', () => ({
 }))
 
 describe('ResearchMessageItem', () => {
-  it('等待推理时显示无文案光标，收到内容后直接展示', () => {
+  it('等待首个推理 token 时显示 loading 动画，收到内容后直接展示', () => {
     const message = {
       id: 'direct', role: 'assistant' as const, content: '', createdAt: '',
       status: 'streaming' as const, processStatus: '正在规划…'
@@ -32,6 +32,7 @@ describe('ResearchMessageItem', () => {
     const view = render(<ResearchMessageItem message={message} onCitation={vi.fn()} />)
     expect(screen.queryByTestId('reasoning')).toBeNull()
     expect(screen.getByLabelText('回复生成中')).toBeTruthy()
+    expect(view.container.querySelector('.response-stream-loader')).toBeTruthy()
     expect(screen.queryByText(/正在规划|正在分析/)).toBeNull()
     view.rerender(<ResearchMessageItem message={{ ...message, reasoning: [
       { id: 'plan', label: '规划', content: '先核验市场数据。' }
@@ -230,6 +231,27 @@ describe('ResearchMessageItem', () => {
     }} onCitation={vi.fn()} />)
 
     expect(screen.getAllByText('先核对公告，再比较行情。')).toHaveLength(1)
+  })
+
+  it('相同的结构化摘要在时间线中只展示一次', () => {
+    render(<ResearchMessageItem message={{
+      id: 'summary-dedupe', role: 'assistant', createdAt: new Date().toISOString(),
+      status: 'complete', content: '完成',
+      progress: [
+        {
+          id: 'planner:summary', label: '研究计划',
+          message: '先核实涨停区间，再核验公告。',
+          status: 'completed', kind: 'summary', sequence: 0
+        },
+        {
+          id: 'analysis:summary', label: '研究发现',
+          message: '先核实涨停区间，再核验公告。',
+          status: 'completed', kind: 'summary', sequence: 2
+        }
+      ]
+    }} onCitation={vi.fn()} />)
+
+    expect(screen.getAllByText('先核实涨停区间，再核验公告。')).toHaveLength(1)
   })
 
 })

@@ -66,18 +66,27 @@ describe('toConversationMessages', () => {
             trace_id: 'trace_1',
             approval_status: 'not_required',
             cited_evidence_ids: ['evidence_1'],
-            research_process: [{
-              id: 'market:daily',
-              kind: 'activity',
-              label: '获取证据',
-              message: '已取得市场数据',
-              status: 'completed',
-              sequence: 0,
-              activity_type: 'market_data',
-              group_id: 'market_data:1',
-              task_id: 'daily',
-              task_label: '查询当日行情'
-            }]
+            research_process: [
+              {
+                id: 'planner:reasoning',
+                kind: 'reasoning',
+                label: '制定计划',
+                content: '先核验公告，再检查行情。',
+                sequence: 0
+              },
+              {
+                id: 'market:daily',
+                kind: 'activity',
+                label: '获取证据',
+                message: '已取得市场数据',
+                status: 'completed',
+                sequence: 1,
+                activity_type: 'market_data',
+                group_id: 'market_data:1',
+                task_id: 'daily',
+                task_label: '查询当日行情'
+              }
+            ]
           }
         },
         {
@@ -96,13 +105,19 @@ describe('toConversationMessages', () => {
         traceId: 'trace_1',
         approvalStatus: 'not_required',
         citedEvidenceIds: ['evidence_1'],
+        reasoning: [{
+          id: 'planner:reasoning',
+          label: '制定计划',
+          content: '先核验公告，再检查行情。',
+          sequence: 0
+        }],
         researchProcess: [{
           id: 'market:daily',
           kind: 'activity',
           label: '获取证据',
           message: '已取得市场数据',
           status: 'completed',
-          sequence: 0,
+          sequence: 1,
           activityType: 'market_data',
           groupId: 'market_data:1',
           taskId: 'daily',

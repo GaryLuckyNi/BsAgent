@@ -54,11 +54,62 @@ def test_synthesizer_uses_task_results_without_fixed_section_template():
         }
     ]
     assert llm.calls[0]["thinking"] is True
-    assert llm.calls[0]["max_tokens"] == 2_048
+    assert llm.calls[0]["max_tokens"] == 16_384
     assert "task_results" not in payload
     assert "固定模板" not in result["draft_answer"]["content"]
     assert "不构成投资建议" in result["draft_answer"]["content"]
     assert result["verification"]["verdict"] == "pass"
+
+
+def test_synthesizer_retries_when_reasoning_budget_truncates_answer():
+    class TruncatedThenCompleteLlm:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        async def complete(self, **kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                return LlmCompletionResult(
+                    content="## 判断\n\n公司",
+                    model="fake",
+                    provider="fake",
+                    finish_reason="length",
+                )
+            return LlmCompletionResult(
+                content="## 判断\n\n公司基本面尚未同步改善。",
+                model="fake",
+                provider="fake",
+                finish_reason="stop",
+            )
+
+    llm = TruncatedThenCompleteLlm()
+    state = create_initial_state(
+        session_id="session-1",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析上涨原因",
+    )
+    state["intent"] = {
+        "intent_type": "financial_research",
+        "domain": "a_share_equity_research",
+        "subdomain": "company",
+        "goal": "分析上涨原因",
+        "confidence": 0.9,
+    }
+    state["plan"] = {"tasks": [{"id": "cause", "task_goal": "核验驱动因素"}]}
+    state["task_results"] = [
+        {
+            "task_id": "cause",
+            "status": "success",
+            "content": "公告与行情时间线一致。",
+        }
+    ]
+
+    result = build_synthesizer_node(llm_client=llm)(state, Runtime(store=None))
+
+    assert len(llm.calls) == 2
+    assert [call["thinking"] for call in llm.calls] == [True, False]
+    assert "基本面尚未同步改善" in result["draft_answer"]["content"]
 
 
 def test_out_of_scope_response_does_not_call_synthesizer_llm():
