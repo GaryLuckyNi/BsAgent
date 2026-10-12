@@ -2,25 +2,15 @@ import asyncio
 import inspect
 import json
 import re
-from types import SimpleNamespace
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
-from fastapi import Request
-from fastapi.testclient import TestClient
-from langgraph.checkpoint.memory import InMemorySaver
 import pytest
-from langgraph.types import Interrupt
-from sqlalchemy import select
-from sqlalchemy import create_engine
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from app.api import approvals, sessions
 from app.conversations.service import BeginTurn, ConversationService
-from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.graph import runtime
 from app.graph.runtime import AgentGraphExecutionError, AgentGraphStreamEvent
+from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
@@ -34,17 +24,24 @@ from app.security.dependencies import get_current_principal
 from app.security.principal import Principal
 from app.storage.database import get_db
 from app.storage.models import (
-    AgentRun,
     AgentMessage,
+    AgentRun,
     AgentSession,
     AgentTraceEvent,
     ApprovalRecord,
     Base,
     MemoryCandidateRecord,
 )
-from app.tools.registry import ToolRegistry
 from app.tests.support.workflow_llm import WorkflowTestLlm
-
+from app.tools.registry import ToolRegistry
+from fastapi import Request
+from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Interrupt
+from sqlalchemy import create_engine, select
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 TEST_MEMORY_STORE = object()
 EMPTY_BUSINESS_INTENT_CATALOG = BusinessIntentCatalog([])
@@ -2742,6 +2739,39 @@ def test_closing_stream_generator_fails_started_turn(monkeypatch):
     assert run.status == assistant.status == "failed"
     assert run.trace_capture_status == "captured"
     assert session_record.active_run_id is None
+
+
+def test_stream_accepts_turn_before_loading_execution_context(monkeypatch):
+    snapshot_calls = []
+    original_loader = sessions._load_execution_snapshot
+
+    def tracked_loader(**kwargs):
+        snapshot_calls.append(kwargs)
+        return original_loader(**kwargs)
+
+    monkeypatch.setattr(sessions, "_load_execution_snapshot", tracked_loader)
+    _, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        generator = sessions._stream_agent_message(
+            session_id="s1",
+            request=sessions.SessionMessageRequest(message="问题"),
+            principal=Principal(
+                tenant_id="tenant_1",
+                user_id="user_1",
+                scopes=("agent:invoke",),
+            ),
+            db=db,
+            attachment_resolver=None,
+            memory_store=TEST_MEMORY_STORE,
+            business_intent_catalog=BusinessIntentCatalog([]),
+            request_id="stream-accept-first-1",
+        )
+
+        first_event = next(generator)
+        assert first_event.startswith("event: status")
+        assert '"stage": "accepted"' in first_event
+        assert snapshot_calls == []
+        generator.close()
 
 
 def test_cancelled_stream_fails_started_turn(monkeypatch):

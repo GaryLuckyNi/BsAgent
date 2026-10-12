@@ -198,4 +198,38 @@ describe('ResearchMessageItem', () => {
     expect(screen.getByText('搜索资金')).toBeTruthy()
   })
 
+  it('将相同类型的市场数据活动合并为一个操作组', () => {
+    render(<ResearchMessageItem message={{
+      id: 'market-group', role: 'assistant', createdAt: new Date().toISOString(),
+      status: 'streaming', content: '',
+      progress: [{
+        id: 'market_data:1', label: '获取证据', message: '已取得市场数据',
+        status: 'completed', kind: 'activity', activityType: 'market_data' as never,
+        queryCount: 2,
+        queries: [
+          { taskId: 'price', query: '查询当日行情', status: 'completed', resultUrls: [] },
+          { taskId: 'flow', query: '查询资金流向', status: 'completed', resultUrls: [] }
+        ]
+      }]
+    }} onCitation={vi.fn()} />)
+
+    expect(screen.getByText('已取得 2 项市场数据')).toBeTruthy()
+    expect(screen.getByText('查询当日行情')).toBeTruthy()
+    expect(screen.getByText('查询资金流向')).toBeTruthy()
+  })
+
+  it('相同的模型思考和结构化摘要只展示一次', () => {
+    render(<ResearchMessageItem message={{
+      id: 'dedupe', role: 'assistant', createdAt: new Date().toISOString(),
+      status: 'streaming', content: '',
+      reasoning: [{ id: 'planner:reasoning', label: '制定计划', content: '先核对公告，再比较行情。', sequence: 0 }],
+      progress: [{
+        id: 'planner:0', label: '研究计划', message: '先核对公告，再比较行情。',
+        status: 'completed', kind: 'summary', sequence: 1
+      }]
+    }} onCitation={vi.fn()} />)
+
+    expect(screen.getAllByText('先核对公告，再比较行情。')).toHaveLength(1)
+  })
+
 })

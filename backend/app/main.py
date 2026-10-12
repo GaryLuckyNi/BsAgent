@@ -14,11 +14,12 @@ from app.api.sessions import router as sessions_router
 from app.api.traces import router as traces_router
 from app.assets.factory import build_object_store
 from app.assets.object_store import ObjectStore
-from app.core.config import Settings, settings
 from app.conversations.recovery import recover_interrupted_local_runs
+from app.core.config import Settings, settings
 from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpointer
 from app.intent.dependencies import build_business_intent_catalog_runtime
 from app.intent.runtime import BusinessIntentCatalogRuntime
+from app.llm.factory import close_llm_client
 from app.memory.runtime import PostgresStoreRuntime
 from app.memory.synchronizer import reconcile_memory_store
 from app.operations.health import ReadinessService, build_readiness_service
@@ -137,7 +138,11 @@ def create_app(
                 await asyncio.to_thread(selected_business_intent_catalog.close)
             except Exception as exc:  # noqa: BLE001 - 其他资源仍需释放
                 intent_close_error = exc
-            closers = [close_graph_checkpointer, selected_memory_runtime.close]
+            closers = [
+                close_graph_checkpointer,
+                close_llm_client,
+                selected_memory_runtime.close,
+            ]
             if runtime.app_env == "production":
                 closers.append(selected_tool_catalog.close)
             if telemetry_runtime is not None:

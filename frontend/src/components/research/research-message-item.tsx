@@ -33,10 +33,13 @@ export function ResearchMessageItem({ message, onCitation }: {
   const reasoning: ResearchReasoning[] = message.reasoning?.length
     ? message.reasoning
     : message.thinking ? [{ id: 'legacy', label: '思考', content: message.thinking }] : []
+  const reasoningTexts = new Set(reasoning.map((item) => normalizeNarrative(item.content)))
   const processEntries = (message.progress || []).filter((item) => (
     item.kind === 'summary'
     || item.kind === 'activity'
     || (!item.kind && (item.stage === 'tool_agent' || item.stage === 'skill_agent'))
+  )).filter((item) => (
+    item.kind !== 'summary' || !reasoningTexts.has(normalizeNarrative(item.message))
   ))
   const timeline: Array<
     { kind: 'legacy-reasoning'; item: ResearchReasoning }
@@ -64,9 +67,9 @@ export function ResearchMessageItem({ message, onCitation }: {
       <MessageContent className="message-body">
         {message.role === 'assistant' && <div className="message-author">InvestWise 研究助手 <span>{statusLabel}</span></div>}
         {hasReasoningDetails && (
-          <Reasoning className="reasoning" isStreaming={isResearching}>
+          <Reasoning className="reasoning" isStreaming={isResearching} autoClose={false}>
             {!isResearching && (
-              <ReasoningTrigger className="reasoning-trigger" getThinkingMessage={() => '查看思考过程'} />
+              <ReasoningTrigger className="reasoning-trigger" />
             )}
             {hasReasoningDetails && (
               <ReasoningContent>
@@ -95,9 +98,9 @@ export function ResearchMessageItem({ message, onCitation }: {
                       />
                       <div className="reasoning-activity__content">
                         <span>{activityMessage(entry.item)}</span>
-                        {entry.item.activityType === 'web_search' && entry.item.queries?.length ? (
+                        {entry.item.activityType && entry.item.queries?.length ? (
                           <details className="reasoning-activity__details">
-                            <summary>查看搜索范围</summary>
+                            <summary>{entry.item.activityType === 'web_search' ? '查看搜索范围' : '查看任务明细'}</summary>
                             <ul>
                               {entry.item.queries.map((query) => (
                                 <li key={query.taskId}>{query.query}</li>
@@ -138,10 +141,23 @@ export function ResearchMessageItem({ message, onCitation }: {
 }
 
 function activityMessage(item: ResearchProgress): string {
-  if (item.activityType !== 'web_search') return item.message
-  if (item.status === 'started') return `正在搜索 ${item.queryCount || 1} 项信息…`
-  if (item.status === 'failed') return '搜索未完成'
-  return `搜索到 ${item.resultCount || 0} 个网页`
+  const count = item.queryCount || 1
+  if (item.activityType === 'web_search') {
+    if (item.status === 'started') return `正在搜索 ${count} 项信息…`
+    if (item.status === 'failed') return '搜索未完成'
+    return `搜索到 ${item.resultCount || 0} 个网页`
+  }
+  if (item.activityType === 'market_data') {
+    if (item.status === 'started') return `正在查询 ${count} 项市场数据…`
+    if (item.status === 'failed') return '市场数据查询未完成'
+    return `已取得 ${count} 项市场数据`
+  }
+  if (item.activityType === 'evidence') {
+    if (item.status === 'started') return `正在获取 ${count} 项研究证据…`
+    if (item.status === 'failed') return '研究证据获取未完成'
+    return `已取得 ${count} 项研究证据`
+  }
+  return item.message
 }
 
 function ActivityIcon({ activityType, message, status }: {
@@ -152,7 +168,11 @@ function ActivityIcon({ activityType, message, status }: {
   if (status === 'failed') return <CircleAlert size={15} aria-hidden="true" />
   if (status === 'completed') return <CheckCircle2 size={15} aria-hidden="true" />
   if (activityType === 'web_search' || message.includes('联网检索')) return <Search size={15} aria-hidden="true" />
-  if (message.includes('市场数据')) return <Database size={15} aria-hidden="true" />
+  if (activityType === 'market_data' || message.includes('市场数据')) return <Database size={15} aria-hidden="true" />
   if (message.includes('研究流程')) return <Workflow size={15} aria-hidden="true" />
   return <LoaderCircle className="reasoning-activity__spinner" size={15} aria-hidden="true" />
+}
+
+function normalizeNarrative(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
 }

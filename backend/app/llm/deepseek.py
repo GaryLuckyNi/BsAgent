@@ -1,6 +1,6 @@
-from typing import Any
-from collections.abc import AsyncIterator, Callable, Iterator
 import json
+from collections.abc import AsyncIterator, Callable, Iterator
+from typing import Any
 
 import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -32,6 +32,8 @@ class DeepSeekClient:
         base_url: str = "https://api.deepseek.com",
         timeout_seconds: float = 30.0,
         http_client: httpx.AsyncClient | None = None,
+        sync_http_client: httpx.Client | None = None,
+        persistent_sync_http: bool = False,
     ) -> None:
         if not api_key:
             raise LlmConfigurationError("DeepSeek api key is required.")
@@ -40,6 +42,13 @@ class DeepSeekClient:
         self._base_url = base_url
         self._timeout_seconds = timeout_seconds
         self._http_client = http_client
+        self._owns_sync_http_client = sync_http_client is None and persistent_sync_http
+        self._sync_http_client = sync_http_client
+        if self._sync_http_client is None and persistent_sync_http:
+            self._sync_http_client = httpx.Client(
+                base_url=base_url,
+                timeout=timeout_seconds,
+            )
         self._chat_model = ChatOpenAI(
             api_key=api_key,
             model=model,
@@ -263,6 +272,96 @@ class DeepSeekClient:
             provider=self.provider,
             finish_reason=finish_reason,
         )
+
+    def complete_streamed_sync(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.0,
+        max_tokens: int = 256,
+        thinking: bool = True,
+        on_delta: Callable[[LlmStreamDelta], None],
+    ) -> LlmCompletionResult:
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+            "thinking": {"type": "enabled" if thinking else "disabled"},
+        }
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        finish_reason: str | None = None
+
+        for event in self._stream_events_sync(payload):
+            if event.kind == "finish":
+                finish_reason = event.delta or None
+                continue
+            on_delta(event)
+            if event.kind == "content":
+                content_parts.append(event.delta)
+            elif event.kind == "reasoning":
+                reasoning_parts.append(event.delta)
+
+        return LlmCompletionResult(
+            content="".join(content_parts),
+            reasoning_content="".join(reasoning_parts),
+            model=self._model,
+            provider=self.provider,
+            finish_reason=finish_reason,
+        )
+
+    def _stream_events_sync(
+        self,
+        payload: dict[str, Any],
+    ) -> Iterator[LlmStreamDelta]:
+        if self._sync_http_client is not None:
+            yield from self._stream_events_with_sync_client(
+                self._sync_http_client,
+                payload,
+            )
+            return
+        with httpx.Client(
+            base_url=self._base_url,
+            timeout=self._timeout_seconds,
+        ) as client:
+            yield from self._stream_events_with_sync_client(client, payload)
+
+    def _stream_events_with_sync_client(
+        self,
+        client: httpx.Client,
+        payload: dict[str, Any],
+    ) -> Iterator[LlmStreamDelta]:
+        try:
+            with client.stream(
+                "POST",
+                "/chat/completions",
+                json=payload,
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    yield from _parse_openai_stream_events(line)
+        except httpx.HTTPStatusError as exc:
+            raise LlmProviderError(
+                code="llm_http_error",
+                message=exc.response.text,
+                status_code=exc.response.status_code,
+            ) from exc
+        except httpx.TimeoutException as exc:
+            raise LlmProviderError(code="llm_timeout", message=str(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise LlmProviderError(code="llm_unreachable", message=str(exc)) from exc
+
+    def close(self) -> None:
+        if self._owns_sync_http_client and self._sync_http_client is not None:
+            self._sync_http_client.close()
+        self._sync_http_client = None
 
     async def _stream_events_with_client(
         self,

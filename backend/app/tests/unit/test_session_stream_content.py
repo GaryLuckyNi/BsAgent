@@ -72,6 +72,28 @@ def test_research_process_collector_keeps_public_events_and_merges_activity_stat
     ]
 
 
+def test_research_process_collector_preserves_activity_group_metadata():
+    events = []
+
+    sessions._collect_research_process_event(events, {
+        "type": "progress",
+        "kind": "activity",
+        "id": "tool:daily",
+        "label": "获取证据",
+        "message": "已取得市场数据：获取当日行情",
+        "status": "completed",
+        "activity_type": "market_data",
+        "group_id": "market_data:1",
+        "task_id": "daily",
+        "task_label": "获取当日行情",
+    })
+
+    assert events[0]["activity_type"] == "market_data"
+    assert events[0]["group_id"] == "market_data:1"
+    assert events[0]["task_id"] == "daily"
+    assert events[0]["task_label"] == "获取当日行情"
+
+
 def test_assistant_metadata_includes_bounded_research_process():
     events = [{
         "id": "plan",

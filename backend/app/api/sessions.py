@@ -13,8 +13,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import iterate_in_threadpool
 
-from app.approvals.repository import ApprovalRepository
 from app.api.assets import get_asset_service
+from app.approvals.repository import ApprovalRepository
 from app.assets.service import AssetService
 from app.conversations.repository import (
     ConversationConflictError,
@@ -30,8 +30,8 @@ from app.conversations.service import (
 from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import (
-    AgentGraphStreamEvent,
     AgentGraphExecutionError,
+    AgentGraphStreamEvent,
     run_question_answer_graph,
     stream_question_answer_graph,
 )
@@ -50,9 +50,9 @@ from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
 from app.memory.synchronizer import sync_committed_run
 from app.operations.rate_limit import RateLimitPolicy, require_rate_limit
+from app.schemas.messages import Message
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
-from app.schemas.messages import Message
 from app.storage.database import get_db
 from app.storage.repositories import persist_agent_run
 from app.vision.context import VisionAttachmentContextResolver
@@ -659,6 +659,8 @@ def _stream_agent_message(
             return
 
         trace_buffer = TraceBuffer()
+        identity = _stream_identity(handle)
+        yield _sse("status", {"stage": "accepted", **identity})
         snapshot = _load_execution_snapshot(
             db=db,
             principal=principal,
@@ -668,8 +670,6 @@ def _stream_agent_message(
             attachment_resolver=attachment_resolver,
         )
         db.commit()
-        identity = _stream_identity(handle)
-        yield _sse("status", {"stage": "accepted", **identity})
         yield _sse("progress", _product_progress_payload("planning"))
         if request.attachments:
             yield _sse(
@@ -1379,6 +1379,28 @@ def _collect_research_process_event(events: list[dict], event: dict) -> None:
             else "started"
         ),
     }
+    activity_type = event.get("activity_type")
+    if activity_type in {"web_search", "market_data", "evidence"}:
+        normalized["activity_type"] = activity_type
+        for key, limit in (
+            ("group_id", 128),
+            ("task_id", 128),
+            ("task_label", 500),
+            ("query", 500),
+        ):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                normalized[key] = value.strip()[:limit]
+        result_count = event.get("result_count")
+        if isinstance(result_count, int) and result_count >= 0:
+            normalized["result_count"] = result_count
+        result_urls = event.get("result_urls")
+        if isinstance(result_urls, list):
+            normalized["result_urls"] = [
+                url[:1000]
+                for url in result_urls[:50]
+                if isinstance(url, str) and url.startswith(("http://", "https://"))
+            ]
     existing_index = next(
         (index for index, item in enumerate(events) if item.get("id") == event_id),
         None,

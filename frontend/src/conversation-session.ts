@@ -29,6 +29,13 @@ export type RestoredResearchProcessEvent = {
   message: string
   status: 'started' | 'completed' | 'failed'
   sequence: number
+  activityType?: 'web_search' | 'market_data' | 'evidence'
+  groupId?: string
+  taskId?: string
+  taskLabel?: string
+  query?: string
+  resultCount?: number
+  resultUrls?: string[]
 }
 
 export function resolveConversationSession(
@@ -96,16 +103,39 @@ function researchProcessMetadata(
       || (event.kind !== 'activity' && event.kind !== 'summary')
       || typeof event.message !== 'string'
     ) return []
+    const activityType = (
+      event.activity_type === 'web_search'
+      || event.activity_type === 'market_data'
+      || event.activity_type === 'evidence'
+    ) ? event.activity_type : undefined
     return [{
       id: event.id,
       kind: event.kind,
       label: typeof event.label === 'string' ? event.label : '研究过程',
       message: event.message,
       status: event.status === 'failed' || event.status === 'completed' ? event.status : 'started',
-      sequence: typeof event.sequence === 'number' ? event.sequence : 0
+      sequence: typeof event.sequence === 'number' ? event.sequence : 0,
+      ...(activityType ? { activityType } : {}),
+      ...stringEventField(event, 'group_id', 'groupId'),
+      ...stringEventField(event, 'task_id', 'taskId'),
+      ...stringEventField(event, 'task_label', 'taskLabel'),
+      ...stringEventField(event, 'query', 'query'),
+      ...(typeof event.result_count === 'number' ? { resultCount: event.result_count } : {}),
+      ...(Array.isArray(event.result_urls) ? {
+        resultUrls: event.result_urls.filter((url): url is string => typeof url === 'string')
+      } : {})
     }]
   })
   return events.length ? events : undefined
+}
+
+function stringEventField(
+  event: Record<string, unknown>,
+  source: string,
+  target: string
+): Record<string, string> {
+  const value = event[source]
+  return typeof value === 'string' && value ? { [target]: value } : {}
 }
 
 function conversationSessionStorageKey(identity: ConversationIdentity): string {

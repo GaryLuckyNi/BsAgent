@@ -59,7 +59,7 @@ def emit_public_progress(
         "status": public_status,
         "message": message,
     }
-    event.update(_web_search_progress_metadata(node_name, state))
+    event.update(_tool_activity_metadata(node_name, state))
     writer(event)
 
 
@@ -263,7 +263,7 @@ def _activity_action(action: str, state: dict[str, Any], *, status: str) -> str:
     return f"已完成{action}"
 
 
-def _web_search_progress_metadata(
+def _tool_activity_metadata(
     node_name: str,
     state: dict[str, Any],
 ) -> dict[str, Any]:
@@ -271,9 +271,23 @@ def _web_search_progress_metadata(
         return {}
     active_task = state.get("active_task") or {}
     tool_name = str(active_task.get("tool_name") or "").lower()
-    if tool_name.rsplit(".", 1)[-1] != "web_search":
-        return {}
-    query = _safe_task_goal(active_task.get("task_goal"))
+    if tool_name.rsplit(".", 1)[-1] == "web_search":
+        activity_type = "web_search"
+    elif tool_name.startswith("mcp."):
+        activity_type = "market_data"
+    else:
+        activity_type = "evidence"
+    task_label = _safe_task_goal(active_task.get("task_goal"))
+    metadata: dict[str, Any] = {
+        "activity_type": activity_type,
+        "group_id": f"{activity_type}:{state.get('planner_iteration', 0)}",
+        "task_id": str(active_task.get("id") or ""),
+        "task_label": task_label,
+    }
+    if activity_type != "web_search":
+        return metadata
+
+    query = task_label
     urls: list[str] = []
     result = _matching_task_result(state)
     if result and result.get("status") == "success":
@@ -293,14 +307,12 @@ def _web_search_progress_metadata(
                     normalized = _normalize_public_url(item.get("url"))
                     if normalized and normalized not in urls:
                         urls.append(normalized)
-    return {
-        "activity_type": "web_search",
-        "group_id": f"web_search:{state.get('planner_iteration', 0)}",
-        "task_id": str(active_task.get("id") or ""),
+    metadata.update({
         "query": query,
         "result_count": len(urls),
         "result_urls": urls,
-    }
+    })
+    return metadata
 
 
 def _normalize_public_url(value: object) -> str | None:

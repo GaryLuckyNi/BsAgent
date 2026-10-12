@@ -27,4 +27,25 @@ describe('Reasoning', () => {
     act(() => { vi.advanceTimersByTime(5000) })
     expect(screen.getByText('已思考 3 秒')).toBeTruthy()
   })
+
+  it('关闭自动收起后，最终答案出现时继续展示思考内容', () => {
+    vi.useFakeTimers()
+    const view = render(
+      <Reasoning isStreaming autoClose={false}>
+        <ReasoningTrigger />
+        <ReasoningContent>真实思考</ReasoningContent>
+      </Reasoning>
+    )
+
+    view.rerender(
+      <Reasoning isStreaming={false} autoClose={false}>
+        <ReasoningTrigger />
+        <ReasoningContent>真实思考</ReasoningContent>
+      </Reasoning>
+    )
+    act(() => { vi.advanceTimersByTime(1500) })
+
+    expect(screen.getByRole('button').getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('真实思考')).toBeTruthy()
+  })
 })

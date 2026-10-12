@@ -2,7 +2,11 @@ import type { Message } from '@langchain/langgraph-sdk'
 import { FetchStreamTransport, useStream } from '@langchain/langgraph-sdk/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { resolveConversationSession, toConversationMessages } from '../conversation-session'
+import {
+  resolveConversationSession,
+  toConversationMessages,
+  type RestoredResearchProcessEvent
+} from '../conversation-session'
 import {
   buildEvidenceIndex,
   type ResearchMessage,
@@ -35,9 +39,10 @@ type AgentProtocolEvent = {
   message?: string
   status?: 'started' | 'completed' | 'failed'
   kind?: 'status' | 'activity' | 'summary'
-  activity_type?: 'web_search'
+  activity_type?: 'web_search' | 'market_data' | 'evidence'
   group_id?: string
   task_id?: string
+  task_label?: string
   query?: string
   result_count?: number
   result_urls?: string[]
@@ -151,19 +156,19 @@ export function useResearchSession(identity: RequestIdentity) {
         status: event.status || 'started',
         activityType: event.activity_type,
         groupId: event.group_id,
-        queryCount: event.activity_type === 'web_search' ? 1 : undefined,
+        queryCount: event.activity_type && event.task_id ? 1 : undefined,
         resultCount: event.activity_type === 'web_search' ? (event.result_count || 0) : undefined,
-        queries: event.activity_type === 'web_search' && event.task_id ? [{
+        queries: event.activity_type && event.task_id ? [{
           taskId: event.task_id,
-          query: event.query || event.message,
+          query: event.task_label || event.query || event.message,
           status: event.status || 'started',
           resultUrls: uniqueUrls(event.result_urls)
         }] : undefined
       }
       setMessages((current) => updateMessage(current, assistantId, (message) => ({
         ...message,
-        progress: progress.activityType === 'web_search' && progress.groupId
-          ? mergeSearchProgress(message.progress, progress)
+        progress: progress.activityType && progress.groupId
+          ? mergeActivityProgress(message.progress, progress)
           : upsertProgress(message.progress, progress)
       })))
       return
@@ -190,7 +195,7 @@ export function useResearchSession(identity: RequestIdentity) {
   const stream = useStream<ResearchGraphState, ResearchStreamBag>({
     transport,
     threadId: sessionId,
-    throttle: true,
+    throttle: false,
     initialValues: { messages: [] },
     onCustomEvent: handleCustomEvent,
     onError: (caught) => {
@@ -228,7 +233,7 @@ export function useResearchSession(identity: RequestIdentity) {
         content: item.content,
         createdAt: new Date().toISOString(),
         status: 'complete',
-        progress: item.researchProcess
+        progress: restoreResearchProgress(item.researchProcess)
       }))
       setMessages(restored)
     }).catch(() => undefined)
@@ -336,13 +341,13 @@ function upsertProgress(
   return items
 }
 
-function mergeSearchProgress(
+function mergeActivityProgress(
   current: ResearchProgress[] | undefined,
   incoming: ResearchProgress
 ): ResearchProgress[] {
   const items = [...(current || [])]
   const index = items.findIndex((item) => (
-    item.activityType === 'web_search' && item.groupId === incoming.groupId
+    item.activityType === incoming.activityType && item.groupId === incoming.groupId
   ))
   const existing = index >= 0 ? items[index] : undefined
   const queries = [...(existing?.queries || [])]
@@ -369,6 +374,36 @@ function mergeSearchProgress(
   if (index >= 0) items[index] = merged
   else items.push(merged)
   return items
+}
+
+function restoreResearchProgress(
+  events: RestoredResearchProcessEvent[] | undefined
+): ResearchProgress[] | undefined {
+  let restored: ResearchProgress[] = []
+  for (const event of events || []) {
+    const progress: ResearchProgress = {
+      id: event.id,
+      sequence: event.sequence,
+      kind: event.kind,
+      label: event.label,
+      message: event.message,
+      status: event.status,
+      activityType: event.activityType,
+      groupId: event.groupId,
+      queryCount: event.activityType && event.taskId ? 1 : undefined,
+      resultCount: event.activityType === 'web_search' ? (event.resultCount || 0) : undefined,
+      queries: event.activityType && event.taskId ? [{
+        taskId: event.taskId,
+        query: event.taskLabel || event.query || event.message,
+        status: event.status,
+        resultUrls: uniqueUrls(event.resultUrls)
+      }] : undefined
+    }
+    restored = progress.activityType && progress.groupId
+      ? mergeActivityProgress(restored, progress)
+      : upsertProgress(restored, progress)
+  }
+  return restored.length ? restored : undefined
 }
 
 function uniqueUrls(urls: string[] | undefined): string[] {

@@ -67,12 +67,16 @@ describe('toConversationMessages', () => {
             approval_status: 'not_required',
             cited_evidence_ids: ['evidence_1'],
             research_process: [{
-              id: 'plan',
-              kind: 'summary',
-              label: '研究计划',
-              message: '先核对公告，再比较行业数据。',
+              id: 'market:daily',
+              kind: 'activity',
+              label: '获取证据',
+              message: '已取得市场数据',
               status: 'completed',
-              sequence: 0
+              sequence: 0,
+              activity_type: 'market_data',
+              group_id: 'market_data:1',
+              task_id: 'daily',
+              task_label: '查询当日行情'
             }]
           }
         },
@@ -93,12 +97,16 @@ describe('toConversationMessages', () => {
         approvalStatus: 'not_required',
         citedEvidenceIds: ['evidence_1'],
         researchProcess: [{
-          id: 'plan',
-          kind: 'summary',
-          label: '研究计划',
-          message: '先核对公告，再比较行业数据。',
+          id: 'market:daily',
+          kind: 'activity',
+          label: '获取证据',
+          message: '已取得市场数据',
           status: 'completed',
-          sequence: 0
+          sequence: 0,
+          activityType: 'market_data',
+          groupId: 'market_data:1',
+          taskId: 'daily',
+          taskLabel: '查询当日行情'
         }]
       }
     ])

@@ -40,7 +40,7 @@ export type ResearchProgress = {
   label: string
   message: string
   status: 'started' | 'completed' | 'failed'
-  activityType?: 'web_search'
+  activityType?: 'web_search' | 'market_data' | 'evidence'
   groupId?: string
   queryCount?: number
   resultCount?: number

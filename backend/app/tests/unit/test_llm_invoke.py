@@ -1,5 +1,6 @@
 import asyncio
 
+from app.llm import factory as llm_factory
 from app.llm.factory import invoke_llm_completion
 from app.llm.schemas import LlmCompletionResult
 
@@ -89,6 +90,84 @@ def test_invoke_llm_completion_prefers_native_stream_when_handler_is_present():
     assert result.content == "native"
     assert received == ["native-delta"]
     assert client.kwargs["thinking"] is True
+
+
+def test_invoke_llm_completion_prefers_sync_native_stream_without_event_loop_bridge():
+    class Client:
+        def __init__(self):
+            self.kwargs = None
+
+        def complete_streamed_sync(self, **kwargs):
+            self.kwargs = kwargs
+            kwargs["on_delta"]("sync-delta")
+            return LlmCompletionResult(content="sync", model="test", provider="test")
+
+        async def complete(self, **_kwargs):
+            raise AssertionError("同步原生流存在时不应进入 asyncio fallback")
+
+    client = Client()
+    received = []
+
+    result = invoke_llm_completion(
+        client,
+        system_prompt="system",
+        user_prompt="user",
+        thinking=True,
+        on_delta=received.append,
+    )
+
+    assert result.content == "sync"
+    assert received == ["sync-delta"]
+    assert client.kwargs["thinking"] is True
+
+
+def test_thinking_request_asks_model_to_keep_raw_reasoning_in_chinese():
+    class Client:
+        def __init__(self):
+            self.system_prompt = ""
+
+        async def complete(self, **kwargs):
+            self.system_prompt = kwargs["system_prompt"]
+            return LlmCompletionResult(content="完成", model="test", provider="test")
+
+    client = Client()
+
+    invoke_llm_completion(
+        client,
+        system_prompt="你是研究助手。",
+        user_prompt="分析问题",
+        thinking=True,
+    )
+
+    assert "reasoning_content" in client.system_prompt
+    assert "中文" in client.system_prompt
+
+
+def test_llm_factory_reuses_client_until_runtime_is_closed(monkeypatch):
+    created = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.closed = False
+            created.append(self)
+
+        def close(self):
+            self.closed = True
+
+    llm_factory.close_llm_client()
+    monkeypatch.setattr(llm_factory, "DeepSeekClient", Client)
+
+    first = llm_factory.build_llm_client()
+    second = llm_factory.build_llm_client()
+    llm_factory.close_llm_client()
+    third = llm_factory.build_llm_client()
+    llm_factory.close_llm_client()
+
+    assert first is second
+    assert first.closed is True
+    assert third is not first
+    assert len(created) == 2
 
 
 def test_invoke_llm_completion_retries_empty_thinking_output_once_without_thinking():

@@ -1,9 +1,8 @@
 import asyncio
 import json
 
-import pytest
 import httpx
-
+import pytest
 from app.llm import deepseek as deepseek_module
 from app.llm.deepseek import DeepSeekClient, LlmConfigurationError
 
@@ -315,3 +314,41 @@ def test_stream_packet_preserves_both_fields_and_finish():
     assert [(e.kind, e.delta) for e in asyncio.run(run())] == [
         ("reasoning", "比较。"), ("content", "结论。"), ("finish", "stop")
     ]
+
+
+def test_deepseek_sync_stream_forwards_first_reasoning_chunk_without_async_bridge():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/chat/completions"
+        return httpx.Response(
+            200,
+            text=(
+                'data: {"choices":[{"delta":{"reasoning_content":"先核对。"}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":"结论。"},"finish_reason":"stop"}]}\n\n'
+                "data: [DONE]\n\n"
+            ),
+        )
+
+    with httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="https://api.deepseek.com",
+    ) as http_client:
+        client = DeepSeekClient(
+            api_key="test_key",
+            model="deepseek-v4-flash",
+            sync_http_client=http_client,
+        )
+        deltas = []
+
+        result = client.complete_streamed_sync(
+            system_prompt="系统",
+            user_prompt="用户",
+            thinking=True,
+            on_delta=deltas.append,
+        )
+
+    assert [(item.kind, item.delta) for item in deltas] == [
+        ("reasoning", "先核对。"),
+        ("content", "结论。"),
+    ]
+    assert result.reasoning_content == "先核对。"
+    assert result.content == "结论。"

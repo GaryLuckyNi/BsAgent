@@ -1,5 +1,5 @@
-from collections.abc import Callable, Iterable, Iterator
 import json
+from collections.abc import Callable, Iterable, Iterator
 
 from ag_ui.core import (
     ActivitySnapshotEvent,
@@ -21,7 +21,6 @@ from ag_ui.core import (
     TextMessageEndEvent,
     TextMessageStartEvent,
 )
-
 
 InterruptProvider = Callable[[list[str]], list[Interrupt]]
 
@@ -104,6 +103,7 @@ def adapt_session_sse_to_ag_ui(
                     "activity_type",
                     "group_id",
                     "task_id",
+                    "task_label",
                     "query",
                     "result_count",
                     "result_urls",

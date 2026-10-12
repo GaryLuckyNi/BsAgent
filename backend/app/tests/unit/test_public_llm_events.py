@@ -156,6 +156,51 @@ def test_completed_web_search_progress_contains_real_result_metadata(monkeypatch
     assert emitted[0]["result_count"] == 1
 
 
+def test_market_data_tools_publish_semantic_group_metadata(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+
+    public_events.emit_public_progress(
+        "tool_agent",
+        {
+            "planner_iteration": 1,
+            "active_task": {
+                "id": "daily_price",
+                "task_goal": "获取银之杰当日行情",
+                "tool_name": "mcp.tushare.stock.daily",
+            },
+        },
+        status="started",
+    )
+
+    assert emitted[0]["activity_type"] == "market_data"
+    assert emitted[0]["group_id"] == "market_data:1"
+    assert emitted[0]["task_id"] == "daily_price"
+    assert emitted[0]["task_label"] == "获取银之杰当日行情"
+
+
+def test_generic_tools_publish_evidence_group_metadata(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+
+    public_events.emit_public_progress(
+        "tool_agent",
+        {
+            "planner_iteration": 2,
+            "active_task": {
+                "id": "announcement",
+                "task_goal": "核验近期公告",
+                "tool_name": "document_lookup",
+            },
+        },
+        status="completed",
+    )
+
+    assert emitted[0]["activity_type"] == "evidence"
+    assert emitted[0]["group_id"] == "evidence:2"
+    assert emitted[0]["task_label"] == "核验近期公告"
+
+
 def test_completed_progress_keeps_task_identity_with_partial_node_update(monkeypatch):
     from app.graph.runtime import _with_harness
 

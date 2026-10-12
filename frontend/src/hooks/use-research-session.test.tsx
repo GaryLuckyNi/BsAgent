@@ -89,13 +89,13 @@ describe('useResearchSession', () => {
     expect(currentAssistant?.status).toBe('streaming')
   })
 
-  it('使用 SDK 原生节流合并同一批 token 的同步更新', () => {
+  it('关闭 SDK 批处理以立即交付首个 token', () => {
     renderHook(() => useResearchSession({
       tenantId: 'tenant-1',
       userId: 'user-1'
     }))
 
-    expect(sdk.options?.throttle).toBe(true)
+    expect(sdk.options?.throttle).toBe(false)
   })
 
   it('相同的 SDK 答案快照不会重复写入本地消息', async () => {
@@ -219,6 +219,30 @@ describe('useResearchSession', () => {
         activityType: 'web_search',
         queryCount: 2,
         resultCount: 3,
+        status: 'completed'
+      })
+    ])
+  })
+
+  it('按语义分组同一轮市场数据工具活动', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('测试市场数据聚合。') })
+    act(() => {
+      for (const [taskId, label] of [['price', '查询当日行情'], ['flow', '查询资金流向']]) {
+        sdk.options?.onCustomEvent?.({
+          type: 'progress', kind: 'activity', id: `tool:${taskId}`, stage: 'tool_agent',
+          message: `已取得市场数据：${label}`, status: 'completed',
+          activity_type: 'market_data' as never, group_id: 'market_data:1',
+          task_id: taskId, task_label: label
+        })
+      }
+    })
+
+    expect(result.current.messages.at(-1)?.progress).toEqual([
+      expect.objectContaining({
+        id: 'market_data:1',
+        activityType: 'market_data',
+        queryCount: 2,
         status: 'completed'
       })
     ])
