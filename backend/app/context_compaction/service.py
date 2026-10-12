@@ -421,7 +421,7 @@ class ContextCompactionService:
                 started_at=started_at,
             )
             return _GenerationOutcome(status="failed")
-        except Exception as exc:  # noqa: BLE001 - worker 将临时故障转换为受控重试。
+        except Exception as exc:
             self._record_generation_failure(
                 snapshot=snapshot,
                 trigger=trigger,
@@ -469,7 +469,7 @@ class ContextCompactionService:
                     previous.compaction_id if previous else None
                 ),
             )
-        except Exception as exc:  # noqa: BLE001 - worker 将临时故障转换为受控重试。
+        except Exception as exc:
             self._record_generation_failure(
                 snapshot=snapshot,
                 trigger=trigger,

@@ -259,8 +259,10 @@ def test_non_target_integrity_error_propagates_and_outer_transaction_commits():
             )
 
         with factory() as db, db.begin():
+            repository = ContextCompactionRepository(db)
+            repository.next_version = lambda **_kwargs: 1
             with pytest.raises(IntegrityError) as error:
-                ContextCompactionRepository(db).activate_if_current(candidate, None)
+                repository.activate_if_current(candidate, None)
             assert error.value.orig.diag.constraint_name == (
                 "uq_agent_context_compactions_session_version"
             )
