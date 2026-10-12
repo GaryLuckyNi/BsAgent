@@ -1,9 +1,12 @@
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.api import skills as skills_api
 from app.database import Base, get_db
 from app.main import create_app
 
@@ -83,6 +86,65 @@ def test_skill_rejects_duplicate_name():
 
     assert client.post("/api/skills", json=payload).status_code == 201
     assert client.post("/api/skills", json=payload).status_code == 409
+
+
+def test_skill_can_be_renamed_and_old_name_stops_resolving():
+    client = create_test_client()
+    assert client.post(
+        "/api/skills",
+        json={"name": " old_name ", "summary": "明确工作流"},
+    ).status_code == 201
+
+    renamed = client.put("/api/skills/old_name", json={"name": " new_name "})
+
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "new_name"
+    assert client.get("/api/skills/old_name").status_code == 404
+    assert client.get("/api/skills/new_name").status_code == 200
+
+
+def test_skill_rename_rejects_existing_name_without_changing_records():
+    client = create_test_client()
+    for name in ("first", "existing"):
+        assert client.post(
+            "/api/skills",
+            json={"name": name, "summary": f"{name} 工作流"},
+        ).status_code == 201
+
+    conflict = client.put("/api/skills/first", json={"name": " existing "})
+
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == "Skill 名称已存在。"
+    assert client.get("/api/skills/first").status_code == 200
+    assert client.get("/api/skills/existing").status_code == 200
+
+
+def test_skill_name_cannot_be_only_whitespace():
+    client = create_test_client()
+
+    created = client.post("/api/skills", json={"name": "   ", "summary": "明确工作流"})
+
+    assert created.status_code == 422
+
+
+def test_skill_unique_constraint_race_returns_conflict_and_rolls_back():
+    class ConflictingSession:
+        rolled_back = False
+
+        def commit(self):
+            raise IntegrityError("UPDATE skill_profiles", {}, RuntimeError("unique"))
+
+        def rollback(self):
+            self.rolled_back = True
+
+    session = ConflictingSession()
+
+    with pytest.raises(HTTPException) as exc_info:
+        skills_api._commit_skill_change(session)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Skill 名称已存在。"
+    assert session.rolled_back is True
 
 
 @pytest.mark.parametrize("removed_field", ["allowed_tools", "evidence_contract"])

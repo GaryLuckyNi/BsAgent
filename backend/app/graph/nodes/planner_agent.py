@@ -124,7 +124,9 @@ def build_planner_agent_node(
             ),
             remaining_iterations=remaining_planner_iterations(current_iteration),
             planning_constraints={**constraints, "user_message": state["user_message"]},
-            on_delta=build_public_llm_stream_handler("planner_agent", state),
+            on_delta=build_public_llm_stream_handler(
+                "planner_agent", state, stream_reasoning=True
+            ),
             mode=mode,
         )
         if current_iteration:

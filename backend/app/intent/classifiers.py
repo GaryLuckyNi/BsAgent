@@ -53,8 +53,9 @@ class LlmIntentClassifier:
             ),
             temperature=0.0,
             max_tokens=512,
-            thinking=False,
+            thinking=True,
             on_delta=on_delta,
+            retry_without_thinking_on_empty=True,
         )
         return IntentDecisionModel.model_validate(_extract_json_object(result.content))
 

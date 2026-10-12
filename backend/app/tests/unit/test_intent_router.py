@@ -1,7 +1,6 @@
 import json
 
 import pytest
-
 from app.graph.nodes import intent_router as intent_router_module
 from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.state import create_initial_state
@@ -100,7 +99,7 @@ def test_llm_intent_router_returns_only_taxonomy_and_goal(
     }
     payload = json.loads(llm.calls[0]["user_prompt"])
     assert payload["message"] == "海能达现在是否值得关注"
-    assert llm.calls[0]["thinking"] is False
+    assert llm.calls[0]["thinking"] is True
     assert llm.calls[0]["max_tokens"] == 512
     assert "available_skills" not in payload
     assert "available_tools" not in payload
@@ -259,7 +258,7 @@ def test_intent_router_node_streams_native_classifier_reasoning(
 
     assert llm.used_native_stream is True
     assert llm.calls[0]["max_tokens"] == 512
-    assert llm.calls[0]["thinking"] is False
+    assert llm.calls[0]["thinking"] is True
 
 
 def test_classifier_prompt_contains_admin_taxonomy_and_semantic_guard(

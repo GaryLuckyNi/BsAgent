@@ -151,6 +151,23 @@ describe('useResearchSession', () => {
     expect(message.progress?.map((item) => item.sequence)).toEqual([0, 1, 2])
   })
 
+  it('保留原始思考与工具活动的交错到达顺序', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('测试交错流。') })
+    act(() => {
+      sdk.options?.onCustomEvent?.({ type: 'thinking_delta', id: 'planner:reasoning', content: '先搜索。' })
+      sdk.options?.onCustomEvent?.({
+        type: 'progress', kind: 'activity', id: 'tool:1', stage: 'tool_agent',
+        message: '正在联网检索', status: 'started'
+      })
+      sdk.options?.onCustomEvent?.({ type: 'thinking_delta', id: 'analysis:reasoning', content: '再分析。' })
+    })
+
+    const message = result.current.messages.at(-1)!
+    expect(message.reasoning?.map((item) => item.sequence)).toEqual([0, 2])
+    expect(message.progress?.map((item) => item.sequence)).toEqual([1])
+  })
+
   it('阶段状态只更新标题，不进入研究过程时间线', async () => {
     const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
     await act(async () => { await result.current.sendMessage('测试状态。') })

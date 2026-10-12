@@ -1,13 +1,12 @@
-from collections.abc import Callable
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urldefrag, urlsplit
 
 from langgraph.config import get_stream_writer
 
 from app.llm.schemas import LlmStreamDelta
-
 
 _STAGE_LABELS = {
     "intent_router": "理解问题",
@@ -32,16 +31,6 @@ _INTERNAL_MARKERS = (
     "research_materials",
     "data_limitations",
 )
-_INTERNAL_REASONING_PATTERN = re.compile(
-    r"(?i)(?:\bthe user\b|\bi must\b|\bi should\b|\blet me\b|"
-    r"\bsystem prompt\b|\buser prompt\b|\bjson\b|\bschema\b|"
-    r"提示词|内部字段|内部约束|用户(?:要我|希望我)|"
-    r"我(?:必须|不能|应该|应当|需要|要先|要给|要注意)|我们需要|不得输出|"
-    r"写作|回答结构|结构(?:上)?[:：]|结论先行|核心逻辑链|给出后续|"
-    r"长度(?:适中|控制)|markdown)"
-)
-_PUBLIC_REASONING_SEGMENT_LIMIT = 12
-_PUBLIC_REASONING_CHARACTER_LIMIT = 1_600
 _PUBLIC_TEXT_LIMIT = 240
 _PUBLIC_CONTENT_BATCH_CHARS = 24
 
@@ -90,7 +79,7 @@ def build_public_llm_stream_handler(
         node_name=node_name,
         writer=writer,
         stream_content=stream_content,
-        stream_reasoning=stream_reasoning and node_name == "synthesizer",
+        stream_reasoning=stream_reasoning,
     )
 
 
@@ -107,21 +96,24 @@ class PublicLlmStreamHandler:
         self._writer = writer
         self._stream_content = stream_content
         self._stream_reasoning = stream_reasoning
-        self._reasoning_buffer = ""
         self._content_buffer = ""
-        self._reasoning_segments_emitted = 0
-        self._reasoning_characters_emitted = 0
 
     def __call__(self, event: LlmStreamDelta) -> None:
         if self._writer is None:
             return
-        if event.kind == "reasoning" and self._stream_reasoning:
+        if event.kind == "reasoning" and self._stream_reasoning and event.delta:
             self._flush_content()
-            self._reasoning_buffer += event.delta
-            self._emit_complete_reasoning_segments()
+            self._writer(
+                {
+                    "type": "thinking_delta",
+                    "id": f"{self._node_name}:reasoning",
+                    "stage": self._node_name,
+                    "label": _STAGE_LABELS.get(self._node_name, "思考"),
+                    "content": event.delta,
+                }
+            )
             return
         if event.kind == "content" and self._stream_content:
-            self._flush_reasoning()
             self._content_buffer += event.delta
             if (
                 len(self._content_buffer) >= _PUBLIC_CONTENT_BATCH_CHARS
@@ -130,15 +122,7 @@ class PublicLlmStreamHandler:
                 self._flush_content()
 
     def flush(self) -> None:
-        self._flush_reasoning()
         self._flush_content()
-
-    def _flush_reasoning(self) -> None:
-        if not self._reasoning_buffer:
-            return
-        segment = self._reasoning_buffer
-        self._reasoning_buffer = ""
-        self._emit_reasoning_segment(segment)
 
     def _flush_content(self) -> None:
         if not self._content_buffer or self._writer is None:
@@ -146,54 +130,6 @@ class PublicLlmStreamHandler:
         content = self._content_buffer
         self._content_buffer = ""
         self._writer({"type": "answer_delta", "content": content})
-
-    def _emit_complete_reasoning_segments(self) -> None:
-        while True:
-            boundary = re.search(r"[。！？\n]", self._reasoning_buffer)
-            if boundary is None:
-                return
-            end = boundary.end()
-            segment = self._reasoning_buffer[:end]
-            self._reasoning_buffer = self._reasoning_buffer[end:]
-            self._emit_reasoning_segment(segment)
-
-    def _emit_reasoning_segment(self, segment: str) -> None:
-        if self._writer is None:
-            return
-        content = _safe_public_reasoning_text(segment)
-        if not content:
-            return
-        if self._reasoning_segments_emitted >= _PUBLIC_REASONING_SEGMENT_LIMIT:
-            return
-        remaining = _PUBLIC_REASONING_CHARACTER_LIMIT - self._reasoning_characters_emitted
-        if remaining <= 0:
-            return
-        content = content[:remaining].rstrip()
-        if not content:
-            return
-        self._reasoning_segments_emitted += 1
-        self._reasoning_characters_emitted += len(content)
-        self._writer(
-            {
-                "type": "thinking_delta",
-                "id": f"{self._node_name}:reasoning",
-                "stage": self._node_name,
-                "label": "分析证据",
-                "content": f"- {content}\n",
-            }
-        )
-
-
-def _safe_public_reasoning_text(value: object) -> str | None:
-    content = _safe_public_text(value)
-    if not content or _INTERNAL_REASONING_PATTERN.search(content):
-        return None
-    visible_characters = [character for character in content if character.isalnum()]
-    chinese_characters = re.findall(r"[\u3400-\u9fff]", content)
-    if visible_characters and len(chinese_characters) / len(visible_characters) < 0.2:
-        return None
-    return content
-
 
 def _progress_id(node_name: str, state: dict[str, Any]) -> str:
     active_task = state.get("active_task") or {}

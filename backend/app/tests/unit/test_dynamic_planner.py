@@ -1,8 +1,7 @@
 import json
 
 import pytest
-from pydantic import ValidationError
-
+from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.planning.contracts import PlanModel, TaskResultModel
 from app.graph.planning.planner import (
     LlmTaskPlanner,
@@ -10,10 +9,10 @@ from app.graph.planning.planner import (
     UndisclosedPlannerCapabilityError,
 )
 from app.graph.planning.policy import PlannerMode
-from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
 from app.skills.definitions import SkillCard
+from pydantic import ValidationError
 
 
 class RecordingLlmClient:
@@ -220,8 +219,8 @@ def test_llm_planner_retries_once_without_thinking_after_length_truncation():
 
     assert [task.id for task in plan.tasks] == ["collect_evidence", "analyze_evidence"]
     assert len(llm.calls) == 2
-    assert llm.calls[0]["thinking"] is False
-    assert llm.calls[0]["max_tokens"] == 1024
+    assert llm.calls[0]["thinking"] is True
+    assert llm.calls[0]["max_tokens"] == 2048
     assert llm.calls[1]["thinking"] is False
     assert "上一次输出被截断" in llm.calls[1]["user_prompt"]
 

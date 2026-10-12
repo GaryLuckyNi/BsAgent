@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 from app.graph.planning.contracts import PlanModel
 
-
 MAX_PLANNER_ITERATIONS = 2
 MAX_WEB_SEARCH_TASKS = 6
 MAX_PLANNER_FEEDBACKS = 24
@@ -18,7 +17,7 @@ class PlannerMode:
 def planner_mode(current_iteration: int) -> PlannerMode:
     if current_iteration > 0:
         return PlannerMode(thinking=True, max_tokens=2048)
-    return PlannerMode(thinking=False, max_tokens=1024)
+    return PlannerMode(thinking=True, max_tokens=2048)
 
 
 def remaining_planner_iterations(current_iteration: int) -> int:
@@ -31,8 +30,8 @@ def prune_redundant_terminal_analysis(plan: PlanModel) -> PlanModel:
 
 
 def observation_signature(plan: PlanModel, results: list[dict]) -> str:
-    from hashlib import sha256
     import json
+    from hashlib import sha256
 
     ids = {task.id for task in plan.tasks}
     observations = sorted(

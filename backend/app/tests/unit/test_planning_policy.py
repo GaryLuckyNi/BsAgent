@@ -7,8 +7,8 @@ from app.graph.planning.policy import (
 )
 
 
-def test_initial_planner_mode_is_fast():
-    assert planner_mode(0) == PlannerMode(thinking=False, max_tokens=1024)
+def test_initial_planner_mode_streams_reasoning():
+    assert planner_mode(0) == PlannerMode(thinking=True, max_tokens=2048)
 
 
 def test_replanner_mode_uses_thinking():

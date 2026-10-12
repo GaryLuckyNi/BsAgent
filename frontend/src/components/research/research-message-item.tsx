@@ -48,6 +48,10 @@ export function ResearchMessageItem({ message, onCitation }: {
   timeline.sort((a, b) => (a.item.sequence ?? 0) - (b.item.sequence ?? 0))
   const hasReasoningDetails = timeline.length > 0
   const isResearching = message.status === 'streaming' && !message.content
+  const showStreamCaret = message.role === 'assistant'
+    && message.status === 'streaming'
+    && !message.content
+    && !hasReasoningDetails
   const statusLabel = message.status === 'streaming'
     ? '正在研究'
     : message.status === 'error'
@@ -108,6 +112,9 @@ export function ResearchMessageItem({ message, onCitation }: {
               </ReasoningContent>
             )}
           </Reasoning>
+        )}
+        {showStreamCaret && (
+          <span className="response-stream-caret" role="status" aria-label="回复生成中" />
         )}
         {message.content && (
           <MessageResponse className="message-content" isAnimating={message.status === 'streaming'}>{message.content}</MessageResponse>

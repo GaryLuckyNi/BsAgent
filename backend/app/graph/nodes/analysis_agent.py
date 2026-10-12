@@ -38,6 +38,7 @@ def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
             on_delta=build_public_llm_stream_handler(
                 "analysis_agent",
                 state,
+                stream_reasoning=True,
             ),
             retry_without_thinking_on_empty=True,
         )

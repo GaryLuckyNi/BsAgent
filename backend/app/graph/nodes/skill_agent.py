@@ -79,8 +79,11 @@ def build_skill_agent_node(
             ),
             temperature=0.0,
             max_tokens=4096,
-            thinking=False,
-            on_delta=build_public_llm_stream_handler("skill_agent", state),
+            thinking=True,
+            on_delta=build_public_llm_stream_handler(
+                "skill_agent", state, stream_reasoning=True
+            ),
+            retry_without_thinking_on_empty=True,
         )
         content = completion.content.strip()
         workflow.status = "completed" if content else "failed"

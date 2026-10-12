@@ -52,36 +52,7 @@ def test_public_llm_handler_batches_tiny_answer_deltas(monkeypatch):
     assert len(emitted) < len(answer) // 10
 
 
-def test_public_llm_handler_streams_only_safe_synthesizer_reasoning_segments(monkeypatch):
-    emitted = []
-    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
-
-    handler = public_events.build_public_llm_stream_handler(
-        "synthesizer",
-        {"request_id": "req-1"},
-        stream_content=True,
-        stream_reasoning=True,
-    )
-    handler(LlmStreamDelta(kind="reasoning", delta="先核对成交量"))
-    handler(LlmStreamDelta(kind="reasoning", delta="和资金变化。"))
-    handler(LlmStreamDelta(kind="reasoning", delta="The user wants a market judgment.\n"))
-    handler(LlmStreamDelta(kind="reasoning", delta="用户要我先拟定回答结构。"))
-    handler(LlmStreamDelta(kind="reasoning", delta="我应当先拟定提纲。"))
-    handler(LlmStreamDelta(kind="reasoning", delta="我要注意内部数据缺口。"))
-    handler(LlmStreamDelta(kind="reasoning", delta="data_limitations 是内部字段。"))
-    handler(LlmStreamDelta(kind="reasoning", delta="system_prompt 不应公开。"))
-    handler.flush()
-
-    assert emitted == [{
-        "type": "thinking_delta",
-        "id": "synthesizer:reasoning",
-        "stage": "synthesizer",
-        "label": "分析证据",
-        "content": "- 先核对成交量和资金变化。\n",
-    }]
-
-
-def test_non_synthesizer_reasoning_remains_private_even_when_requested(monkeypatch):
+def test_public_llm_handler_streams_raw_reasoning_tokens_immediately(monkeypatch):
     emitted = []
     monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
 
@@ -90,13 +61,15 @@ def test_non_synthesizer_reasoning_remains_private_even_when_requested(monkeypat
         {"request_id": "req-1"},
         stream_reasoning=True,
     )
-    handler(LlmStreamDelta(kind="reasoning", delta="规划搜索方向。"))
-    handler.flush()
+    handler(LlmStreamDelta(kind="reasoning", delta="第一"))
+    handler(LlmStreamDelta(kind="reasoning", delta="段"))
 
-    assert emitted == []
+    assert [event["content"] for event in emitted] == ["第一", "段"]
+    assert {event["id"] for event in emitted} == {"planner_agent:reasoning"}
+    assert {event["label"] for event in emitted} == {"制定计划"}
 
 
-def test_public_reasoning_keeps_normal_goal_and_evidence_constraints(monkeypatch):
+def test_reasoning_stream_preserves_model_text_without_filtering_or_rewriting(monkeypatch):
     emitted = []
     monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
 
@@ -105,13 +78,24 @@ def test_public_reasoning_keeps_normal_goal_and_evidence_constraints(monkeypatch
         {"request_id": "req-1"},
         stream_reasoning=True,
     )
-    handler(LlmStreamDelta(kind="reasoning", delta="用户要判断市场方向。"))
-    handler(LlmStreamDelta(kind="reasoning", delta="不能补造缺失的数字。"))
+    raw = "The user wants a market judgment.\n用户要我先核对 required_schema。"
+    handler(LlmStreamDelta(kind="reasoning", delta=raw))
 
-    assert [event["content"] for event in emitted] == [
-        "- 用户要判断市场方向。\n",
-        "- 不能补造缺失的数字。\n",
-    ]
+    assert emitted[0]["content"] == raw
+
+
+def test_empty_reasoning_delta_is_not_emitted(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+
+    handler = public_events.build_public_llm_stream_handler(
+        "synthesizer",
+        {"request_id": "req-1"},
+        stream_reasoning=True,
+    )
+    handler(LlmStreamDelta(kind="reasoning", delta=""))
+
+    assert emitted == []
 
 
 def test_tool_progress_uses_public_activity_text_without_tool_name(monkeypatch):

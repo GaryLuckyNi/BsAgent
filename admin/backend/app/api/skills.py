@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -43,7 +44,7 @@ def create_skill(
         raise HTTPException(status_code=409, detail="Skill 名称已存在。")
     record = SkillProfileRecord(**payload.model_dump())
     db.add(record)
-    db.commit()
+    _commit_skill_change(db)
     db.refresh(record)
     return record
 
@@ -64,9 +65,16 @@ def update_skill(
 ) -> SkillProfileRecord:
     record = _get_skill_or_404(db, skill_name)
     changes = payload.model_dump(exclude_unset=True)
+    target_name = changes.get("name")
+    if (
+        target_name is not None
+        and target_name != skill_name
+        and db.get(SkillProfileRecord, target_name) is not None
+    ):
+        raise HTTPException(status_code=409, detail="Skill 名称已存在。")
     for field, value in changes.items():
         setattr(record, field, value)
-    db.commit()
+    _commit_skill_change(db)
     db.refresh(record)
     return record
 
@@ -87,3 +95,11 @@ def _get_skill_or_404(db: Session, skill_name: str) -> SkillProfileRecord:
     if record is None:
         raise HTTPException(status_code=404, detail="Skill 不存在。")
     return record
+
+
+def _commit_skill_change(db: Session) -> None:
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Skill 名称已存在。") from None

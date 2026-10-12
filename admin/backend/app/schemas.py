@@ -49,10 +49,16 @@ class SkillCreate(BaseModel):
     risk_level: RiskLevel = "medium"
     enabled: bool = True
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
+
 
 class SkillUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    name: str | None = Field(default=None, min_length=1, max_length=128)
     version: str | None = Field(default=None, min_length=1, max_length=64)
     summary: str | None = Field(default=None, min_length=1)
     supported_intents: list[str] | None = None
@@ -60,6 +66,11 @@ class SkillUpdate(BaseModel):
     supported_sub_intents: list[str] | None = None
     risk_level: RiskLevel | None = None
     enabled: bool | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value: Any) -> Any:
+        return value.strip() if isinstance(value, str) else value
 
 
 class SkillRead(SkillCreate):

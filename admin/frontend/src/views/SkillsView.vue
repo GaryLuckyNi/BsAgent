@@ -54,7 +54,7 @@
         :class="{ 'is-submitting': submitting }"
       >
         <el-form-item label="Name">
-          <el-input v-model="form.name" :disabled="Boolean(editingName)" />
+          <el-input v-model="form.name" />
         </el-form-item>
         <el-form-item label="Version">
           <el-input v-model="form.version" />
@@ -245,9 +245,22 @@ function openEdit(row: SkillProfile) {
 
 async function submit() {
   if (submitting.value) return
+  const targetName = form.name.trim()
+  if (!targetName) {
+    ElMessage.error('Skill 名称不能为空')
+    return
+  }
+  const duplicate = items.value.some((item) => (
+    item.name === targetName && item.name !== editingName.value
+  ))
+  if (duplicate) {
+    ElMessage.error('Skill 名称已存在')
+    return
+  }
+  form.name = targetName
   submitting.value = true
   const payload: SkillProfileForm = {
-    name: form.name,
+    name: targetName,
     version: form.version,
     summary: form.summary,
     supported_intents: [...form.supported_intents],
@@ -313,12 +326,15 @@ function handleDialogClose(done: () => void) {
 
 <style>
 .skill-summary-tooltip {
-  max-width: min(560px, calc(100vw - 32px));
-  max-height: 50vh;
-  overflow-y: auto;
+  width: min(420px, calc(100vw - 32px));
+  max-width: min(420px, calc(100vw - 32px));
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  line-height: 1.65;
+  line-height: 1.55;
 }
 </style>
 

@@ -14,7 +14,6 @@ from app.memory.preferences import (
     recall_user_preferences,
 )
 
-
 FINANCIAL_DISCLAIMER = "以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。"
 OUT_OF_SCOPE_RESPONSE = (
     "当前问题不在本服务已启用的投研范围内。你可以围绕公司、行业、财务、行情、"
@@ -153,7 +152,7 @@ def _render_answer(
         "synthesizer",
         state,
         stream_content=True,
-        stream_reasoning=False,
+        stream_reasoning=True,
     )
     try:
         completion = invoke_llm_completion(
@@ -162,8 +161,9 @@ def _render_answer(
             user_prompt=user_prompt,
             temperature=0.2,
             max_tokens=2_048,
-            thinking=False,
+            thinking=True,
             on_delta=stream_handler,
+            retry_without_thinking_on_empty=True,
         )
     finally:
         stream_handler.flush()

@@ -1,11 +1,10 @@
 import json
 
-from langgraph.runtime import Runtime
-
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.nodes.verifier import verifier_node
 from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult
+from langgraph.runtime import Runtime
 
 
 class FakeLlmClient:
@@ -54,7 +53,7 @@ def test_synthesizer_uses_task_results_without_fixed_section_template():
             "content": "收入增长，经营现金流尚未获取。",
         }
     ]
-    assert llm.calls[0]["thinking"] is False
+    assert llm.calls[0]["thinking"] is True
     assert llm.calls[0]["max_tokens"] == 2_048
     assert "task_results" not in payload
     assert "固定模板" not in result["draft_answer"]["content"]
