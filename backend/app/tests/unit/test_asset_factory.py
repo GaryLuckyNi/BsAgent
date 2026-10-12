@@ -1,9 +1,6 @@
 from unittest.mock import Mock, patch
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-
 from app.assets.factory import build_asset_service, build_object_store
 from app.assets.local_store import LocalObjectStore
 from app.assets.s3_store import S3ObjectStore
@@ -12,6 +9,8 @@ from app.core.config import Settings
 from app.storage.models import Base
 from app.vision.dispatcher import CeleryImageAnalysisDispatcher
 from app.vision.factory import build_image_analysis_dispatcher
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 
 def _production_settings(**overrides):
@@ -47,6 +46,7 @@ def _production_settings(**overrides):
         "trace_backend": "database",
         "otel_enabled": True,
         "otel_exporter_otlp_traces_endpoint": "http://otel-collector:4318/v1/traces",
+        "otel_exporter_otlp_metrics_endpoint": "http://otel-collector:4318/v1/metrics",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)

@@ -347,7 +347,18 @@ def test_invalid_active_is_never_returned_and_is_rebuilt_from_raw_messages(
     assert context.status == "compacted"
     assert context.compaction_id not in {None, old_id, "cmp-missing"}
     assert json.loads(context.messages[0].content) == SUMMARY
-    assert observer.events == [("context_compaction", {"reason": "active_invalid"})]
+    assert [event for event, _ in observer.events] == [
+        "active_invalid",
+        "trigger",
+        "success",
+    ]
+    assert observer.events[0][1] == {
+        "session_key": "session-1",
+        "reason": "active_invalid",
+    }
+    assert observer.events[1][1]["trigger"] == "hard_sync"
+    assert observer.events[2][1]["status"] == "activated"
+    assert observer.events[2][1]["compaction_id"] == context.compaction_id
     with session_factory() as db:
         rows = db.scalars(select(AgentContextCompaction)).all()
         assert len(rows) == 2

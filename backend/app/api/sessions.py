@@ -50,6 +50,7 @@ from app.harness.persistence import (
     finalize_trace_best_effort,
 )
 from app.harness.trace_buffer import TraceBuffer
+from app.harness.tracing import TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
 from app.intent.dependencies import get_business_intent_catalog
 from app.llm.deepseek import LlmConfigurationError
@@ -545,6 +546,11 @@ def _run_and_persist_agent_message(
             attachment_resolver=attachment_resolver,
             llm_client=llm_client,
         )
+        _record_context_snapshot_trace(
+            buffer=trace_buffer,
+            handle=handle,
+            snapshot=snapshot,
+        )
         db.commit()
 
         checkpointer = build_graph_checkpointer()
@@ -761,6 +767,11 @@ def _stream_agent_message(
             handle=handle,
             attachment_resolver=attachment_resolver,
             llm_client=llm_client,
+        )
+        _record_context_snapshot_trace(
+            buffer=trace_buffer,
+            handle=handle,
+            snapshot=snapshot,
         )
         db.commit()
         identity = _stream_identity(handle)
@@ -1158,6 +1169,29 @@ def _finalize_trace_best_effort(
             verifier_status=verification.get("verdict"),
         ),
         service=TracePersistenceService(session_factory=session_factory),
+    )
+
+
+def _record_context_snapshot_trace(
+    *,
+    buffer: TraceBuffer,
+    handle: TurnHandle,
+    snapshot: _ExecutionSnapshot,
+) -> None:
+    if snapshot.context_status == "full":
+        return
+    buffer.record_event(
+        TraceEvent(
+            trace_id=handle.trace_id,
+            node_name="context_compaction",
+            status="success",
+            latency_ms=0,
+            metadata={
+                "context_status": snapshot.context_status,
+                "context_compaction_id": snapshot.context_compaction_id,
+                "projected_context_tokens": snapshot.projected_context_tokens,
+            },
+        )
     )
 
 

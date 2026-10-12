@@ -94,6 +94,9 @@ def test_production_compose_configures_database_trace_capture():
     assert environment["BS_AGENT_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] == (
         "http://otel-collector:4318/v1/traces"
     )
+    assert environment["BS_AGENT_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"] == (
+        "http://otel-collector:4318/v1/metrics"
+    )
 
 
 def test_worker_uses_same_backend_image_and_dedicated_queue():
@@ -279,6 +282,7 @@ def test_otel_collector_exports_to_external_backend_instead_of_debug_stdout():
     assert "otlphttp:" in collector
     assert "OBSERVABILITY_OTLP_ENDPOINT" in collector
     assert "exporters: [otlphttp]" in collector
+    assert "metrics:" in collector
     assert "exporters: [debug]" not in collector
     assert "OBSERVABILITY_OTLP_ENDPOINT:?" in compose_text
 

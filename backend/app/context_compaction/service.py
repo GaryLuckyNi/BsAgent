@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
@@ -119,7 +120,11 @@ class ContextCompactionService:
         )
         rebuilding = snapshot.invalid_active_id is not None
         if rebuilding:
-            self.observer.record("context_compaction", reason="active_invalid")
+            self.observer.record(
+                "active_invalid",
+                session_key=session_key,
+                reason="active_invalid",
+            )
             cleared = self._clear_invalid_active(
                 tenant_id=tenant_id,
                 user_id=user_id,
@@ -182,7 +187,11 @@ class ContextCompactionService:
         )
         rebuilding = snapshot.invalid_active_id is not None
         if rebuilding:
-            self.observer.record("context_compaction", reason="active_invalid")
+            self.observer.record(
+                "active_invalid",
+                session_key=session_key,
+                reason="active_invalid",
+            )
             self._clear_invalid_active(
                 tenant_id=tenant_id,
                 user_id=user_id,
@@ -357,8 +366,21 @@ class ContextCompactionService:
         decision: BudgetDecision,
         trigger: Literal["soft_async", "hard_sync"],
     ) -> _GenerationOutcome:
+        started_at = time.perf_counter()
+        self.observer.record(
+            "trigger",
+            session_key=snapshot.session_key,
+            trigger=trigger,
+            ratio=decision.ratio,
+        )
         boundary = decision.summary_through_sequence_no
         if boundary is None:
+            self._record_generation_failure(
+                snapshot=snapshot,
+                trigger=trigger,
+                reason="missing_boundary",
+                started_at=started_at,
+            )
             return _GenerationOutcome(status="failed")
         complete = tuple(
             message
@@ -369,6 +391,12 @@ class ContextCompactionService:
             message for message in complete if message.sequence_no <= boundary
         )
         if not source:
+            self._record_generation_failure(
+                snapshot=snapshot,
+                trigger=trigger,
+                reason="empty_source",
+                started_at=started_at,
+            )
             return _GenerationOutcome(status="failed")
         observed = complete[-1]
         generation_snapshot = GenerationSnapshot(
@@ -386,8 +414,20 @@ class ContextCompactionService:
         try:
             generation = self.summarizer.summarize(generation_snapshot)
         except ContextSummaryInvalid:
+            self._record_generation_failure(
+                snapshot=snapshot,
+                trigger=trigger,
+                reason="invalid_summary",
+                started_at=started_at,
+            )
             return _GenerationOutcome(status="failed")
         except Exception as exc:  # noqa: BLE001 - worker 将临时故障转换为受控重试。
+            self._record_generation_failure(
+                snapshot=snapshot,
+                trigger=trigger,
+                reason="generation_error",
+                started_at=started_at,
+            )
             if self.propagate_retryable_failures and trigger == "soft_async":
                 raise RetryableContextCompactionError(
                     "上下文摘要生成暂时失败"
@@ -430,19 +470,72 @@ class ContextCompactionService:
                 ),
             )
         except Exception as exc:  # noqa: BLE001 - worker 将临时故障转换为受控重试。
+            self._record_generation_failure(
+                snapshot=snapshot,
+                trigger=trigger,
+                reason="activation_error",
+                started_at=started_at,
+            )
             if self.propagate_retryable_failures and trigger == "soft_async":
                 raise RetryableContextCompactionError(
                     "上下文摘要激活暂时失败"
                 ) from exc
             return _GenerationOutcome(status="failed")
         if result.activated:
+            self.observer.record(
+                "success",
+                session_key=snapshot.session_key,
+                trigger=trigger,
+                status="activated",
+                compaction_id=result.compaction_id,
+                version=result.version,
+                source_tokens=generation.source_tokens,
+                summary_tokens=generation.summary_tokens,
+                ratio=(
+                    generation.summary_tokens / generation.source_tokens
+                    if generation.source_tokens
+                    else 0
+                ),
+                duration_seconds=time.perf_counter() - started_at,
+            )
             return _GenerationOutcome(
                 status="activated",
                 compaction_id=result.compaction_id,
             )
         if result.reason in {"active_changed", "duplicate"}:
+            self.observer.record(
+                "race_discard",
+                session_key=snapshot.session_key,
+                trigger=trigger,
+                reason=result.reason,
+                status="race_discard",
+                duration_seconds=time.perf_counter() - started_at,
+            )
             return _GenerationOutcome(status="race_discard")
+        self._record_generation_failure(
+            snapshot=snapshot,
+            trigger=trigger,
+            reason=result.reason,
+            started_at=started_at,
+        )
         return _GenerationOutcome(status="failed")
+
+    def _record_generation_failure(
+        self,
+        *,
+        snapshot: _ReadSnapshot,
+        trigger: Literal["soft_async", "hard_sync"],
+        reason: str,
+        started_at: float,
+    ) -> None:
+        self.observer.record(
+            "failure",
+            session_key=snapshot.session_key,
+            trigger=trigger,
+            reason=reason,
+            status="failed",
+            duration_seconds=time.perf_counter() - started_at,
+        )
 
     def _activate(
         self,
@@ -481,6 +574,12 @@ class ContextCompactionService:
             status = "full"
         projected = self._projected_tokens(projected_source, current)
         if degraded or projected > self.policy.llm_context_window_tokens:
+            self.observer.record(
+                "degraded",
+                session_key=snapshot.session_key,
+                reason=("compaction_failed" if degraded else "budget_exceeded"),
+                status="degraded",
+            )
             return self._degraded_context(snapshot, current=current)
         return EffectiveContext(
             messages=messages,

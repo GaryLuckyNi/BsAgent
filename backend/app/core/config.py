@@ -129,6 +129,7 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     otel_enabled: bool = False
     otel_exporter_otlp_traces_endpoint: str | None = None
+    otel_exporter_otlp_metrics_endpoint: str | None = None
     otel_trace_sample_ratio: float = Field(default=0.1, ge=0, le=1)
     trace_backend: Literal["none", "memory", "database"] = "memory"
     trace_success_sample_ratio: float = Field(default=0.1, ge=0, le=1)
@@ -178,6 +179,13 @@ class Settings(BaseSettings):
             raise ValueError(
                 "启用 OpenTelemetry 时必须配置 "
                 "otel_exporter_otlp_traces_endpoint"
+            )
+        if self.otel_enabled and not _has_text(
+            self.otel_exporter_otlp_metrics_endpoint
+        ):
+            raise ValueError(
+                "启用 OpenTelemetry 时必须配置 "
+                "otel_exporter_otlp_metrics_endpoint"
             )
         if not _is_postgres_url(self.memory_store_postgres_url):
             raise ValueError("memory_store_postgres_url 必须是 PostgreSQL URL")

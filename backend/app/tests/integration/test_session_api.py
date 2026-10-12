@@ -700,9 +700,20 @@ def test_message_endpoints_share_effective_compacted_context(
         assistant = db.scalars(
             select(AgentMessage).where(AgentMessage.role == "assistant")
         ).one()
+        context_event = db.scalars(
+            select(AgentTraceEvent).where(
+                AgentTraceEvent.node_name == "context_compaction"
+            )
+        ).one()
     assert assistant.metadata_json["context_degraded"] is True
     assert assistant.metadata_json["context_compaction_id"] == "cmp-1"
     assert assistant.metadata_json["projected_context_tokens"] == 321
+    assert context_event.metadata_json == {
+        "context_status": "degraded",
+        "context_compaction_id": "cmp-1",
+        "projected_context_tokens": 321,
+    }
+    assert "历史摘要" not in str(context_event.metadata_json)
     assert ("event:" in response.text) is streaming
 
 

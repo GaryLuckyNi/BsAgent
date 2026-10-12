@@ -64,6 +64,7 @@ x-backend-environment: &backend-environment
   BS_AGENT_VISION_MODEL: ${VISION_MODEL:?VISION_MODEL is required}
   BS_AGENT_OTEL_ENABLED: ${OTEL_ENABLED:-true}
   BS_AGENT_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+  BS_AGENT_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
   BS_AGENT_OTEL_TRACE_SAMPLE_RATIO: ${OTEL_TRACE_SAMPLE_RATIO:-0.1}
 
 services:

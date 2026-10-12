@@ -114,6 +114,7 @@ def _production_settings(**overrides):
         "trace_backend": "database",
         "otel_enabled": True,
         "otel_exporter_otlp_traces_endpoint": "http://otel-collector:4318/v1/traces",
+        "otel_exporter_otlp_metrics_endpoint": "http://otel-collector:4318/v1/metrics",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -321,6 +322,17 @@ def test_otel_requires_trace_endpoint_when_enabled():
         Settings(_env_file=None, otel_enabled=True)
 
     assert "otel_exporter_otlp_traces_endpoint" in str(exc_info.value)
+
+
+def test_otel_requires_metrics_endpoint_when_enabled():
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            _env_file=None,
+            otel_enabled=True,
+            otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        )
+
+    assert "otel_exporter_otlp_metrics_endpoint" in str(exc_info.value)
 
 
 def test_trace_detailed_ratio_cannot_exceed_success_ratio():
