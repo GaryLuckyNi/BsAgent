@@ -20,14 +20,6 @@ export type RestoredConversationMessage = {
   citedEvidenceIds?: string[]
   approvalStatus?: string
   researchProcess?: RestoredResearchProcessEvent[]
-  reasoning?: RestoredReasoningEvent[]
-}
-
-export type RestoredReasoningEvent = {
-  id: string
-  label: string
-  content: string
-  sequence: number
 }
 
 export type RestoredResearchProcessEvent = {
@@ -87,41 +79,15 @@ export function toConversationMessages(
       const approvalStatus = stringMetadata(item.metadata, 'approval_status')
       const citedEvidenceIds = stringArrayMetadata(item.metadata, 'cited_evidence_ids')
       const researchProcess = researchProcessMetadata(item.metadata)
-      const reasoning = reasoningMetadata(item.metadata)
       return {
         role: 'agent',
         content: item.content,
         ...(traceId ? { traceId } : {}),
         ...(approvalStatus ? { approvalStatus } : {}),
         ...(citedEvidenceIds ? { citedEvidenceIds } : {}),
-        ...(researchProcess ? { researchProcess } : {}),
-        ...(reasoning ? { reasoning } : {})
+        ...(researchProcess ? { researchProcess } : {})
       }
     })
-}
-
-function reasoningMetadata(
-  metadata: Record<string, unknown>
-): RestoredReasoningEvent[] | undefined {
-  const value = metadata.research_process
-  if (!Array.isArray(value)) return undefined
-  const events = value.flatMap((item): RestoredReasoningEvent[] => {
-    if (!item || typeof item !== 'object') return []
-    const event = item as Record<string, unknown>
-    if (
-      event.kind !== 'reasoning'
-      || typeof event.id !== 'string'
-      || typeof event.content !== 'string'
-      || !event.content
-    ) return []
-    return [{
-      id: event.id,
-      label: typeof event.label === 'string' ? event.label : '思考',
-      content: event.content,
-      sequence: typeof event.sequence === 'number' ? event.sequence : 0
-    }]
-  })
-  return events.length ? events : undefined
 }
 
 function researchProcessMetadata(

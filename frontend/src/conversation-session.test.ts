@@ -105,12 +105,6 @@ describe('toConversationMessages', () => {
         traceId: 'trace_1',
         approvalStatus: 'not_required',
         citedEvidenceIds: ['evidence_1'],
-        reasoning: [{
-          id: 'planner:reasoning',
-          label: '制定计划',
-          content: '先核验公告，再检查行情。',
-          sequence: 0
-        }],
         researchProcess: [{
           id: 'market:daily',
           kind: 'activity',

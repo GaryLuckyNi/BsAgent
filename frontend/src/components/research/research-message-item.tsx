@@ -24,16 +24,13 @@ import {
   ReasoningText,
   ReasoningTrigger
 } from '@/components/ai-elements/reasoning'
-import type { ResearchMessage, ResearchProgress, ResearchReasoning } from '@/domain/research'
+import type { ResearchMessage, ResearchProgress } from '@/domain/research'
 
 export function ResearchMessageItem({ message, onCitation }: {
   message: ResearchMessage
   onCitation: (message: ResearchMessage, index: number) => void
 }) {
-  const reasoning: ResearchReasoning[] = message.reasoning?.length
-    ? message.reasoning
-    : message.thinking ? [{ id: 'legacy', label: '思考', content: message.thinking }] : []
-  const seenNarratives = new Set(reasoning.map((item) => normalizeNarrative(item.content)))
+  const seenNarratives = new Set<string>()
   const processEntries: ResearchProgress[] = []
   for (const item of message.progress || []) {
     const isProcessEntry = item.kind === 'summary'
@@ -47,20 +44,13 @@ export function ResearchMessageItem({ message, onCitation }: {
     }
     processEntries.push(item)
   }
-  const timeline: Array<
-    { kind: 'legacy-reasoning'; item: ResearchReasoning }
-    | { kind: 'process'; item: ResearchProgress }
-  > = [
-    ...reasoning.map((item) => ({ kind: 'legacy-reasoning' as const, item })),
-    ...processEntries.map((item) => ({ kind: 'process' as const, item }))
-  ]
-  timeline.sort((a, b) => (a.item.sequence ?? 0) - (b.item.sequence ?? 0))
-  const hasReasoningDetails = timeline.length > 0
+  processEntries.sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+  const hasResearchProcess = processEntries.length > 0
   const isResearching = message.status === 'streaming' && !message.content
   const showStreamLoader = message.role === 'assistant'
     && message.status === 'streaming'
     && !message.content
-    && !hasReasoningDetails
+    && !hasResearchProcess
   const statusLabel = message.status === 'streaming'
     ? '正在研究'
     : message.status === 'error'
@@ -72,43 +62,39 @@ export function ResearchMessageItem({ message, onCitation }: {
       {message.role === 'assistant' && <div className="assistant-avatar"><Compass size={17} /></div>}
       <MessageContent className="message-body">
         {message.role === 'assistant' && <div className="message-author">InvestWise 研究助手 <span>{statusLabel}</span></div>}
-        {hasReasoningDetails && (
+        {hasResearchProcess && (
           <Reasoning className="reasoning" isStreaming={isResearching} autoClose={false}>
             {!isResearching && (
               <ReasoningTrigger className="reasoning-trigger" />
             )}
-            {hasReasoningDetails && (
+            {hasResearchProcess && (
               <ReasoningContent>
                 <div className="reasoning-stream">
-                  {timeline.map((entry) => (
-                    entry.kind === 'legacy-reasoning' || entry.item.kind === 'summary'
+                  {processEntries.map((item) => (
+                    item.kind === 'summary'
                   ) ? (
-                    <div className="reasoning-narrative" key={`reasoning:${entry.item.id}`}>
-                      <ReasoningText>{
-                        entry.kind === 'legacy-reasoning'
-                          ? entry.item.content
-                          : entry.item.message
-                      }</ReasoningText>
+                    <div className="reasoning-narrative" key={`reasoning:${item.id}`}>
+                      <ReasoningText>{item.message}</ReasoningText>
                     </div>
                   ) : (
                     <div
                       className="reasoning-activity"
                       aria-label="研究活动"
-                      data-status={entry.item.status}
-                      key={`activity:${entry.item.id}`}
+                      data-status={item.status}
+                      key={`activity:${item.id}`}
                     >
                       <ActivityIcon
-                        activityType={entry.item.activityType}
-                        message={entry.item.message}
-                        status={entry.item.status}
+                        activityType={item.activityType}
+                        message={item.message}
+                        status={item.status}
                       />
                       <div className="reasoning-activity__content">
-                        <span>{activityMessage(entry.item)}</span>
-                        {entry.item.activityType && entry.item.queries?.length ? (
+                        <span>{activityMessage(item)}</span>
+                        {item.activityType && item.queries?.length ? (
                           <details className="reasoning-activity__details">
-                            <summary>{entry.item.activityType === 'web_search' ? '查看搜索范围' : '查看任务明细'}</summary>
+                            <summary>{item.activityType === 'web_search' ? '查看搜索范围' : '查看任务明细'}</summary>
                             <ul>
-                              {entry.item.queries.map((query) => (
+                              {item.queries.map((query) => (
                                 <li key={query.taskId}>{query.query}</li>
                               ))}
                             </ul>

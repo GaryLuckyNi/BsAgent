@@ -145,17 +145,17 @@ describe('useResearchSession', () => {
     expect(result.current.messages.at(-1)?.content).toBe('这是重试后生成的完整回答。')
   })
 
-  it('重复 token 和空白均原样累加，不按文本内容去重', async () => {
+  it('忽略遗留 thinking_delta，不把内部推理写入用户消息', async () => {
     const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
     await act(async () => { await result.current.sendMessage('测试推理流。') })
     act(() => {
-      for (const content of ['哈', '哈', '\n', '\n', '结束']) {
-        sdk.options?.onCustomEvent?.({ type: 'thinking_delta', id: 'analysis:1', content })
-      }
-      sdk.options?.onCustomEvent?.({ type: 'thinking_delta', id: 'analysis:2', content: '哈哈\n\n结束' })
+      sdk.options?.onCustomEvent?.({
+        type: 'thinking_delta',
+        id: 'planner:reasoning',
+        content: '检查 allowed_taxonomy、skill_name 和 required_schema。'
+      })
     })
-    expect(result.current.messages.at(-1)?.reasoning?.map((item) => item.content))
-      .toEqual(['哈哈\n\n结束', '哈哈\n\n结束'])
+    expect(result.current.messages.at(-1)?.reasoning).toBeUndefined()
   })
 
   it('保留研究摘要与工具活动的到达顺序，工具完成不改变位置', async () => {
@@ -176,7 +176,7 @@ describe('useResearchSession', () => {
     expect(message.progress?.map((item) => item.sequence)).toEqual([0, 1, 2])
   })
 
-  it('保留原始思考与工具活动的交错到达顺序', async () => {
+  it('忽略交错的原始思考并保留公开工具活动顺序', async () => {
     const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
     await act(async () => { await result.current.sendMessage('测试交错流。') })
     act(() => {
@@ -189,8 +189,8 @@ describe('useResearchSession', () => {
     })
 
     const message = result.current.messages.at(-1)!
-    expect(message.reasoning?.map((item) => item.sequence)).toEqual([0, 2])
-    expect(message.progress?.map((item) => item.sequence)).toEqual([1])
+    expect(message.reasoning).toBeUndefined()
+    expect(message.progress?.map((item) => item.sequence)).toEqual([0])
   })
 
   it('阶段状态只更新标题，不进入研究过程时间线', async () => {

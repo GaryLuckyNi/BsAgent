@@ -10,8 +10,7 @@ import {
 import {
   buildEvidenceIndex,
   type ResearchMessage,
-  type ResearchProgress,
-  type ResearchReasoning
+  type ResearchProgress
 } from '../domain/research'
 import {
   agentProtocolStreamUrl,
@@ -32,7 +31,7 @@ type ResearchGraphUpdate = {
 }
 
 type AgentProtocolEvent = {
-  type: 'progress' | 'thinking_delta' | 'final' | 'approval_required'
+  type: 'progress' | 'final' | 'approval_required'
   id?: string
   stage?: string
   label?: string
@@ -46,7 +45,6 @@ type AgentProtocolEvent = {
   query?: string
   result_count?: number
   result_urls?: string[]
-  content?: string
   response?: {
     content?: string
     cited_evidence_ids?: string[]
@@ -125,19 +123,6 @@ export function useResearchSession(identity: RequestIdentity) {
   const handleCustomEvent = useCallback((event: AgentProtocolEvent) => {
     const assistantId = activeAssistantIdRef.current
     if (!assistantId) return
-    if (event.type === 'thinking_delta' && event.content) {
-      const sequence = eventSequenceRef.current++
-      setMessages((current) => updateMessage(current, assistantId, (message) => ({
-        ...message,
-        reasoning: upsertReasoningDelta(message.reasoning, {
-          id: event.id || event.stage || 'reasoning',
-          sequence,
-          label: event.label || '分析',
-          content: event.content || ''
-        })
-      })))
-      return
-    }
     if (event.type === 'progress' && event.message) {
       if (!event.kind || event.kind === 'status') {
         setMessages((current) => updateMessage(current, assistantId, (message) => ({
@@ -233,7 +218,6 @@ export function useResearchSession(identity: RequestIdentity) {
         content: item.content,
         createdAt: new Date().toISOString(),
         status: 'complete',
-        reasoning: item.reasoning,
         progress: restoreResearchProgress(item.researchProcess)
       }))
       setMessages(restored)
@@ -291,7 +275,6 @@ export function useResearchSession(identity: RequestIdentity) {
       id: assistantId,
       role: 'assistant',
       content: '',
-      reasoning: [],
       progress: [],
       processStatus: '正在理解问题与研究范围。',
       createdAt: new Date().toISOString(),
@@ -408,23 +391,6 @@ function restoreResearchProgress(
 
 function uniqueUrls(urls: string[] | undefined): string[] {
   return [...new Set((urls || []).filter((url) => typeof url === 'string' && url.length > 0))]
-}
-
-function upsertReasoningDelta(
-  current: ResearchReasoning[] | undefined,
-  incoming: ResearchReasoning
-): ResearchReasoning[] {
-  const items = [...(current || [])]
-  const index = items.findIndex((item) => item.id === incoming.id)
-  if (index >= 0) {
-    items[index] = {
-      ...items[index],
-      content: `${items[index].content}${incoming.content}`
-    }
-  } else {
-    items.push(incoming)
-  }
-  return items
 }
 
 function messageText(message: Message | undefined): string {

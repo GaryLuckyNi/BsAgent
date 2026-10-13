@@ -24,7 +24,7 @@ vi.mock('@/components/ai-elements/reasoning', () => ({
 }))
 
 describe('ResearchMessageItem', () => {
-  it('等待首个推理 token 时显示 loading 动画，收到内容后直接展示', () => {
+  it('等待首个公开研究事件时显示 loading 动画，收到摘要后直接展示', () => {
     const message = {
       id: 'direct', role: 'assistant' as const, content: '', createdAt: '',
       status: 'streaming' as const, processStatus: '正在规划…'
@@ -34,8 +34,11 @@ describe('ResearchMessageItem', () => {
     expect(screen.getByLabelText('回复生成中')).toBeTruthy()
     expect(view.container.querySelector('.response-stream-loader')).toBeTruthy()
     expect(screen.queryByText(/正在规划|正在分析/)).toBeNull()
-    view.rerender(<ResearchMessageItem message={{ ...message, reasoning: [
-      { id: 'plan', label: '规划', content: '先核验市场数据。' }
+    view.rerender(<ResearchMessageItem message={{ ...message, progress: [
+      {
+        id: 'plan', label: '研究计划', message: '先核验市场数据。',
+        status: 'completed', kind: 'summary'
+      }
     ] }} onCitation={vi.fn()} />)
     expect(screen.queryByLabelText('回复生成中')).toBeNull()
     expect(screen.getByText('先核验市场数据。')).toBeTruthy()
@@ -43,7 +46,7 @@ describe('ResearchMessageItem', () => {
     expect(screen.queryByText('正在规划…')).toBeNull()
   })
 
-  it('思考面板在模型推理后展示当前工具活动', () => {
+  it('研究过程忽略原始思考并展示当前工具活动', () => {
     render(
       <ResearchMessageItem
         message={{
@@ -67,12 +70,12 @@ describe('ResearchMessageItem', () => {
       />
     )
 
-    expect(screen.getByText('我会先确认分析范围，再根据证据得出结论。')).toBeTruthy()
+    expect(screen.queryByText('我会先确认分析范围，再根据证据得出结论。')).toBeNull()
     expect(screen.getByText('正在查询市场数据：获取最新行情')).toBeTruthy()
     expect(screen.queryByText('web_search')).toBeNull()
   })
 
-  it('多次模型推理保留段落边界且不暴露节点标签', () => {
+  it('不展示遗留原始推理中的内部协议', () => {
     render(
       <ResearchMessageItem
         message={{
@@ -85,12 +88,12 @@ describe('ResearchMessageItem', () => {
             {
               id: 'planner:1',
               label: '制定计划',
-              content: '我会先拆分需要核对的投研维度。'
+              content: '检查 allowed_taxonomy 和 skill_name。'
             },
             {
               id: 'analysis:1',
               label: '分析证据',
-              content: '已获得数据，需要区分事实与推断。'
+              content: '按照 required_schema 输出 JSON object。'
             }
           ]
         }}
@@ -98,10 +101,9 @@ describe('ResearchMessageItem', () => {
       />
     )
 
-    expect(screen.queryByText('制定计划')).toBeNull()
-    expect(screen.queryByText('分析证据')).toBeNull()
-    expect(screen.getByText('我会先拆分需要核对的投研维度。')).toBeTruthy()
-    expect(screen.getByText('已获得数据，需要区分事实与推断。')).toBeTruthy()
+    expect(screen.queryByText(/allowed_taxonomy/)).toBeNull()
+    expect(screen.queryByText(/required_schema/)).toBeNull()
+    expect(screen.queryByTestId('reasoning')).toBeNull()
   })
 
   it('没有推理增量时仍展示当前研究活动', () => {
@@ -163,15 +165,15 @@ describe('ResearchMessageItem', () => {
 
     expect(screen.getByText('## 结论')).toBeTruthy()
   })
-  it('工具活动展示在两段推理之间，答案开始后不再显示正在思考', () => {
+  it('工具活动展示在两段公开摘要之间，答案开始后停止流式状态', () => {
     const { container } = render(<ResearchMessageItem message={{
       id: 'timeline', role: 'assistant', createdAt: new Date().toISOString(), status: 'streaming',
       content: '最终答案',
-      reasoning: [
-        { id: 'plan', label: '计划', content: '先搜索', sequence: 0 },
-        { id: 'answer', label: '生成回答', content: '再综合', sequence: 2 }
-      ],
-      progress: [{ id: 'tool', stage: 'tool_agent', label: '工具', message: '已完成联网检索', status: 'completed', sequence: 1 }]
+      progress: [
+        { id: 'plan', label: '研究计划', message: '先搜索', status: 'completed', kind: 'summary', sequence: 0 },
+        { id: 'tool', stage: 'tool_agent', label: '工具', message: '已完成联网检索', status: 'completed', kind: 'activity', sequence: 1 },
+        { id: 'answer', label: '研究发现', message: '再综合', status: 'completed', kind: 'summary', sequence: 2 }
+      ]
     }} onCitation={vi.fn()} />)
     const text = container.textContent!
     expect(text.indexOf('先搜索')).toBeLessThan(text.indexOf('已完成联网检索'))
