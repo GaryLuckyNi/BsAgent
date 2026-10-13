@@ -126,52 +126,8 @@ def test_assistant_metadata_includes_bounded_research_process():
     assert metadata["research_process"] == events
 
 
-def test_research_process_collector_persists_reasoning_deltas_in_order():
-    events = []
-    sessions._collect_research_process_event(
-        events,
-        {
-            "kind": "summary",
-            "id": "plan",
-            "label": "研究计划",
-            "message": "先核验公告。",
-            "status": "completed",
-        },
-    )
-    sessions._collect_research_reasoning_delta(
-        events,
-        {
-            "id": "planner:reasoning",
-            "label": "制定计划",
-            "content": "先确认涨停区间，",
-        },
-    )
-    sessions._collect_research_reasoning_delta(
-        events,
-        {
-            "id": "planner:reasoning",
-            "label": "制定计划",
-            "content": "再核验公告。",
-        },
-    )
-
-    assert events == [
-        {
-            "id": "plan",
-            "kind": "summary",
-            "label": "研究计划",
-            "message": "先核验公告。",
-            "status": "completed",
-            "sequence": 0,
-        },
-        {
-            "id": "planner:reasoning",
-            "kind": "reasoning",
-            "label": "制定计划",
-            "content": "先确认涨停区间，再核验公告。",
-            "sequence": 1,
-        },
-    ]
+def test_session_api_has_no_private_reasoning_persistence_path():
+    assert not hasattr(sessions, "_collect_research_reasoning_delta")
 
 
 def test_research_process_collector_updates_existing_activity_after_limit():
@@ -205,7 +161,19 @@ def test_research_process_collector_updates_existing_activity_after_limit():
 
 
 def test_protocol_stream_closes_upstream_when_consumer_disconnects():
-    frames = _ClosableFrames([sessions._sse("thinking_delta", {"content": "正在分析。"})])
+    frames = _ClosableFrames(
+        [
+            sessions._sse(
+                "progress",
+                {
+                    "kind": "status",
+                    "id": "analysis",
+                    "message": "正在分析。",
+                    "status": "started",
+                },
+            )
+        ]
+    )
     stream = sessions._to_agent_protocol_stream(frames)
 
     next(stream)

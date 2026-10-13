@@ -3195,7 +3195,7 @@ def test_post_session_message_stream_does_not_turn_trace_into_thinking(
     assert "event: answer_delta" in body
 
 
-def test_post_session_message_stream_forwards_filtered_public_thinking(monkeypatch):
+def test_post_session_message_stream_drops_legacy_private_thinking(monkeypatch):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         _apply_dynamic_plan(state)
@@ -3203,10 +3203,10 @@ def test_post_session_message_stream_forwards_filtered_public_thinking(monkeypat
             event="custom",
             data={
                 "type": "thinking_delta",
-                "id": "synthesizer:reasoning",
-                "stage": "synthesizer",
-                "label": "分析证据",
-                "content": "先比较量能与资金变化。",
+                "id": "planner:reasoning",
+                "stage": "planner_agent",
+                "label": "制定计划",
+                "content": "检查 allowed_taxonomy 和 required_schema。",
             },
         )
         state["final_response"] = {
@@ -3230,19 +3230,11 @@ def test_post_session_message_stream_forwards_filtered_public_thinking(monkeypat
     ).json()["items"]
     assistant = next(item for item in persisted_messages if item["role"] == "assistant")
 
-    assert "event: thinking_delta" in body
-    assert '"stage": "synthesizer"' in body
-    assert '"label": "分析证据"' in body
-    assert "先比较量能与资金变化。" in body
-    assert assistant["metadata"]["research_process"] == [
-        {
-            "id": "synthesizer:reasoning",
-            "kind": "reasoning",
-            "label": "分析证据",
-            "content": "先比较量能与资金变化。",
-            "sequence": 0,
-        }
-    ]
+    assert "event: thinking_delta" not in body
+    assert "allowed_taxonomy" not in body
+    assert "required_schema" not in body
+    assert assistant["metadata"].get("research_process") is None
+    assert "市场仍在等待方向确认。" in body
 
 
 def test_post_session_message_stream_does_not_expose_private_model_reasoning(
