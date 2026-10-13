@@ -1,12 +1,18 @@
+import json
+import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
-import json
-from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 
-from app.graph.planning.contracts import PlanModel, PlannerFeedback, TaskResultModel
+from app.graph.planning.contracts import (
+    PlanModel,
+    PlannerFeedback,
+    SubTaskModel,
+    TaskResultModel,
+)
 from app.graph.planning.json_output import extract_json_object
 from app.graph.planning.policy import (
     PlannerMode,
@@ -177,6 +183,11 @@ class LlmTaskPlanner:
                     for task in decision.plan.tasks:
                         if task.id in completed and (task.id not in old or task != old[task.id]):
                             raise ValueError("已完成任务不可改写；修改目标必须使用新的任务 ID。")
+                    _validate_no_repeated_completed_work(
+                        decision.plan,
+                        current_plan=current_plan,
+                        results=task_results,
+                    )
                     if not ready_tasks(decision.plan, results=task_results):
                         raise ValueError("修订计划没有可执行任务；已有成果足够时请选择 finish。")
                 return decision
@@ -273,6 +284,67 @@ def _validate_evidence_references(plan: PlanModel, results: tuple[TaskResultMode
     for task in plan.tasks:
         if not set(task.evidence_task_ids).issubset(successful):
             raise ValueError("evidence_task_ids 只能引用已成功的历史结果。")
+
+
+def _validate_no_repeated_completed_work(
+    plan: PlanModel,
+    *,
+    current_plan: PlanModel,
+    results: tuple[TaskResultModel, ...],
+) -> None:
+    """阻止 Planner 仅更换 ID 后重复执行已经成功的取证目标。"""
+
+    successful_ids = {result.task_id for result in results if result.status == "success"}
+    completed_tasks = {
+        task.id: task for task in current_plan.tasks if task.id in successful_ids
+    }
+    for candidate in plan.tasks:
+        if candidate.id in completed_tasks:
+            continue
+        for completed_id, completed in completed_tasks.items():
+            if _tasks_cover_same_research_goal(candidate, completed):
+                raise ValueError(
+                    f"新任务 {candidate.id} 与已成功任务 {completed_id} 的取证目标重复；"
+                    "请复用已有证据，仅为尚未覆盖且会改变结论的缺口创建任务。"
+                )
+
+
+def _tasks_cover_same_research_goal(left: SubTaskModel, right: SubTaskModel) -> bool:
+    left_query = _normalize_research_text(left.tool_search_query or "")
+    right_query = _normalize_research_text(right.tool_search_query or "")
+    if left_query and right_query and left_query == right_query:
+        return True
+
+    left_criteria = {
+        _normalize_research_text(item) for item in left.completion_criteria if item.strip()
+    }
+    right_criteria = {
+        _normalize_research_text(item) for item in right.completion_criteria if item.strip()
+    }
+    if left_criteria and right_criteria and left_criteria == right_criteria:
+        return True
+
+    return _character_ngram_dice(left.task_goal, right.task_goal) >= 0.48
+
+
+def _normalize_research_text(value: str) -> str:
+    return "".join(re.findall(r"[a-z0-9\u4e00-\u9fff]+", value.lower()))
+
+
+def _character_ngram_dice(left: str, right: str, *, width: int = 2) -> float:
+    normalized_left = _normalize_research_text(left)
+    normalized_right = _normalize_research_text(right)
+    if min(len(normalized_left), len(normalized_right)) < 12:
+        return 0.0
+    left_grams = {
+        normalized_left[index : index + width]
+        for index in range(len(normalized_left) - width + 1)
+    }
+    right_grams = {
+        normalized_right[index : index + width]
+        for index in range(len(normalized_right) - width + 1)
+    }
+    return 2 * len(left_grams & right_grams) / (len(left_grams) + len(right_grams))
 
 
 def _validate_disclosed_capabilities(
