@@ -23,6 +23,7 @@ from app.llm.factory import close_llm_client
 from app.memory.runtime import PostgresStoreRuntime
 from app.memory.synchronizer import reconcile_memory_store
 from app.operations.health import ReadinessService, build_readiness_service
+from app.operations.langfuse_observability import configure_langfuse
 from app.operations.lifecycle import close_resources
 from app.operations.observability import (
     RequestContextMiddleware,
@@ -47,6 +48,7 @@ def create_app(
     tool_catalog_runtime: ToolCatalogRuntime | None = None,
     business_intent_catalog_runtime: BusinessIntentCatalogRuntime | None = None,
     config: Settings | None = None,
+    langfuse_configurer: Any | None = None,
 ) -> FastAPI:
     runtime = config or settings
     selected_engine = database_engine or engine
@@ -62,6 +64,7 @@ def create_app(
     )
 
     telemetry_runtime: Any | None = None
+    langfuse_runtime: Any | None = None
     intent_refresh_task: asyncio.Task[None] | None = None
 
     async def refresh_business_intent_catalog() -> None:
@@ -147,6 +150,8 @@ def create_app(
                 closers.append(selected_tool_catalog.close)
             if telemetry_runtime is not None:
                 closers.append(telemetry_runtime.shutdown)
+            if langfuse_runtime is not None:
+                closers.append(langfuse_runtime.shutdown)
             closers.append(selected_object_store.close)
             if selected_redis is not None:
                 closers.append(selected_redis.close)
@@ -166,12 +171,15 @@ def create_app(
         engine=selected_engine,
         config=runtime,
     )
+    selected_langfuse_configurer = langfuse_configurer or configure_langfuse
+    langfuse_runtime = selected_langfuse_configurer(config=runtime)
     app.state.redis_client = selected_redis
     app.state.config = runtime
     app.state.asset_object_store = selected_object_store
     app.state.memory_store_runtime = selected_memory_runtime
     app.state.tool_catalog_runtime = selected_tool_catalog
     app.state.business_intent_catalog_runtime = selected_business_intent_catalog
+    app.state.langfuse_runtime = langfuse_runtime
     app.state.rate_limit_service = build_rate_limit_service(
         config=runtime,
         redis_client=selected_redis,

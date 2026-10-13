@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import AsyncIterator, Callable, Iterator
 from typing import Any
 
@@ -7,6 +8,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
+from app.operations.langfuse_observability import (
+    langfuse_generation,
+    update_langfuse_generation,
+)
 
 
 class LlmConfigurationError(RuntimeError):
@@ -125,14 +130,39 @@ class DeepSeekClient:
         if thinking is not None:
             payload["thinking"] = {"type": "enabled" if thinking else "disabled"}
 
-        if self._http_client is not None:
-            return await self._complete_with_client(self._http_client, payload)
-
-        async with httpx.AsyncClient(
-            base_url=self._base_url,
-            timeout=self._timeout_seconds,
-        ) as client:
-            return await self._complete_with_client(client, payload)
+        with langfuse_generation(
+            name="deepseek.chat.completions",
+            model=self._model,
+            model_parameters={
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "thinking": bool(thinking),
+            },
+        ) as generation:
+            started_at = time.monotonic()
+            try:
+                if self._http_client is not None:
+                    result = await self._complete_with_client(self._http_client, payload)
+                else:
+                    async with httpx.AsyncClient(
+                        base_url=self._base_url,
+                        timeout=self._timeout_seconds,
+                    ) as client:
+                        result = await self._complete_with_client(client, payload)
+            except LlmProviderError as exc:
+                update_langfuse_generation(
+                    generation,
+                    level="ERROR",
+                    status_message=exc.code,
+                )
+                raise
+            _record_generation(
+                generation,
+                usage=result.usage,
+                finish_reason=result.finish_reason,
+                ttft_ms=int((time.monotonic() - started_at) * 1000),
+            )
+            return result
 
     async def _complete_with_client(
         self,
@@ -218,6 +248,7 @@ class DeepSeekClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if thinking is not None:
             payload["thinking"] = {"type": "enabled" if thinking else "disabled"}
@@ -247,31 +278,81 @@ class DeepSeekClient:
         thinking: bool = True,
         on_delta: Callable[[LlmStreamDelta], None],
     ) -> LlmCompletionResult:
+        with langfuse_generation(
+            name="deepseek.chat.completions",
+            model=self._model,
+            model_parameters={
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "thinking": thinking,
+            },
+        ) as generation:
+            result = await self._collect_async_stream(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                thinking=thinking,
+                on_delta=on_delta,
+                generation=generation,
+            )
+            return result
+
+    async def _collect_async_stream(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int,
+        thinking: bool,
+        on_delta: Callable[[LlmStreamDelta], None],
+        generation: Any | None,
+    ) -> LlmCompletionResult:
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         finish_reason: str | None = None
-        async for event in self.stream_complete_events(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            thinking=thinking,
-        ):
-            if event.kind == "finish":
-                finish_reason = event.delta or None
-                continue
-            on_delta(event)
-            if event.kind == "content":
-                content_parts.append(event.delta)
-            elif event.kind == "reasoning":
-                reasoning_parts.append(event.delta)
-        return LlmCompletionResult(
+        usage: dict[str, int] = {}
+        started_at = time.monotonic()
+        first_token_at: float | None = None
+        try:
+            async for event in self.stream_complete_events(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                thinking=thinking,
+            ):
+                if event.kind == "finish":
+                    finish_reason = event.delta or None
+                    continue
+                if event.kind == "usage":
+                    usage = event.usage
+                    continue
+                first_token_at = first_token_at or time.monotonic()
+                on_delta(event)
+                if event.kind == "content":
+                    content_parts.append(event.delta)
+                elif event.kind == "reasoning":
+                    reasoning_parts.append(event.delta)
+        except LlmProviderError as exc:
+            update_langfuse_generation(generation, level="ERROR", status_message=exc.code)
+            raise
+        result = LlmCompletionResult(
             content="".join(content_parts),
             reasoning_content="".join(reasoning_parts),
             model=self._model,
             provider=self.provider,
+            usage=usage,
             finish_reason=finish_reason,
         )
+        _record_generation(
+            generation,
+            usage=usage,
+            finish_reason=finish_reason,
+            ttft_ms=(int((first_token_at - started_at) * 1000) if first_token_at else None),
+        )
+        return result
 
     def complete_streamed_sync(
         self,
@@ -292,29 +373,61 @@ class DeepSeekClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            "stream_options": {"include_usage": True},
             "thinking": {"type": "enabled" if thinking else "disabled"},
         }
-        content_parts: list[str] = []
-        reasoning_parts: list[str] = []
-        finish_reason: str | None = None
-
-        for event in self._stream_events_sync(payload):
-            if event.kind == "finish":
-                finish_reason = event.delta or None
-                continue
-            on_delta(event)
-            if event.kind == "content":
-                content_parts.append(event.delta)
-            elif event.kind == "reasoning":
-                reasoning_parts.append(event.delta)
-
-        return LlmCompletionResult(
-            content="".join(content_parts),
-            reasoning_content="".join(reasoning_parts),
+        with langfuse_generation(
+            name="deepseek.chat.completions",
             model=self._model,
-            provider=self.provider,
-            finish_reason=finish_reason,
-        )
+            model_parameters={
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "thinking": thinking,
+            },
+        ) as generation:
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            finish_reason: str | None = None
+            usage: dict[str, int] = {}
+            started_at = time.monotonic()
+            first_token_at: float | None = None
+            try:
+                for event in self._stream_events_sync(payload):
+                    if event.kind == "finish":
+                        finish_reason = event.delta or None
+                        continue
+                    if event.kind == "usage":
+                        usage = event.usage
+                        continue
+                    first_token_at = first_token_at or time.monotonic()
+                    on_delta(event)
+                    if event.kind == "content":
+                        content_parts.append(event.delta)
+                    elif event.kind == "reasoning":
+                        reasoning_parts.append(event.delta)
+            except LlmProviderError as exc:
+                update_langfuse_generation(
+                    generation,
+                    level="ERROR",
+                    status_message=exc.code,
+                )
+                raise
+
+            result = LlmCompletionResult(
+                content="".join(content_parts),
+                reasoning_content="".join(reasoning_parts),
+                model=self._model,
+                provider=self.provider,
+                usage=usage,
+                finish_reason=finish_reason,
+            )
+            _record_generation(
+                generation,
+                usage=usage,
+                finish_reason=finish_reason,
+                ttft_ms=(int((first_token_at - started_at) * 1000) if first_token_at else None),
+            )
+            return result
 
     def _stream_events_sync(
         self,
@@ -399,9 +512,25 @@ def _parse_openai_stream_events(line: str) -> Iterator[LlmStreamDelta]:
         return
     try:
         payload = json.loads(data)
-        choice = payload["choices"][0]
-        delta = choice.get("delta", {})
-    except (KeyError, IndexError, TypeError, json.JSONDecodeError):
+    except (TypeError, json.JSONDecodeError):
+        return
+    usage = payload.get("usage")
+    if isinstance(usage, dict):
+        normalized_usage = {
+            key: value
+            for key, value in usage.items()
+            if isinstance(key, str) and isinstance(value, int) and not isinstance(value, bool)
+        }
+        if normalized_usage:
+            yield LlmStreamDelta(kind="usage", usage=normalized_usage)
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        return
+    delta = choice.get("delta", {})
+    if not isinstance(delta, dict):
         return
     reasoning = delta.get("reasoning_content")
     if isinstance(reasoning, str) and reasoning:
@@ -413,3 +542,33 @@ def _parse_openai_stream_events(line: str) -> Iterator[LlmStreamDelta]:
     if isinstance(finish_reason, str) and finish_reason:
         yield LlmStreamDelta(kind="finish", delta=finish_reason)
     return
+
+
+def _record_generation(
+    generation: Any | None,
+    *,
+    usage: dict[str, Any],
+    finish_reason: str | None,
+    ttft_ms: int | None,
+) -> None:
+    mapping = {
+        "prompt_tokens": "input",
+        "completion_tokens": "output",
+        "total_tokens": "total",
+        "input_tokens": "input",
+        "output_tokens": "output",
+    }
+    usage_details = {
+        target: value
+        for source, target in mapping.items()
+        if isinstance((value := usage.get(source)), int) and not isinstance(value, bool)
+    }
+    attributes: dict[str, Any] = {
+        "metadata": {
+            "finish_reason": finish_reason,
+            "ttft_ms": ttft_ms,
+        }
+    }
+    if usage_details:
+        attributes["usage_details"] = usage_details
+    update_langfuse_generation(generation, **attributes)

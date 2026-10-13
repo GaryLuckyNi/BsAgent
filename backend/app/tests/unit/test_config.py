@@ -1,7 +1,6 @@
 import pytest
-from pydantic import ValidationError
-
 from app.core.config import Settings
+from pydantic import ValidationError
 
 
 def test_approval_resume_claim_timeout_defaults_to_five_minutes():
@@ -273,6 +272,45 @@ def test_otel_requires_trace_endpoint_when_enabled():
         Settings(_env_file=None, otel_enabled=True)
 
     assert "otel_exporter_otlp_traces_endpoint" in str(exc_info.value)
+
+
+def test_langfuse_accepts_local_runtime_when_keys_are_complete():
+    runtime = Settings(
+        _env_file=None,
+        langfuse_enabled=True,
+        langfuse_public_key="pk-test",
+        langfuse_secret_key="sk-test",
+        langfuse_base_url="http://localhost:3000",
+    )
+
+    assert runtime.langfuse_enabled is True
+    assert runtime.langfuse_content_mode == "local_content"
+    assert runtime.langfuse_capture_reasoning is False
+
+
+@pytest.mark.parametrize(
+    ("public_key", "secret_key", "missing"),
+    [("", "sk-test", "langfuse_public_key"), ("pk-test", "", "langfuse_secret_key")],
+)
+def test_langfuse_requires_both_keys(public_key, secret_key, missing):
+    with pytest.raises(ValidationError, match=missing):
+        Settings(
+            _env_file=None,
+            langfuse_enabled=True,
+            langfuse_public_key=public_key,
+            langfuse_secret_key=secret_key,
+        )
+
+
+def test_langfuse_rejects_non_local_endpoint():
+    with pytest.raises(ValidationError, match="本地 Langfuse"):
+        Settings(
+            _env_file=None,
+            langfuse_enabled=True,
+            langfuse_public_key="pk-test",
+            langfuse_secret_key="sk-test",
+            langfuse_base_url="https://example.com",
+        )
 
 
 def test_trace_detailed_ratio_cannot_exceed_success_ratio():

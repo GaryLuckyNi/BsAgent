@@ -4,6 +4,10 @@ from urllib.parse import urlparse
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_LANGFUSE_LOCAL_ALLOWED_HOSTS = frozenset(
+    {"localhost", "127.0.0.1", "::1", "host.docker.internal", "langfuse-web"}
+)
+
 
 class Settings(BaseSettings):
     service_name: str = "bs-agent-service"
@@ -108,6 +112,15 @@ class Settings(BaseSettings):
     otel_enabled: bool = False
     otel_exporter_otlp_traces_endpoint: str | None = None
     otel_trace_sample_ratio: float = Field(default=0.1, ge=0, le=1)
+    langfuse_enabled: bool = False
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = "http://localhost:3000"
+    langfuse_sample_rate: float = Field(default=1.0, ge=0, le=1)
+    langfuse_content_mode: Literal["metadata_only", "local_content", "local_debug"] = (
+        "local_content"
+    )
+    langfuse_capture_reasoning: bool = False
     trace_backend: Literal["none", "memory", "database"] = "memory"
     trace_success_sample_ratio: float = Field(default=0.1, ge=0, le=1)
     trace_detailed_sample_ratio: float = Field(default=0.01, ge=0, le=1)
@@ -134,6 +147,29 @@ class Settings(BaseSettings):
             raise ValueError(
                 "启用 OpenTelemetry 时必须配置 "
                 "otel_exporter_otlp_traces_endpoint"
+            )
+        if self.langfuse_enabled:
+            missing = [
+                field_name
+                for field_name, value in (
+                    ("langfuse_public_key", self.langfuse_public_key),
+                    ("langfuse_secret_key", self.langfuse_secret_key),
+                )
+                if not _has_text(value)
+            ]
+            if missing:
+                raise ValueError("启用 Langfuse 时必须配置 " + ", ".join(missing))
+            parsed_url = urlparse(self.langfuse_base_url)
+            if (
+                parsed_url.scheme not in {"http", "https"}
+                or parsed_url.hostname not in _LANGFUSE_LOCAL_ALLOWED_HOSTS
+                or parsed_url.username is not None
+                or parsed_url.password is not None
+            ):
+                raise ValueError("启用 Langfuse 时必须使用本地 Langfuse 地址")
+        if self.langfuse_capture_reasoning and self.langfuse_content_mode != "local_debug":
+            raise ValueError(
+                "langfuse_capture_reasoning=true 仅允许用于 local_debug 模式"
             )
         if not _is_postgres_url(self.memory_store_postgres_url):
             raise ValueError("memory_store_postgres_url 必须是 PostgreSQL URL")
@@ -242,9 +278,7 @@ def _is_postgres_url(value: str | None) -> bool:
     if not _has_text(value):
         return False
     normalized = value.strip().lower()
-    return normalized.startswith("postgresql://") or normalized.startswith(
-        "postgres://"
-    )
+    return normalized.startswith(("postgresql://", "postgres://"))
 
 
 def _is_development_revision(value: str | None) -> bool:

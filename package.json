@@ -16,6 +16,7 @@
     "dev:frontend": "node scripts/dev.mjs frontend",
     "dev:admin": "node scripts/dev.mjs admin-backend admin-frontend",
     "dev:admin:backend": "node scripts/dev.mjs admin-backend",
-    "dev:admin:frontend": "node scripts/dev.mjs admin-frontend"
+    "dev:admin:frontend": "node scripts/dev.mjs admin-frontend",
+    "test:dev-env": "node --test scripts/local-env.test.mjs"
   }
 }

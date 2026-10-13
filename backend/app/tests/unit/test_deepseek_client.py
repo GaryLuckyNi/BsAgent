@@ -1,5 +1,6 @@
 import asyncio
 import json
+from typing import ClassVar
 
 import httpx
 import pytest
@@ -94,7 +95,7 @@ def test_deepseek_callback_completion_enables_thinking_for_graph_stream(monkeypa
 
     class FakeResponse:
         content = "最终内容"
-        usage_metadata = {"output_tokens": 4}
+        usage_metadata: ClassVar[dict[str, int]] = {"output_tokens": 4}
 
     class FakeBoundModel:
         def invoke(self, messages):
@@ -217,11 +218,15 @@ def test_deepseek_client_streams_reasoning_and_answer_as_distinct_events():
 
 
 def test_deepseek_streamed_completion_aggregates_answer_and_forwards_deltas():
-    def handler(_request: httpx.Request) -> httpx.Response:
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.read())
         body = (
             'data: {"choices":[{"delta":{"reasoning_content":"先查找证据。"}}]}\n\n'
             'data: {"choices":[{"delta":{"content":"## 结论\\n\\n"}}]}\n\n'
             'data: {"choices":[{"delta":{"content":"证据支持该判断。"}}]}\n\n'
+            'data: {"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}\n\n'
             "data: [DONE]\n\n"
         )
         return httpx.Response(
@@ -253,6 +258,12 @@ def test_deepseek_streamed_completion_aggregates_answer_and_forwards_deltas():
 
     assert result.content == "## 结论\n\n证据支持该判断。"
     assert result.reasoning_content == "先查找证据。"
+    assert result.usage == {
+        "prompt_tokens": 12,
+        "completion_tokens": 8,
+        "total_tokens": 20,
+    }
+    assert captured["payload"]["stream_options"] == {"include_usage": True}
     assert [(delta.kind, delta.delta) for delta in deltas] == [
         ("reasoning", "先查找证据。"),
         ("content", "## 结论\n\n"),

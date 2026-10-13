@@ -57,6 +57,7 @@ from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
 from app.llm.factory import LlmClient
+from app.operations.langfuse_observability import langfuse_agent_run
 from app.schemas.messages import Message
 from app.skills.factory import build_default_skill_registry
 from app.skills.registry import SkillRegistry
@@ -685,7 +686,13 @@ def run_question_answer_graph(
         attachment_ids=attachment_ids,
         attachment_resolver=attachment_resolver,
     )
-    return graph.invoke(state, config=config)
+    with langfuse_agent_run(
+        business_trace_id=state["trace_id"],
+        session_key=state.get("session_key") or session_id,
+        tenant_id=state["tenant_id"],
+        execution_segment="initial",
+    ) as callbacks:
+        return graph.invoke(state, config=_config_with_callbacks(config, callbacks))
 
 
 def stream_question_answer_graph(
@@ -741,19 +748,25 @@ def stream_question_answer_graph(
         attachment_ids=attachment_ids,
         attachment_resolver=attachment_resolver,
     )
-    latest_state = state
-    for mode, update in graph.stream(
-        state,
-        config=config,
-        stream_mode=["updates", "messages", "custom"],
-    ):
-        if mode in {"messages", "custom"}:
-            yield AgentGraphStreamEvent(event=mode, data=update)
-            continue
-        next_state = _state_from_stream_update(update, fallback=latest_state)
-        if next_state is not None:
-            latest_state = next_state
-            yield latest_state
+    with langfuse_agent_run(
+        business_trace_id=state["trace_id"],
+        session_key=state.get("session_key") or session_id,
+        tenant_id=state["tenant_id"],
+        execution_segment="initial",
+    ) as callbacks:
+        latest_state = state
+        for mode, update in graph.stream(
+            state,
+            config=_config_with_callbacks(config, callbacks),
+            stream_mode=["updates", "messages", "custom"],
+        ):
+            if mode in {"messages", "custom"}:
+                yield AgentGraphStreamEvent(event=mode, data=update)
+                continue
+            next_state = _state_from_stream_update(update, fallback=latest_state)
+            if next_state is not None:
+                latest_state = next_state
+                yield latest_state
 
 
 def _prepare_question_answer_run(
@@ -844,6 +857,17 @@ def _checkpoint_config(state: AgentState | dict, *, enabled: bool) -> dict:
         "checkpoint_ns": "",
     }
     return config
+
+
+def _config_with_callbacks(
+    config: dict | None,
+    callbacks: tuple[Any, ...],
+) -> dict | None:
+    if not callbacks:
+        return config
+    merged = dict(config or {})
+    merged["callbacks"] = [*merged.get("callbacks", ()), *callbacks]
+    return merged
 
 
 def _state_from_stream_update(
@@ -941,7 +965,16 @@ def resume_question_answer_graph(
             code="tool_catalog_changed",
             http_status=409,
         )
-    return graph.invoke(Command(resume=approval_decision), config=config)
+    with langfuse_agent_run(
+        business_trace_id=snapshot.values["trace_id"],
+        session_key=snapshot.values["session_key"],
+        tenant_id=snapshot.values["tenant_id"],
+        execution_segment="resume",
+    ) as callbacks:
+        return graph.invoke(
+            Command(resume=approval_decision),
+            config=_config_with_callbacks(config, callbacks),
+        )
 
 
 def _find_interrupt_payload(snapshot: Any, *, interrupt_id: str) -> dict[str, Any] | None:
