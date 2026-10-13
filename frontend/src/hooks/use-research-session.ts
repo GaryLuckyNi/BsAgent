@@ -180,7 +180,7 @@ export function useResearchSession(identity: RequestIdentity) {
   const stream = useStream<ResearchGraphState, ResearchStreamBag>({
     transport,
     threadId: sessionId,
-    throttle: false,
+    throttle: true,
     initialValues: { messages: [] },
     onCustomEvent: handleCustomEvent,
     onError: (caught) => {

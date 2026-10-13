@@ -89,13 +89,13 @@ describe('useResearchSession', () => {
     expect(currentAssistant?.status).toBe('streaming')
   })
 
-  it('关闭 SDK 批处理以立即交付首个 token', () => {
+  it('启用 SDK 原生批处理以合并同一事件循环的 token 更新', () => {
     renderHook(() => useResearchSession({
       tenantId: 'tenant-1',
       userId: 'user-1'
     }))
 
-    expect(sdk.options?.throttle).toBe(false)
+    expect(sdk.options?.throttle).toBe(true)
   })
 
   it('相同的 SDK 答案快照不会重复写入本地消息', async () => {

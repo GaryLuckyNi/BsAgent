@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ResearchConversation } from './research-conversation'
 
+afterEach(cleanup)
+
 vi.mock('@/components/ai-elements/conversation', () => ({
-  Conversation: ({ children, initial }: { children: ReactNode; initial?: boolean | string }) => (
-    <div data-testid="conversation" data-initial={String(initial)}>{children}</div>
+  Conversation: ({ children, initial, resize }: { children: ReactNode; initial?: boolean | string; resize?: boolean | string }) => (
+    <div data-testid="conversation" data-initial={String(initial)} data-resize={String(resize)}>{children}</div>
   ),
   ConversationContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   ConversationScrollButton: () => null
@@ -23,5 +25,11 @@ describe('ResearchConversation', () => {
     render(<ResearchConversation messages={[]} onCitation={vi.fn()} />)
 
     expect(screen.getByTestId('conversation').dataset.initial).toBe('instant')
+  })
+
+  it('流式内容增长时立即追底，避免重叠的平滑滚动', () => {
+    render(<ResearchConversation messages={[]} onCitation={vi.fn()} />)
+
+    expect(screen.getByTestId('conversation').dataset.resize).toBe('instant')
   })
 })
