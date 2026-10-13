@@ -15,9 +15,10 @@ class PlannerMode:
 
 
 def planner_mode(current_iteration: int) -> PlannerMode:
-    if current_iteration > 0:
-        return PlannerMode(thinking=True, max_tokens=2048)
-    return PlannerMode(thinking=True, max_tokens=2048)
+    del current_iteration
+    # 规划器输出受严格 JSON 契约约束。禁用隐藏推理可让模型直接
+    # 生成结构化计划，避免在首个可公开摘要之前消耗数秒 reasoning token。
+    return PlannerMode(thinking=False, max_tokens=2048)
 
 
 def remaining_planner_iterations(current_iteration: int) -> int:

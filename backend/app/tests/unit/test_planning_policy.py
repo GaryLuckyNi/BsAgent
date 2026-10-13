@@ -7,12 +7,12 @@ from app.graph.planning.policy import (
 )
 
 
-def test_initial_planner_mode_streams_reasoning():
-    assert planner_mode(0) == PlannerMode(thinking=True, max_tokens=2048)
+def test_initial_planner_mode_prioritizes_direct_structured_output():
+    assert planner_mode(0) == PlannerMode(thinking=False, max_tokens=2048)
 
 
-def test_replanner_mode_uses_thinking():
-    assert planner_mode(1) == PlannerMode(thinking=True, max_tokens=2048)
+def test_replanner_mode_prioritizes_direct_structured_output():
+    assert planner_mode(1) == PlannerMode(thinking=False, max_tokens=2048)
 
 
 def test_effective_remaining_iterations_uses_runtime_limit():

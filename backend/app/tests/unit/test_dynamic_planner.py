@@ -219,7 +219,7 @@ def test_llm_planner_retries_once_without_thinking_after_length_truncation():
 
     assert [task.id for task in plan.tasks] == ["collect_evidence", "analyze_evidence"]
     assert len(llm.calls) == 2
-    assert llm.calls[0]["thinking"] is True
+    assert llm.calls[0]["thinking"] is False
     assert llm.calls[0]["max_tokens"] == 2048
     assert llm.calls[1]["thinking"] is False
     assert "上一次输出被截断" in llm.calls[1]["user_prompt"]
