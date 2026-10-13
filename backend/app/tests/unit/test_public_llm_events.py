@@ -1,3 +1,5 @@
+import pytest
+
 from app.graph import public_events
 from app.llm.schemas import LlmStreamDelta
 
@@ -52,48 +54,28 @@ def test_public_llm_handler_batches_tiny_answer_deltas(monkeypatch):
     assert len(emitted) < len(answer) // 10
 
 
-def test_public_llm_handler_streams_raw_reasoning_tokens_immediately(monkeypatch):
+def test_public_llm_handler_has_no_raw_reasoning_mode(monkeypatch):
     emitted = []
     monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
 
-    handler = public_events.build_public_llm_stream_handler(
-        "planner_agent",
-        {"request_id": "req-1"},
-        stream_reasoning=True,
-    )
-    handler(LlmStreamDelta(kind="reasoning", delta="第一"))
-    handler(LlmStreamDelta(kind="reasoning", delta="段"))
-
-    assert [event["content"] for event in emitted] == ["第一", "段"]
-    assert {event["id"] for event in emitted} == {"planner_agent:reasoning"}
-    assert {event["label"] for event in emitted} == {"制定计划"}
+    with pytest.raises(TypeError):
+        public_events.build_public_llm_stream_handler(
+            "planner_agent",
+            {"request_id": "req-1"},
+            stream_reasoning=True,
+        )
 
 
-def test_reasoning_stream_preserves_model_text_without_filtering_or_rewriting(monkeypatch):
+def test_public_llm_handler_never_emits_model_reasoning(monkeypatch):
     emitted = []
     monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
 
     handler = public_events.build_public_llm_stream_handler(
         "synthesizer",
         {"request_id": "req-1"},
-        stream_reasoning=True,
     )
-    raw = "The user wants a market judgment.\n用户要我先核对 required_schema。"
+    raw = "检查 allowed_taxonomy、skill_name、tool_name 和 required_schema。"
     handler(LlmStreamDelta(kind="reasoning", delta=raw))
-
-    assert emitted[0]["content"] == raw
-
-
-def test_empty_reasoning_delta_is_not_emitted(monkeypatch):
-    emitted = []
-    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
-
-    handler = public_events.build_public_llm_stream_handler(
-        "synthesizer",
-        {"request_id": "req-1"},
-        stream_reasoning=True,
-    )
-    handler(LlmStreamDelta(kind="reasoning", delta=""))
 
     assert emitted == []
 

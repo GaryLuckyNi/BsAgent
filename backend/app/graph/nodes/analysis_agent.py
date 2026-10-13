@@ -5,7 +5,6 @@ from langchain_core.messages import AIMessage
 
 from app.graph.planning.context import task_evidence, user_materials
 from app.graph.planning.contracts import SubTaskModel, TaskResultModel
-from app.graph.public_events import build_public_llm_stream_handler
 from app.graph.state import AgentState
 from app.llm.factory import LlmClient, invoke_llm_completion
 
@@ -35,11 +34,6 @@ def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
             temperature=0.1,
             max_tokens=2_048,
             thinking=True,
-            on_delta=build_public_llm_stream_handler(
-                "analysis_agent",
-                state,
-                stream_reasoning=True,
-            ),
             retry_without_thinking_on_empty=True,
         )
         content = completion.content.strip()

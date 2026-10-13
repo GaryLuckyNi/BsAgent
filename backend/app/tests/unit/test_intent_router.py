@@ -6,7 +6,7 @@ from app.graph.nodes.intent_router import build_intent_router_node
 from app.graph.state import create_initial_state
 from app.intent.router import HybridIntentRouter, IntentClassificationError
 from app.intent.schemas import IntentDecisionModel
-from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
+from app.llm.schemas import LlmCompletionResult
 
 
 class FakeLlmClient:
@@ -225,7 +225,7 @@ def test_intent_router_node_passes_safe_image_summary_and_sets_state(
     assert "task_brief" not in result
 
 
-def test_intent_router_node_streams_native_classifier_reasoning(
+def test_intent_router_node_does_not_stream_private_classifier_reasoning(
     business_intent_catalog,
 ):
     class NativeStreamingLlm(FakeLlmClient):
@@ -235,12 +235,6 @@ def test_intent_router_node_streams_native_classifier_reasoning(
 
         async def complete_streamed(self, *, on_delta, **kwargs):
             self.used_native_stream = True
-            on_delta(
-                LlmStreamDelta(
-                    kind="reasoning",
-                    delta="Need output single-line JSON with allowed_taxonomy.",
-                )
-            )
             return await self.complete(**kwargs)
 
     llm = NativeStreamingLlm()
@@ -256,7 +250,7 @@ def test_intent_router_node_streams_native_classifier_reasoning(
         llm_client=llm,
     )(state)
 
-    assert llm.used_native_stream is True
+    assert llm.used_native_stream is False
     assert llm.calls[0]["max_tokens"] == 512
     assert llm.calls[0]["thinking"] is True
 

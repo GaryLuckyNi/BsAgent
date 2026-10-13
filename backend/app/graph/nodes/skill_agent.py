@@ -5,7 +5,6 @@ from langchain_core.messages import AIMessage
 
 from app.graph.planning.context import task_evidence, user_materials
 from app.graph.planning.contracts import SubTaskModel, TaskResultModel
-from app.graph.public_events import build_public_llm_stream_handler
 from app.graph.state import AgentState
 from app.llm.factory import LlmClient, invoke_llm_completion
 from app.skills.registry import SkillRegistry
@@ -80,9 +79,6 @@ def build_skill_agent_node(
             temperature=0.0,
             max_tokens=4096,
             thinking=True,
-            on_delta=build_public_llm_stream_handler(
-                "skill_agent", state, stream_reasoning=True
-            ),
             retry_without_thinking_on_empty=True,
         )
         content = completion.content.strip()

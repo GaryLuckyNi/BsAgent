@@ -68,18 +68,15 @@ def build_public_llm_stream_handler(
     state: dict[str, Any],
     *,
     stream_content: bool = False,
-    stream_reasoning: bool = False,
 ) -> "PublicLlmStreamHandler":
-    del state
+    del node_name, state
     try:
         writer = get_stream_writer()
     except RuntimeError:
         writer = None
     return PublicLlmStreamHandler(
-        node_name=node_name,
         writer=writer,
         stream_content=stream_content,
-        stream_reasoning=stream_reasoning,
     )
 
 
@@ -87,31 +84,15 @@ class PublicLlmStreamHandler:
     def __init__(
         self,
         *,
-        node_name: str,
         writer: Callable[[dict[str, Any]], None] | None,
         stream_content: bool,
-        stream_reasoning: bool,
     ) -> None:
-        self._node_name = node_name
         self._writer = writer
         self._stream_content = stream_content
-        self._stream_reasoning = stream_reasoning
         self._content_buffer = ""
 
     def __call__(self, event: LlmStreamDelta) -> None:
         if self._writer is None:
-            return
-        if event.kind == "reasoning" and self._stream_reasoning and event.delta:
-            self._flush_content()
-            self._writer(
-                {
-                    "type": "thinking_delta",
-                    "id": f"{self._node_name}:reasoning",
-                    "stage": self._node_name,
-                    "label": _STAGE_LABELS.get(self._node_name, "思考"),
-                    "content": event.delta,
-                }
-            )
             return
         if event.kind == "content" and self._stream_content:
             self._content_buffer += event.delta

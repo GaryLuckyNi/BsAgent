@@ -152,7 +152,6 @@ def _render_answer(
         "synthesizer",
         state,
         stream_content=True,
-        stream_reasoning=True,
     )
     try:
         completion = invoke_llm_completion(

@@ -10,7 +10,7 @@ from app.graph.planning.planner import (
 )
 from app.graph.planning.policy import PlannerMode
 from app.graph.state import create_initial_state
-from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
+from app.llm.schemas import LlmCompletionResult
 from app.skills.definitions import SkillCard
 from pydantic import ValidationError
 
@@ -338,7 +338,7 @@ def test_planner_discloses_all_scoped_skills_in_stable_order():
     ]
 
 
-def test_planner_node_streams_native_planning_reasoning():
+def test_planner_node_does_not_stream_private_planning_reasoning():
     class NativeStreamingLlm(RecordingLlmClient):
         def __init__(self) -> None:
             super().__init__({"tasks": [{"id": "analyze", "task_goal": "分析市场下跌原因"}]})
@@ -346,12 +346,6 @@ def test_planner_node_streams_native_planning_reasoning():
 
         async def complete_streamed(self, *, on_delta, **kwargs):
             self.used_native_stream = True
-            on_delta(
-                LlmStreamDelta(
-                    kind="reasoning",
-                    delta="Need emit required_schema JSON with tasks.",
-                )
-            )
             return await self.complete(**kwargs)
 
 
@@ -373,7 +367,7 @@ def test_planner_node_streams_native_planning_reasoning():
 
     build_planner_agent_node(llm_client=llm)(state)
 
-    assert llm.used_native_stream is True
+    assert llm.used_native_stream is False
 
 
 def test_namespace_preserves_discovery_fields():
