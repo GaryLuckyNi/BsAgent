@@ -50,6 +50,7 @@ class AdminMarketDataConfigClient:
                 name=server_name,
                 url=server_url,
                 timeout_seconds=self._timeout_seconds,
+                enforce_local_rbac=False,
                 deployment_revision="tushare-official",
                 config_revision=config_revision,
             )

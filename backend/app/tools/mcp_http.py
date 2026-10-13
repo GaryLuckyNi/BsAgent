@@ -72,6 +72,7 @@ class McpHttpClient:
         *,
         server_name: str,
         risk_level: Literal["low", "medium", "high"] = "medium",
+        permission_scope: list[str] | None = None,
     ) -> list["DynamicMcpHttpTool"]:
         client = self._client(server_name)
         discovered = await asyncio.wait_for(
@@ -90,6 +91,7 @@ class McpHttpClient:
                     input_schema=input_schema,
                     timeout_seconds=self._timeout_seconds,
                     risk_level=risk_level,
+                    permission_scope=permission_scope,
                 )
             )
         return tools
@@ -124,11 +126,16 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
         input_schema: dict[str, Any],
         timeout_seconds: float = 30.0,
         risk_level: Literal["low", "medium", "high"] = "medium",
+        permission_scope: list[str] | None = None,
     ) -> None:
         self.name = name
         self.description = description or langchain_tool.name
         self.output_schema = {}
-        self.permission_scope = [f"mcp:{server_name}"]
+        self.permission_scope = list(
+            permission_scope
+            if permission_scope is not None
+            else [f"mcp:{server_name}"]
+        )
         self.risk_level = risk_level
         self.timeout_ms = int(timeout_seconds * 1000)
         self._input_schema = input_schema or {"type": "object", "properties": {}}
@@ -230,12 +237,19 @@ def discover_mcp_http_tools(
     server_name: str,
     timeout_seconds: float,
     risk_level: Literal["low", "medium", "high"] = "medium",
+    permission_scope: list[str] | None = None,
 ) -> list[DynamicMcpHttpTool]:
     client = McpHttpClient(
         url=url,
         timeout_seconds=timeout_seconds,
     )
-    return asyncio.run(client.list_tools(server_name=server_name, risk_level=risk_level))
+    return asyncio.run(
+        client.list_tools(
+            server_name=server_name,
+            risk_level=risk_level,
+            permission_scope=permission_scope,
+        )
+    )
 
 
 def _langchain_input_schema(tool: LangChainTool) -> dict[str, Any]:

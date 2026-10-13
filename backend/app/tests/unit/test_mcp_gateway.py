@@ -60,8 +60,28 @@ def test_mcp_gateway_discovers_tools_through_configured_provider():
             "server_name": "stock",
             "timeout_seconds": 12.5,
             "risk_level": "medium",
+            "permission_scope": ["mcp:stock"],
         }
     ]
+
+
+def test_mcp_gateway_can_delegate_authorization_to_external_provider():
+    calls = []
+
+    def discoverer(**kwargs):
+        calls.append(kwargs)
+        return []
+
+    gateway = McpGateway(discoverer=discoverer)
+    config = McpServerConfig(
+        name="external-stock",
+        url="https://market-data.example/mcp",
+        enforce_local_rbac=False,
+    )
+
+    gateway.discover_tools(config)
+
+    assert calls[0]["permission_scope"] == []
 
 
 def test_mcp_execution_binding_tracks_server_and_config_revisions():
@@ -113,6 +133,28 @@ def test_mcp_execution_binding_tracks_effective_http_config_without_leaking_it()
     assert first.digest != second.digest
     serialized = first.model_dump_json()
     assert "mcp-first.internal" not in serialized
+
+
+def test_mcp_execution_binding_tracks_local_authorization_policy():
+    tool = SimpleNamespace(name="mcp.stock.company_profile")
+    locally_authorized = McpGateway.execution_binding(
+        McpServerConfig(
+            name="stock",
+            url="https://mcp.internal/mcp",
+            enforce_local_rbac=True,
+        ),
+        tool=tool,
+    )
+    provider_authorized = McpGateway.execution_binding(
+        McpServerConfig(
+            name="stock",
+            url="https://mcp.internal/mcp",
+            enforce_local_rbac=False,
+        ),
+        tool=tool,
+    )
+
+    assert locally_authorized.digest != provider_authorized.digest
 
 
 def test_mcp_execution_binding_identifies_streamable_http_transport():

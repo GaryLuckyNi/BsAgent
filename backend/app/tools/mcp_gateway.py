@@ -19,6 +19,7 @@ class McpServerConfig(BaseModel):
     url: str
     timeout_seconds: float = Field(default=30.0, gt=0)
     default_risk_level: Literal["low", "medium", "high"] = "medium"
+    enforce_local_rbac: bool = True
     deployment_revision: str = "development"
     config_revision: str = "default"
 
@@ -43,6 +44,9 @@ class McpGateway:
             server_name=config.name,
             timeout_seconds=config.timeout_seconds,
             risk_level=config.default_risk_level,
+            permission_scope=(
+                [f"mcp:{config.name}"] if config.enforce_local_rbac else []
+            ),
         )
         for tool in tools:
             self._tool_specs[tool.spec.name] = tool.spec
@@ -88,6 +92,7 @@ def _execution_config_revision(config: McpServerConfig) -> str:
         {
             "config_revision": config.config_revision,
             "default_risk_level": config.default_risk_level,
+            "enforce_local_rbac": config.enforce_local_rbac,
             "timeout_seconds": config.timeout_seconds,
             "url_digest": sha256(config.url.encode()).hexdigest(),
         },
