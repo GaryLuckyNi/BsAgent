@@ -100,6 +100,31 @@ def test_compiler_freezes_definition_and_only_resolves_explicit_tool():
     assert workflow.steps[0].task_id.startswith("sw_")
 
 
+def test_compiler_prompt_separates_raw_step_checks_from_result_processing():
+    definition = SkillDefinition(
+        name="skill",
+        version="1",
+        description="调用 first，必须返回 value。按年度排序并用表格输出。",
+        definition_hash="hash",
+    )
+    llm = CompilerLlm(
+        [step(source="调用 first，必须返回 value。")],
+        output_requirement="按年度排序并用表格输出。",
+    )
+
+    compile_workflow(
+        definition=definition,
+        parent_task_id="parent",
+        llm_client=llm,
+        registry=registry(),
+        permission_scopes=(),
+    )
+
+    prompt = llm.calls[0]["system_prompt"]
+    assert "结果筛选、排序、去重、空值展示" in prompt
+    assert "不得用于判定原始工具返回" in prompt
+
+
 @pytest.mark.parametrize(
     "draft",
     [step(tool_name="unmentioned"), step(source="伪造步骤"), step(required_fields=["invented"])],
@@ -125,6 +150,17 @@ def test_required_fields_accept_zero_but_reject_empty_and_missing():
     assert missing_fields({"rows": [{"pay": 0}, {"pay": None}]}, ["rows.*.pay"]) == ["rows.*.pay"]
     assert missing_fields({"pay": 0, "flag": False}, ["pay", "flag"]) == []
     assert missing_fields({"rows": []}, ["rows.*.pay"]) == ["rows.*.pay"]
+
+
+def test_required_fields_support_tabular_root_list_with_nullable_rows():
+    payload = [
+        {"name": "甲", "reward": None},
+        {"name": "乙", "reward": 100_000},
+    ]
+
+    assert missing_fields(payload, ["name", "reward"]) == []
+    assert missing_fields(payload, ["title"]) == ["title"]
+    assert missing_fields([], ["name"]) == ["name"]
 
 
 def test_named_tool_permissions_checked_before_argument_generation():

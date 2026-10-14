@@ -691,8 +691,14 @@ def run_question_answer_graph(
         session_key=state.get("session_key") or session_id,
         tenant_id=state["tenant_id"],
         execution_segment="initial",
-    ) as callbacks:
-        return graph.invoke(state, config=_config_with_callbacks(config, callbacks))
+        input_data={"message": user_message},
+    ) as langfuse_run:
+        result = graph.invoke(
+            state,
+            config=_config_with_callbacks(config, langfuse_run.callbacks),
+        )
+        langfuse_run.set_output((result.get("final_response") or {}).get("content"))
+        return result
 
 
 def stream_question_answer_graph(
@@ -753,11 +759,12 @@ def stream_question_answer_graph(
         session_key=state.get("session_key") or session_id,
         tenant_id=state["tenant_id"],
         execution_segment="initial",
-    ) as callbacks:
+        input_data={"message": user_message},
+    ) as langfuse_run:
         latest_state = state
         for mode, update in graph.stream(
             state,
-            config=_config_with_callbacks(config, callbacks),
+            config=_config_with_callbacks(config, langfuse_run.callbacks),
             stream_mode=["updates", "messages", "custom"],
         ):
             if mode in {"messages", "custom"}:
@@ -767,6 +774,9 @@ def stream_question_answer_graph(
             if next_state is not None:
                 latest_state = next_state
                 yield latest_state
+        langfuse_run.set_output(
+            (latest_state.get("final_response") or {}).get("content")
+        )
 
 
 def _prepare_question_answer_run(
@@ -970,11 +980,14 @@ def resume_question_answer_graph(
         session_key=snapshot.values["session_key"],
         tenant_id=snapshot.values["tenant_id"],
         execution_segment="resume",
-    ) as callbacks:
-        return graph.invoke(
+        input_data={"approval_decision": approval_decision},
+    ) as langfuse_run:
+        result = graph.invoke(
             Command(resume=approval_decision),
-            config=_config_with_callbacks(config, callbacks),
+            config=_config_with_callbacks(config, langfuse_run.callbacks),
         )
+        langfuse_run.set_output((result.get("final_response") or {}).get("content"))
+        return result
 
 
 def _find_interrupt_payload(snapshot: Any, *, interrupt_id: str) -> dict[str, Any] | None:

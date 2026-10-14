@@ -14,9 +14,10 @@ _SYSTEM_PROMPT = """你是 Skill 工作流编译器。summary 是唯一流程来
 将所有步骤按原顺序转换成 JSON；每次工具调用单独一个步骤，纯分析步骤 tool_name=null。
 工具名必须来自 summary，保留完整名或原始短名；未明确工具的外部数据步骤必须报错，不能改为纯分析或擅自推荐工具。
 source 必须逐字引用该步骤原文。required_fields 仅提取原文明示的必需字段，嵌套字段用点路径、数组用 *。
-completion_criteria 记录该步自然语言完成条件，必须逐字引用 summary；不添加默认业务要求。
+completion_criteria 只记录“该步原始工具结果必须已满足，否则停止”的事实条件，必须逐字引用 summary；不添加默认业务要求。
+结果筛选、排序、去重、空值展示、字段裁剪和最终表格列都属于 output_requirement，不得用于判定原始工具返回是否已经加工完成。
 缺失处理默认 missing_policy=stop；只有原文明示允许该步缺失后继续时才为 continue，并用 missing_policy_source 逐字引用依据。
-output_requirement 提取最终格式及约束。不得遗漏步骤、改变顺序、增加工具或绕过审批。
+output_requirement 提取最终数据整理、格式及约束，使用 summary 中包含这些要求的连续原文。不得遗漏步骤、改变顺序、增加工具或绕过审批。
 仅返回 JSON：{"steps":[{"instruction":"本步目标和参数约束","source":"原文","tool_name":"明确的工具名或null","required_fields":[],"completion_criteria":[],"missing_policy":"stop","missing_policy_source":null}],"output_requirement":"输出要求"}。
 无法确定固定工作流时返回 {"error":"具体缺失或歧义"}。"""
 
@@ -136,6 +137,10 @@ def missing_fields(value: Any, fields: list[str]) -> list[str]:
         if not path:
             return current is not None and current != "" and current != [] and current != {}
         part, *rest = path
+        if isinstance(current, list) and part != "*":
+            # 表格型 MCP 常直接返回根数组。此时未写通配符的字段表示
+            # “结果集中存在该列的有效值”；需要逐行强校验时仍显式使用 *。
+            return bool(current) and any(present(item, path) for item in current)
         if part == "*":
             return (
                 isinstance(current, list)

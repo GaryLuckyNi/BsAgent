@@ -138,6 +138,7 @@ class DeepSeekClient:
                 "max_tokens": max_tokens,
                 "thinking": bool(thinking),
             },
+            input_data=payload["messages"],
         ) as generation:
             started_at = time.monotonic()
             try:
@@ -161,6 +162,7 @@ class DeepSeekClient:
                 usage=result.usage,
                 finish_reason=result.finish_reason,
                 ttft_ms=int((time.monotonic() - started_at) * 1000),
+                output=result.content,
             )
             return result
 
@@ -286,6 +288,10 @@ class DeepSeekClient:
                 "max_tokens": max_tokens,
                 "thinking": thinking,
             },
+            input_data=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
         ) as generation:
             result = await self._collect_async_stream(
                 system_prompt=system_prompt,
@@ -351,6 +357,7 @@ class DeepSeekClient:
             usage=usage,
             finish_reason=finish_reason,
             ttft_ms=(int((first_token_at - started_at) * 1000) if first_token_at else None),
+            output=result.content,
         )
         return result
 
@@ -384,6 +391,7 @@ class DeepSeekClient:
                 "max_tokens": max_tokens,
                 "thinking": thinking,
             },
+            input_data=payload["messages"],
         ) as generation:
             content_parts: list[str] = []
             reasoning_parts: list[str] = []
@@ -426,6 +434,7 @@ class DeepSeekClient:
                 usage=usage,
                 finish_reason=finish_reason,
                 ttft_ms=(int((first_token_at - started_at) * 1000) if first_token_at else None),
+                output=result.content,
             )
             return result
 
@@ -550,6 +559,7 @@ def _record_generation(
     usage: dict[str, Any],
     finish_reason: str | None,
     ttft_ms: int | None,
+    output: str,
 ) -> None:
     mapping = {
         "prompt_tokens": "input",
@@ -564,6 +574,7 @@ def _record_generation(
         if isinstance((value := usage.get(source)), int) and not isinstance(value, bool)
     }
     attributes: dict[str, Any] = {
+        "output": output,
         "metadata": {
             "finish_reason": finish_reason,
             "ttft_ms": ttft_ms,
