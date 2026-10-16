@@ -69,6 +69,11 @@ class EffectiveContext:
 
 
 @dataclass(frozen=True)
+class ContextPreparationEvent:
+    stage: Literal["compacting_context"]
+
+
+@dataclass(frozen=True)
 class SummaryGeneration:
     summary: ContextSummary
     model: str

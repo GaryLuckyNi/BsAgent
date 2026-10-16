@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 from app.api import approvals, sessions
-from app.context_compaction.contracts import EffectiveContext
+from app.context_compaction.contracts import ContextPreparationEvent, EffectiveContext
 from app.context_compaction.errors import (
     ContextBudgetUnrecoverable,
     MessageContextTooLarge,
@@ -3341,8 +3341,67 @@ def test_post_session_message_stream_emits_product_progress_without_trace_detail
     )
     assert progress_events.count('"stage": "planning"') == 1
     assert progress_events.count('"stage": "executing_tools"') == 1
+    assert '"stage": "compacting_context"' not in progress_events
     assert "node_name" not in progress_events
     assert "arguments" not in progress_events
+
+
+def test_post_session_message_stream_emits_notice_when_sync_compaction_starts(
+    monkeypatch,
+):
+    effective = EffectiveContext(
+        messages=(),
+        compaction_id="cmp-1",
+        status="compacted",
+        projected_tokens=1_000,
+    )
+
+    class FakeCompactionService:
+        def prepare_for_request(self, **_kwargs):
+            return effective
+
+        def prepare_for_request_events(self, **_kwargs):
+            yield ContextPreparationEvent(stage="compacting_context")
+            return effective
+
+    def fake_stream(**kwargs):
+        yield _completed_graph_state(kwargs)
+
+    monkeypatch.setattr(sessions.settings, "context_compaction_enabled", True)
+    monkeypatch.setattr(
+        sessions,
+        "build_context_compaction_service",
+        lambda **_kwargs: FakeCompactionService(),
+    )
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", fake_stream)
+    app, _ = create_test_app_with_database()
+
+    client = TestClient(app)
+    body = client.post(
+        "/api/sessions/s1/messages/stream",
+        json={"message": "继续分析"},
+    ).text
+
+    accepted_index = body.index("event: status")
+    compaction_index = body.index('"stage": "compacting_context"')
+    planning_index = body.index('"stage": "planning"')
+    assert accepted_index < compaction_index < planning_index
+    assert '"message": "正在压缩上下文"' in body
+
+    protocol_body = client.post(
+        "/api/sessions/s1/messages/protocol-stream",
+        json={
+            "input": {
+                "messages": [{"type": "human", "content": "继续分析"}],
+                "attachment_ids": [],
+                "request_id": "context-notice-protocol-1",
+            }
+        },
+    ).text
+    assert "event: custom" in protocol_body
+    assert '"type": "progress"' in protocol_body
+    assert '"stage": "compacting_context"' in protocol_body
+    assert '"message": "正在压缩上下文"' in protocol_body
 
 
 def test_post_session_message_stream_emits_native_progress_and_tokens_before_final(

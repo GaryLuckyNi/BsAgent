@@ -8,6 +8,7 @@ import pytest
 from app.context_compaction.contracts import (
     CompactionCandidate,
     CompactionSourceItem,
+    ContextPreparationEvent,
     ContextSummary,
 )
 from app.context_compaction.errors import (
@@ -302,6 +303,54 @@ def test_hard_compaction_activates_summary_and_keeps_tail_without_current_messag
     assert [item["message_id"] for item in prompt["source_messages"]] == [
         f"message-{number}" for number in range(1, 9)
     ]
+
+
+def test_hard_compaction_emits_notice_before_calling_summary_model(session_factory):
+    _seed_turns(session_factory, 5)
+    client = FakeClient(_completion())
+    service = _service(session_factory, client)
+
+    preparation = service.prepare_for_request_events(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        session_key="session-1",
+        request_id="request-current",
+        current_user_message="当前用户消息",
+        attachment_texts=(),
+    )
+
+    assert next(preparation) == ContextPreparationEvent(stage="compacting_context")
+    assert client.calls == []
+    with pytest.raises(StopIteration) as completed:
+        next(preparation)
+    assert completed.value.value.status == "compacted"
+    assert len(client.calls) == 1
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_context_preparation_without_hard_compaction_emits_no_notice(
+    session_factory,
+    enabled,
+):
+    _seed_turns(session_factory, 1, size=10)
+    service = _service(
+        session_factory,
+        FakeClient(),
+        config=_config(context_compaction_enabled=enabled),
+    )
+
+    preparation = service.prepare_for_request_events(
+        tenant_id="tenant-1",
+        user_id="user-1",
+        session_key="session-1",
+        request_id="request-current",
+        current_user_message="当前用户消息",
+        attachment_texts=(),
+    )
+
+    with pytest.raises(StopIteration) as completed:
+        next(preparation)
+    assert completed.value.value.status == "full"
 
 
 def test_hard_model_failure_returns_budgeted_complete_turns_as_degraded(

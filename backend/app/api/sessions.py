@@ -70,6 +70,7 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 logger = logging.getLogger(__name__)
 
 PRODUCT_PROGRESS_MESSAGES = {
+    "compacting_context": "正在压缩上下文",
     "planning": "正在规划分析范围",
     "executing_tools": "正在调用投研数据工具",
     "retrieving_knowledge": "正在检索补充资料",
@@ -492,6 +493,79 @@ def _load_execution_snapshot(
     )
 
 
+def _stream_execution_snapshot(
+    *,
+    db: Session,
+    principal: Principal,
+    session_id: str,
+    request: SessionMessageRequest,
+    handle: TurnHandle,
+    attachment_resolver: VisionAttachmentContextResolver,
+    llm_client,
+) -> Generator[str, None, _ExecutionSnapshot]:
+    if not settings.context_compaction_enabled:
+        return _load_execution_snapshot(
+            db=db,
+            principal=principal,
+            session_id=session_id,
+            request=request,
+            handle=handle,
+            attachment_resolver=attachment_resolver,
+            llm_client=llm_client,
+        )
+
+    attachment_contexts = (
+        attachment_resolver.resolve(
+            request.attachments,
+            principal=principal,
+            session_id=session_id,
+        )
+        if request.attachments
+        else []
+    )
+    if db.in_transaction():
+        db.commit()
+    attachment_json = tuple(
+        json.dumps(context, ensure_ascii=False, sort_keys=True)
+        for context in attachment_contexts
+    )
+    service = build_context_compaction_service(db=db, llm_client=llm_client)
+    prepare_events = getattr(service, "prepare_for_request_events", None)
+    prepare_kwargs = {
+        "tenant_id": principal.tenant_id,
+        "user_id": principal.user_id,
+        "session_key": handle.session_key,
+        "request_id": handle.request_id,
+        "current_user_message": request.message,
+        "attachment_texts": attachment_json,
+    }
+    if callable(prepare_events):
+        preparation = prepare_events(**prepare_kwargs)
+        while True:
+            try:
+                event = next(preparation)
+            except StopIteration as completed:
+                effective = completed.value
+                break
+            yield _sse("progress", _product_progress_payload(event.stage))
+    else:
+        effective = service.prepare_for_request(**prepare_kwargs)
+
+    return _ExecutionSnapshot(
+        history=effective.messages,
+        attachment_resolver=_AttachmentContextSnapshotResolver(
+            tenant_id=principal.tenant_id,
+            user_id=principal.user_id,
+            session_id=session_id,
+            asset_ids=tuple(request.attachments),
+            contexts_json=attachment_json,
+        ),
+        context_compaction_id=effective.compaction_id,
+        context_status=effective.status,
+        projected_context_tokens=effective.projected_tokens,
+    )
+
+
 def _run_and_persist_agent_message(
     *,
     session_id: str,
@@ -758,8 +832,10 @@ def _stream_agent_message(
             return
 
         trace_buffer = TraceBuffer()
+        identity = _stream_identity(handle)
+        yield _sse("status", {"stage": "accepted", **identity})
         llm_client = maybe_build_llm_client()
-        snapshot = _load_execution_snapshot(
+        snapshot = yield from _stream_execution_snapshot(
             db=db,
             principal=principal,
             session_id=session_id,
@@ -774,8 +850,6 @@ def _stream_agent_message(
             snapshot=snapshot,
         )
         db.commit()
-        identity = _stream_identity(handle)
-        yield _sse("status", {"stage": "accepted", **identity})
         yield _sse("progress", _product_progress_payload("planning"))
         if request.attachments:
             yield _sse(

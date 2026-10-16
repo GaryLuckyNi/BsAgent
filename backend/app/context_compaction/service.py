@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass, replace
 from typing import Literal
 
@@ -12,6 +12,7 @@ from app.context_compaction.contracts import (
     CompactionCandidate,
     CompactionRunResult,
     CompactionSourceItem,
+    ContextPreparationEvent,
     ContextSummary,
     EffectiveContext,
     GenerationSnapshot,
@@ -98,6 +99,30 @@ class ContextCompactionService:
         current_user_message: str,
         attachment_texts: Sequence[str],
     ) -> EffectiveContext:
+        preparation = self.prepare_for_request_events(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            session_key=session_key,
+            request_id=request_id,
+            current_user_message=current_user_message,
+            attachment_texts=attachment_texts,
+        )
+        while True:
+            try:
+                next(preparation)
+            except StopIteration as completed:
+                return completed.value
+
+    def prepare_for_request_events(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        session_key: str,
+        request_id: str,
+        current_user_message: str,
+        attachment_texts: Sequence[str],
+    ) -> Generator[ContextPreparationEvent, None, EffectiveContext]:
         current = self._current_message(
             current_user_message=current_user_message,
             attachment_texts=attachment_texts,
@@ -148,6 +173,7 @@ class ContextCompactionService:
         if decision.trigger == "hard" or (
             rebuilding and decision.summary_through_sequence_no is not None
         ):
+            yield ContextPreparationEvent(stage="compacting_context")
             outcome = self._generate_and_activate(
                 snapshot=snapshot,
                 decision=decision,

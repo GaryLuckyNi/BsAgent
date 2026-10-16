@@ -7,7 +7,7 @@
 ### 变更
 
 - 新增内部会话上下文压缩：`agent_messages` 继续保存完整原始会话，迁移 `20261010_0014` 新增只追加的 `agent_context_compactions`、active 指针、previous 链和来源 manifest；模型读取 active 摘要与边界后的原始消息，不改变消息分页与审批 Checkpoint 语义。
-- 上下文压缩默认关闭。启用后在 70% 窗口水位向 Celery `context-compaction` 队列派发预压缩任务，在 85% 水位同步兜底并以 50% 为目标；生产观测只记录哈希会话标识、压缩 ID、token、比率、耗时和结果，不记录原文或摘要正文。
+- 上下文压缩默认关闭。启用后在 70% 窗口水位向 Celery `context-compaction` 队列派发预压缩任务，在 85% 水位同步兜底并以 50% 为目标；同步压缩开始时，流式客户端展示“正在压缩上下文”；生产观测只记录哈希会话标识、压缩 ID、token、比率、耗时和结果，不记录原文或摘要正文。
 - 回滚上下文压缩时将 `BS_AGENT_CONTEXT_COMPACTION_ENABLED=false` 并重启 API 与 worker，系统恢复最近 20 条完成消息的兼容读取路径；保留 compaction 数据用于审计和再次启用，不执行数据删除。
 - Planner 增加批次反馈决策，模型选择 continue/revise/finish；取消按业务错误自动重规划和按拓扑删除末端任务，修复计划修订丢失检索提示。计划新增执行类型与完成条件，修订保留历史并显式复用已完成成果。
 - 工具发现收敛为权限与 Skill 作用域过滤、工具名精确匹配和 BM25 排序，删除 Dense、RRF、FastEmbed 模型与向量缓存；专业候选与 web_search 可共同披露，模型通过 auto 自主选择是否调用。搜索配额改为调用前原子预留，并修复并行检索状态合并冲突。
