@@ -27,6 +27,7 @@ from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.skill_step_check import build_skill_step_check_node
 from app.graph.nodes.synthesizer import build_synthesizer_node
 from app.graph.nodes.tool_agent import build_tool_agent_node
+from app.graph.nodes.user_input_gate import user_input_gate_node
 from app.graph.nodes.verifier import verifier_node
 from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
 from app.graph.planning.policy import (
@@ -345,6 +346,8 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
 
 
 def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
+    if state.get("pending_user_input") is not None:
+        return "user_input_gate"
     if _has_pending_memory_approval(state) or _has_pending_tool_approval(state):
         return "approval_gate"
     if workflow_failed(state):
@@ -560,6 +563,7 @@ def build_question_answer_graph(
         build_approval_gate_node(tool_catalog_digest=tool_registry_snapshot.catalog_digest),
         runner,
     )
+    _add_harnessed_node(graph, "user_input_gate", user_input_gate_node, runner)
     _add_harnessed_node(
         graph,
         "analysis_agent",
@@ -610,6 +614,7 @@ def build_question_answer_graph(
         {
             "planner_agent": "planner_agent",
             "approval_gate": "approval_gate",
+            "user_input_gate": "user_input_gate",
             "synthesizer": "synthesizer",
         },
     )
@@ -617,6 +622,7 @@ def build_question_answer_graph(
     graph.add_edge("skill_step_check", "task_scheduler")
     graph.add_edge("tool_agent", "task_scheduler")
     graph.add_edge("analysis_agent", "task_scheduler")
+    graph.add_edge("user_input_gate", "task_scheduler")
     graph.add_conditional_edges(
         "approval_gate",
         _route_after_approval_gate,
@@ -942,6 +948,99 @@ def resume_question_answer_graph(
             http_status=409,
         )
     return graph.invoke(Command(resume=approval_decision), config=config)
+
+
+def resume_user_input_graph(
+    *,
+    business_intent_catalog: BusinessIntentCatalog,
+    checkpoint_thread_id: str,
+    interrupt_id: str,
+    interaction_id: str,
+    input_type: Literal["selection"],
+    value: str,
+    skill_agent_node: Callable[[AgentState], AgentState] | None = None,
+    tool_agent_node: Callable[[AgentState], AgentState] | None = None,
+    store: BaseStore | None = None,
+    trace_buffer: TraceBuffer | None = None,
+    trace_store: InMemoryTraceStore | None = None,
+    checkpointer: Checkpointer,
+    llm_client: LlmClient | None = None,
+    permission_scopes: list[str] | None = None,
+    tool_registry_factory: Callable[[], ToolRegistry] | None = None,
+    tool_search_service: ToolSearchService | None = None,
+    allow_test_tool_agent_override: bool = False,
+) -> AgentState:
+    if _CHECKPOINT_THREAD_ID_PATTERN.fullmatch(checkpoint_thread_id) is None:
+        raise LegacyCheckpointIncompatibleError()
+    selected_registry_factory = (
+        tool_registry_factory
+        or getattr(tool_agent_node, "tool_registry_factory", None)
+        or get_default_tool_registry
+    )
+    tool_registry_snapshot = _runtime_registry_snapshot(
+        registry_factory=selected_registry_factory,
+    )
+    graph = build_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
+        skill_agent_node=skill_agent_node,
+        tool_agent_node=tool_agent_node,
+        store=store,
+        trace_buffer=trace_buffer,
+        trace_store=trace_store,
+        checkpointer=checkpointer,
+        llm_client=llm_client,
+        tool_registry_factory=tool_registry_factory,
+        tool_registry_snapshot=tool_registry_snapshot,
+        tool_search_service=tool_search_service,
+        allow_test_tool_agent_override=allow_test_tool_agent_override,
+    )
+    config = {
+        "recursion_limit": settings.graph_recursion_limit,
+        "configurable": {
+            "thread_id": checkpoint_thread_id,
+            "checkpoint_ns": "",
+        },
+    }
+    snapshot = graph.get_state(config)
+    if snapshot.values:
+        _validate_planner_checkpoint(snapshot.values)
+    interrupt_payload = _find_interrupt_payload(snapshot, interrupt_id=interrupt_id)
+    if (
+        interrupt_payload is None
+        or interrupt_payload.get("interrupt_type") != "user_input"
+        or interrupt_payload.get("interaction_id") != interaction_id
+        or interrupt_payload.get("input_type") != input_type
+    ):
+        raise AgentGraphExecutionError(
+            node_name="user_input_gate",
+            message="用户输入恢复目标与当前 Interrupt 不匹配。",
+            code="user_input_resume_mismatch",
+            http_status=409,
+        )
+    checkpoint_digest = snapshot.values.get("tool_catalog_digest")
+    if snapshot.values and checkpoint_digest != tool_registry_snapshot.catalog_digest:
+        _record_resume_catalog_guard_trace(
+            trace_buffer=trace_buffer,
+            trace_store=trace_store,
+            state=snapshot.values,
+            error=ToolCatalogChangedError(),
+        )
+        raise AgentGraphExecutionError(
+            node_name="catalog_guard",
+            message="工具目录已变化，不能继续用户输入恢复。",
+            code="tool_catalog_changed",
+            http_status=409,
+        )
+    return graph.invoke(
+        Command(
+            resume={
+                "interaction_id": interaction_id,
+                "input_type": input_type,
+                "value": value,
+            }
+        ),
+        config=config,
+    )
 
 
 def _find_interrupt_payload(snapshot: Any, *, interrupt_id: str) -> dict[str, Any] | None:

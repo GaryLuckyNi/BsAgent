@@ -53,7 +53,13 @@ export function ResearchWorkspace({ authentication, history, session, attachment
       <div className="desktop-sidebar"><ResearchSidebar {...sidebarProps} /></div>
       <section className="research-main">
         <ResearchHeader title={history.activeThread?.title} />
-        <ResearchConversation messages={session.messages} onCitation={openCitation} />
+        <ResearchConversation
+          messages={session.messages}
+          onCitation={openCitation}
+          onUserInputSelect={(messageId, value) => {
+            void session.resumeUserInput(messageId, value)
+          }}
+        />
         <ResearchComposer
           busy={session.isStreaming}
           attachments={attachments.attachments}

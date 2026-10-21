@@ -256,4 +256,43 @@ describe('ResearchMessageItem', () => {
     expect(screen.getAllByText('先核实涨停区间，再核验公告。')).toHaveLength(1)
   })
 
+  it('渲染通用 selection 卡片并提交选中值', async () => {
+    const onUserInputSelect = vi.fn()
+    render(<ResearchMessageItem message={{
+      id: 'selection', role: 'assistant', createdAt: new Date().toISOString(),
+      status: 'interrupted', content: '',
+      userInput: {
+        interruptId: 'interrupt-1', interactionId: 'interaction-1',
+        inputType: 'selection', question: '请选择证券标的',
+        options: [
+          { value: '688825.SH', label: 'C长鑫', description: '证券代码：688825.SH' },
+          { value: '603986.SH', label: '兆易创新' }
+        ]
+      }
+    }} onCitation={vi.fn()} onUserInputSelect={onUserInputSelect} />)
+
+    expect(screen.getByText('请选择证券标的')).toBeTruthy()
+    expect(screen.getByText('证券代码：688825.SH')).toBeTruthy()
+    screen.getByRole('button', { name: /C长鑫/ }).click()
+    expect(onUserInputSelect).toHaveBeenCalledWith('selection', '688825.SH')
+  })
+
+  it('恢复中禁用所有 selection 选项', () => {
+    render(<ResearchMessageItem message={{
+      id: 'selection-loading', role: 'assistant', createdAt: '',
+      status: 'interrupted', content: '',
+      userInput: {
+        interruptId: 'interrupt-1', interactionId: 'interaction-1',
+        inputType: 'selection', question: '请选择', isSubmitting: true,
+        options: [
+          { value: 'a', label: 'A' },
+          { value: 'b', label: 'B' }
+        ]
+      }
+    }} onCitation={vi.fn()} onUserInputSelect={vi.fn()} />)
+
+    expect(screen.getAllByRole('button', { name: /A|B/ }))
+      .toSatisfy((buttons: HTMLButtonElement[]) => buttons.every((button) => button.disabled))
+  })
+
 })

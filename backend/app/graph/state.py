@@ -22,6 +22,7 @@ from app.schemas.evidence import EvidencePackage
 from app.schemas.memory import MemoryCandidate
 from app.schemas.messages import Message
 from app.schemas.tools import ToolCallRecord
+from app.schemas.user_input import UserInputRequest, UserInputResponse
 
 
 class IntentDecision(TypedDict, total=False):
@@ -270,6 +271,8 @@ class AgentState(TypedDict):
         PendingToolApproval | None,
         merge_pending_tool_approval,
     ]
+    pending_user_input: UserInputRequest | None
+    user_input_response: UserInputResponse | None
     final_response: AgentResponse | None
     errors: list[AgentError]
 
@@ -347,6 +350,8 @@ def create_initial_state(
         "permission_scopes": list(permission_scopes or []),
         "approved_tool_calls": [],
         "pending_tool_approval": None,
+        "pending_user_input": None,
+        "user_input_response": None,
         "final_response": None,
         "errors": [],
     }

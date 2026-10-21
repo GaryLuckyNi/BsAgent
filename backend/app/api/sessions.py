@@ -3,12 +3,13 @@ import logging
 from collections.abc import AsyncIterator, Generator, Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from langgraph.store.base import BaseStore
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import iterate_in_threadpool
@@ -18,6 +19,8 @@ from app.approvals.repository import ApprovalRepository
 from app.assets.service import AssetService
 from app.conversations.repository import (
     ConversationConflictError,
+    ConversationIntegrityError,
+    ConversationNotFoundError,
     ConversationRepository,
     SessionBusyError,
 )
@@ -32,6 +35,7 @@ from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import (
     AgentGraphExecutionError,
     AgentGraphStreamEvent,
+    resume_user_input_graph,
     run_question_answer_graph,
     stream_question_answer_graph,
 )
@@ -138,6 +142,21 @@ class AgentProtocolStreamRequest(BaseModel):
     context: dict | None = None
     command: dict | None = None
     config: dict | None = None
+
+
+class _ProtocolUserInputResume(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    interrupt_id: str = Field(min_length=1, max_length=128)
+    interaction_id: str = Field(min_length=1, max_length=128)
+    input_type: Literal["selection"]
+    value: str = Field(min_length=1, max_length=256)
+
+
+class _ProtocolUserInputCommand(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    resume: _ProtocolUserInputResume
 
 
 class SessionMessageResponse(BaseModel):
@@ -354,6 +373,29 @@ def post_message_protocol_stream(
     attachment_resolver: VisionAttachmentContextResolver = Depends(get_attachment_context_resolver),
     memory_store: BaseStore = Depends(get_memory_store),
 ) -> StreamingResponse:
+    if protocol_request.command is not None:
+        resume = _protocol_user_input_resume(protocol_request)
+        handle = _claim_user_input_resume(
+            db=db,
+            principal=principal,
+            session_id=session_id,
+        )
+        frames = _stream_user_input_resume(
+            handle=handle,
+            resume=resume,
+            principal=principal,
+            db=db,
+            memory_store=memory_store,
+            business_intent_catalog=business_intent_catalog,
+        )
+        return StreamingResponse(
+            _closeable_async_stream(_to_agent_protocol_stream(frames)),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
     message, attachments, request_id = _protocol_input(protocol_request)
     return StreamingResponse(
         _closeable_async_stream(
@@ -578,7 +620,7 @@ def _run_and_persist_agent_message(
         state=state,
         principal=principal,
         failed=False,
-        approval_occurred=bool(interrupt_payloads),
+        approval_occurred=bool(_approval_interrupt_payloads(interrupt_payloads)),
     )
     return _session_message_response(state, handle=handle)
 
@@ -620,6 +662,7 @@ def _stream_agent_message(
     state: AgentState | None = None
     trace_buffer: TraceBuffer | None = None
     finalized = False
+    approval_occurred = False
     trace_lifecycle = _TraceLifecycle()
     try:
         handle = conversation_service.begin_turn(
@@ -749,6 +792,7 @@ def _stream_agent_message(
                 http_status=500,
             )
         interrupt_payloads = _interrupt_payloads(state)
+        approval_occurred = bool(_approval_interrupt_payloads(interrupt_payloads))
         _persist_agent_message_state(
             db=db,
             state=state,
@@ -866,7 +910,7 @@ def _stream_agent_message(
             state=state,
             principal=principal,
             failed=trace_lifecycle.failed,
-            approval_occurred=bool(state and _interrupt_payloads(state)),
+            approval_occurred=approval_occurred,
         )
 
 
@@ -883,6 +927,7 @@ def _emit_stream_result(
     trace_lifecycle: _TraceLifecycle,
     answer_streamed: bool = False,
     research_process: list[dict] | None = None,
+    mark_streaming: bool = True,
 ) -> Generator[str, None, bool]:
     identity = _stream_identity(handle)
     if state["image_analyses"]:
@@ -898,17 +943,36 @@ def _emit_stream_result(
         )
 
     if interrupt_payloads:
-        yield _sse(
-            "approval_required",
-            {
-                "trace_id": state["trace_id"],
-                "approval_ids": [payload["approval_id"] for payload in interrupt_payloads],
-                **identity,
-            },
-        )
+        approval_payloads = _approval_interrupt_payloads(interrupt_payloads)
+        user_input_payloads = _user_input_interrupt_payloads(interrupt_payloads)
+        for payload in user_input_payloads:
+            yield _sse(
+                "input_required",
+                {
+                    "trace_id": state["trace_id"],
+                    **_public_user_input_interrupt(payload),
+                    **identity,
+                },
+            )
+        if approval_payloads:
+            yield _sse(
+                "approval_required",
+                {
+                    "trace_id": state["trace_id"],
+                    "approval_ids": [
+                        payload["approval_id"] for payload in approval_payloads
+                    ],
+                    **identity,
+                },
+            )
         yield _sse(
             "done",
-            {"ok": True, "pending_approval": True, **identity},
+            {
+                "ok": True,
+                "pending_approval": bool(approval_payloads),
+                "pending_input": bool(user_input_payloads),
+                **identity,
+            },
         )
         return True
 
@@ -927,11 +991,12 @@ def _emit_stream_result(
             "events": [_trace_event_payload(event) for event in trace_buffer.events],
         },
     )
-    conversation_service.mark_streaming(
-        tenant_id=principal.tenant_id,
-        run_id=handle.run_id,
-    )
-    db.commit()
+    if mark_streaming:
+        conversation_service.mark_streaming(
+            tenant_id=principal.tenant_id,
+            run_id=handle.run_id,
+        )
+        db.commit()
     yield _sse("status", {"stage": "answering", "trace_id": final_response["trace_id"]})
     if not answer_streamed:
         for chunk in _chunk_text(final_response["content"]):
@@ -1034,6 +1099,8 @@ def _persist_agent_message_state(
     commit: bool = True,
 ) -> None:
     for payload in interrupt_payloads:
+        if payload.get("approval_type") not in {"tool_call", "memory_write"}:
+            continue
         ApprovalRepository(db).create_pending_from_interrupt(
             {
                 **payload,
@@ -1107,6 +1174,228 @@ def _protocol_input(
     return message, attachments, request_id
 
 
+def _protocol_user_input_resume(
+    request: AgentProtocolStreamRequest,
+) -> _ProtocolUserInputResume:
+    try:
+        return _ProtocolUserInputCommand.model_validate(request.command).resume
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "protocol_user_input_resume_invalid"},
+        ) from exc
+
+
+def _claim_user_input_resume(
+    *,
+    db: Session,
+    principal: Principal,
+    session_id: str,
+) -> TurnHandle:
+    repository = ConversationRepository(db)
+    session_record = repository.get_owned_session(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_id=session_id,
+    )
+    if session_record is None:
+        raise HTTPException(status_code=404, detail={"code": "session_not_found"})
+    if session_record.active_run_id is None:
+        raise HTTPException(status_code=409, detail={"code": "run_state_conflict"})
+    service = ConversationService(db)
+    try:
+        handle = service.resume_turn(
+            tenant_id=principal.tenant_id,
+            run_id=session_record.active_run_id,
+        )
+        if handle.session_id != session_id or handle.session_key != session_record.session_key:
+            raise ConversationIntegrityError("resume_session_identity_mismatch")
+        service.mark_streaming(
+            tenant_id=principal.tenant_id,
+            run_id=handle.run_id,
+        )
+        db.commit()
+        return handle
+    except (ConversationConflictError, ConversationIntegrityError, ConversationNotFoundError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "conversation_persistence_unavailable"},
+        ) from exc
+
+
+def _stream_user_input_resume(
+    *,
+    handle: TurnHandle,
+    resume: _ProtocolUserInputResume,
+    principal: Principal,
+    db: Session,
+    memory_store: BaseStore,
+    business_intent_catalog: BusinessIntentCatalog,
+) -> Iterator[str]:
+    conversation_service = ConversationService(db)
+    trace_buffer = TraceBuffer()
+    trace_lifecycle = _TraceLifecycle()
+    state: AgentState | None = None
+    finalized = False
+    approval_occurred = False
+    identity = _stream_identity(handle)
+    try:
+        yield _sse("status", {"stage": "accepted", **identity})
+        llm_client = maybe_build_llm_client()
+        state = resume_user_input_graph(
+            business_intent_catalog=business_intent_catalog,
+            checkpoint_thread_id=build_checkpoint_thread_id(
+                tenant_id=principal.tenant_id,
+                session_key=handle.session_key,
+                request_id=handle.request_id,
+            ),
+            interrupt_id=resume.interrupt_id,
+            interaction_id=resume.interaction_id,
+            input_type=resume.input_type,
+            value=resume.value,
+            store=memory_store,
+            trace_buffer=trace_buffer,
+            checkpointer=build_graph_checkpointer(),
+            llm_client=llm_client,
+            permission_scopes=list(principal.scopes),
+        )
+        _validate_user_input_resume_state(
+            state=state,
+            handle=handle,
+            principal=principal,
+        )
+        interrupt_payloads = _interrupt_payloads(state)
+        approval_occurred = bool(_approval_interrupt_payloads(interrupt_payloads))
+        _persist_agent_message_state(
+            db=db,
+            state=state,
+            interrupt_payloads=interrupt_payloads,
+            run_id=handle.run_id,
+            update_run_status=False,
+            commit=False,
+        )
+        if interrupt_payloads:
+            conversation_service.interrupt_turn(
+                tenant_id=principal.tenant_id,
+                run_id=handle.run_id,
+            )
+        db.commit()
+        sync_committed_run(db=db, store=memory_store, run_id=handle.run_id)
+        if interrupt_payloads:
+            trace_lifecycle.failed = False
+        finalized = yield from _emit_stream_result(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+            state=state,
+            interrupt_payloads=interrupt_payloads,
+            llm_client=llm_client,
+            trace_buffer=trace_buffer,
+            trace_lifecycle=trace_lifecycle,
+            mark_streaming=False,
+        )
+    except AgentGraphExecutionError as exc:
+        finalized = _restore_interrupted_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
+        yield _sse(
+            "error",
+            {
+                "code": exc.code,
+                "node": exc.node_name,
+                "message": exc.message,
+                "http_status": exc.http_status,
+                **identity,
+            },
+        )
+        yield _sse("done", {"ok": False, **identity})
+    except Exception:
+        logger.exception("user_input_resume_unhandled_error")
+        finalized = _restore_interrupted_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+        )
+        yield _sse(
+            "error",
+            {
+                "code": "user_input_resume_failed",
+                "node": "user_input_resume",
+                "message": "用户输入恢复失败。",
+                "http_status": 500,
+                **identity,
+            },
+        )
+        yield _sse("done", {"ok": False, **identity})
+    finally:
+        if not finalized:
+            _restore_interrupted_turn(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+            )
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=trace_lifecycle.failed,
+            approval_occurred=approval_occurred,
+        )
+
+
+def _validate_user_input_resume_state(
+    *,
+    state: AgentState,
+    handle: TurnHandle,
+    principal: Principal,
+) -> None:
+    if (
+        state["tenant_id"] != principal.tenant_id
+        or state["user_id"] != principal.user_id
+        or state["session_id"] != handle.session_id
+        or state["session_key"] != handle.session_key
+        or state["request_id"] != handle.request_id
+        or state["assistant_message_id"] != handle.assistant_message_id
+    ):
+        raise AgentGraphExecutionError(
+            node_name="user_input_resume",
+            message="恢复后状态归属与原会话不匹配。",
+            code="user_input_resume_mismatch",
+            http_status=409,
+        )
+
+
+def _restore_interrupted_turn(
+    *,
+    db: Session,
+    conversation_service: ConversationService,
+    principal: Principal,
+    handle: TurnHandle,
+) -> bool:
+    db.rollback()
+    try:
+        conversation_service.interrupt_turn(
+            tenant_id=principal.tenant_id,
+            run_id=handle.run_id,
+        )
+        db.commit()
+    except (ConversationConflictError, SQLAlchemyError):
+        db.rollback()
+    return True
+
+
 def _to_agent_protocol_stream(frames: Iterator[str]) -> Iterator[str]:
     assistant_message_id = f"assistant_{uuid4().hex}"
     answer_emitted = False
@@ -1137,6 +1426,9 @@ def _to_agent_protocol_stream(frames: Iterator[str]) -> Iterator[str]:
                 continue
             if event == "approval_required":
                 yield _sse("custom", {"type": "approval_required", **data})
+                continue
+            if event == "input_required":
+                yield _sse("custom", {"type": "input_required", **data})
                 continue
             if event == "final":
                 content = str(data.get("content") or "")
@@ -1268,9 +1560,9 @@ def _interrupt_payloads(state: AgentState) -> list[dict]:
     checkpoint_tuple = build_graph_checkpointer().get_tuple(config)
     if checkpoint_tuple is None:
         raise AgentGraphExecutionError(
-            node_name="approval_projection",
-            message="未找到审批 Interrupt 对应的 checkpoint。",
-            code="approval_checkpoint_missing",
+            node_name="interrupt_projection",
+            message="未找到 Interrupt 对应的 checkpoint。",
+            code="interrupt_checkpoint_missing",
             http_status=409,
         )
     checkpoint_id = checkpoint_tuple.config["configurable"]["checkpoint_id"]
@@ -1280,9 +1572,9 @@ def _interrupt_payloads(state: AgentState) -> list[dict]:
         interrupt_id = getattr(item, "id", None)
         if not isinstance(payload, dict) or not interrupt_id:
             raise AgentGraphExecutionError(
-                node_name="approval_projection",
-                message="审批 Interrupt 格式无效。",
-                code="approval_interrupt_invalid",
+                node_name="interrupt_projection",
+                message="Interrupt 格式无效。",
+                code="interrupt_payload_invalid",
                 http_status=409,
             )
         payloads.append(
@@ -1297,6 +1589,33 @@ def _interrupt_payloads(state: AgentState) -> list[dict]:
     return payloads
 
 
+def _approval_interrupt_payloads(payloads: list[dict]) -> list[dict]:
+    return [
+        payload
+        for payload in payloads
+        if payload.get("approval_type") in {"tool_call", "memory_write"}
+    ]
+
+
+def _user_input_interrupt_payloads(payloads: list[dict]) -> list[dict]:
+    return [
+        payload
+        for payload in payloads
+        if payload.get("interrupt_type") == "user_input"
+    ]
+
+
+def _public_user_input_interrupt(payload: dict) -> dict:
+    return {
+        "interrupt_type": "user_input",
+        "interrupt_id": payload["interrupt_id"],
+        "interaction_id": payload["interaction_id"],
+        "input_type": payload["input_type"],
+        "question": payload["question"],
+        "options": payload["options"],
+    }
+
+
 def _session_message_response(
     state: AgentState,
     *,
@@ -1307,13 +1626,14 @@ def _session_message_response(
     run_id = handle.run_id if handle else state["request_id"]
     interrupt_payloads = _interrupt_payloads(state)
     if interrupt_payloads:
+        approval_payloads = _approval_interrupt_payloads(interrupt_payloads)
         return SessionMessageResponse(
             content="",
             trace_id=state["trace_id"],
             cited_evidence_ids=[],
-            approval_status="pending",
+            approval_status="pending" if approval_payloads else "not_required",
             run_id=run_id,
-            approval_ids=[payload["approval_id"] for payload in interrupt_payloads],
+            approval_ids=[payload["approval_id"] for payload in approval_payloads],
             message_id=message_id,
             request_id=request_id,
         )

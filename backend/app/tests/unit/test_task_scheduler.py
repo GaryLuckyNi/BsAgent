@@ -10,6 +10,7 @@ from app.graph.runtime import _dispatch_after_scheduler, task_scheduler_node
 from app.graph.state import AgentState, create_initial_state, merge_task_results
 from app.llm.schemas import LlmCompletionResult
 from app.skills.definitions import SkillDefinition, SkillExecutionGuide
+from app.schemas.user_input import UserInputOption, UserInputRequest, UserInputSource
 from langgraph.graph import END, StateGraph
 
 
@@ -102,6 +103,28 @@ def test_scheduler_still_allows_model_to_finish_when_revision_budget_exhausted()
     ]
 
     assert _dispatch_after_scheduler(state) == "planner_agent"
+
+
+def test_scheduler_prioritizes_pending_user_input_before_other_work():
+    state = create_initial_state(
+        session_id="session-user-input",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析市场",
+    )
+    state["plan"] = _plan().model_dump(mode="python")
+    state["pending_user_input"] = UserInputRequest(
+        interaction_id="interaction_1",
+        input_type="selection",
+        question="请选择",
+        options=[
+            UserInputOption(value="a", label="A"),
+            UserInputOption(value="b", label="B"),
+        ],
+        source=UserInputSource(node="tool_agent", kind="example"),
+    )
+
+    assert _dispatch_after_scheduler(state) == "user_input_gate"
 
 
 def test_scheduler_does_not_preallocate_search_slots_by_task_position():

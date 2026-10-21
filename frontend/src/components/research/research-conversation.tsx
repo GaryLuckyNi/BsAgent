@@ -3,9 +3,10 @@ import type { ResearchMessage } from '@/domain/research'
 
 import { ResearchMessageItem } from './research-message-item'
 
-export function ResearchConversation({ messages, onCitation }: {
+export function ResearchConversation({ messages, onCitation, onUserInputSelect }: {
   messages: ResearchMessage[]
   onCitation: (message: ResearchMessage, index: number) => void
+  onUserInputSelect?: (messageId: string, value: string) => void
 }) {
   return (
     <Conversation
@@ -15,7 +16,14 @@ export function ResearchConversation({ messages, onCitation }: {
       resize="instant"
     >
       <ConversationContent className="conversation-content">
-        {messages.map((message) => <ResearchMessageItem key={message.id} message={message} onCitation={onCitation} />)}
+        {messages.map((message) => (
+          <ResearchMessageItem
+            key={message.id}
+            message={message}
+            onCitation={onCitation}
+            onUserInputSelect={onUserInputSelect}
+          />
+        ))}
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>

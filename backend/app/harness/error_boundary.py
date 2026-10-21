@@ -89,6 +89,18 @@ _RECOVERABLE_ERROR_DEFINITIONS: Mapping[str, RecoverableErrorDefinition] = {
         http_status=409,
         terminal=True,
     ),
+    "user_input_resume_mismatch": RecoverableErrorDefinition(
+        code="user_input_resume_mismatch",
+        message="用户输入恢复载荷与中断请求不匹配。",
+        http_status=409,
+        terminal=True,
+    ),
+    "user_input_selection_invalid": RecoverableErrorDefinition(
+        code="user_input_selection_invalid",
+        message="用户选择不在服务端发布的候选项中。",
+        http_status=409,
+        terminal=True,
+    ),
     "tool_catalog_changed": RecoverableErrorDefinition(
         code="tool_catalog_changed",
         message="工具目录已变化，不能继续当前运行。",

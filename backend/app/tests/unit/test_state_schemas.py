@@ -39,6 +39,8 @@ def test_create_initial_state_contains_trace_and_empty_collections():
     assert state["errors"] == []
     assert state["disclosed_tool_names"] == []
     assert state["tool_search_count"] == 0
+    assert state["pending_user_input"] is None
+    assert state["user_input_response"] is None
     assert "task_brief" not in state
     assert state["planner_iteration"] == 0
 

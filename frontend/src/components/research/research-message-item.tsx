@@ -26,10 +26,12 @@ import {
 } from '@/components/ai-elements/reasoning'
 import type { ResearchMessage, ResearchProgress } from '@/domain/research'
 
-export function ResearchMessageItem({ message, onCitation }: {
+export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: {
   message: ResearchMessage
   onCitation: (message: ResearchMessage, index: number) => void
+  onUserInputSelect?: (messageId: string, value: string) => void
 }) {
+  const userInput = message.userInput
   const seenNarratives = new Set<string>()
   const processEntries: ResearchProgress[] = []
   for (const item of message.progress || []) {
@@ -53,6 +55,8 @@ export function ResearchMessageItem({ message, onCitation }: {
     && !hasResearchProcess
   const statusLabel = message.status === 'streaming'
     ? '正在研究'
+    : message.status === 'interrupted'
+      ? '等待选择'
     : message.status === 'error'
       ? '研究失败'
       : '研究完成'
@@ -116,13 +120,36 @@ export function ResearchMessageItem({ message, onCitation }: {
         {message.content && (
           <MessageResponse className="message-content" isAnimating={message.status === 'streaming'}>{message.content}</MessageResponse>
         )}
+        {userInput?.inputType === 'selection' && (
+          <section className="user-input-card" aria-label="需要你选择">
+            <h3>{userInput.question}</h3>
+            <div className="user-input-options">
+              {userInput.options.map((option) => (
+                <button
+                  className="user-input-option"
+                  type="button"
+                  key={option.value}
+                  disabled={userInput.isSubmitting}
+                  data-selected={userInput.selectedValue === option.value}
+                  onClick={() => onUserInputSelect?.(message.id, option.value)}
+                >
+                  <span>{option.label}</span>
+                  {option.description && <small>{option.description}</small>}
+                </button>
+              ))}
+            </div>
+            {userInput.isSubmitting && (
+              <p className="user-input-status" role="status">正在继续研究…</p>
+            )}
+          </section>
+        )}
         {message.citations && message.citations.length > 0 && (
           <div className="citation-row">
             <span>引用证据</span>
             {message.citations.map((index) => <button key={index} type="button" onClick={() => onCitation(message, index)} aria-label={`打开第 ${index} 条证据`}>{index}</button>)}
           </div>
         )}
-        {message.role === 'assistant' && message.status !== 'streaming' && (
+        {message.role === 'assistant' && message.status === 'complete' && (
           <MessageActions className="message-actions">
             <MessageAction tooltip="复制回答" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={14} /></MessageAction>
             <MessageAction tooltip="有帮助"><ThumbsUp size={14} /></MessageAction>

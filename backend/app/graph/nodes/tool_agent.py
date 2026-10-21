@@ -18,6 +18,7 @@ from app.graph.state import AgentState
 from app.llm.factory import ToolCallingLlmClient
 from app.schemas.approvals import PendingToolApproval
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError, ToolSpec
+from app.schemas.user_input import UserInputOption, UserInputRequest, UserInputSource
 from app.skills.workflow_contracts import WorkflowError
 from app.tools.call_budget import SearchCallBudget
 from app.tools.candidate_resolver import ToolCandidateResolution, ToolCandidateResolver
@@ -71,6 +72,9 @@ def build_tool_agent_node(
         task, legacy_tool_name = _active_tool_task(state)
         registry = selected_registry_factory()
         _validate_tool_catalog(state, registry)
+        resumed_user_input = _consume_entity_disambiguation(state=state, task=task)
+        if resumed_user_input is not None:
+            return resumed_user_input
         fixed = active_step(state)
         if fixed:
             _, step = fixed
@@ -215,6 +219,19 @@ def build_tool_agent_node(
                 )
             )
         record = record.model_copy(update={"result": result})
+        user_input_request = _entity_disambiguation_request(
+            state=state,
+            task=task,
+            request=request,
+            result=result,
+        )
+        if user_input_request is not None:
+            return {
+                **discovery_update,
+                "messages": new_messages,
+                "tool_calls": [record],
+                "pending_user_input": user_input_request,
+            }
         content = _tool_message_content(result)
         task_result = _task_result(task, result, content)
         tool_message = create_tool_result_message(
@@ -233,6 +250,123 @@ def build_tool_agent_node(
     node.tool_registry_factory = selected_registry_factory
     node.is_trusted_tool_agent = True
     return node
+
+
+def _entity_disambiguation_request(
+    *,
+    state: AgentState,
+    task: SubTaskModel,
+    request: ToolCallRequest,
+    result: ToolCallResult,
+) -> UserInputRequest | None:
+    if not request.tool_name.endswith(".stock.resolve_company"):
+        return None
+    if result.status != "failed" or result.error is None:
+        return None
+    if result.error.code != "required_data_missing":
+        return None
+
+    options: list[UserInputOption] = []
+    seen_symbols: set[str] = set()
+    raw_candidates = result.error.details.get("candidates")
+    if not isinstance(raw_candidates, list):
+        return None
+    for candidate in raw_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        symbol = str(candidate.get("symbol") or "").strip()
+        name = str(candidate.get("name") or "").strip()
+        if not symbol or symbol in seen_symbols:
+            continue
+        seen_symbols.add(symbol)
+        description = f"证券代码：{symbol}"
+        score = candidate.get("score")
+        if isinstance(score, (int, float)) and 0 <= score <= 1:
+            description += f"，匹配度：{score:.0%}"
+        options.append(
+            UserInputOption(
+                value=symbol,
+                label=name or symbol,
+                description=description,
+            )
+        )
+        if len(options) == 10:
+            break
+    if len(options) < 2:
+        return None
+
+    identity = ":".join(
+        (
+            state["request_id"],
+            task.id,
+            request.call_id or "",
+            "entity_disambiguation",
+        )
+    )
+    return UserInputRequest(
+        interaction_id=f"interaction_{sha256(identity.encode()).hexdigest()[:32]}",
+        input_type="selection",
+        question="找到多个可能的证券标的，请选择你指的是哪一个。",
+        options=tuple(options),
+        source=UserInputSource(
+            node="tool_agent",
+            kind="entity_disambiguation",
+            task_id=task.id,
+            call_id=request.call_id,
+        ),
+    )
+
+
+def _consume_entity_disambiguation(
+    *,
+    state: AgentState,
+    task: SubTaskModel,
+) -> dict[str, Any] | None:
+    response = state.get("user_input_response")
+    if response is None:
+        return None
+    source = response.source
+    if (
+        source.node != "tool_agent"
+        or source.kind != "entity_disambiguation"
+        or source.task_id != task.id
+        or source.call_id is None
+    ):
+        return None
+    record = next(
+        (
+            item
+            for item in state.get("tool_calls", [])
+            if (item.call_id or item.request.call_id) == source.call_id
+            and item.request.tool_name.endswith(".stock.resolve_company")
+        ),
+        None,
+    )
+    if record is None:
+        return None
+
+    result = ToolCallResult(
+        tool_call_id=source.call_id,
+        tool_name=record.request.tool_name,
+        status="success",
+        result={"resolution": "user_selection", "symbol": response.value},
+        trace_id=state["trace_id"],
+    )
+    completed_record = record.model_copy(update={"result": result})
+    content = _tool_message_content(result)
+    task_result = _task_result(task, result, content)
+    tool_message = create_tool_result_message(
+        tool_call_id=source.call_id,
+        tool_name=record.request.tool_name,
+        content=task_result.content,
+        artifact=result.model_dump(mode="json"),
+    )
+    return {
+        "messages": [tool_message],
+        "tool_calls": [completed_record],
+        "task_results": [task_result.model_dump(mode="python")],
+        "user_input_response": None,
+    }
 
 
 def _resolve_candidates(

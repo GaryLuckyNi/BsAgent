@@ -34,7 +34,7 @@ from app.storage.models import (
 )
 from app.tests.support.workflow_llm import WorkflowTestLlm
 from app.tools.registry import ToolRegistry
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Interrupt
@@ -2432,6 +2432,211 @@ def test_agent_protocol_stream_projects_progress_and_message_tokens(monkeypatch)
     assert "第一段" in response.text
     assert '"type": "final"' in response.text
     assert "event: answer_delta" not in response.text
+
+
+def test_agent_protocol_stream_projects_user_input_without_approval_record(monkeypatch):
+    def interrupted_stream(**kwargs):
+        state = _initial_state_from_graph_kwargs(kwargs)
+        state["__interrupt__"] = [
+            Interrupt(
+                value={
+                    "interrupt_type": "user_input",
+                    "interaction_id": "interaction_1",
+                    "input_type": "selection",
+                    "question": "请选择证券标的",
+                    "options": [
+                        {"value": "688825.SH", "label": "C长鑫", "description": None},
+                        {"value": "603986.SH", "label": "兆易创新", "description": None},
+                    ],
+                }
+            )
+        ]
+        yield state
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", interrupted_stream)
+    monkeypatch.setattr(
+        sessions,
+        "_interrupt_payloads",
+        lambda _state: [
+            {
+                "interrupt_type": "user_input",
+                "interrupt_id": "interrupt_1",
+                "interaction_id": "interaction_1",
+                "input_type": "selection",
+                "question": "请选择证券标的",
+                "options": [
+                    {"value": "688825.SH", "label": "C长鑫", "description": None},
+                    {"value": "603986.SH", "label": "兆易创新", "description": None},
+                ],
+                "checkpoint_thread_id": "must_not_leak",
+                "checkpoint_id": "must_not_leak",
+            }
+        ],
+    )
+    app, testing_session_local = create_test_app_with_database()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/protocol-stream",
+        json={"input": {"messages": [{"type": "human", "content": "分析长鑫存储"}]}},
+    )
+
+    assert response.status_code == 200
+    custom_events = [
+        json.loads(block.split("data: ", 1)[1])
+        for block in response.text.split("\n\n")
+        if block.startswith("event: custom")
+    ]
+    event = next(item for item in custom_events if item["type"] == "input_required")
+    assert event["interaction_id"] == "interaction_1"
+    assert event["interrupt_id"] == "interrupt_1"
+    assert "checkpoint_thread_id" not in event
+    assert "checkpoint_id" not in event
+    with testing_session_local() as db:
+        assert db.scalars(select(ApprovalRecord)).all() == []
+        run = db.scalars(select(AgentRun)).one()
+        assistant = db.scalars(
+            select(AgentMessage).where(AgentMessage.role == "assistant")
+        ).one()
+    assert run.status == assistant.status == "interrupted"
+
+
+def test_agent_protocol_resume_uses_active_run_and_server_checkpoint_identity(monkeypatch):
+    captured = {}
+
+    def fake_resume(**kwargs):
+        captured.update(kwargs)
+        state = create_initial_state(
+            session_id=handle.session_id,
+            session_key=handle.session_key,
+            tenant_id="tenant_1",
+            user_id="user_1",
+            user_message="分析长鑫存储",
+            request_id=handle.request_id,
+            trace_id=handle.trace_id,
+            user_message_id=handle.user_message_id,
+            assistant_message_id=handle.assistant_message_id,
+        )
+        state["final_response"] = {
+            "content": "已选择 C长鑫。",
+            "trace_id": handle.trace_id,
+            "cited_evidence_ids": [],
+            "approval_status": "not_required",
+        }
+        return state
+
+    monkeypatch.setattr(sessions, "resume_user_input_graph", fake_resume)
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        handle = ConversationService(db).begin_turn(
+            BeginTurn(
+                tenant_id="tenant_1",
+                user_id="user_1",
+                session_id="s1",
+                request_id="request_resume",
+                user_content="分析长鑫存储",
+            )
+        )
+        ConversationService(db).interrupt_turn(
+            tenant_id="tenant_1",
+            run_id=handle.run_id,
+        )
+        db.commit()
+        expected_thread_id = build_checkpoint_thread_id(
+            tenant_id="tenant_1",
+            session_key=handle.session_key,
+            request_id=handle.request_id,
+        )
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/protocol-stream",
+        json={
+            "command": {
+                "resume": {
+                    "interrupt_id": "interrupt_1",
+                    "interaction_id": "interaction_1",
+                    "input_type": "selection",
+                    "value": "688825.SH",
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["checkpoint_thread_id"] == expected_thread_id
+    assert captured["interrupt_id"] == "interrupt_1"
+    assert captured["interaction_id"] == "interaction_1"
+    assert "checkpoint_id" not in captured
+    assert '"type": "final"' in response.text
+    with testing_session_local() as db:
+        run = db.scalars(select(AgentRun)).one()
+        session_record = db.scalars(select(AgentSession)).one()
+    assert run.status == "completed"
+    assert session_record.active_run_id is None
+
+
+def test_agent_protocol_resume_rejects_client_checkpoint_coordinates():
+    app, _ = create_test_app_with_database()
+
+    response = TestClient(app).post(
+        "/api/sessions/s1/messages/protocol-stream",
+        json={
+            "command": {
+                "resume": {
+                    "interrupt_id": "interrupt_1",
+                    "interaction_id": "interaction_1",
+                    "input_type": "selection",
+                    "value": "688825.SH",
+                    "checkpoint_id": "client_checkpoint",
+                }
+            }
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "protocol_user_input_resume_invalid"
+
+
+def test_user_input_resume_claim_allows_only_one_request():
+    app, testing_session_local = create_test_app_with_database()
+    del app
+    principal = Principal(
+        tenant_id="tenant_1",
+        user_id="user_1",
+        scopes=("agent:invoke",),
+    )
+    with testing_session_local() as db:
+        handle = ConversationService(db).begin_turn(
+            BeginTurn(
+                tenant_id="tenant_1",
+                user_id="user_1",
+                session_id="s1",
+                request_id="request_claim",
+                user_content="需要选择",
+            )
+        )
+        ConversationService(db).interrupt_turn(
+            tenant_id="tenant_1",
+            run_id=handle.run_id,
+        )
+        db.commit()
+
+    with testing_session_local() as first_db:
+        claimed = sessions._claim_user_input_resume(
+            db=first_db,
+            principal=principal,
+            session_id="s1",
+        )
+    assert claimed.run_id == handle.run_id
+
+    with testing_session_local() as second_db:
+        with pytest.raises(HTTPException) as exc_info:
+            sessions._claim_user_input_resume(
+                db=second_db,
+                principal=principal,
+                session_id="s1",
+            )
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "run_state_conflict"
 
 
 def test_ag_ui_endpoint_streams_official_typed_events(monkeypatch):

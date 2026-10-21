@@ -31,7 +31,7 @@ type ResearchGraphUpdate = {
 }
 
 type AgentProtocolEvent = {
-  type: 'progress' | 'final' | 'approval_required'
+  type: 'progress' | 'final' | 'approval_required' | 'input_required'
   id?: string
   stage?: string
   label?: string
@@ -45,6 +45,15 @@ type AgentProtocolEvent = {
   query?: string
   result_count?: number
   result_urls?: string[]
+  interrupt_id?: string
+  interaction_id?: string
+  input_type?: 'selection'
+  question?: string
+  options?: Array<{
+    value: string
+    label: string
+    description?: string | null
+  }>
   response?: {
     content?: string
     cited_evidence_ids?: string[]
@@ -171,8 +180,32 @@ export function useResearchSession(identity: RequestIdentity) {
         ...message,
         content: response.content || message.content,
         status: 'complete',
+        userInput: undefined,
         evidence,
         citations: evidence.map((item) => item.index)
+      })))
+      return
+    }
+    if (
+      event.type === 'input_required'
+      && event.input_type === 'selection'
+      && event.interrupt_id
+      && event.interaction_id
+      && event.question
+      && event.options
+      && event.options.length >= 2
+    ) {
+      setMessages((current) => updateMessage(current, assistantId, (message) => ({
+        ...message,
+        status: 'interrupted',
+        processStatus: undefined,
+        userInput: {
+          interruptId: event.interrupt_id!,
+          interactionId: event.interaction_id!,
+          inputType: 'selection',
+          question: event.question!,
+          options: event.options!
+        }
       })))
     }
   }, [])
@@ -191,7 +224,8 @@ export function useResearchSession(identity: RequestIdentity) {
         setMessages((current) => updateMessage(current, assistantId, (item) => ({
           ...item,
           content: item.content || message,
-          status: 'error'
+          status: item.userInput ? 'interrupted' : 'error',
+          userInput: item.userInput ? { ...item.userInput, isSubmitting: false } : undefined
         })))
       }
     },
@@ -200,7 +234,12 @@ export function useResearchSession(identity: RequestIdentity) {
       if (assistantId) {
         setMessages((current) => updateMessage(current, assistantId, (message) => ({
           ...message,
-          status: message.status === 'error' ? 'error' : 'complete'
+          status: message.status === 'error' || message.status === 'interrupted'
+            ? message.status
+            : 'complete',
+          userInput: message.userInput
+            ? { ...message.userInput, isSubmitting: false }
+            : undefined
         })))
       }
       activeAssistantIdRef.current = null
@@ -298,6 +337,44 @@ export function useResearchSession(identity: RequestIdentity) {
     void stream.stop()
   }, [stream])
 
+  const resumeUserInput = useCallback(async (messageId: string, value: string) => {
+    if (stream.isLoading) return
+    const message = messagesRef.current.find((item) => item.id === messageId)
+    const userInput = message?.userInput
+    if (!userInput || userInput.isSubmitting) return
+    if (!userInput.options.some((option) => option.value === value)) return
+
+    setError('')
+    activeAssistantIdRef.current = messageId
+    lastStreamedAnswerRef.current = null
+    setMessages((current) => updateMessage(current, messageId, (item) => ({
+      ...item,
+      status: 'interrupted',
+      userInput: item.userInput ? {
+        ...item.userInput,
+        isSubmitting: true,
+        selectedValue: value
+      } : undefined
+    })))
+    try {
+      await stream.submit(null, {
+        command: {
+          resume: {
+            interrupt_id: userInput.interruptId,
+            interaction_id: userInput.interactionId,
+            input_type: userInput.inputType,
+            value
+          }
+        }
+      })
+    } finally {
+      setMessages((current) => updateMessage(current, messageId, (item) => ({
+        ...item,
+        userInput: item.userInput ? { ...item.userInput, isSubmitting: false } : undefined
+      })))
+    }
+  }, [stream])
+
   return {
     sessionId,
     messages,
@@ -305,6 +382,7 @@ export function useResearchSession(identity: RequestIdentity) {
     isOnline,
     error,
     sendMessage,
+    resumeUserInput,
     cancelMessage
   }
 }

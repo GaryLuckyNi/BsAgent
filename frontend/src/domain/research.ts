@@ -17,12 +17,29 @@ export type ResearchMessage = {
   createdAt: string
   citations?: number[]
   evidence?: EvidenceSource[]
-  status?: 'streaming' | 'complete' | 'error'
+  status?: 'streaming' | 'interrupted' | 'complete' | 'error'
   thinking?: string
   reasoning?: ResearchReasoning[]
   progress?: ResearchProgress[]
   processStatus?: string
   attachments?: ResearchAttachmentSnapshot[]
+  userInput?: ResearchUserInput
+}
+
+export type ResearchUserInputOption = {
+  value: string
+  label: string
+  description?: string | null
+}
+
+export type ResearchUserInput = {
+  interruptId: string
+  interactionId: string
+  inputType: 'selection'
+  question: string
+  options: ResearchUserInputOption[]
+  isSubmitting?: boolean
+  selectedValue?: string
 }
 
 export type ResearchReasoning = {

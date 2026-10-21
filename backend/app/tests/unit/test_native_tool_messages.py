@@ -16,6 +16,7 @@ from app.graph.state import create_initial_state, merge_tool_call_records
 from app.schemas.approvals import ApprovedToolCall
 from app.schemas.messages import Message
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
+from app.schemas.user_input import UserInputResponse
 from app.tools.base import Tool
 from app.tools.candidate_resolver import ToolCandidateResolution, ToolCandidateResolver
 from app.tools.native_calls import create_tool_call_message, create_tool_result_message
@@ -330,6 +331,50 @@ class PermissionDeniedDailyTool(DailyTool):
         )
 
 
+class ResolveCompanyTool(DailyTool):
+    name = "mcp.tushare.stock.resolve_company"
+    description = "解析 A 股公司名称"
+
+    def __init__(self, candidates):
+        self.candidates = candidates
+        self.calls = 0
+
+    async def run(self, input_data: DailyInput) -> ToolCallResult:
+        self.calls += 1
+        return ToolCallResult(
+            tool_call_id="provider-call",
+            tool_name=self.name,
+            status="failed",
+            error=ToolError(
+                code="required_data_missing",
+                message="公司名称无法唯一解析。",
+                details={"candidates": self.candidates},
+            ),
+            trace_id="provider-trace",
+        )
+
+
+class ResolveCompanyClient(ToolCallingClient):
+    def bind_tools(self, tools, *, tool_choice):
+        self.bind_calls += 1
+
+        class Bound:
+            def invoke(_self, messages):
+                return AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "id": "model-call",
+                            "name": "mcp_tushare_stock_resolve_company",
+                            "args": {"symbol": "长鑫存储"},
+                            "type": "tool_call",
+                        }
+                    ],
+                )
+
+        return Bound()
+
+
 class WebSearchInput(BaseModel):
     query: str
 
@@ -632,6 +677,130 @@ def test_tool_worker_treats_provider_permission_denied_as_replan_observation():
     assert update["task_results"][0]["status"] == "business_failure"
     assert update["task_results"][0]["error_code"] == "provider_permission_denied"
     assert update["task_results"][0]["tool_name"] == PermissionDeniedDailyTool.name
+
+
+def test_company_resolution_candidates_create_generic_user_input_request():
+    tool = ResolveCompanyTool(
+        [
+            {"symbol": "688825.SH", "name": "C长鑫", "score": 1.0},
+            {"symbol": "603986.SH", "name": "兆易创新", "score": 0.82},
+        ]
+    )
+    registry = ToolRegistry()
+    registry.register(tool)
+    registry = registry.snapshot()
+    state = create_initial_state(
+        session_id="session-selection",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="长鑫存储是哪只股票？",
+        tool_catalog_digest=registry.catalog_digest,
+    )
+    state["active_task"] = {
+        "id": "resolve_company",
+        "task_goal": "解析长鑫存储对应的证券代码",
+        "tool_name": tool.name,
+    }
+
+    update = build_tool_agent_node(
+        registry_factory=lambda: registry,
+        llm_client=ResolveCompanyClient(),
+    )(state)
+
+    request = update["pending_user_input"]
+    assert request.input_type == "selection"
+    assert [(item.value, item.label) for item in request.options] == [
+        ("688825.SH", "C长鑫"),
+        ("603986.SH", "兆易创新"),
+    ]
+    assert request.source.node == "tool_agent"
+    assert request.source.kind == "entity_disambiguation"
+    assert request.source.task_id == "resolve_company"
+    assert request.source.call_id == update["tool_calls"][0].request.call_id
+    assert "task_results" not in update
+
+
+def test_company_resolution_single_candidate_keeps_business_failure():
+    tool = ResolveCompanyTool([{"symbol": "688825.SH", "name": "C长鑫"}])
+    registry = ToolRegistry()
+    registry.register(tool)
+    registry = registry.snapshot()
+    state = create_initial_state(
+        session_id="session-single",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="长鑫存储是哪只股票？",
+        tool_catalog_digest=registry.catalog_digest,
+    )
+    state["active_task"] = {
+        "id": "resolve_company",
+        "task_goal": "解析公司",
+        "tool_name": tool.name,
+    }
+
+    update = build_tool_agent_node(
+        registry_factory=lambda: registry,
+        llm_client=ResolveCompanyClient(),
+    )(state)
+
+    assert update["task_results"][0]["status"] == "business_failure"
+    assert update["task_results"][0]["error_code"] == "required_data_missing"
+    assert "pending_user_input" not in update
+
+
+def test_company_resolution_resume_succeeds_without_reexecuting_tool():
+    tool = ResolveCompanyTool(
+        [
+            {"symbol": "688825.SH", "name": "C长鑫"},
+            {"symbol": "603986.SH", "name": "兆易创新"},
+        ]
+    )
+    registry = ToolRegistry()
+    registry.register(tool)
+    registry = registry.snapshot()
+    state = create_initial_state(
+        session_id="session-resume",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="长鑫存储是哪只股票？",
+        tool_catalog_digest=registry.catalog_digest,
+    )
+    state["active_task"] = {
+        "id": "resolve_company",
+        "task_goal": "解析公司",
+        "tool_name": tool.name,
+    }
+    worker = build_tool_agent_node(
+        registry_factory=lambda: registry,
+        llm_client=ResolveCompanyClient(),
+    )
+    interrupted = worker(state)
+    state["tool_calls"] = merge_tool_call_records(
+        state["tool_calls"], interrupted["tool_calls"]
+    )
+    request = interrupted["pending_user_input"]
+    state["pending_user_input"] = None
+    state["user_input_response"] = UserInputResponse(
+        interaction_id=request.interaction_id,
+        input_type="selection",
+        value="688825.SH",
+        source=request.source,
+    )
+
+    completed = worker(state)
+
+    assert tool.calls == 1
+    assert completed["user_input_response"] is None
+    assert completed["task_results"] == [
+        {
+            "task_id": "resolve_company",
+            "status": "success",
+            "content": '{"resolution":"user_selection","symbol":"688825.SH"}',
+            "error_code": None,
+            "tool_name": tool.name,
+        }
+    ]
+    assert completed["tool_calls"][0].result.status == "success"
 
 
 def test_high_risk_tool_reuses_staged_call_after_approval():

@@ -185,6 +185,16 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .message-actions { display: flex; gap: 3px; margin-top: 10px; }
 .message-actions button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #9aa1ab; }
 .message-actions button:hover { background: #f2f4f6; color: #536174; }
+.user-input-card { margin-top: 16px; padding: 16px; border: 1px solid #dfe5ec; border-radius: 10px; background: #f8fafc; }
+.user-input-card h3 { margin: 0 0 12px; color: #26354a; font-size: 14px; font-weight: 600; line-height: 1.6; }
+.user-input-options { display: grid; gap: 8px; }
+.user-input-option { width: 100%; padding: 11px 12px; border: 1px solid #d8e0e9; border-radius: 8px; background: #fff; color: #314158; text-align: left; transition: border-color .15s, background .15s; }
+.user-input-option:hover:not(:disabled) { border-color: #8da0b8; background: #f5f8fb; }
+.user-input-option:disabled { cursor: wait; opacity: .62; }
+.user-input-option[data-selected="true"] { border-color: #7189a5; background: #edf3f8; }
+.user-input-option span { display: block; font-size: 13px; font-weight: 600; }
+.user-input-option small { display: block; margin-top: 3px; color: #7c8796; font-size: 11px; line-height: 1.5; }
+.user-input-status { margin: 10px 0 0; color: #6f7d8e; font-size: 11px; }
 
 .composer-wrap { width: min(860px, calc(100% - 48px)); margin: 0 auto; padding: 0 0 max(20px, env(safe-area-inset-bottom)); background: #fff; }
 .prompt-input { border: 1px solid #d9dee5; border-radius: 10px; background: white; box-shadow: 0 9px 30px #15274312; overflow: hidden; transition: border-color .2s, box-shadow .2s; }

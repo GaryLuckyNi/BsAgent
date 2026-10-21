@@ -12,6 +12,7 @@ const sdk = vi.hoisted(() => ({
   options: undefined as {
     throttle?: boolean | number
     onCustomEvent?: (event: Record<string, unknown>) => void
+    onFinish?: () => void
   } | undefined,
   submit: vi.fn(async (_input: unknown, _options: unknown) => undefined),
   stop: vi.fn(async () => undefined)
@@ -22,6 +23,7 @@ vi.mock('@langchain/langgraph-sdk/react', () => ({
   useStream: (options: {
     throttle?: boolean | number
     onCustomEvent?: (event: Record<string, unknown>) => void
+    onFinish?: () => void
   }) => {
     sdk.options = options
     return {
@@ -271,5 +273,55 @@ describe('useResearchSession', () => {
         status: 'completed'
       })
     ])
+  })
+
+  it('保存通用选择中断并用原助手消息提交恢复命令', async () => {
+    const { result } = renderHook(() => useResearchSession({
+      tenantId: 'tenant-1',
+      userId: 'user-1'
+    }))
+    await act(async () => {
+      await result.current.sendMessage('分析长鑫存储。')
+    })
+    const assistantId = result.current.messages.at(-1)!.id
+
+    act(() => {
+      sdk.options?.onCustomEvent?.({
+        type: 'input_required',
+        interrupt_id: 'interrupt-1',
+        interaction_id: 'interaction-1',
+        input_type: 'selection',
+        question: '请选择证券标的',
+        options: [
+          { value: '688825.SH', label: 'C长鑫', description: '证券代码：688825.SH' },
+          { value: '603986.SH', label: '兆易创新', description: '证券代码：603986.SH' }
+        ]
+      })
+      sdk.options?.onFinish?.()
+    })
+
+    expect(result.current.messages.at(-1)).toEqual(expect.objectContaining({
+      id: assistantId,
+      status: 'interrupted',
+      userInput: expect.objectContaining({
+        interactionId: 'interaction-1',
+        question: '请选择证券标的'
+      })
+    }))
+
+    await act(async () => {
+      await result.current.resumeUserInput(assistantId, '688825.SH')
+    })
+
+    expect(sdk.submit).toHaveBeenLastCalledWith(null, {
+      command: {
+        resume: {
+          interrupt_id: 'interrupt-1',
+          interaction_id: 'interaction-1',
+          input_type: 'selection',
+          value: '688825.SH'
+        }
+      }
+    })
   })
 })
