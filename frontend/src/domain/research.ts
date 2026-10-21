@@ -17,7 +17,7 @@ export type ResearchMessage = {
   createdAt: string
   citations?: number[]
   evidence?: EvidenceSource[]
-  status?: 'streaming' | 'interrupted' | 'complete' | 'error'
+  status?: 'streaming' | 'stopping' | 'cancelled' | 'interrupted' | 'complete' | 'error'
   thinking?: string
   reasoning?: ResearchReasoning[]
   progress?: ResearchProgress[]

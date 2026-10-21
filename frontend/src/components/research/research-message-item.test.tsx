@@ -24,6 +24,12 @@ vi.mock('@/components/ai-elements/reasoning', () => ({
 }))
 
 describe('ResearchMessageItem', () => {
+  it('停止的部分回答明确标记不完整，空回答也显示停止状态', () => {
+    render(<ResearchMessageItem message={{ id: 'a1', role: 'assistant', content: '', createdAt: '', status: 'cancelled' }} onCitation={vi.fn()} />)
+    expect(screen.getByText('已停止 · 回答可能不完整')).toBeTruthy()
+    expect(screen.queryByText('研究完成')).toBeNull()
+    expect(screen.queryByLabelText('回复生成中')).toBeNull()
+  })
   it('等待首个公开研究事件时显示 loading 动画，收到摘要后直接展示', () => {
     const message = {
       id: 'direct', role: 'assistant' as const, content: '', createdAt: '',

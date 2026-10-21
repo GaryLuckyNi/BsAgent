@@ -55,6 +55,10 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
     && !hasResearchProcess
   const statusLabel = message.status === 'streaming'
     ? '正在研究'
+    : message.status === 'stopping'
+      ? '正在停止'
+    : message.status === 'cancelled'
+      ? '已停止 · 回答可能不完整'
     : message.status === 'interrupted'
       ? '等待选择'
     : message.status === 'error'

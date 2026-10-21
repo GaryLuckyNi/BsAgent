@@ -76,7 +76,7 @@ AGENT_INVOCATION_RATE_LIMIT = RateLimitPolicy(
     name="agent_invocation",
     requests_per_minute=settings.agent_rate_limit_per_minute,
 )
-CONVERSATION_HISTORY_LIMIT = 20
+CONVERSATION_HISTORY_LIMIT = 0
 
 
 class ConversationPersistenceUnavailable(RuntimeError):
@@ -373,53 +373,12 @@ def post_message_protocol_stream(
     attachment_resolver: VisionAttachmentContextResolver = Depends(get_attachment_context_resolver),
     memory_store: BaseStore = Depends(get_memory_store),
 ) -> StreamingResponse:
-    if protocol_request.command is not None:
-        resume = _protocol_user_input_resume(protocol_request)
-        handle = _claim_user_input_resume(
-            db=db,
-            principal=principal,
-            session_id=session_id,
-        )
-        frames = _stream_user_input_resume(
-            handle=handle,
-            resume=resume,
-            principal=principal,
-            db=db,
-            memory_store=memory_store,
-            business_intent_catalog=business_intent_catalog,
-        )
-        return StreamingResponse(
-            _closeable_async_stream(_to_agent_protocol_stream(frames)),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
-        )
-    message, attachments, request_id = _protocol_input(protocol_request)
-    return StreamingResponse(
-        _closeable_async_stream(
-            _to_agent_protocol_stream(
-                _stream_agent_message(
-                    session_id=session_id,
-                    request=SessionMessageRequest(
-                        message=message,
-                        attachments=attachments,
-                    ),
-                    principal=principal,
-                    db=db,
-                    attachment_resolver=attachment_resolver,
-                    memory_store=memory_store,
-                    business_intent_catalog=business_intent_catalog,
-                    request_id=request_id,
-                ),
-            )
-        ),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+    from app.api.runs import start_protocol_turn
+
+    return start_protocol_turn(
+        session_id=session_id, protocol_request=protocol_request, principal=principal,
+        db=db, attachment_resolver=attachment_resolver, memory_store=memory_store,
+        business_intent_catalog=business_intent_catalog,
     )
 
 
@@ -447,6 +406,12 @@ def _load_execution_snapshot(
             metadata={"request_id": record.request_id},
         )
         for record in history_records
+    )
+    from app.conversations.handoff import load_cancelled_turn_handoff
+
+    history += load_cancelled_turn_handoff(
+        db, tenant_id=principal.tenant_id, user_id=principal.user_id,
+        session_key=handle.session_key, exclude_request_id=handle.request_id,
     )
     attachment_contexts = (
         attachment_resolver.resolve(
@@ -656,26 +621,29 @@ def _stream_agent_message(
     memory_store: BaseStore,
     business_intent_catalog: BusinessIntentCatalog,
     request_id: str,
+    prepared_handle: TurnHandle | None = None,
+    execution_snapshot: _ExecutionSnapshot | None = None,
 ) -> Iterator[str]:
     conversation_service = ConversationService(db)
-    handle: TurnHandle | None = None
+    handle: TurnHandle | None = prepared_handle
     state: AgentState | None = None
     trace_buffer: TraceBuffer | None = None
     finalized = False
     approval_occurred = False
     trace_lifecycle = _TraceLifecycle()
     try:
-        handle = conversation_service.begin_turn(
-            BeginTurn(
-                tenant_id=principal.tenant_id,
-                user_id=principal.user_id,
-                session_id=session_id,
-                request_id=request_id,
-                user_content=request.message,
-                metadata=ConversationMetadata(attachment_ids=tuple(request.attachments)),
+        if handle is None:
+            handle = conversation_service.begin_turn(
+                BeginTurn(
+                    tenant_id=principal.tenant_id,
+                    user_id=principal.user_id,
+                    session_id=session_id,
+                    request_id=request_id,
+                    user_content=request.message,
+                    metadata=ConversationMetadata(attachment_ids=tuple(request.attachments)),
+                )
             )
-        )
-        db.commit()
+            db.commit()
         if handle.replayed:
             replayed = _replayed_message_response(
                 db=db,
@@ -704,7 +672,7 @@ def _stream_agent_message(
         trace_buffer = TraceBuffer()
         identity = _stream_identity(handle)
         yield _sse("status", {"stage": "accepted", **identity})
-        snapshot = _load_execution_snapshot(
+        snapshot = execution_snapshot or _load_execution_snapshot(
             db=db,
             principal=principal,
             session_id=session_id,
@@ -896,7 +864,10 @@ def _stream_agent_message(
         yield _sse("done", {"ok": False, **_stream_identity(handle)})
         return
     finally:
-        if handle is not None and not handle.replayed and not finalized:
+        from app.conversations.execution import current_execution
+
+        if (current_execution.get() is None
+                and handle is not None and not handle.replayed and not finalized):
             _fail_stream_turn(
                 db=db,
                 conversation_service=conversation_service,
@@ -1098,6 +1069,9 @@ def _persist_agent_message_state(
     update_run_status: bool = True,
     commit: bool = True,
 ) -> None:
+    from app.conversations.execution import check_execution_cancelled
+
+    check_execution_cancelled(db)
     for payload in interrupt_payloads:
         if payload.get("approval_type") not in {"tool_call", "memory_write"}:
             continue
@@ -1191,6 +1165,7 @@ def _claim_user_input_resume(
     db: Session,
     principal: Principal,
     session_id: str,
+    commit: bool = True,
 ) -> TurnHandle:
     repository = ConversationRepository(db)
     session_record = repository.get_owned_session(
@@ -1214,7 +1189,10 @@ def _claim_user_input_resume(
             tenant_id=principal.tenant_id,
             run_id=handle.run_id,
         )
-        db.commit()
+        if commit:
+            db.commit()
+        else:
+            db.flush()
         return handle
     except (ConversationConflictError, ConversationIntegrityError, ConversationNotFoundError) as exc:
         db.rollback()
@@ -1337,7 +1315,9 @@ def _stream_user_input_resume(
         )
         yield _sse("done", {"ok": False, **identity})
     finally:
-        if not finalized:
+        from app.conversations.execution import current_execution
+
+        if current_execution.get() is None and not finalized:
             _restore_interrupted_turn(
                 db=db,
                 conversation_service=conversation_service,

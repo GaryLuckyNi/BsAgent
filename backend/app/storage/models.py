@@ -93,7 +93,7 @@ class AgentMessage(Base):
         ),
         CheckConstraint(
             "status IN "
-            "('pending', 'streaming', 'completed', 'failed', 'interrupted')",
+            "('pending', 'streaming', 'completed', 'failed', 'interrupted', 'cancelled')",
             name="ck_agent_messages_status",
         ),
         Index("ix_agent_messages_run_id", "run_id"),
@@ -188,6 +188,51 @@ class AgentRun(Base):
     risk_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
     graph_version: Mapped[str] = mapped_column(String(64), default="agentic-rag-core-v1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+
+
+class AgentRunExecution(Base):
+    """后台 turn 的所有权；心跳过期本身不授予接管权限。"""
+
+    __tablename__ = "agent_run_executions"
+
+    run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    owner_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    owner_pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stop_requested: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_sequence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    phase_start_sequence: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    producer_done: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    payload: Mapped[dict] = mapped_column(TRACE_JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+
+
+class AgentRunProtocolEvent(Base):
+    __tablename__ = "agent_run_protocol_events"
+
+    run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    sequence: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event: Mapped[str] = mapped_column(String(32), nullable=False)
+    data: Mapped[dict | list] = mapped_column(TRACE_JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+
+
+class AgentRunToolReceipt(Base):
+    """工具已调度及结果摘要，独立于图 checkpoint，在取消时仍须保存。"""
+
+    __tablename__ = "agent_run_tool_receipts"
+
+    receipt_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    owner_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    tool_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    risk_level: Mapped[str] = mapped_column(String(16), nullable=False, default="high")
+    call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    result_summary: Mapped[dict] = mapped_column(TRACE_JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AgentTraceEvent(Base):

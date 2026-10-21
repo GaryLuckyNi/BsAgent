@@ -4,6 +4,7 @@ import type { Message } from '@langchain/langgraph-sdk'
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { PersistedConversationMessage } from '../conversation-session'
 import { useResearchSession } from './use-research-session'
 
 const sdk = vi.hoisted(() => ({
@@ -13,9 +14,21 @@ const sdk = vi.hoisted(() => ({
     throttle?: boolean | number
     onCustomEvent?: (event: Record<string, unknown>) => void
     onFinish?: () => void
+    onError?: (error: Error) => void
   } | undefined,
   submit: vi.fn(async (_input: unknown, _options: unknown) => undefined),
   stop: vi.fn(async () => undefined)
+}))
+
+const runs = vi.hoisted(() => ({
+  history: vi.fn(async (): Promise<PersistedConversationMessage[]> => []),
+  active: vi.fn(async (): Promise<unknown> => null),
+  stop: vi.fn(async () => ({ run_id: 'r1', status: 'cancelled' })),
+  subscribe: vi.fn(async (_session: string, _run: string, _identity: unknown, _after: number, _signal: AbortSignal, _onEvent: (event: unknown) => void) => 0)
+}))
+
+vi.mock('../services/research-runs', () => ({
+  loadActiveRun: runs.active, stopResearchRun: runs.stop, subscribeRunEvents: runs.subscribe
 }))
 
 vi.mock('@langchain/langgraph-sdk/react', () => ({
@@ -24,6 +37,7 @@ vi.mock('@langchain/langgraph-sdk/react', () => ({
     throttle?: boolean | number
     onCustomEvent?: (event: Record<string, unknown>) => void
     onFinish?: () => void
+    onError?: (error: Error) => void
   }) => {
     sdk.options = options
     return {
@@ -39,7 +53,7 @@ vi.mock('../services/research-api', () => ({
   agentProtocolStreamUrl: () => '/api/stream',
   agentRequestHeaders: () => ({}),
   checkAgentHealth: async () => true,
-  loadSessionMessages: async () => []
+  loadSessionMessages: runs.history
 }))
 
 describe('useResearchSession', () => {
@@ -61,7 +75,198 @@ describe('useResearchSession', () => {
     sdk.options = undefined
     sdk.submit.mockClear()
     sdk.stop.mockClear()
+    runs.history.mockReset().mockResolvedValue([])
+    runs.active.mockReset().mockResolvedValue(null)
+    runs.stop.mockClear()
+    runs.subscribe.mockReset().mockResolvedValue(0)
     window.localStorage.clear()
+  })
+
+  it('刷新后订阅原 run，从头重放正文而不重复快照', async () => {
+    runs.active.mockResolvedValue({ run_id: 'r1', message_id: 'a1', status: 'running', content: '已有部分', last_event_sequence: 1 })
+    runs.subscribe.mockImplementationOnce(async (_s, _r, _i, _a, _sig, onEvent) => {
+      onEvent({ sequence: 1, event: 'messages', data: [{ type: 'ai', id: 'a1', content: '已有部分' }, {}] })
+      onEvent({ sequence: 2, event: 'messages', data: [{ type: 'ai', id: 'a1', content: '继续生成' }, {}] })
+      onEvent({ sequence: 3, event: 'custom', data: { type: 'run_status', status: 'completed' } })
+      return 3
+    })
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.messages.at(-1)).toMatchObject({ id: 'a1', content: '已有部分继续生成', status: 'complete' })
+    expect(sdk.submit).not.toHaveBeenCalled()
+  })
+
+  it('点击停止请求后端取消，保留部分回答且不误标成功', async () => {
+    const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('问题') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1', message_id: 'a1' }))
+    sdk.messages = [{ type: 'ai', id: 'a1', content: '已生成部分' } as Message]
+    rerender()
+    await act(async () => { await result.current.cancelMessage() })
+    act(() => sdk.options?.onFinish?.())
+    expect(runs.stop).toHaveBeenCalledWith(expect.any(String), 'r1', expect.objectContaining({ userId: 'user-1' }))
+    expect(result.current.messages.at(-1)).toMatchObject({ content: '已生成部分', status: 'cancelled' })
+  })
+
+  it('停止确认前保持忙状态，收到取消终态后才允许新一轮', async () => {
+    runs.stop.mockResolvedValueOnce({ run_id: 'r1', status: 'stop_requested' })
+    const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('第一问') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1', message_id: 'a1' }))
+    sdk.messages = [{ type: 'ai', id: 'a1', content: '部分回答' } as Message]
+    rerender()
+    await act(async () => { await result.current.cancelMessage() })
+    expect(result.current.isStreaming).toBe(true)
+    await act(async () => { await result.current.sendMessage('不能抢先执行') })
+    expect(sdk.submit).toHaveBeenCalledTimes(1)
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'r1', status: 'cancelled' }))
+    expect(result.current.isStreaming).toBe(false)
+    await act(async () => { await result.current.sendMessage('第二问') })
+    expect(sdk.submit).toHaveBeenCalledTimes(2)
+    expect(result.current.messages.at(-3)).toMatchObject({ content: '部分回答', status: 'cancelled' })
+  })
+
+  it('旧停止请求迟到返回不会断开已经开始的新一轮', async () => {
+    let resolveStop!: (value: { run_id: string; status: string }) => void
+    runs.stop.mockImplementationOnce(() => new Promise((resolve) => { resolveStop = resolve }))
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('第一问') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1', message_id: 'a1' }))
+    let pending!: Promise<void>
+    act(() => { pending = result.current.cancelMessage() })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'r1', status: 'cancelled' }))
+    await act(async () => { await result.current.sendMessage('第二问') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r2', message_id: 'a2' }))
+    sdk.stop.mockClear()
+    await act(async () => { resolveStop({ run_id: 'r1', status: 'cancelled' }); await pending })
+    expect(sdk.stop).not.toHaveBeenCalled()
+    expect(result.current.messages.at(-1)?.status).toBe('streaming')
+  })
+
+  it('迟到的停止确认不能把 SSE 已确认的取消降级为正在停止', async () => {
+    let resolveStop!: (value: { run_id: string; status: string }) => void
+    runs.stop.mockImplementationOnce(() => new Promise((resolve) => { resolveStop = resolve }))
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('问题') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1', message_id: 'a1' }))
+    let pending!: Promise<void>
+    act(() => { pending = result.current.cancelMessage() })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'r1', status: 'cancelled' }))
+    await act(async () => { resolveStop({ run_id: 'r1', status: 'stop_requested' }); await pending })
+    expect(result.current.messages.at(-1)?.status).toBe('cancelled')
+    expect(result.current.isStreaming).toBe(false)
+    await act(async () => { await result.current.sendMessage('下一问') })
+    expect(sdk.submit).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['completed', 'cancelled'] as const)('历史快照之后任务已%s且 active 为空时仍补齐原回答', async (status) => {
+    runs.history.mockResolvedValueOnce([
+      { message_id: 'u1', role: 'user', status: 'completed', content: '问题', sequence_no: 1, metadata: {} },
+      { message_id: 'a1', run_id: 'r1', role: 'assistant', status: 'streaming', content: '部分', sequence_no: 2, metadata: {} }
+    ])
+    runs.subscribe.mockImplementationOnce(async (_s, _r, _i, _a, _sig, onEvent) => {
+      onEvent({ sequence: 1, event: 'messages', data: [{ type: 'ai', id: 'a1', content: '部分回答已补齐' }, {}] })
+      onEvent({ sequence: 2, event: 'custom', data: { type: 'run_status', run_id: 'r1', status } })
+      return 2
+    })
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.messages).toHaveLength(2)
+    expect(result.current.messages.at(-1)).toMatchObject({ id: 'a1', content: '部分回答已补齐', status: status === 'completed' ? 'complete' : 'cancelled' })
+    expect(result.current.isStreaming).toBe(false)
+    expect(sdk.submit).not.toHaveBeenCalled()
+  })
+
+  it('历史补订阅跨过已结束的中断阶段后只保留恢复阶段的部分回答', async () => {
+    runs.history.mockResolvedValueOnce([
+      { message_id: 'a1', run_id: 'r1', role: 'assistant', status: 'streaming', content: '新阶段', sequence_no: 1, metadata: {} }
+    ])
+    runs.subscribe.mockImplementationOnce(async (_s, _r, _i, _a, _sig, onEvent) => {
+      onEvent({ sequence: 1, event: 'custom', data: { type: 'run_started', run_id: 'r1', message_id: 'a1', replay_after: 0 } })
+      onEvent({ sequence: 2, event: 'messages', data: [{ type: 'ai', id: 'a1', content: '旧阶段的正文' }, {}] })
+      onEvent({ sequence: 3, event: 'custom', data: { type: 'run_status', run_id: 'r1', status: 'interrupted' } })
+      onEvent({ sequence: 4, event: 'custom', data: { type: 'run_started', run_id: 'r1', message_id: 'a1', replay_after: 3 } })
+      onEvent({ sequence: 5, event: 'messages', data: [{ type: 'ai', id: 'a1', content: '新阶段的部分回答' }, {}] })
+      onEvent({ sequence: 6, event: 'custom', data: { type: 'run_status', run_id: 'r1', status: 'cancelled' } })
+      return 6
+    })
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.messages.at(-1)).toMatchObject({ id: 'a1', content: '新阶段的部分回答', status: 'cancelled' })
+  })
+
+  it('恢复查询尚未返回时拒绝发送新问题', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('第一问') })
+    let resolveActive!: (value: unknown) => void
+    runs.active.mockImplementationOnce(() => new Promise((resolve) => { resolveActive = resolve }))
+    act(() => sdk.options?.onFinish?.())
+    expect(result.current.isStreaming).toBe(true)
+    await act(async () => { await result.current.sendMessage('不能抢先发送') })
+    expect(sdk.submit).toHaveBeenCalledTimes(1)
+    await act(async () => { resolveActive(null); await Promise.resolve() })
+  })
+
+  it('accepted 事件送达前断线也查询已受理任务，不把空回答标为成功', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('问题') })
+    runs.active.mockResolvedValueOnce({ run_id: 'r1', message_id: 'a1', status: 'running', content: '已保存', last_event_sequence: 2 })
+    runs.subscribe.mockImplementationOnce(async (_s, _r, _i, _a, _sig, onEvent) => {
+      onEvent({ sequence: 2, event: 'messages', data: [{ type: 'ai', id: 'a1', content: '已保存' }, {}] })
+      onEvent({ sequence: 3, event: 'custom', data: { type: 'run_status', run_id: 'r1', status: 'completed' } })
+      return 3
+    })
+    await act(async () => { sdk.options?.onFinish?.(); await Promise.resolve() })
+    expect(runs.subscribe).toHaveBeenCalled()
+    expect(result.current.messages.at(-1)).toMatchObject({ content: '已保存', status: 'complete' })
+  })
+
+  it('没有受理记录也没有成功终态的断流不能显示研究完成', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('问题') })
+    await act(async () => { sdk.options?.onFinish?.(); await Promise.resolve() })
+    expect(result.current.messages.at(-1)?.status).toBe('error')
+  })
+
+  it('停止 HTTP 失败不能覆盖 SSE 已确认的取消终态', async () => {
+    let rejectStop!: (reason: Error) => void
+    runs.stop.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectStop = reject }))
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('问题') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1', message_id: 'a1' }))
+    let pending!: Promise<void>
+    act(() => { pending = result.current.cancelMessage() })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'r1', status: 'cancelled' }))
+    await act(async () => { rejectStop(new Error('网络中断')); await pending })
+    expect(result.current.messages.at(-1)?.status).toBe('cancelled')
+  })
+
+  it('final 之后丢失终态时仍恢复查询，确认完成后可继续提问', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('第一问') })
+    act(() => {
+      sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1', message_id: 'a1' })
+      sdk.options?.onCustomEvent?.({ type: 'final', run_id: 'r1', response: { content: '完整回答' } })
+    })
+    runs.subscribe.mockImplementationOnce(async (_s, _r, _i, _a, _sig, onEvent) => {
+      onEvent({ sequence: 1, event: 'custom', data: { type: 'final', run_id: 'r1', response: { content: '完整回答' } } })
+      onEvent({ sequence: 2, event: 'custom', data: { type: 'run_status', run_id: 'r1', status: 'completed' } })
+      return 2
+    })
+    await act(async () => { sdk.options?.onFinish?.(); await Promise.resolve() })
+    await act(async () => { await result.current.sendMessage('第二问') })
+    expect(sdk.submit).toHaveBeenCalledTimes(2)
+  })
+
+  it('终态之后的传输错误不把取消改成失败', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('问题') })
+    act(() => {
+      sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1', message_id: 'a1' })
+      sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'r1', status: 'cancelled' })
+      sdk.options?.onError?.(new Error('流断开'))
+    })
+    expect(result.current.messages.at(-1)?.status).toBe('cancelled')
   })
 
   it('新一轮答案开始前不会复用上一轮 AI 消息', async () => {

@@ -54,6 +54,17 @@ describe('resolveConversationSession', () => {
 })
 
 describe('toConversationMessages', () => {
+  it('恢复空的运行中与已停止回答，保留持久化标识和状态', () => {
+    const restored = toConversationMessages([
+      { message_id: 'a1', run_id: 'r1', role: 'assistant', status: 'pending', content: '', sequence_no: 2, metadata: {} },
+      { message_id: 'a2', run_id: 'r2', role: 'assistant', status: 'cancelled', content: '部分回答', sequence_no: 4, metadata: {} }
+    ])
+    expect(restored).toEqual([
+      expect.objectContaining({ messageId: 'a1', runId: 'r1', status: 'pending', content: '' }),
+      expect.objectContaining({ messageId: 'a2', runId: 'r2', status: 'cancelled', content: '部分回答' })
+    ])
+  })
+
   it('按顺序把持久化的用户和助手消息恢复为前端消息', () => {
     expect(
       toConversationMessages([

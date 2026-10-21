@@ -132,6 +132,17 @@ def test_worker_uses_same_backend_image_and_dedicated_queue():
     )
 
 
+def test_turn_worker_isolated_queue_disables_pool_time_limits():
+    services = _compose()["services"]
+    worker = services["turn-worker"]
+    assert worker["build"] == services["api"]["build"]
+    command = worker["command"]
+    assert command[command.index("--queues") + 1] == "agent-turns"
+    assert command[command.index("--time-limit") + 1] == "0"
+    assert command[command.index("--soft-time-limit") + 1] == "0"
+    assert worker["depends_on"]["migrate"]["condition"] == "service_completed_successfully"
+
+
 def test_release_gate_blocks_runtime_services_until_database_is_drained():
     services = _compose()["services"]
     gate = services["release-gate"]
@@ -141,7 +152,7 @@ def test_release_gate_blocks_runtime_services_until_database_is_drained():
         "service_completed_successfully"
     )
     assert gate["restart"] == "no"
-    for service_name in ("api", "worker", "maintenance-worker", "scheduler"):
+    for service_name in ("api", "worker", "turn-worker", "maintenance-worker", "scheduler"):
         assert services[service_name]["depends_on"]["release-gate"]["condition"] == (
             "service_completed_successfully"
         )

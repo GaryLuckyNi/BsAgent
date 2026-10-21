@@ -6,6 +6,8 @@ export type ConversationIdentity = {
 }
 
 export type PersistedConversationMessage = {
+  message_id?: string
+  run_id?: string
   role: 'user' | 'assistant'
   status: string
   content: string
@@ -14,6 +16,9 @@ export type PersistedConversationMessage = {
 }
 
 export type RestoredConversationMessage = {
+  messageId?: string
+  runId?: string
+  status?: string
   role: 'user' | 'agent'
   content: string
   traceId?: string
@@ -70,10 +75,15 @@ export function toConversationMessages(
 ): RestoredConversationMessage[] {
   return [...items]
     .sort((left, right) => left.sequence_no - right.sequence_no)
-    .filter((item) => item.content.trim())
+    .filter((item) => item.content.trim() || (item.role === 'assistant' && item.status !== 'completed'))
     .map((item) => {
+      const identity = item.message_id ? {
+        messageId: item.message_id,
+        runId: item.run_id,
+        status: item.status
+      } : {}
       if (item.role === 'user') {
-        return { role: 'user', content: item.content }
+        return { role: 'user', content: item.content, ...identity }
       }
       const traceId = stringMetadata(item.metadata, 'trace_id')
       const approvalStatus = stringMetadata(item.metadata, 'approval_status')
@@ -82,6 +92,7 @@ export function toConversationMessages(
       return {
         role: 'agent',
         content: item.content,
+        ...identity,
         ...(traceId ? { traceId } : {}),
         ...(approvalStatus ? { approvalStatus } : {}),
         ...(citedEvidenceIds ? { citedEvidenceIds } : {}),

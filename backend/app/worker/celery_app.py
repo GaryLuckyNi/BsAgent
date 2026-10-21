@@ -12,7 +12,7 @@ _worker_telemetry_runtime = None
 celery_app = Celery(
     "bs_agent",
     broker=settings.celery_broker_url,
-    include=["app.vision.tasks", "app.assets.tasks", "app.harness.tasks"],
+    include=["app.vision.tasks", "app.assets.tasks", "app.harness.tasks", "app.conversations.tasks"],
 )
 celery_app.conf.update(
     task_serializer="json",
@@ -26,11 +26,17 @@ celery_app.conf.update(
     task_soft_time_limit=210,
     task_time_limit=240,
     task_routes={
+        "bs_agent.conversations.execute_turn": {"queue": "agent-turns"},
+        "bs_agent.conversations.recover_dead_turns": {"queue": "agent-turns"},
         "bs_agent.vision.analyze_asset": {"queue": "image-analysis"},
         "bs_agent.assets.purge_expired": {"queue": "maintenance"},
         "bs_agent.traces.purge_expired": {"queue": "maintenance"},
     },
     beat_schedule={
+        "recover-dead-agent-turns": {
+            "task": "bs_agent.conversations.recover_dead_turns",
+            "schedule": 30,
+        },
         "purge-expired-assets": {
             "task": "bs_agent.assets.purge_expired",
             "schedule": settings.asset_cleanup_interval_seconds,

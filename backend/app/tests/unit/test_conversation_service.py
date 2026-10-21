@@ -260,13 +260,12 @@ def test_interrupted_turn_keeps_active_run_and_resumes_original_handle(session):
     assert run.status == "running"
 
 
-def test_illegal_and_repeated_state_transitions_raise_conflict(session):
+def test_streaming_is_idempotent_but_terminal_state_transitions_raise_conflict(session):
     service = ConversationService(session)
     handle = service.begin_turn(_begin())
 
     service.mark_streaming(tenant_id="tenant_1", run_id=handle.run_id)
-    with pytest.raises(ConversationConflictError, match="message_state_conflict"):
-        service.mark_streaming(tenant_id="tenant_1", run_id=handle.run_id)
+    service.mark_streaming(tenant_id="tenant_1", run_id=handle.run_id)
 
     service.complete_turn(
         tenant_id="tenant_1",
@@ -274,6 +273,7 @@ def test_illegal_and_repeated_state_transitions_raise_conflict(session):
         content="answer",
     )
     for transition in (
+        lambda: service.mark_streaming(tenant_id="tenant_1", run_id=handle.run_id),
         lambda: service.complete_turn(
             tenant_id="tenant_1",
             run_id=handle.run_id,

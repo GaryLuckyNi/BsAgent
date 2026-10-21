@@ -3,6 +3,7 @@ import inspect
 import json
 import re
 from datetime import UTC, datetime
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 
 import pytest
@@ -41,7 +42,6 @@ from langgraph.types import Interrupt
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 TEST_MEMORY_STORE = object()
 EMPTY_BUSINESS_INTENT_CATALOG = BusinessIntentCatalog([])
@@ -115,11 +115,13 @@ def create_test_app_with_database(
     override_principal=True,
     business_intent_catalog_runtime=None,
 ):
+    database_directory = TemporaryDirectory(prefix="bs-agent-session-api-")
     engine = create_engine(
-        "sqlite://",
+        f"sqlite:///{database_directory.name}/sessions.db",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
     )
+    # 后台 turn 与订阅各用独立连接，禁止多个线程共享 StaticPool 单连接事务。
+    engine._test_database_directory = database_directory
     Base.metadata.create_all(engine)
     testing_session_local = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
@@ -3175,7 +3177,9 @@ def test_stream_interrupt_reuses_turn_and_returns_stable_identity(monkeypatch):
     assert approval_event["message_id"] == assistant.message_id
 
 
-def test_stream_passes_completed_history_to_next_turn(monkeypatch):
+@pytest.mark.parametrize("history_limit", [0, 20])
+def test_stream_passes_completed_history_to_next_turn(monkeypatch, history_limit):
+    monkeypatch.setattr(sessions, "CONVERSATION_HISTORY_LIMIT", history_limit)
     captured_histories = []
 
     def fake_stream(**kwargs):
@@ -3199,10 +3203,10 @@ def test_stream_passes_completed_history_to_next_turn(monkeypatch):
 
     assert first.status_code == second.status_code == 200
     assert captured_histories[0] == []
-    assert [(message.role, message.content) for message in captured_histories[1]] == [
+    assert [(message.role, message.content) for message in captured_histories[1]] == ([
         ("user", "第一问"),
         ("assistant", "回答1"),
-    ]
+    ] if history_limit else [])
 
 
 def _apply_dynamic_plan(state):

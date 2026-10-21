@@ -5,11 +5,13 @@ from typing import Any
 
 from fastapi import FastAPI
 from redis import Redis
+from sqlalchemy.orm import sessionmaker
 
 from app.api.ag_ui import router as ag_ui_router
 from app.api.approvals import router as approvals_router
 from app.api.assets import router as assets_router
 from app.api.health import router as health_router
+from app.api.runs import router as runs_router
 from app.api.sessions import router as sessions_router
 from app.api.traces import router as traces_router
 from app.assets.factory import build_object_store
@@ -63,6 +65,32 @@ def create_app(
 
     telemetry_runtime: Any | None = None
     intent_refresh_task: asyncio.Task[None] | None = None
+    turn_maintenance_task: asyncio.Task[None] | None = None
+
+    async def maintain_turns() -> None:
+        from app.conversations.dispatcher import dispatch_turn
+        from app.conversations.recovery import (
+            dispatch_unclaimed_runs,
+            recover_orphaned_durable_runs,
+        )
+
+        factory = sessionmaker(bind=selected_engine, autoflush=False, expire_on_commit=False)
+        while True:
+            try:
+                await asyncio.to_thread(recover_orphaned_durable_runs, selected_engine)
+                if runtime.app_env == "local":
+                    store = await asyncio.to_thread(selected_memory_runtime.get)
+                    await asyncio.to_thread(
+                        dispatch_unclaimed_runs, selected_engine,
+                        dispatch=lambda run_id, turn_store=store: dispatch_turn(
+                            session_factory=factory, run_id=run_id, memory_store=turn_store,
+                        ),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - 下个周期重试，不抢占存活 owner
+                logger.warning("turn_maintenance_failed type=%s", type(exc).__name__)
+            await asyncio.sleep(15)
 
     async def refresh_business_intent_catalog() -> None:
         while True:
@@ -79,7 +107,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        nonlocal intent_refresh_task
+        nonlocal intent_refresh_task, turn_maintenance_task
         try:
             if runtime.app_env == "local" and runtime.recover_orphaned_runs_on_startup:
                 recovered = await asyncio.to_thread(
@@ -124,8 +152,17 @@ def create_app(
                 refresh_business_intent_catalog(),
                 name="business-intent-catalog-refresh",
             )
+            turn_maintenance_task = asyncio.create_task(maintain_turns(),
+                name="turn-maintenance")
             yield
         finally:
+            if turn_maintenance_task is not None:
+                turn_maintenance_task.cancel()
+                try:
+                    await turn_maintenance_task
+                except asyncio.CancelledError:
+                    pass
+                turn_maintenance_task = None
             if intent_refresh_task is not None:
                 intent_refresh_task.cancel()
                 try:
@@ -190,6 +227,7 @@ def create_app(
     app.include_router(health_router)
     app.include_router(ag_ui_router)
     app.include_router(sessions_router)
+    app.include_router(runs_router)
     app.include_router(approvals_router)
     app.include_router(assets_router)
     app.include_router(traces_router)

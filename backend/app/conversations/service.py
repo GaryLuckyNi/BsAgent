@@ -170,7 +170,7 @@ class ConversationService:
         self._transition(
             tenant_id=tenant_id,
             run_id=run_id,
-            message_states={"pending", "interrupted"},
+            message_states={"pending", "streaming", "interrupted"},
             message_target="streaming",
             run_states={"running", "interrupted"},
             run_target="running",
@@ -355,6 +355,15 @@ class ConversationService:
         metadata: dict[str, Any] | None = None,
         clear_active_run: bool = False,
     ) -> None:
+        from app.conversations.execution import check_execution_cancelled, current_execution
+
+        check_execution_cancelled(self._session)
+        if current_execution.get() is not None and message_target in {"completed", "failed"}:
+            from app.conversations.durable import DurableRunService, TurnCancelled
+
+            if DurableRunService(self._session).has_running_tools(run_id):
+                self._session.rollback()
+                raise TurnCancelled(run_id)
         message_values: dict[str, Any] = {"status": message_target}
         if content is not None:
             message_values["content"] = content

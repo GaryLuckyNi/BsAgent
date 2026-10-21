@@ -238,6 +238,25 @@ services:
     restart: unless-stopped
     networks: [backend]
 
+  turn-worker:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues", "agent-turns", "--time-limit", "0", "--soft-time-limit", "0"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      release-gate:
+        condition: service_completed_successfully
+    stop_grace_period: 5m
+    restart: unless-stopped
+    networks: [backend]
+
   maintenance-worker:
     build: *backend-build
     environment: *backend-environment

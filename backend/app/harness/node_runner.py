@@ -37,6 +37,9 @@ class NodeRunner:
         runtime_aware: bool = False,
         handle_recoverable_errors: bool = False,
     ) -> dict[str, Any]:
+        from app.conversations.execution import check_execution_cancelled
+
+        check_execution_cancelled()
         observation = self.observer.observe_start(node_name, state)
         try:
             result = node(state, runtime) if runtime_aware else node(state)

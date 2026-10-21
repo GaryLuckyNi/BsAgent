@@ -66,6 +66,32 @@ BS_AGENT_MEMORY_STORE_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
 
 业务 ORM 保存 Message/Run/Candidate/Approval 投影，PostgresSaver 保存 Graph State/Interrupt，PostgresStore 保存长期跨会话偏好。Graph 没有固定 Memory 节点，Planner 和 Synthesizer 按需通过 `Runtime.store` 读取偏好。
 
+### 刷新恢复与停止生成
+
+会话协议流的执行与 HTTP 连接分离：刷新或断网仅断开订阅，后台继续生成；重新进入同一会话后，前端通过持久化事件日志恢复内容，不重新调用模型。部分正文会持续入库，等待输入的 `interrupted` 与用户停止的 `cancelled` 分开显示。
+
+点击停止会先请求后端协作结束。界面显示“正在停止”，到安全执行边界确认后显示“已停止 · 回答可能不完整”，此时才能提交下一问。已发出的外部调用可能需要等到返回或自身超时，不能承诺点击后立即终止。已提交的数据库修改和外部副作用不会自动回滚；工具返回的实际结果仍会保留，执行中或结果未知的写操作会阻止后续中高风险调用，普通只读查询可以继续。同一 run 与可信 call_id 已确认成功的写入不会自动再次执行，也不会拿脱敏摘要冒充完整工具结果。未知结果应核对外部系统后处理，不能盲目重试或只清空会话锁。
+
+`CONVERSATION_HISTORY_LIMIT=0` 保持不变。只有紧邻上一轮被停止时，下一轮额外获得最多 4000 字符的交接上下文，含原问题、标明不完整的部分答案及脱敏工具回执；未知结果优先保留，预算不足会明确记录省略数量。这不是恢复全部历史，也不代表停止前的答案已验证。
+
+新增接口均验证租户、用户和会话归属：
+
+- `GET /api/sessions/{session_id}/runs/active`：查询当前运行及恢复阶段游标。
+- `GET /api/sessions/{session_id}/runs/{run_id}/events?after=0`：按 SSE `id` 重放并订阅；支持 `Last-Event-ID`。
+- `POST /api/sessions/{session_id}/runs/{run_id}/stop`：幂等请求停止，返回 `stop_requested` 或已有终态。
+
+首次使用需将业务数据库升级到 `20261021_0014` 并重启后端和前端。一键启动会执行迁移；使用 VS Code 或单独启动时，应先使用同一套数据库环境变量运行：
+
+```bash
+PYTHONPATH=backend .venv/bin/python -m alembic upgrade head
+```
+
+本地模式使用进程内后台线程，适用于单进程调试；停止调试器或重启后端仍会结束该进程的生成。`npm run dev` 已开启本地孤立运行恢复；其他启动方式可在确认旧本地进程已退出后设置 `BS_AGENT_RECOVER_ORPHANED_RUNS_ON_STARTUP=true`。不要在多实例生产环境用此开关批量清理旧运行。
+
+生产模式使用独立 `turn-worker` 消费 `agent-turns`，图像任务仍由原 `worker` 消费 `image-analysis`；长研究任务不继承图像任务的强制进程超时。API 进程每 15 秒检查本进程的补落库与已退出生产者，本地模式另外重投未领取任务；生产通过 scheduler 每 30 秒触发同队列维护，API 不启动本地执行线程。提交后超过 10 秒尚未领取的任务可重复投递，由数据库 CAS 保证仅一位生产者领取。
+
+心跳过期不会直接抢占：恢复需要同主机执行进程已死亡，或本进程已确认生产者退出的证据。仍有在途工具时保留所有权等待结果；数据库短故障只重试已返回结果的落库，不重跑工具。尚未落库的结果临时保存在进程内，若此时进程也退出，仍需按未知副作用核实。跨主机或已消失容器的运行需要运维确认后处理。审批决定后的恢复也受同一套停止、所有权和未知写保护约束。此版本不提供通用外部事务回滚或跨系统 exactly-once 保证。
+
 一键启动会自动将 Agent 后端连接到本地 Admin：
 
 ```text

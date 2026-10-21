@@ -60,6 +60,8 @@ SAFE_TOOL_ERROR_MESSAGES = {
     "web_search_response_invalid": "联网搜索服务返回了无效响应。",
     "web_search_no_results": "联网搜索未返回可验证来源。",
     "tool_search_unavailable": "工具检索暂不可用。",
+    "tool_side_effects_unresolved": "此前写入的结果尚未核实，请先核实后再执行写操作。",
+    "tool_call_already_executed": "此调用此前已执行成功，请核实已有结果，避免重复写入。",
 }
 
 
@@ -116,6 +118,9 @@ class ToolExecutionGateway:
         trace_id: str,
         context: ToolExecutionContext | None = None,
     ) -> ToolCallResult:
+        from app.conversations.execution import check_execution_cancelled
+
+        check_execution_cancelled()
         start = perf_counter()
         if context is None:
             return self._failure(
@@ -195,6 +200,18 @@ class ToolExecutionGateway:
                 start=start,
             )
 
+        from app.conversations.execution import UnresolvedToolEffect, current_execution
+
+        control = current_execution.get()
+        try:
+            receipt_id = (
+                control.tool_started(request, risk_level=entry.spec.risk_level) if control else None
+            )
+        except UnresolvedToolEffect as exc:
+            return self._failure(
+                request, trace_id=trace_id,
+                code=exc.code, status="denied", start=start,
+            )
         try:
             if entry.execution_binding.provider != "local":
                 raw_result = await entry.executor.run(input_data)
@@ -206,31 +223,62 @@ class ToolExecutionGateway:
                     raw_result = await entry.executor.run(input_data)
         except Exception as exc:
             code = _exception_error_code(exc)
-            return self._failure(
+            failure = self._failure(
                 request,
                 trace_id=trace_id,
                 code=code,
                 start=start,
             )
+            if control:
+                control.tool_finished(
+                    receipt_id, failure.model_dump(mode="json"),
+                    uncertain=entry.spec.risk_level != "low",
+                )
+                control.guard()
+            return failure
+        except BaseException:  # asyncio 取消等控制信号不能遗留永远 running 的工具回执。
+            if control:
+                control.tool_finished(
+                    receipt_id, {"status": "unknown", "error": {"code": "tool_execution_aborted"}},
+                    uncertain=True,
+                )
+            raise
+
+        def settle(result: ToolCallResult) -> ToolCallResult:
+            if control:
+                summary = result.model_dump(mode="json")
+                if result.status != "success":
+                    # 返回契约无效不能证明写入未发生，保存原始摘要并阻止盲重试。
+                    raw = (
+                        raw_result.model_dump(mode="json")
+                        if isinstance(raw_result, BaseModel) else raw_result
+                    )
+                    summary["raw_result"] = raw if isinstance(raw, dict) else str(raw)
+                control.tool_finished(
+                    receipt_id, summary,
+                    uncertain=(entry.spec.risk_level != "low" and result.status not in {"success", "denied"}),
+                )
+                control.guard()
+            return result
 
         try:
             result = ToolCallResult.model_validate(raw_result)
         except Exception:
-            return self._failure(
+            return settle(self._failure(
                 request,
                 trace_id=trace_id,
                 code="tool_result_validation_failed",
                 start=start,
-            )
+            ))
 
         tool_spec = entry.spec
         if result.status != "success":
-            return normalize_failed_tool_result(
+            return settle(normalize_failed_tool_result(
                 result,
                 request=request,
                 trace_id=trace_id,
                 latency_ms=int((perf_counter() - start) * 1000),
-            )
+            ))
         result = result.model_copy(
             update={
                 "tool_call_id": f"tool_{uuid4().hex}",
@@ -241,35 +289,35 @@ class ToolExecutionGateway:
             }
         )
         if not tool_spec.output_schema:
-            return result
+            return settle(result)
 
         try:
             validator = Draft202012Validator(tool_spec.output_schema)
             validator.check_schema(tool_spec.output_schema)
         except Exception:
-            return self._failure(
+            return settle(self._failure(
                 request,
                 trace_id=trace_id,
                 code="tool_output_schema_invalid",
                 start=start,
-            )
+            ))
         try:
             validator.validate(result.result)
         except JsonSchemaValidationError:
-            return self._failure(
+            return settle(self._failure(
                 request,
                 trace_id=trace_id,
                 code="tool_output_validation_failed",
                 start=start,
-            )
+            ))
         except Exception:
-            return self._failure(
+            return settle(self._failure(
                 request,
                 trace_id=trace_id,
                 code="tool_output_validation_failed",
                 start=start,
-            )
-        return result
+            ))
+        return settle(result)
 
     @staticmethod
     def _failure(

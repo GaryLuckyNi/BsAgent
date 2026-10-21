@@ -19,6 +19,10 @@ import {
   loadSessionMessages,
   type RequestIdentity
 } from '../services/research-api'
+import {
+  loadActiveRun, stopResearchRun, subscribeRunEvents,
+  type ResearchRun, type RunStatus
+} from '../services/research-runs'
 
 type ResearchGraphState = {
   messages: Message[]
@@ -31,12 +35,16 @@ type ResearchGraphUpdate = {
 }
 
 type AgentProtocolEvent = {
-  type: 'progress' | 'final' | 'approval_required' | 'input_required'
+  type: 'progress' | 'final' | 'approval_required' | 'input_required' | 'run_started' | 'run_status'
+  run_id?: string
+  message_id?: string
+  request_id?: string
+  replay_after?: number
   id?: string
   stage?: string
   label?: string
   message?: string
-  status?: 'started' | 'completed' | 'failed'
+  status?: 'started' | RunStatus
   kind?: 'status' | 'activity' | 'summary'
   activity_type?: 'web_search' | 'market_data' | 'evidence'
   group_id?: string
@@ -116,6 +124,24 @@ export function useResearchSession(identity: RequestIdentity) {
   const lastStreamedAnswerRef = useRef<{ assistantId: string; content: string } | null>(null)
   const eventSequenceRef = useRef(0)
   const messagesRef = useRef(messages)
+  const activeRunRef = useRef<{ runId: string; messageId?: string; terminal: boolean; replayAfter?: number } | null>(null)
+  const subscriptionRef = useRef<AbortController | null>(null)
+  const [isRecovering, setIsRecovering] = useState(false)
+  const recoveryBusyRef = useRef(false)
+  const [isStopping, setIsStopping] = useState(false)
+  const [isInitializing, setIsInitializing] = useState(true)
+  const initializationRef = useRef<Promise<void>>(Promise.resolve())
+  const completedResponseRef = useRef(false)
+  const stoppingRef = useRef(false)
+  const stopCurrentRef = useRef<() => Promise<void>>(async () => undefined)
+  const interactionEpochRef = useRef(0)
+  const expectedRequestRef = useRef<string | null>(null)
+  const sdkStopRef = useRef<() => Promise<void>>(async () => undefined)
+  const identityKey = JSON.stringify([identity.tenantId, identity.userId, identity.accessToken || ''])
+  const identityKeyRef = useRef(identityKey)
+  identityKeyRef.current = identityKey
+  // SDK 在 submit 时捕获回调。每轮赋予独立代次，旧回调不能改写后续消息。
+  const callbackContext = { epoch: interactionEpochRef.current, identityKey }
 
   useEffect(() => {
     messagesRef.current = messages
@@ -130,8 +156,32 @@ export function useResearchSession(identity: RequestIdentity) {
   )
 
   const handleCustomEvent = useCallback((event: AgentProtocolEvent) => {
+    if (event.type === 'run_started' && event.run_id) {
+      if (event.request_id && expectedRequestRef.current && event.request_id !== expectedRequestRef.current) return
+      if (activeRunRef.current && event.run_id !== activeRunRef.current.runId) return
+      activeRunRef.current = { runId: event.run_id, messageId: event.message_id, terminal: false, replayAfter: event.replay_after || 0 }
+      if (stoppingRef.current) void stopCurrentRef.current()
+      return
+    }
     const assistantId = activeAssistantIdRef.current
     if (!assistantId) return
+    if (event.run_id && event.run_id !== activeRunRef.current?.runId) return
+    if (event.type === 'run_status' && event.status) {
+      const status = event.status
+      if (status !== 'running' && status !== 'stop_requested' && status !== 'started') {
+        if (activeRunRef.current) activeRunRef.current.terminal = true
+        completedResponseRef.current = true
+        stoppingRef.current = false
+        setIsStopping(false)
+        setIsRecovering(false)
+        recoveryBusyRef.current = false
+      }
+      setMessages((current) => updateMessage(current, assistantId, (message) => ({
+        ...message, status: researchStatus(status),
+        processStatus: status === 'stop_requested' ? '正在安全结束当前任务…' : undefined
+      })))
+      return
+    }
     if (event.type === 'progress' && event.message) {
       if (!event.kind || event.kind === 'status') {
         setMessages((current) => updateMessage(current, assistantId, (message) => ({
@@ -147,7 +197,7 @@ export function useResearchSession(identity: RequestIdentity) {
         stage: event.stage,
         label: event.label || '分析',
         message: event.message,
-        status: event.status || 'started',
+        status: event.status === 'failed' || event.status === 'completed' ? event.status : 'started',
         activityType: event.activity_type,
         groupId: event.group_id,
         queryCount: event.activity_type && event.task_id ? 1 : undefined,
@@ -155,7 +205,7 @@ export function useResearchSession(identity: RequestIdentity) {
         queries: event.activity_type && event.task_id ? [{
           taskId: event.task_id,
           query: event.task_label || event.query || event.message,
-          status: event.status || 'started',
+          status: event.status === 'failed' || event.status === 'completed' ? event.status : 'started',
           resultUrls: uniqueUrls(event.result_urls)
         }] : undefined
       }
@@ -168,6 +218,7 @@ export function useResearchSession(identity: RequestIdentity) {
       return
     }
     if (event.type === 'final') {
+      completedResponseRef.current = true
       const response = event.response || {}
       const evidence = buildEvidenceIndex((response.cited_evidence_ids || []).map((id) => ({
         id,
@@ -195,6 +246,7 @@ export function useResearchSession(identity: RequestIdentity) {
       && event.options
       && event.options.length >= 2
     ) {
+      completedResponseRef.current = true
       setMessages((current) => updateMessage(current, assistantId, (message) => ({
         ...message,
         status: 'interrupted',
@@ -210,15 +262,116 @@ export function useResearchSession(identity: RequestIdentity) {
     }
   }, [])
 
+  const recoverRun = useCallback(async (selected?: ResearchRun | null) => {
+    recoveryBusyRef.current = true
+    setIsRecovering(true)
+    subscriptionRef.current?.abort()
+    const controller = new AbortController()
+    subscriptionRef.current = controller
+    const currentSubscription = () => !controller.signal.aborted && subscriptionRef.current === controller && identityKeyRef.current === identityKey
+    try {
+      const known = activeRunRef.current
+      const run = selected === undefined
+        ? known ? {
+          run_id: known.runId, message_id: known.messageId || activeAssistantIdRef.current || '',
+          status: 'running' as const, content: '', last_event_sequence: 0, replay_after: known.replayAfter
+        } : await loadActiveRun(sessionId, identity, controller.signal)
+        : selected
+      if (!currentSubscription()) return
+      if (!run || (expectedRequestRef.current && run.request_id && run.request_id !== expectedRequestRef.current)) {
+        const id = activeAssistantIdRef.current
+        if (id) setMessages((current) => updateMessage(current, id, (message) => ({ ...message, status: 'error' })))
+        stoppingRef.current = false
+        setIsStopping(false)
+        return
+      }
+      setIsRecovering(true)
+      setError('')
+      activeRunRef.current = { runId: run.run_id, messageId: run.message_id, terminal: false, replayAfter: run.replay_after || 0 }
+      const assistantId = activeAssistantIdRef.current || run.message_id
+      activeAssistantIdRef.current = assistantId
+      const preservedContent = messagesRef.current.find((item) => item.id === assistantId)?.content || run.content
+      let replayedContent = ''
+      // 独立缓冲重放正文，追上现有快照后替换；断线失败也不清空已显示的内容。
+      setMessages((current) => {
+        const message: ResearchMessage = {
+          id: assistantId, role: 'assistant', content: preservedContent, status: researchStatus(run.status),
+          createdAt: new Date().toISOString(), progress: [], processStatus: '正在恢复回答…'
+        }
+        return current.some((item) => item.id === assistantId)
+          ? updateMessage(current, assistantId, (existing) => ({
+            ...message, content: existing.content || run.content,
+            status: stoppingRef.current ? 'stopping' : message.status
+          })) : [...current, message]
+      })
+      let cursor = run.replay_after || 0
+      let failures = 0
+      while (currentSubscription() && !activeRunRef.current?.terminal) {
+        try {
+          await subscribeRunEvents(sessionId, run.run_id, identity, cursor, controller.signal, (frame) => {
+            if (!currentSubscription() || activeRunRef.current?.runId !== run.run_id) return
+            cursor = frame.sequence
+            if (frame.event === 'custom') {
+              const event = frame.data as AgentProtocolEvent
+              if (event.type === 'run_started' && event.run_id === run.run_id) replayedContent = ''
+              handleCustomEvent(event)
+            }
+            if (frame.event === 'messages') {
+              const chunk = Array.isArray(frame.data) ? frame.data[0] : undefined
+              const content = chunk && typeof chunk.content === 'string' ? chunk.content : ''
+              if (content && !stoppingRef.current && !activeRunRef.current?.terminal) {
+                replayedContent += content
+                if (replayedContent.length >= preservedContent.length) {
+                  setMessages((current) => updateMessage(current, assistantId, (message) => ({ ...message, content: replayedContent })))
+                }
+              }
+            }
+            if (frame.event === 'error') {
+              const data = frame.data as { message?: string }
+              setError(data.message || '任务执行失败')
+            }
+          })
+          if (activeRunRef.current?.terminal) break
+          throw new Error('输出连接已断开，正在重连')
+        } catch (caught) {
+          if (!currentSubscription()) return
+          failures += 1
+          if (failures >= 5) throw caught
+          await new Promise<void>((resolve) => {
+            const timer = window.setTimeout(done, Math.min(failures * 1000, 4000))
+            function done() { clearTimeout(timer); controller.signal.removeEventListener('abort', done); resolve() }
+            controller.signal.addEventListener('abort', done, { once: true })
+          })
+        }
+      }
+    } catch (caught) {
+      if (currentSubscription()) setError(`${errorMessage(caught)}，请刷新重连；后台任务状态未被修改。`)
+    } finally {
+      if (currentSubscription()) {
+        recoveryBusyRef.current = false
+        setIsRecovering(false)
+      }
+    }
+  }, [sessionId, identityKey, handleCustomEvent])
+
   const stream = useStream<ResearchGraphState, ResearchStreamBag>({
     transport,
     threadId: sessionId,
     throttle: true,
     initialValues: { messages: [] },
-    onCustomEvent: handleCustomEvent,
+    onCustomEvent: (event) => {
+      if (callbackContext.epoch === interactionEpochRef.current && callbackContext.identityKey === identityKeyRef.current) handleCustomEvent(event)
+    },
     onError: (caught) => {
+      if (callbackContext.epoch !== interactionEpochRef.current || callbackContext.identityKey !== identityKeyRef.current) return
+      if (activeRunRef.current?.terminal) return
       const message = errorMessage(caught)
       setError(message)
+      if ((activeRunRef.current && !activeRunRef.current.terminal) || !completedResponseRef.current) {
+        void recoverRun()
+        return
+      }
+      if (completedResponseRef.current) return
       const assistantId = activeAssistantIdRef.current
       if (assistantId) {
         setMessages((current) => updateMessage(current, assistantId, (item) => ({
@@ -230,11 +383,16 @@ export function useResearchSession(identity: RequestIdentity) {
       }
     },
     onFinish: () => {
+      if (callbackContext.epoch !== interactionEpochRef.current || callbackContext.identityKey !== identityKeyRef.current) return
+      if ((activeRunRef.current && !activeRunRef.current.terminal) || !completedResponseRef.current) {
+        void recoverRun()
+        return
+      }
       const assistantId = activeAssistantIdRef.current
       if (assistantId) {
         setMessages((current) => updateMessage(current, assistantId, (message) => ({
           ...message,
-          status: message.status === 'error' || message.status === 'interrupted'
+          status: message.status === 'error' || message.status === 'interrupted' || message.status === 'cancelled' || message.status === 'stopping'
             ? message.status
             : 'complete',
           userInput: message.userInput
@@ -246,26 +404,67 @@ export function useResearchSession(identity: RequestIdentity) {
       streamMessageIdsAtSubmitRef.current.clear()
     }
   })
+  sdkStopRef.current = stream.stop
 
   useEffect(() => {
+    let disposed = false
+    const epoch = interactionEpochRef.current
+    setIsInitializing(true)
     void checkAgentHealth().then(setIsOnline)
-    void loadSessionMessages(sessionId, identity).then((items) => {
-      if (!items.length) return
-      const restored = toConversationMessages(items).map<ResearchMessage>((item) => ({
-        id: crypto.randomUUID(),
+    initializationRef.current = loadSessionMessages(sessionId, identity).then((items) => {
+      if (disposed || epoch !== interactionEpochRef.current) return
+      const conversation = toConversationMessages(items)
+      const restored = conversation.map<ResearchMessage>((item) => ({
+        id: item.messageId || crypto.randomUUID(),
         role: item.role === 'agent' ? 'assistant' : 'user',
         content: item.content,
         createdAt: new Date().toISOString(),
-        status: 'complete',
+        status: researchStatus(item.status || 'completed'),
         progress: restoreResearchProgress(item.researchProcess)
       }))
-      setMessages(restored)
-    }).catch(() => undefined)
-  }, [identity, sessionId])
+      if (restored.length) setMessages(restored)
+      return loadActiveRun(sessionId, identity).then((run) => {
+        if (disposed || epoch !== interactionEpochRef.current) return
+        if (run) {
+          void recoverRun(run)
+          return
+        }
+        // 历史与 active 不是同一个快照；两次读取间任务可能已结束并清空 active。
+        const latestAssistant = [...conversation].reverse().find((item) => item.role === 'agent')
+        if (latestAssistant?.runId && latestAssistant.messageId
+          && ['pending', 'streaming', 'running', 'stop_requested'].includes(latestAssistant.status || '')) {
+          void recoverRun({
+            run_id: latestAssistant.runId,
+            message_id: latestAssistant.messageId,
+            status: latestAssistant.status === 'stop_requested' ? 'stop_requested' : 'running',
+            content: latestAssistant.content,
+            last_event_sequence: 0
+          })
+        }
+      })
+    }).catch((caught) => {
+      if (!disposed) setError(`恢复会话失败：${errorMessage(caught)}`)
+    }).finally(() => { if (!disposed) setIsInitializing(false) })
+    return () => {
+      disposed = true
+      interactionEpochRef.current += 1
+      subscriptionRef.current?.abort()
+      void sdkStopRef.current()
+      activeAssistantIdRef.current = null
+      activeRunRef.current = null
+      expectedRequestRef.current = null
+      completedResponseRef.current = false
+      stoppingRef.current = false
+      setIsStopping(false)
+      setIsRecovering(false)
+      recoveryBusyRef.current = false
+      setMessages([welcomeMessage])
+    }
+  }, [identity.tenantId, identity.userId, identity.accessToken, sessionId, recoverRun])
 
   useEffect(() => {
     const assistantId = activeAssistantIdRef.current
-    if (!assistantId) return
+    if (!assistantId || isRecovering || stoppingRef.current || activeRunRef.current?.terminal) return
     const latestAssistant = [...stream.messages]
       .reverse()
       .find((message) => (
@@ -284,10 +483,21 @@ export function useResearchSession(identity: RequestIdentity) {
     setMessages((current) => updateMessage(current, assistantId, (message) => (
       message.status === 'complete' ? message : { ...message, content }
     )))
-  }, [stream.messages])
+  }, [stream.messages, isRecovering])
 
   const sendMessage = useCallback(async (content: string, attachmentIds: string[] = []) => {
-    if (!content.trim() || stream.isLoading) return
+    const submitIdentity = identityKey
+    await initializationRef.current
+    if (submitIdentity !== identityKeyRef.current) return
+    if (!content.trim() || stream.isLoading || recoveryBusyRef.current || isRecovering || stoppingRef.current) return
+    if (activeRunRef.current && !activeRunRef.current.terminal) return
+    interactionEpochRef.current += 1
+    callbackContext.epoch = interactionEpochRef.current
+    subscriptionRef.current?.abort()
+    activeRunRef.current = null
+    const requestId = `req_${crypto.randomUUID()}`
+    expectedRequestRef.current = requestId
+    completedResponseRef.current = false
     setError('')
     const text = content.trim()
     const userMessage: ResearchMessage = {
@@ -323,7 +533,7 @@ export function useResearchSession(identity: RequestIdentity) {
       {
         messages: [{ type: 'human', id: userMessage.id, content: text }],
         attachment_ids: attachmentIds,
-        request_id: `req_${crypto.randomUUID()}`
+        request_id: requestId
       },
       {
         optimisticValues: {
@@ -331,18 +541,55 @@ export function useResearchSession(identity: RequestIdentity) {
         }
       }
     )
-  }, [stream])
+  }, [stream, isRecovering])
 
-  const cancelMessage = useCallback(() => {
-    void stream.stop()
-  }, [stream])
+  const cancelMessage = useCallback(async () => {
+    if (isInitializing && !activeAssistantIdRef.current) return
+    const epoch = interactionEpochRef.current
+    const stopIdentity = identityKey
+    const isCurrentStop = () => epoch === interactionEpochRef.current && stopIdentity === identityKeyRef.current
+    stoppingRef.current = true
+    setIsStopping(true)
+    const assistantId = activeAssistantIdRef.current
+    if (assistantId) setMessages((current) => updateMessage(current, assistantId, (item) => ({ ...item, status: 'stopping', processStatus: '正在安全结束当前任务…' })))
+    try {
+      let runId = activeRunRef.current?.runId
+      if (!runId) {
+        const run = await loadActiveRun(sessionId, identity)
+        if (!isCurrentStop()) return
+        runId = run?.run_id
+        if (run) activeRunRef.current = { runId: run.run_id, messageId: run.message_id, terminal: false }
+      }
+      // 若尚未收到 accepted，收到 run_started 后自动补发停止请求。
+      if (!runId) return
+      const result = await stopResearchRun(sessionId, runId, identity)
+      if (!isCurrentStop() || activeRunRef.current?.runId !== runId || activeRunRef.current.terminal) return
+      handleCustomEvent({ type: 'run_status', run_id: runId, status: result.status })
+      if (result.status === 'stop_requested') return
+      subscriptionRef.current?.abort()
+      await stream.stop()
+    } catch (caught) {
+      if (!isCurrentStop() || activeRunRef.current?.terminal) return
+      stoppingRef.current = false
+      setIsStopping(false)
+      setError(`停止未确认：${errorMessage(caught)}`)
+      if (assistantId) setMessages((current) => updateMessage(current, assistantId, (item) => ({ ...item, status: 'streaming' })))
+    }
+  }, [stream, sessionId, identity.tenantId, identity.userId, identity.accessToken, handleCustomEvent])
+  stopCurrentRef.current = cancelMessage
 
   const resumeUserInput = useCallback(async (messageId: string, value: string) => {
-    if (stream.isLoading) return
+    if (stream.isLoading || isRecovering || isStopping || isInitializing) return
     const message = messagesRef.current.find((item) => item.id === messageId)
     const userInput = message?.userInput
     if (!userInput || userInput.isSubmitting) return
     if (!userInput.options.some((option) => option.value === value)) return
+
+    interactionEpochRef.current += 1
+    callbackContext.epoch = interactionEpochRef.current
+    expectedRequestRef.current = null
+    completedResponseRef.current = false
+    if (activeRunRef.current) activeRunRef.current.terminal = false
 
     setError('')
     activeAssistantIdRef.current = messageId
@@ -378,13 +625,22 @@ export function useResearchSession(identity: RequestIdentity) {
   return {
     sessionId,
     messages,
-    isStreaming: stream.isLoading,
+    isStreaming: stream.isLoading || isRecovering || isStopping || isInitializing,
     isOnline,
     error,
     sendMessage,
     resumeUserInput,
     cancelMessage
   }
+}
+
+function researchStatus(status: string): ResearchMessage['status'] {
+  if (status === 'cancelled') return 'cancelled'
+  if (status === 'failed') return 'error'
+  if (status === 'interrupted') return 'interrupted'
+  if (status === 'stop_requested') return 'stopping'
+  if (status === 'running' || status === 'pending' || status === 'streaming') return 'streaming'
+  return 'complete'
 }
 
 function updateMessage(messages: ResearchMessage[], id: string, update: (message: ResearchMessage) => ResearchMessage) {

@@ -100,6 +100,27 @@ def decide_approval(
     db: Session = Depends(get_db),
     memory_store: BaseStore = Depends(get_memory_store),
 ) -> dict:
+    from app.conversations.approval_execution import durable_approval_execution
+
+    with durable_approval_execution(
+        db=db, approval_id=approval_id, tenant_id=principal.tenant_id,
+    ):
+        return _decide_approval(
+            approval_id=approval_id, request=request,
+            business_intent_catalog=business_intent_catalog,
+            principal=principal, db=db, memory_store=memory_store,
+        )
+
+
+def _decide_approval(
+    *,
+    approval_id: str,
+    request: ApprovalDecisionRequest,
+    business_intent_catalog: BusinessIntentCatalog,
+    principal: Principal,
+    db: Session,
+    memory_store: BaseStore,
+) -> dict:
     repository = ApprovalRepository(db)
     try:
         pending_record = repository.get(
@@ -309,6 +330,10 @@ def decide_approval(
             },
         ) from exc
     try:
+        from app.conversations.execution import check_execution_cancelled
+
+        # 与 stop 保持 execution -> run 的锁序，禁止先 flush Run 再申请执行锁。
+        check_execution_cancelled(db)
         _validate_resume_state(resume_snapshot, state)
         interrupt_payloads = _project_current_interrupts(state)
         for interrupt_payload in interrupt_payloads:
