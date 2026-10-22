@@ -1,13 +1,12 @@
 import json
 
 import pytest
-from pydantic import ValidationError
-
+from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.planning.contracts import PlanModel, TaskResultModel
 from app.graph.planning.planner import LlmTaskPlanner, PlannerCapabilities, PlannerOutputError
-from app.graph.nodes.planner_agent import build_planner_agent_node
 from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult
+from pydantic import ValidationError
 
 
 class Decisions:
@@ -90,6 +89,105 @@ def test_revision_cannot_rewrite_completed_task():
     )
     with pytest.raises(PlannerOutputError):
         review(client)
+
+
+def test_revision_rejects_new_id_that_repeats_completed_research_goal():
+    current = PlanModel(
+        tasks=[
+            {
+                "id": "a_share_tech_positioning",
+                "task_goal": (
+                    "获取A股科技板块（半导体、光模块/算力硬件、消费电子等）当前的关键定位数据："
+                    "板块指数相对近期高点的回撤幅度、估值分位（PE/PB历史分位）、最新两融余额变化方向、"
+                    "北向资金/陆股通近期净流入流出情况，以及科技板块三季报业绩预告或景气度线索。"
+                    "用于判断科技股是否具备继续繁荣的估值与资金基础。"
+                ),
+                "completion_criteria": [
+                    "给出科技板块指数相对近期高点的回撤幅度",
+                    "给出两融、北向资金与估值分位",
+                ],
+                "tool_search_query": "A股科技板块回撤估值两融资金数据",
+            }
+        ]
+    )
+    repeated = {
+        "action": "revise",
+        "reason": "补齐位置数据",
+        "plan": {
+            "tasks": [
+                {
+                    "id": "supplement_tech_position",
+                    "task_goal": (
+                        "补齐A股科技板块（半导体、算力硬件/光模块、消费电子等）的资金面与位置数据："
+                        "最新两融余额规模及变化方向、北向资金/陆股通近期净流入流出方向、"
+                        "科技板块指数相对近期高点的回撤幅度，以及可核实的估值分位（明确指数口径与PE/PB指标）。"
+                        "用于判断科技股是否具备继续繁荣的资金与估值基础。"
+                    ),
+                    "completion_criteria": [
+                        "给出科技板块指数相对近期高点的回撤幅度",
+                        "给出两融、北向资金与估值分位",
+                    ],
+                    "tool_search_query": "A股科技板块回撤估值两融资金数据",
+                }
+            ]
+        },
+    }
+    client = Decisions(repeated, repeated)
+
+    with pytest.raises(PlannerOutputError):
+        review(
+            client,
+            current=current,
+            results=[
+                TaskResultModel(
+                    task_id="a_share_tech_positioning",
+                    status="success",
+                    content="已取得科技板块回撤、估值和资金数据",
+                )
+            ],
+        )
+
+    repair = json.loads(client.calls[1]["user_prompt"])["repair"]
+    assert "重复" in repair["validation_error"]
+    assert "a_share_tech_positioning" in repair["validation_error"]
+
+
+def test_revision_allows_task_with_materially_new_evidence_gap():
+    current = PlanModel(
+        tasks=[
+            {
+                "id": "market_position",
+                "task_goal": "获取A股科技板块相对近期高点的回撤幅度、估值分位和资金流向。",
+                "completion_criteria": ["给出回撤幅度与估值分位"],
+            }
+        ]
+    )
+    decision = review(
+        Decisions(
+            {
+                "action": "revise",
+                "reason": "需要核实新增政策",
+                "plan": {
+                    "tasks": [
+                        {
+                            "id": "policy_catalyst",
+                            "task_goal": "核实人工智能、半导体国产替代支持政策的落地时间和适用范围。",
+                            "completion_criteria": ["列出政策文件、发布时间与适用对象"],
+                        }
+                    ]
+                },
+            }
+        ),
+        current=current,
+        results=[
+            TaskResultModel(
+                task_id="market_position", status="success", content="已取得行情定位数据"
+            )
+        ],
+    )
+
+    assert decision.plan is not None
+    assert decision.plan.tasks[0].id == "policy_catalyst"
 
 
 def test_revision_budget_does_not_forbid_finish():
@@ -181,8 +279,8 @@ def test_scheduler_requests_feedback_for_success_and_failure():
 
 
 def test_scheduler_obeys_reviewed_continue_and_finish():
-    from app.graph.runtime import _dispatch_after_scheduler
     from app.graph.planning.policy import observation_signature
+    from app.graph.runtime import _dispatch_after_scheduler
 
     state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="研究")
     state.update(plan=plan().model_dump(), planner_iteration=1)
@@ -196,8 +294,8 @@ def test_scheduler_obeys_reviewed_continue_and_finish():
 
 
 def test_feedback_budget_stop_is_runtime_limit_not_model_decision():
-    from app.graph.runtime import task_scheduler_node
     from app.graph.planning.policy import MAX_PLANNER_FEEDBACKS
+    from app.graph.runtime import task_scheduler_node
 
     state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="研究")
     state.update(
@@ -235,7 +333,7 @@ def test_invalid_feedback_stops_safely_without_claiming_a_model_decision():
 
 
 def test_resume_policy_rejects_old_checkpoint():
-    from app.graph.runtime import _validate_planner_checkpoint, LegacyCheckpointIncompatibleError
+    from app.graph.runtime import LegacyCheckpointIncompatibleError, _validate_planner_checkpoint
 
     with pytest.raises(LegacyCheckpointIncompatibleError):
         _validate_planner_checkpoint({"plan": plan().model_dump()})

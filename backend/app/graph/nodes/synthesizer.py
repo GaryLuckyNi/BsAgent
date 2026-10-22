@@ -160,10 +160,12 @@ def _render_answer(
             user_prompt=user_prompt,
             temperature=0.2,
             max_tokens=16_384,
-            thinking=True,
+            # 正文已由结构化研究结果约束，直接生成才能让首个正文 token
+            # 立即进入流。复杂分析节点仍保留模型推理。
+            thinking=False,
             on_delta=stream_handler,
             retry_without_thinking_on_empty=True,
-            retry_without_thinking_on_length=True,
+            retry_without_thinking_on_length=False,
         )
     finally:
         stream_handler.flush()

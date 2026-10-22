@@ -359,6 +359,21 @@ def test_local_debug_requires_reasoning_switch():
         Settings(_env_file=None, langfuse_content_mode="local_debug")
 
 
+def test_langfuse_accepts_metadata_only_mode():
+    config = Settings(_env_file=None, langfuse_content_mode="metadata_only")
+    assert config.langfuse_content_mode == "metadata_only"
+
+
+@pytest.mark.parametrize("mode", ["local_content", "metadata_only"])
+def test_reasoning_capture_requires_local_debug_mode(mode):
+    with pytest.raises(ValidationError, match="local_debug"):
+        Settings(
+            _env_file=None,
+            langfuse_content_mode=mode,
+            langfuse_capture_reasoning=True,
+        )
+
+
 def test_local_debug_allows_reasoning_when_both_switches_are_enabled():
     config = Settings(
         _env_file=None,

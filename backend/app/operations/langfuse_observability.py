@@ -138,7 +138,10 @@ def configure_langfuse(
         environment=config.app_env,
         sample_rate=config.langfuse_sample_rate,
         tracer_provider=provider,
-        mask_otel_spans=mask_langfuse_otel_spans,
+        mask_otel_spans=lambda *, params: mask_langfuse_otel_spans(
+            params=params,
+            content_mode=getattr(config, "langfuse_content_mode", "local_content"),
+        ),
     )
     runtime = LangfuseRuntime(
         client=client,
@@ -177,12 +180,14 @@ def hash_langfuse_identifier(value: str) -> str:
 def mask_langfuse_otel_spans(
     *,
     params: MaskOtelSpansParams,
+    content_mode: str = "local_content",
 ) -> MaskOtelSpansResult:
     patches = {}
     for identifier, span in params.spans.items():
         content_policy_applied = (
             span.attributes.get("langfuse.observation.metadata.content_policy_applied")
             is True
+            and content_mode != "metadata_only"
         )
         deleted = tuple(
             key
@@ -251,7 +256,7 @@ def langfuse_agent_run(
             as_type="agent",
             name="bs-agent.run",
             trace_context={"trace_id": trace_id},
-            input=runtime.content_policy.sanitize(input) if input is not None else None,
+            **_observation_input(runtime.content_policy, input),
             metadata=_safe_metadata(
                 runtime.content_policy,
                 {
@@ -330,7 +335,7 @@ def langfuse_generation(
             metadata=_safe_metadata(runtime.content_policy, metadata),
             **(
                 {"input": runtime.content_policy.sanitize(observation_input)}
-                if observation_input is not None
+                if observation_input is not None and runtime.content_policy.mode != "metadata_only"
                 else {}
             ),
         )
@@ -412,7 +417,7 @@ def langfuse_observation(
         manager = runtime.client.start_as_current_observation(
             as_type=as_type,
             name=name,
-            input=runtime.content_policy.sanitize(input) if input is not None else None,
+            **_observation_input(runtime.content_policy, input),
             metadata=_safe_metadata(runtime.content_policy, metadata),
         )
         observation = manager.__enter__()
@@ -437,8 +442,8 @@ def update_langfuse_generation(generation: Any | None, **attributes: Any) -> Non
         policy = LangfuseContentPolicy()
     else:
         policy = runtime.content_policy
-    attributes = _sanitize_observation_attributes(attributes, policy)
     try:
+        attributes = _sanitize_observation_attributes(attributes, policy)
         generation.update(**attributes)
     except Exception as exc:  # noqa: BLE001 - 观测故障不能中断业务执行
         _log_runtime_failure("langfuse_generation_update_failed", exc)
@@ -464,8 +469,23 @@ def _safe_metadata(
     safe_metadata = policy.sanitize(dict(metadata or {}))
     if not isinstance(safe_metadata, dict):
         safe_metadata = {}
+    # 这些是有界统计字段，不能因为名称包含 token/reasoning 被正文策略误删。
+    values = metadata or {}
+    if isinstance(values.get("first_token_received"), bool):
+        safe_metadata["first_token_received"] = values["first_token_received"]
+    if values.get("first_token_kind") in ("content", "reasoning"):
+        safe_metadata["first_token_kind"] = values["first_token_kind"]
+    reasoning_chars = values.get("reasoning_chars")
+    if isinstance(reasoning_chars, int) and not isinstance(reasoning_chars, bool) and reasoning_chars >= 0:
+        safe_metadata["reasoning_chars"] = reasoning_chars
     safe_metadata["content_policy_applied"] = True
     return safe_metadata
+
+
+def _observation_input(policy: LangfuseContentPolicy, value: Any) -> dict[str, Any]:
+    if policy.mode == "metadata_only" or value is None:
+        return {}
+    return {"input": policy.sanitize(value)}
 
 
 def _sanitize_observation_attributes(
@@ -475,6 +495,7 @@ def _sanitize_observation_attributes(
         key: policy.sanitize(value)
         for key, value in attributes.items()
         if key != "metadata"
+        and not (policy.mode == "metadata_only" and key in {"input", "output"})
     }
     status_message = safe_attributes.get("status_message")
     if isinstance(status_message, dict) and isinstance(
@@ -497,8 +518,8 @@ def _safe_update_observation(
     attributes: Mapping[str, Any],
     event: str,
 ) -> None:
-    safe_attributes = _sanitize_observation_attributes(attributes, content_policy)
     try:
+        safe_attributes = _sanitize_observation_attributes(attributes, content_policy)
         observation.update(**safe_attributes)
     except Exception as exc:  # noqa: BLE001 - 观测故障不能中断业务执行
         _log_runtime_failure(event, exc)

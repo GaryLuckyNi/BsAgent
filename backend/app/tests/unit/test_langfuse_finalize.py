@@ -320,6 +320,29 @@ def test_background_finalizer_returns_without_waiting_and_close_drains_work():
     assert "flush" in events
 
 
+def test_background_finalizer_preserves_current_observation_context():
+    from contextvars import ContextVar
+
+    trace = ContextVar("finalizer_test_trace", default=None)
+    observed = []
+    finalizer = LangfuseRunFinalizer(
+        rule_evaluator=lambda _data: (
+            observed.append(trace.get()) or SimpleNamespace(scores={})
+        ),
+        judge_enabled=False,
+        annotation_enabled=False,
+        background=True,
+    )
+    token = trace.set("current-agent-trace")
+    try:
+        finalizer.finalize(_Handle([]), {"errors": []})
+    finally:
+        trace.reset(token)
+        finalizer.close()
+
+    assert observed == ["current-agent-trace"]
+
+
 def test_finalizer_writes_selection_score_and_enqueues_selection_observation_only_with_gold():
     events = []
     finalizer = LangfuseRunFinalizer(

@@ -53,7 +53,8 @@ class LlmIntentClassifier:
             ),
             temperature=0.0,
             max_tokens=512,
-            thinking=True,
+            # 意图识别是受 schema 约束的短 JSON 任务，直接输出可减少首屏等待。
+            thinking=False,
             on_delta=on_delta,
             retry_without_thinking_on_empty=True,
         )

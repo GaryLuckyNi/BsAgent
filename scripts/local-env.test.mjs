@@ -9,7 +9,6 @@ import { fileURLToPath } from 'node:url'
 import { loadLocalEnvironment } from './local-env.mjs'
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
-
 const managedKeys = [
   'BS_AGENT_LANGFUSE_ENABLED',
   'BS_AGENT_LANGFUSE_PUBLIC_KEY'

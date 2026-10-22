@@ -22,15 +22,12 @@ from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpoi
 from app.intent.dependencies import build_business_intent_catalog_runtime
 from app.intent.runtime import BusinessIntentCatalogRuntime
 from app.llm.factory import close_llm_client
-from app.llm.deepseek import DeepSeekClient
 from app.memory.runtime import PostgresStoreRuntime
 from app.memory.synchronizer import reconcile_memory_store
 from app.operations.health import ReadinessService, build_readiness_service
-from app.operations.langfuse_annotation import AnnotationQueueClient, ReviewPolicy
-from app.operations.langfuse_evaluation import DeepSeekJudge
+from app.operations.langfuse_factory import build_langfuse_finalizer as _build_langfuse_finalizer
 from app.operations.langfuse_finalize import LangfuseRunFinalizer
 from app.operations.langfuse_observability import configure_langfuse
-from app.operations.langfuse_scores import ensure_score_configs
 from app.operations.lifecycle import close_resources
 from app.operations.observability import (
     RequestContextMiddleware,
@@ -253,60 +250,6 @@ def create_app(
     app.include_router(assets_router)
     app.include_router(traces_router)
     return app
-
-
-def _build_langfuse_finalizer(
-    config: Settings,
-    langfuse_runtime: Any | None,
-) -> LangfuseRunFinalizer | None:
-    if not config.langfuse_enabled or langfuse_runtime is None:
-        return None
-    client = getattr(langfuse_runtime, "client", None)
-    judge = None
-    if config.langfuse_deepseek_judge_enabled and config.deepseek_api_key:
-        try:
-            judge_client = DeepSeekClient(
-                api_key=config.deepseek_api_key,
-                model=config.deepseek_model,
-                base_url=config.deepseek_base_url,
-                timeout_seconds=config.langfuse_deepseek_judge_timeout_seconds,
-            )
-            judge = DeepSeekJudge(
-                judge_client,
-                timeout_seconds=config.langfuse_deepseek_judge_timeout_seconds,
-            )
-        except Exception:  # noqa: BLE001 - evaluator setup is best-effort
-            judge = None
-    annotation_client = None
-    if config.langfuse_annotation_enabled:
-        try:
-            annotation_client = AnnotationQueueClient(
-                config.langfuse_base_url,
-                config.langfuse_public_key,
-                config.langfuse_secret_key,
-                retry_attempts=config.langfuse_annotation_retry_attempts,
-            )
-        except Exception:  # noqa: BLE001 - annotation setup is best-effort
-            annotation_client = None
-    return LangfuseRunFinalizer(
-        client=client,
-        judge=judge,
-        annotation_client=annotation_client,
-        score_config_provider=(
-            lambda: ensure_score_configs(client) if client is not None else {}
-        ),
-        review_policy=ReviewPolicy(
-            answer_threshold=config.langfuse_answer_review_threshold,
-            selection_confidence_threshold=config.langfuse_selection_confidence_threshold,
-            sample_rate=config.langfuse_annotation_sample_rate,
-        ),
-        enabled=True,
-        evaluator_enabled=config.langfuse_evaluation_enabled,
-        judge_enabled=config.langfuse_deepseek_judge_enabled,
-        annotation_enabled=config.langfuse_annotation_enabled,
-        environment=config.app_env,
-        background=True,
-    )
 
 
 def _build_redis_client(runtime: Settings) -> Redis | None:

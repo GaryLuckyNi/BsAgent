@@ -2,11 +2,15 @@ from celery import Celery
 from celery.signals import setup_logging, worker_process_init, worker_process_shutdown
 
 from app.core.config import settings
+from app.operations.langfuse_factory import build_langfuse_finalizer
+from app.operations.langfuse_observability import configure_langfuse
+from app.operations.lifecycle import close_resources
 from app.operations.observability import configure_logging, configure_worker_telemetry
 from app.storage.database import engine
 
-
 _worker_telemetry_runtime = None
+_worker_langfuse_runtime = None
+_worker_langfuse_finalizer = None
 
 
 celery_app = Celery(
@@ -56,16 +60,32 @@ def configure_worker_logging(**_: object) -> None:
 
 @worker_process_init.connect
 def initialize_worker_telemetry(**_: object) -> None:
-    global _worker_telemetry_runtime
+    global _worker_telemetry_runtime, _worker_langfuse_runtime, _worker_langfuse_finalizer
+    from app.graph.runtime import configure_langfuse_finalizer
+
     _worker_telemetry_runtime = configure_worker_telemetry(
         engine=engine,
         config=settings,
     )
+    _worker_langfuse_runtime = configure_langfuse(config=settings)
+    _worker_langfuse_finalizer = build_langfuse_finalizer(settings, _worker_langfuse_runtime)
+    configure_langfuse_finalizer(_worker_langfuse_finalizer)
 
 
 @worker_process_shutdown.connect
 def shutdown_worker_telemetry(**_: object) -> None:
-    global _worker_telemetry_runtime
+    global _worker_telemetry_runtime, _worker_langfuse_runtime, _worker_langfuse_finalizer
+    from app.graph.runtime import configure_langfuse_finalizer
+
+    closers = []
+    if _worker_langfuse_finalizer is not None:
+        closers.append(_worker_langfuse_finalizer.close)
+        _worker_langfuse_finalizer = None
+        closers.append(lambda: configure_langfuse_finalizer(None))
+    if _worker_langfuse_runtime is not None:
+        closers.append(_worker_langfuse_runtime.shutdown)
+        _worker_langfuse_runtime = None
     if _worker_telemetry_runtime is not None:
-        _worker_telemetry_runtime.shutdown()
+        closers.append(_worker_telemetry_runtime.shutdown)
         _worker_telemetry_runtime = None
+    close_resources(*closers)

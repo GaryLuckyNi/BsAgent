@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from threading import BoundedSemaphore
 from typing import Any
 
@@ -89,7 +90,7 @@ class LangfuseRunFinalizer:
             if self._closed or not self._slots.acquire(blocking=False):
                 return
             try:
-                future = self._executor.submit(self._run, handle, data)
+                future = self._executor.submit(copy_context().run, self._run, handle, data)
             except RuntimeError:
                 self._slots.release()
                 return

@@ -63,8 +63,6 @@ def test_production_api_retries_local_receipts_without_dispatching_local_turns(m
     with TestClient(app):
         assert maintained.wait(2), "生产 API 需要本进程的工具结果补落库维护"
     assert local_store_calls == []
-
-
 def test_application_configures_and_closes_langfuse_once(
     fake_business_intent_catalog_runtime,
     monkeypatch,

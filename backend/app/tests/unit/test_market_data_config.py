@@ -28,6 +28,7 @@ def test_admin_market_data_client_returns_active_mcp_config():
     assert config.name == "tushare"
     assert config.url.endswith("token=secret")
     assert config.config_revision == "revision-1"
+    assert config.enforce_local_rbac is False
 
 
 def test_admin_market_data_client_maps_404_to_no_connection():

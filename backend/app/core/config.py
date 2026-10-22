@@ -117,7 +117,7 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_base_url: str = "http://localhost:3000"
     langfuse_sample_rate: float = Field(default=1.0, ge=0, le=1)
-    langfuse_content_mode: Literal["local_content", "local_debug"] = "local_content"
+    langfuse_content_mode: Literal["metadata_only", "local_content", "local_debug"] = "local_content"
     langfuse_capture_reasoning: bool = False
     langfuse_max_content_chars: int = Field(default=20_000, ge=1_000, le=200_000)
     langfuse_evaluation_enabled: bool = True
@@ -179,6 +179,10 @@ class Settings(BaseSettings):
         if self.langfuse_content_mode == "local_debug" and not self.langfuse_capture_reasoning:
             raise ValueError(
                 "langfuse_content_mode=local_debug 必须同时启用 langfuse_capture_reasoning"
+            )
+        if self.langfuse_capture_reasoning and self.langfuse_content_mode != "local_debug":
+            raise ValueError(
+                "langfuse_capture_reasoning=true 仅允许用于 local_debug 模式"
             )
         if not _is_postgres_url(self.memory_store_postgres_url):
             raise ValueError("memory_store_postgres_url 必须是 PostgreSQL URL")

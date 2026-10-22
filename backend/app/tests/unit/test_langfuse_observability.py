@@ -1,6 +1,8 @@
 from contextlib import contextmanager
 from types import SimpleNamespace
 
+import pytest
+
 from app.operations import langfuse_observability
 from app.operations.langfuse_observability import (
     LangfuseRunHandle,
@@ -111,7 +113,7 @@ def test_configure_langfuse_passes_official_sdk_configuration():
     assert client_calls[0]["environment"] == "test"
     assert client_calls[0]["sample_rate"] == 1.0
     assert client_calls[0]["tracer_provider"] is provider
-    assert client_calls[0]["mask_otel_spans"] is mask_langfuse_otel_spans
+    assert callable(client_calls[0]["mask_otel_spans"])
 
     with langfuse_agent_run(
         business_trace_id="business-trace",
@@ -568,3 +570,145 @@ def test_mask_preserves_only_stable_error_codes():
     )
     result = mask_langfuse_otel_spans(params=params)
     assert identifier not in result.span_patches
+
+
+def test_metadata_only_suppresses_io_at_every_observation_boundary():
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(langfuse_content_mode="metadata_only"),
+        client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+    )
+    try:
+        with langfuse_agent_run(
+            business_trace_id="trace", session_key="session", tenant_id="tenant",
+            execution_segment="initial", input={"message": "private"},
+        ) as handle:
+            handle.update(input="private", output="private")
+        with langfuse_generation(
+            name="generation", model="deepseek", model_parameters={},
+            system_prompt="private", user_prompt="private",
+        ) as generation:
+            update_langfuse_generation(generation, input="private", output="private")
+        with langfuse_observation(as_type="tool", name="tool", input="private") as observation:
+            langfuse_observability.update_langfuse_observation(
+                observation, input="private", output="private"
+            )
+        for observation in client.observations:
+            assert "input" not in observation
+            assert "output" not in observation
+            for update in observation.get("updates", []):
+                assert "input" not in update
+                assert "output" not in update
+    finally:
+        runtime.shutdown()
+
+
+def test_real_generation_update_preserves_safe_latency_statistics_and_redacts_secrets():
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(), client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+    )
+    try:
+        with langfuse_generation(name="generation", model="deepseek", model_parameters={}) as generation:
+            update_langfuse_generation(
+                generation,
+                metadata={
+                    "first_token_received": True,
+                    "first_token_kind": "reasoning",
+                    "reasoning_chars": 23,
+                    "ttft_ms": 12.5,
+                    "reasoning_content": "private reasoning",
+                    "api_key": "private credential",
+                },
+            )
+        metadata = client.observations[0]["updates"][0]["metadata"]
+        assert metadata == {
+            "first_token_received": True,
+            "first_token_kind": "reasoning",
+            "reasoning_chars": 23,
+            "ttft_ms": 12.5,
+            "content_policy_applied": True,
+        }
+    finally:
+        runtime.shutdown()
+
+
+@pytest.mark.parametrize("helper", ["generation", "observation", "handle"])
+def test_observation_sanitization_failure_does_not_escape(helper):
+    class BrokenPolicy:
+        mode = "local_content"
+
+        def sanitize(self, _value):
+            raise ValueError("sanitizer failed")
+
+    observation = SimpleNamespace(update=lambda **_kwargs: None)
+    runtime = configure_langfuse(
+        config=_config(), client_factory=lambda **_kwargs: _Client(),
+        provider_factory=lambda **_kwargs: _Provider(),
+    )
+    runtime.content_policy = BrokenPolicy()
+    try:
+        if helper == "handle":
+            LangfuseRunHandle(observation=observation, content_policy=runtime.content_policy).update(output="value")
+        else:
+            update = (
+                update_langfuse_generation if helper == "generation"
+                else langfuse_observability.update_langfuse_observation
+            )
+            update(observation, output="value")
+    finally:
+        runtime.shutdown()
+
+
+def test_metadata_only_export_mask_rejects_managed_span_io():
+    client_kwargs = {}
+    runtime = configure_langfuse(
+        config=_config(langfuse_content_mode="metadata_only"),
+        client_factory=lambda **kwargs: client_kwargs.update(kwargs) or _Client(),
+        provider_factory=lambda **_kwargs: _Provider(),
+    )
+    identifier = OtelSpanIdentifier(trace_id="0" * 32, span_id="1" * 16)
+    io_keys = {
+        "langfuse.observation.input", "langfuse.observation.output",
+        "langfuse.trace.input", "langfuse.trace.output",
+    }
+    params = MaskOtelSpansParams(spans={identifier: OtelSpanData(
+        trace_id=identifier.trace_id, span_id=identifier.span_id,
+        parent_span_id=None, name="managed", instrumentation_scope_name="bs-agent",
+        instrumentation_scope_version=None, resource_attributes={},
+        attributes={
+            **dict.fromkeys(io_keys, "private"),
+            "langfuse.observation.metadata.content_policy_applied": True,
+        },
+    )})
+    runtime.shutdown()
+    result = client_kwargs["mask_otel_spans"](params=params)
+    assert io_keys <= set(result.span_patches[identifier].delete_attributes)
+
+
+def test_agent_run_propagation_cancellation_closes_root_and_propagates():
+    import asyncio
+
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(), client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+        handler_factory=lambda **_kwargs: object(),
+    )
+
+    def cancel(**_kwargs):
+        raise asyncio.CancelledError()
+
+    runtime.propagate_factory = cancel
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            with langfuse_agent_run(
+                business_trace_id="trace", session_key="session", tenant_id="tenant",
+                execution_segment="initial",
+            ):
+                pytest.fail("取消后不能继续业务")
+        assert client.observation_exit_calls == 1
+    finally:
+        runtime.shutdown()

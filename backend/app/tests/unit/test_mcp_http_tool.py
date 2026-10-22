@@ -35,6 +35,19 @@ def _dynamic_tool(name: str, payload: object) -> DynamicMcpHttpTool:
     )
 
 
+def test_dynamic_http_tool_can_delegate_authorization_to_provider():
+    tool = DynamicMcpHttpTool(
+        name="mcp.external.echo",
+        server_name="external",
+        langchain_tool=_langchain_tool("echo", {"text": "ok"}),
+        description="echo",
+        input_schema={"type": "object", "properties": {}},
+        permission_scope=[],
+    )
+
+    assert tool.spec.permission_scope == []
+
+
 def test_http_client_uses_official_streamable_http_adapter(monkeypatch):
     captured = {}
     discovered = _langchain_tool(
