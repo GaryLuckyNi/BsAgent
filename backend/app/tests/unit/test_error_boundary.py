@@ -9,6 +9,7 @@ from app.harness.error_boundary import (
     build_safe_error_record,
     classify_recoverable_error,
 )
+from app.llm.deepseek import LlmProviderError
 
 
 class RagIndexUnavailable(RuntimeError):
@@ -47,6 +48,30 @@ def test_safe_error_record_exposes_only_registered_message():
         "retryable": True,
     }
     assert "/private/path" not in repr(record)
+
+
+def test_llm_timeout_is_retryable_and_exposes_only_safe_message():
+    error = LlmProviderError(
+        code="llm_timeout",
+        message="raw upstream timeout detail",
+    )
+
+    classified = classify_recoverable_error(error)
+    record = build_safe_error_record("planner_agent", error)
+
+    assert classified is not None
+    assert classified.code == "llm_timeout"
+    assert classified.http_status == 504
+    assert classified.retryable is True
+    assert record == {
+        "node": "planner_agent",
+        "message": "模型响应超时，请稍后重试。",
+        "code": "llm_timeout",
+        "http_status": 504,
+        "handled": True,
+        "retryable": True,
+    }
+    assert "raw upstream timeout detail" not in repr(record)
 
 
 def test_unknown_exception_is_not_handled():

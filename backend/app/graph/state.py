@@ -175,6 +175,20 @@ def merge_discovery_events(existing: dict | None, incoming: dict | None) -> dict
     return {**(existing or {}), **(incoming or {})}
 
 
+def merge_selection_observation_id(
+    existing: str | None,
+    incoming: str | None,
+) -> str | None:
+    return incoming or existing
+
+
+def merge_selection_confidence(
+    existing: float | None,
+    incoming: float | None,
+) -> float | None:
+    return incoming if incoming is not None else existing
+
+
 def merge_task_results(
     existing: list[dict[str, Any]] | None,
     incoming: list[dict[str, Any]] | None,
@@ -238,6 +252,11 @@ class AgentState(TypedDict):
     disclosed_tool_names: Annotated[list[str], merge_disclosed_tool_names]
     tool_discovery_events: Annotated[dict[str, Any], merge_discovery_events]
     tool_search_count: int
+    selection_observation_id: Annotated[
+        str | None,
+        merge_selection_observation_id,
+    ]
+    selection_confidence: Annotated[float | None, merge_selection_confidence]
     user_message: str
     assistant_message_id: str
     messages: Annotated[list[AnyMessage], add_messages]
@@ -324,6 +343,8 @@ def create_initial_state(
         "disclosed_tool_names": [],
         "tool_discovery_events": {},
         "tool_search_count": 0,
+        "selection_observation_id": None,
+        "selection_confidence": None,
         "user_message": user_message,
         "assistant_message_id": assistant_message_id,
         "messages": messages,

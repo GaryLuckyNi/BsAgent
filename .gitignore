@@ -1,11 +1,14 @@
 .superpowers/
 .worktrees/
+.env.local
+.venv/
 __pycache__/
 .pytest_cache/
 *.py[cod]
 *.egg-info/
 build/
 data/
+langfuse-4.16.0/
 *.db
 *.sqlite
 *.sqlite-shm

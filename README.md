@@ -13,6 +13,19 @@ BsAgent 是面向 A 股公司投研场景的多 Agent 底座。系统以 LangGra
 
 ## 本地开发
 
+首次启动或 `backend/requirements.lock` 更新后，使用 Python 3.11 创建项目独立环境并同步锁定依赖：
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.lock
+```
+
+在 `.env.local` 中设置该解释器的绝对路径，避免污染或误用全局 Python 环境：
+
+```dotenv
+PYTHON=/你的仓库绝对路径/BsAgent/.venv/bin/python
+```
+
 顶层一键启动脚本会先通过 `compose.local-postgres.yml` 启动 PostgreSQL，等待健康检查通过，再执行业务迁移和启动各服务：
 
 ```bash
@@ -21,6 +34,7 @@ npm run dev
 
 该命令会同时启动：
 
+- Langfuse 4.16.0：`http://127.0.0.1:3000`
 - Agent 后端：`http://127.0.0.1:8000`
 - Agent 前端：`http://127.0.0.1:5175`
 - Admin 后端：`http://127.0.0.1:8002`
@@ -54,7 +68,7 @@ npm run dev:stop:dry-run
 npm run dev:stop
 ```
 
-`dev:stop:dry-run` 只显示将要关闭的监听进程和本地 PostgreSQL；`dev:stop` 会向默认开发端口对应的进程发送 `SIGTERM`，并停止本项目的 PostgreSQL 容器。如启动时通过环境变量改过端口，关闭时也需要带上同样的端口变量。
+`dev:stop:dry-run` 只显示将要关闭的监听进程、本地 PostgreSQL 和 Langfuse；`dev:stop` 会向默认开发端口对应的进程发送 `SIGTERM`，并停止本项目的 PostgreSQL 与 Langfuse 容器。容器数据卷会保留。如启动时通过环境变量改过端口，关闭时也需要带上同样的端口变量。
 
 本地 Backend 默认显式注入三类 PostgreSQL DSN：
 
@@ -101,13 +115,25 @@ BS_AGENT_SKILL_REGISTRY_BASE_URL=http://127.0.0.1:8002
 
 Admin 后端启动前会自动执行 `alembic upgrade head`，用于修复本地配置库的历史 schema。Agent 不连接仓库内的示例 MCP Server。请在 Admin 的“市场数据源”页面保存并激活完整的 Tushare 官方 MCP URL；Agent 从 Admin 获取当前连接后，通过 Streamable HTTP 直接发现和调用工具。
 
-DeepSeek Key 仍通过启动 shell 注入：
+DeepSeek Key 可以通过启动 shell 注入：
 
 ```bash
 export BS_AGENT_DEEPSEEK_API_KEY=你的DeepSeekApiKey
 export BS_AGENT_WEB_SEARCH_ENABLED=true
 npm run dev
 ```
+
+本地开发也可以使用根目录 `.env.local` 管理敏感环境变量。启动脚本会自动加载该文件，同时保留 shell 中已经设置的值：
+
+```bash
+cp .env.example .env.local
+```
+
+复制后至少填写 `BS_AGENT_DEEPSEEK_API_KEY`；启动后端时它是必需项。
+
+本地观测使用 Langfuse 4.16.0，endpoint 为 `http://localhost:3000`，Python SDK 为 4.16.0。`npm run dev` 会自动初始化 `langfuse/.env`、启动 Langfuse Compose，并将本地项目 key 安全注入 Backend 进程；Shell 或 `.env.local` 中的显式配置优先。密钥文件已被 Git 忽略，不得提交。启动、Trace 内容边界与验收流程见 [Langfuse 本地观测说明](docs/langfuse-local-observability.md)。Agent/RAG 使用、七类 Score、规则与 DeepSeek evaluator、双人工复核队列及 Prompt/Dataset/Experiment 优化闭环见 [Langfuse 使用与优化指南](docs/langfuse-usage-and-optimization.md)。
+
+如首次启动时 Docker 镜像仓库暂时不可达，启动器会明确提示并继续启动其他开发服务，本次 Backend 禁用 Langfuse 上报。网络恢复后再次执行 `npm run dev` 即会补启 Langfuse。需要 Langfuse 未就绪时直接终止所有启动，可设置 `BS_AGENT_DEV_LANGFUSE_REQUIRED=true`。
 
 `BS_AGENT_MCP_SERVER_URL` 只用于额外的通用 Agent MCP Server，默认不配置，也不会作为 Tushare 的备用地址。`npm run dev:mcp` 仅用于单独启动仓库内的学习示例，不在 `npm run dev` 或 `npm run dev:backend` 的依赖链中；只有运行该学习示例时才需要 `TUSHARE_TOKEN`。
 

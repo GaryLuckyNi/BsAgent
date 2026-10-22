@@ -1,0 +1,6 @@
+{
+  "acceptance_mode": "real_agent",
+  "blocked": true,
+  "blocker": "local_langfuse_service_unavailable",
+  "passed": false
+}

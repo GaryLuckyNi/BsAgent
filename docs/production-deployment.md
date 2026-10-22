@@ -160,6 +160,8 @@ OpenTelemetry Trace 经内部 Collector 发送到 `OBSERVABILITY_OTLP_ENDPOINT`�
 
 Message、Trace 和 OTel 均不保存模型私有思维链。`agent_messages` 只保存用户可见正文；Trace 和 Span 不保存完整 Prompt、工具参数/结果、回答正文、凭证或原始异常。
 
+Langfuse 4.16.0 当前作为本地观测服务使用，生产 Compose 不注入 Langfuse key，也不把 Langfuse 加入 readiness。后续如启用生产观测，`BS_AGENT_LANGFUSE_PUBLIC_KEY` 和 `BS_AGENT_LANGFUSE_SECRET_KEY` 必须由 Secret Manager 或部署平台 Secret 注入；观测服务不可达不能阻断 Agent 请求或触发实例摘流。当前本地 endpoint、数据边界与操作流程见 [Langfuse 本地观测说明](langfuse-local-observability.md)。
+
 ## 10. 备份与恢复
 
 至少备份以下数据：

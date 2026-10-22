@@ -1,13 +1,18 @@
-from typing import Any, Literal
+import re
+from typing import Any, ClassVar, Literal
 from uuid import uuid4
 
 import httpx
+from opentelemetry.propagate import inject
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.schemas.tools import ToolCallResult, ToolError
 from app.tools.base import Tool
 from app.tools.registry import ExecutionBinding
+
+_BUSINESS_TRACE_ID_HEADER = "x-business-trace-id"
+_SAFE_BUSINESS_TRACE_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
 class RagSearchError(RuntimeError):
@@ -57,7 +62,7 @@ class RagSearchTool(Tool[RagSearchInput]):
     version = "1.0.0"
     input_model = RagSearchInput
     description = "检索企业知识库证据片段"
-    permission_scope = ["rag:retrieve"]
+    permission_scope: ClassVar[list[str]] = ["rag:retrieve"]
     risk_level = "low"
     requires_explicit_execution_binding = True
 
@@ -75,22 +80,50 @@ class RagSearchTool(Tool[RagSearchInput]):
         self._timeout_seconds = timeout_seconds
 
     async def run(self, input_data: RagSearchInput) -> ToolCallResult:
+        return await self._run(input_data, business_trace_id=None)
+
+    async def run_with_context(
+        self,
+        input_data: RagSearchInput,
+        *,
+        context: Any,
+    ) -> ToolCallResult:
+        return await self._run(
+            input_data,
+            business_trace_id=getattr(context, "business_trace_id", None),
+        )
+
+    async def _run(
+        self,
+        input_data: RagSearchInput,
+        *,
+        business_trace_id: str | None,
+    ) -> ToolCallResult:
+        headers = _propagation_headers(business_trace_id)
         if self._client is not None:
-            return await self._run_with_client(self._client, input_data)
+            return await self._run_with_client(
+                self._client,
+                input_data,
+                headers=headers,
+            )
         async with httpx.AsyncClient(
             base_url=self._base_url,
             timeout=self._timeout_seconds,
         ) as client:
-            return await self._run_with_client(client, input_data)
+            return await self._run_with_client(client, input_data, headers=headers)
+
     async def _run_with_client(
         self,
         client: httpx.AsyncClient,
         input_data: RagSearchInput,
+        *,
+        headers: dict[str, str],
     ) -> ToolCallResult:
         try:
             response = await client.post(
                 "/api/rag/retrieve",
                 json=_rag_retrieve_payload(input_data),
+                headers=headers,
             )
         except httpx.TimeoutException as exc:
             raise RagSearchError(
@@ -181,6 +214,14 @@ def _rag_retrieve_payload(input_data: RagSearchInput) -> dict[str, Any]:
             "includeDebug": False,
         },
     }
+
+
+def _propagation_headers(business_trace_id: str | None) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    inject(headers)
+    if isinstance(business_trace_id, str) and _SAFE_BUSINESS_TRACE_ID.fullmatch(business_trace_id):
+        headers[_BUSINESS_TRACE_ID_HEADER] = business_trace_id
+    return headers
 
 
 def _response_error_message(response: httpx.Response) -> str:

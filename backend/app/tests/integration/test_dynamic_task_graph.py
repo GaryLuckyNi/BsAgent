@@ -1,14 +1,381 @@
 import json
+from contextlib import contextmanager
+from types import SimpleNamespace
 
-from langchain_core.messages import AIMessage, ToolMessage
-from pydantic import BaseModel
-
+import pytest
 from app.graph.runtime import run_question_answer_graph
+from app.llm.deepseek import LlmProviderError
 from app.llm.schemas import LlmCompletionResult
 from app.schemas.tools import ToolCallResult
 from app.tools.base import Tool
 from app.tools.registry import ToolRegistry
 from app.tools.search import ToolSearchIndex, ToolSearchService
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from pydantic import BaseModel
+
+
+def test_graph_run_attaches_langfuse_callback_inside_root_context(monkeypatch):
+    from app.graph import runtime as runtime_module
+
+    callback = object()
+    active = []
+    captured = {}
+    finalized = []
+    state = {
+        "trace_id": "trace-1",
+        "session_key": "session-key-1",
+        "tenant_id": "tenant-1",
+        "final_response": {"content": "hello back"},
+    }
+
+    class Graph:
+        def invoke(self, value, *, config):
+            assert active == [True]
+            assert value is state
+            captured["config"] = config
+            return value
+
+    class Handle:
+        def __iter__(self):
+            return iter((callback,))
+
+        def update(self, **kwargs):
+            captured["final"] = kwargs
+
+    @contextmanager
+    def agent_run(**kwargs):
+        captured["context"] = kwargs
+        active.append(True)
+        try:
+            yield Handle()
+        finally:
+            active.pop()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_prepare_question_answer_run",
+        lambda **_kwargs: (state, Graph(), {"recursion_limit": 8}),
+    )
+    monkeypatch.setattr(runtime_module, "langfuse_agent_run", agent_run)
+    def finalize(handle, result, expected=None):
+        handle.update(output=result["final_response"])
+        finalized.append((handle, result, expected))
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_active_langfuse_finalizer",
+        SimpleNamespace(finalize=finalize),
+    )
+
+    result = runtime_module.run_question_answer_graph(
+        business_intent_catalog=object(),
+        session_id="session-1",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="hello",
+    )
+
+    assert result is state
+    assert captured["config"]["callbacks"] == [callback]
+    assert captured["context"] == {
+        "business_trace_id": "trace-1",
+        "session_key": "session-key-1",
+        "tenant_id": "tenant-1",
+        "execution_segment": "initial",
+        "user_id": "user-1",
+        "input": "hello",
+    }
+    assert captured["final"]["output"] == {"content": "hello back"}
+    assert len(finalized) == 1
+    assert finalized[0][1:] == (state, None)
+    assert active == []
+
+
+def test_graph_run_finalizes_safe_failure_snapshot_before_reraising(monkeypatch):
+    from app.graph import runtime as runtime_module
+
+    finalized = []
+    state = {
+        "trace_id": "trace-failed",
+        "request_id": "request-failed",
+        "session_key": "session-key-failed",
+        "tenant_id": "tenant-failed",
+        "user_message": "question",
+    }
+
+    class Graph:
+        def invoke(self, _value, *, config):
+            raise RuntimeError("private failure sk-secret")
+
+    class Handle:
+        def __iter__(self):
+            return iter(())
+
+    @contextmanager
+    def agent_run(**_kwargs):
+        yield Handle()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_prepare_question_answer_run",
+        lambda **_kwargs: (state, Graph(), {"recursion_limit": 8}),
+    )
+    monkeypatch.setattr(runtime_module, "langfuse_agent_run", agent_run)
+    monkeypatch.setattr(
+        runtime_module,
+        "_active_langfuse_finalizer",
+        SimpleNamespace(finalize=lambda _handle, snapshot: finalized.append(snapshot)),
+    )
+
+    with pytest.raises(RuntimeError, match="private failure"):
+        runtime_module.run_question_answer_graph(
+            business_intent_catalog=object(),
+            session_id="session-failed",
+            tenant_id="tenant-failed",
+            user_id="user-failed",
+            user_message="question",
+        )
+
+    assert finalized[0]["trace_id"] == "trace-failed"
+    assert finalized[0]["errors"] == [{
+        "node": "graph",
+        "code": "agent_graph_execution_failed",
+        "http_status": 500,
+        "handled": False,
+        "retryable": False,
+    }]
+    assert "private failure" not in repr(finalized[0])
+    assert "sk-secret" not in repr(finalized[0])
+
+
+def test_graph_stream_keeps_langfuse_root_context_open(monkeypatch):
+    from app.graph import runtime as runtime_module
+
+    callback = object()
+    active = []
+    finalized = []
+    state = {
+        "trace_id": "trace-2",
+        "session_key": "session-key-2",
+        "tenant_id": "tenant-2",
+        "final_response": {"content": "done"},
+    }
+
+    class Graph:
+        def stream(self, value, *, config, stream_mode):
+            assert active == [True]
+            assert config["callbacks"] == [callback]
+            assert stream_mode == ["updates", "messages", "custom"]
+            yield "updates", {"node": {"request_id": "request-2", "final_response": {"content": "done"}}}
+
+    class Handle:
+        def __iter__(self):
+            return iter((callback,))
+
+        def update(self, **kwargs):
+            state["langfuse_final"] = kwargs
+
+    @contextmanager
+    def agent_run(**_kwargs):
+        active.append(True)
+        try:
+            yield Handle()
+        finally:
+            active.pop()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_prepare_question_answer_run",
+        lambda **_kwargs: (state, Graph(), {"recursion_limit": 8}),
+    )
+    monkeypatch.setattr(runtime_module, "langfuse_agent_run", agent_run)
+    def finalize(handle, result, expected=None):
+        handle.update(output=result["final_response"])
+        finalized.append((result, expected))
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_active_langfuse_finalizer",
+        SimpleNamespace(finalize=finalize),
+    )
+
+    updates = list(
+        runtime_module.stream_question_answer_graph(
+            business_intent_catalog=object(),
+            session_id="session-2",
+            tenant_id="tenant-2",
+            user_id="user-2",
+            user_message="hello",
+        )
+    )
+
+    assert updates[0]["final_response"] == {"content": "done"}
+    assert state["langfuse_final"]["output"] == {"content": "done"}
+    assert finalized == [(updates[0], None)]
+    assert active == []
+
+
+def test_graph_resume_reuses_business_trace_and_marks_resume_segment(monkeypatch):
+    from app.graph import runtime as runtime_module
+
+    callback = object()
+    captured = {}
+    finalized = []
+    snapshot = SimpleNamespace(
+        values={
+            "trace_id": "trace-resume",
+            "session_key": "session-key-resume",
+            "tenant_id": "tenant-resume",
+            "user_id": "user-resume",
+            "messages": [HumanMessage(content="继续分析")],
+            "final_response": {"content": "恢复完成"},
+            "planner_policy_version": runtime_module.PLANNER_POLICY_VERSION,
+            "tool_catalog_digest": "catalog-1",
+        },
+        tasks=(),
+    )
+
+    class Graph:
+        def get_state(self, _config):
+            return snapshot
+
+        def invoke(self, command, *, config):
+            captured["config"] = config
+            captured["command"] = command
+            return snapshot.values
+
+    class Handle:
+        def __iter__(self):
+            return iter((callback,))
+
+        def update(self, **kwargs):
+            captured["final"] = kwargs
+
+    @contextmanager
+    def agent_run(**kwargs):
+        captured["context"] = kwargs
+        yield Handle()
+
+    monkeypatch.setattr(runtime_module, "build_question_answer_graph", lambda **_kwargs: Graph())
+    monkeypatch.setattr(
+        runtime_module,
+        "_runtime_registry_snapshot",
+        lambda **_kwargs: SimpleNamespace(catalog_digest="catalog-1"),
+    )
+    monkeypatch.setattr(
+        runtime_module,
+        "_find_interrupt_payload",
+        lambda *_args, **_kwargs: {
+            "approval_id": "approval-1",
+            "action_digest": "digest-1",
+        },
+    )
+    monkeypatch.setattr(runtime_module, "langfuse_agent_run", agent_run)
+    def finalize(handle, result, expected=None):
+        handle.update(output=result["final_response"])
+        finalized.append((result, expected))
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_active_langfuse_finalizer",
+        SimpleNamespace(finalize=finalize),
+    )
+
+    result = runtime_module.resume_question_answer_graph(
+        business_intent_catalog=object(),
+        checkpoint_thread_id="cpr1_" + "a" * 64,
+        checkpoint_id="checkpoint-1",
+        interrupt_id="interrupt-1",
+        action_digest="digest-1",
+        approval_decision={"approval_id": "approval-1"},
+        checkpointer=object(),
+        tool_registry_factory=lambda: object(),
+    )
+
+    assert result is snapshot.values
+    assert captured["config"]["callbacks"] == [callback]
+    assert captured["context"] == {
+        "business_trace_id": "trace-resume",
+        "session_key": "session-key-resume",
+        "tenant_id": "tenant-resume",
+        "execution_segment": "resume",
+        "user_id": "user-resume",
+        "input": "继续分析",
+    }
+    assert captured["final"]["output"] == {"content": "恢复完成"}
+    assert finalized == [(snapshot.values, None)]
+
+
+@pytest.mark.parametrize("stream_behavior", ["interrupt", "error", "early_close"])
+def test_graph_stream_does_not_record_incomplete_final_output(monkeypatch, stream_behavior):
+    from app.graph import runtime as runtime_module
+
+    captured = {}
+    finalized = []
+    state = {
+        "trace_id": "trace-incomplete",
+        "session_key": "session-key-incomplete",
+        "tenant_id": "tenant-incomplete",
+    }
+
+    class Graph:
+        def stream(self, _value, *, config, stream_mode):
+            if stream_behavior == "interrupt":
+                yield "updates", {"__interrupt__": ["approval"]}
+                return
+            yield "updates", {
+                "node": {"request_id": "request-incomplete", "final_response": {"content": "partial"}}
+            }
+            if stream_behavior == "error":
+                raise RuntimeError("stream stopped")
+
+    class Handle:
+        def __iter__(self):
+            return iter(())
+
+        def update(self, **kwargs):
+            captured["final"] = kwargs
+
+    @contextmanager
+    def agent_run(**_kwargs):
+        yield Handle()
+
+    monkeypatch.setattr(
+        runtime_module,
+        "_prepare_question_answer_run",
+        lambda **_kwargs: (state, Graph(), {"recursion_limit": 8}),
+    )
+    monkeypatch.setattr(runtime_module, "langfuse_agent_run", agent_run)
+    monkeypatch.setattr(
+        runtime_module,
+        "_active_langfuse_finalizer",
+        SimpleNamespace(
+            finalize=lambda _handle, snapshot, **_kwargs: finalized.append(snapshot)
+        ),
+    )
+
+    stream = runtime_module.stream_question_answer_graph(
+        business_intent_catalog=object(),
+        session_id="session-incomplete",
+        tenant_id="tenant-incomplete",
+        user_id="user-incomplete",
+        user_message="hello",
+    )
+    if stream_behavior == "error":
+        with pytest.raises(RuntimeError, match="stream stopped"):
+            list(stream)
+    elif stream_behavior == "early_close":
+        next(stream)
+        stream.close()
+    else:
+        list(stream)
+
+    assert "final" not in captured
+    if stream_behavior == "error":
+        assert finalized[0]["trace_id"] == "trace-incomplete"
+        assert finalized[0]["errors"][0]["code"] == "agent_graph_execution_failed"
+    else:
+        assert finalized == []
 
 
 class WorkflowLlm:
@@ -179,6 +546,119 @@ def test_full_graph_executes_dynamic_analysis_task(business_intent_catalog):
     assert result["verification"]["verdict"] == "pass"
     assert "## 分析结论" in result["final_response"]["content"]
     assert "不构成投资建议" in result["final_response"]["content"]
+
+
+def test_planner_llm_timeout_returns_safe_retryable_response(business_intent_catalog):
+    class PlannerTimeoutLlm(WorkflowLlm):
+        planner_calls = 0
+
+        async def complete(self, **kwargs):
+            if "投研任务 Planner" in kwargs["system_prompt"]:
+                self.planner_calls += 1
+                raise LlmProviderError(
+                    code="llm_timeout",
+                    message="raw upstream timeout detail",
+                )
+            return await super().complete(**kwargs)
+
+    llm = PlannerTimeoutLlm()
+    result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
+        session_id="session-timeout",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="春光集团怎么样",
+        skill_agent_node=lambda state: state,
+        tool_registry_factory=lambda: ToolRegistry().snapshot(),
+        llm_client=llm,
+    )
+
+    assert llm.planner_calls == 3
+    assert result["errors"][-1] == {
+        "node": "planner_agent",
+        "message": "模型响应超时，请稍后重试。",
+        "code": "llm_timeout",
+        "http_status": 504,
+        "handled": True,
+        "retryable": True,
+    }
+    assert result["final_response"]["content"] == "模型响应超时，请稍后重试。"
+    assert result["final_response"]["response_type"] == "execution_error_response"
+    assert result["final_response"]["business_error_code"] == "llm_timeout"
+    assert "raw upstream timeout detail" not in repr(result)
+
+
+def test_planner_retries_transient_llm_timeout_before_succeeding(business_intent_catalog):
+    class TransientPlannerTimeoutLlm(WorkflowLlm):
+        planner_calls = 0
+
+        async def complete(self, **kwargs):
+            if "投研任务 Planner" in kwargs["system_prompt"]:
+                self.planner_calls += 1
+                if self.planner_calls == 1:
+                    raise LlmProviderError(
+                        code="llm_timeout",
+                        message="transient upstream timeout",
+                    )
+            return await super().complete(**kwargs)
+
+    llm = TransientPlannerTimeoutLlm()
+    result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
+        session_id="session-transient-timeout",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="春光集团怎么样",
+        skill_agent_node=lambda state: state,
+        tool_agent_node=lambda state: {
+            "task_results": [
+                {
+                    "task_id": state["active_task"]["id"],
+                    "status": "success",
+                    "content": "当前没有外部经营数据，无法判断经营质量。",
+                }
+            ]
+        },
+        allow_test_tool_agent_override=True,
+        tool_registry_factory=lambda: ToolRegistry().snapshot(),
+        llm_client=llm,
+    )
+
+    assert llm.planner_calls == 2
+    assert result["errors"] == []
+    assert result["final_response"]["response_type"] == "research_answer"
+
+
+def test_tool_agent_overrides_global_retry_to_avoid_replaying_side_effects(
+    business_intent_catalog,
+):
+    class ToolTimeoutError(RuntimeError):
+        code = "mcp_tool_timeout"
+        http_status = 503
+
+    calls = 0
+
+    def timed_out_tool_agent(_state):
+        nonlocal calls
+        calls += 1
+        raise ToolTimeoutError("upstream result is unknown")
+
+    result = run_question_answer_graph(
+        business_intent_catalog=business_intent_catalog,
+        session_id="session-tool-timeout",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="分析海能达的经营质量",
+        skill_agent_node=lambda state: state,
+        tool_agent_node=timed_out_tool_agent,
+        allow_test_tool_agent_override=True,
+        tool_registry_factory=lambda: ToolRegistry().snapshot(),
+        llm_client=WorkflowLlm(),
+    )
+
+    assert calls == 1
+    assert result["final_response"]["response_type"] == "execution_error_response"
+    assert result["final_response"]["business_error_code"] == "mcp_tool_timeout"
 
 
 def test_full_graph_discovers_and_executes_dynamic_tool_task(

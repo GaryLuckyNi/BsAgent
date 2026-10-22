@@ -2,7 +2,6 @@ from pathlib import Path
 
 import yaml
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 
 
@@ -48,6 +47,21 @@ def test_agent_loads_tushare_from_admin_and_keeps_generic_mcp_optional():
     assert "api.tushare.pro/mcp/token=" not in dev_script
     assert '"dev:backend": "node scripts/dev.mjs backend"' in package
     assert "const defaultServiceNames = ['admin-backend', 'backend', 'frontend', 'admin-frontend']" in dev_script
+
+
+def test_local_dev_starts_and_stops_langfuse_with_backend():
+    dev_script = (PROJECT_ROOT / "scripts" / "dev.mjs").read_text(encoding="utf-8")
+
+    assert "langfuse/init.py" in dev_script
+    assert "'--env-file',\n          langfuseEnvFile" in dev_script
+    assert "'up',\n          '-d',\n          '--wait'" in dev_script
+    assert "LANGFUSE_INIT_PROJECT_PUBLIC_KEY" in dev_script
+    assert "LANGFUSE_INIT_PROJECT_SECRET_KEY" in dev_script
+    assert "BS_AGENT_LANGFUSE_ENABLED" in dev_script
+    assert "stopLocalLangfuse" in dev_script
+    assert "isLangfuseRegistryNetworkFailure" in dev_script
+    assert "BS_AGENT_DEV_LANGFUSE_REQUIRED" in dev_script
+    assert "process.env.BS_AGENT_LANGFUSE_ENABLED = 'false'" in dev_script
 
 
 def test_api_waits_for_migrations_and_healthy_stateful_dependencies():
@@ -190,6 +204,15 @@ def test_python_images_install_reproducible_lock_files():
     assert "ocr-service/requirements.lock" in ocr_dockerfile
     assert "pip install --requirement requirements.lock" in ocr_dockerfile
     assert "pip check" in ocr_dockerfile
+    assert "langfuse==4.16.0" in (
+        PROJECT_ROOT / "backend" / "requirements.lock"
+    ).read_text(encoding="utf-8")
+    lock_text = (PROJECT_ROOT / "backend" / "requirements.lock").read_text(
+        encoding="utf-8"
+    )
+    assert "langchain==1.2.11" in lock_text
+    assert "langgraph==1.2.9" in lock_text
+    assert "langchain-mcp-adapters==0.3.2" in lock_text
 
 
 def test_backend_image_uses_lightweight_bm25_tool_search():

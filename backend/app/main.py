@@ -22,9 +22,15 @@ from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpoi
 from app.intent.dependencies import build_business_intent_catalog_runtime
 from app.intent.runtime import BusinessIntentCatalogRuntime
 from app.llm.factory import close_llm_client
+from app.llm.deepseek import DeepSeekClient
 from app.memory.runtime import PostgresStoreRuntime
 from app.memory.synchronizer import reconcile_memory_store
 from app.operations.health import ReadinessService, build_readiness_service
+from app.operations.langfuse_annotation import AnnotationQueueClient, ReviewPolicy
+from app.operations.langfuse_evaluation import DeepSeekJudge
+from app.operations.langfuse_finalize import LangfuseRunFinalizer
+from app.operations.langfuse_observability import configure_langfuse
+from app.operations.langfuse_scores import ensure_score_configs
 from app.operations.lifecycle import close_resources
 from app.operations.observability import (
     RequestContextMiddleware,
@@ -49,6 +55,7 @@ def create_app(
     tool_catalog_runtime: ToolCatalogRuntime | None = None,
     business_intent_catalog_runtime: BusinessIntentCatalogRuntime | None = None,
     config: Settings | None = None,
+    langfuse_configurer: Any | None = None,
 ) -> FastAPI:
     runtime = config or settings
     selected_engine = database_engine or engine
@@ -64,6 +71,8 @@ def create_app(
     )
 
     telemetry_runtime: Any | None = None
+    langfuse_runtime: Any | None = None
+    langfuse_finalizer: LangfuseRunFinalizer | None = None
     intent_refresh_task: asyncio.Task[None] | None = None
     turn_maintenance_task: asyncio.Task[None] | None = None
 
@@ -184,6 +193,10 @@ def create_app(
                 closers.append(selected_tool_catalog.close)
             if telemetry_runtime is not None:
                 closers.append(telemetry_runtime.shutdown)
+            if langfuse_finalizer is not None:
+                closers.append(langfuse_finalizer.close)
+            if langfuse_runtime is not None:
+                closers.append(langfuse_runtime.shutdown)
             closers.append(selected_object_store.close)
             if selected_redis is not None:
                 closers.append(selected_redis.close)
@@ -203,12 +216,20 @@ def create_app(
         engine=selected_engine,
         config=runtime,
     )
+    selected_langfuse_configurer = langfuse_configurer or configure_langfuse
+    langfuse_runtime = selected_langfuse_configurer(config=runtime)
+    langfuse_finalizer = _build_langfuse_finalizer(runtime, langfuse_runtime)
+    from app.graph.runtime import configure_langfuse_finalizer
+
+    configure_langfuse_finalizer(langfuse_finalizer)
     app.state.redis_client = selected_redis
     app.state.config = runtime
     app.state.asset_object_store = selected_object_store
     app.state.memory_store_runtime = selected_memory_runtime
     app.state.tool_catalog_runtime = selected_tool_catalog
     app.state.business_intent_catalog_runtime = selected_business_intent_catalog
+    app.state.langfuse_runtime = langfuse_runtime
+    app.state.langfuse_finalizer = langfuse_finalizer
     app.state.rate_limit_service = build_rate_limit_service(
         config=runtime,
         redis_client=selected_redis,
@@ -232,6 +253,60 @@ def create_app(
     app.include_router(assets_router)
     app.include_router(traces_router)
     return app
+
+
+def _build_langfuse_finalizer(
+    config: Settings,
+    langfuse_runtime: Any | None,
+) -> LangfuseRunFinalizer | None:
+    if not config.langfuse_enabled or langfuse_runtime is None:
+        return None
+    client = getattr(langfuse_runtime, "client", None)
+    judge = None
+    if config.langfuse_deepseek_judge_enabled and config.deepseek_api_key:
+        try:
+            judge_client = DeepSeekClient(
+                api_key=config.deepseek_api_key,
+                model=config.deepseek_model,
+                base_url=config.deepseek_base_url,
+                timeout_seconds=config.langfuse_deepseek_judge_timeout_seconds,
+            )
+            judge = DeepSeekJudge(
+                judge_client,
+                timeout_seconds=config.langfuse_deepseek_judge_timeout_seconds,
+            )
+        except Exception:  # noqa: BLE001 - evaluator setup is best-effort
+            judge = None
+    annotation_client = None
+    if config.langfuse_annotation_enabled:
+        try:
+            annotation_client = AnnotationQueueClient(
+                config.langfuse_base_url,
+                config.langfuse_public_key,
+                config.langfuse_secret_key,
+                retry_attempts=config.langfuse_annotation_retry_attempts,
+            )
+        except Exception:  # noqa: BLE001 - annotation setup is best-effort
+            annotation_client = None
+    return LangfuseRunFinalizer(
+        client=client,
+        judge=judge,
+        annotation_client=annotation_client,
+        score_config_provider=(
+            lambda: ensure_score_configs(client) if client is not None else {}
+        ),
+        review_policy=ReviewPolicy(
+            answer_threshold=config.langfuse_answer_review_threshold,
+            selection_confidence_threshold=config.langfuse_selection_confidence_threshold,
+            sample_rate=config.langfuse_annotation_sample_rate,
+        ),
+        enabled=True,
+        evaluator_enabled=config.langfuse_evaluation_enabled,
+        judge_enabled=config.langfuse_deepseek_judge_enabled,
+        annotation_enabled=config.langfuse_annotation_enabled,
+        environment=config.app_env,
+        background=True,
+    )
 
 
 def _build_redis_client(runtime: Settings) -> Redis | None:
