@@ -341,12 +341,27 @@ def _route_after_intent(state: AgentState) -> str:
 
 
 def task_scheduler_node(state: AgentState) -> dict[str, Any]:
+    from app.graph.nodes.permission_fallback import PERMISSION_CODES, pending_permission_request
+
     update = {}
+    if (
+        not state.get("planner_stop_reason")
+        and state.get("pending_user_input") is None
+        and state.get("user_input_response") is None
+    ):
+        pending_permission = pending_permission_request(state)
+        if pending_permission is not None:
+            update["pending_user_input"] = pending_permission
+        elif any(
+            item.get("error_code") in PERMISSION_CODES for item in state.get("task_results", [])
+        ):
+            update["planner_stop_reason"] = "provider_permission_denied"
     count = len(state.get("tool_discovery_events", {}))
     if count != state.get("tool_search_count", 0):
         update["tool_search_count"] = count
     if (
-        dispatch_workflow(state) is None
+        "planner_stop_reason" not in update
+        and dispatch_workflow(state) is None
         and state.get("plan")
         and state.get("planner_feedback_count", 0) >= MAX_PLANNER_FEEDBACKS
     ):
@@ -361,6 +376,19 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
 def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
     if state.get("pending_user_input") is not None:
         return "user_input_gate"
+    response = state.get("user_input_response")
+    if response is not None and response.source.kind == "provider_permission_fallback":
+        # 先消费原调用的响应，避免并行结果触发重新规划而丢失恢复目标。
+        context = state.get("tool_selection_contexts", {}).get(response.source.call_id, {})
+        task = context.get("task") or next(
+            (
+                item for item in (state.get("plan") or {}).get("tasks", [])
+                if item.get("id") == response.source.task_id
+            ),
+            state.get("active_task"),
+        )
+        task = task or {"id": "permission_resume_invalid", "task_goal": "核实权限恢复请求"}
+        return [Send("tool_agent", {**state, "active_task": task, "active_skill_step": None})]
     if _has_pending_memory_approval(state) or _has_pending_tool_approval(state):
         return "approval_gate"
     if workflow_failed(state):
@@ -1185,6 +1213,8 @@ def resume_user_input_graph(
         )
     return graph.invoke(
         Command(
+            # 来自恢复请求已认证 Principal；空列表表示权限已撤销，不能回退旧快照。
+            update={"permission_scopes": list(permission_scopes)} if permission_scopes is not None else None,
             resume={
                 "interaction_id": interaction_id,
                 "input_type": input_type,

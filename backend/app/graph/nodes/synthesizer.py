@@ -195,14 +195,25 @@ def _public_research_context(
                     "content": result.content,
                 }
             )
-        elif result.status != "success" and research_goal not in data_limitations:
-            data_limitations.append(research_goal)
+        elif result.status != "success":
+            limitation = research_goal
+            if result.error_code in {
+                "provider_permission_denied", "required_api_permission_missing", "tool_permission_denied",
+            }:
+                limitation += "：数据源账号权限不足，原接口数据未获取。"
+            if limitation not in data_limitations:
+                data_limitations.append(limitation)
     completed_ids = {result.task_id for result in results}
     if plan:
         data_limitations.extend(
             task.task_goal for task in plan.tasks if task.id not in completed_ids
         )
-    if state.get("planner_stop_reason") == "planner_feedback_invalid":
+    stop_reason = state.get("planner_stop_reason")
+    if stop_reason == "provider_permission_denied":
+        data_limitations.append("因权限不足停止补充数据；未自动使用联网搜索。")
+    elif stop_reason == "provider_permission_fallback_complete":
+        data_limitations.append("权限不足的替代路径未继续，基于已有资料回答；原接口数据仍缺失。")
+    elif stop_reason == "planner_feedback_invalid":
         data_limitations.append("后续研究步骤未能确定，部分研究目标尚未核实。")
     elif state.get("planner_stop_reason"):
         data_limitations.append("执行预算已用尽，部分研究目标尚未核实。")

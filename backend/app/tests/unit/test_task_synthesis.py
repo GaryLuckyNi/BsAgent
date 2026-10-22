@@ -1,10 +1,23 @@
 import json
 
-from app.graph.nodes.synthesizer import build_synthesizer_node
+import pytest
+from app.graph.nodes.synthesizer import _public_research_context, build_synthesizer_node
 from app.graph.nodes.verifier import verifier_node
+from app.graph.planning.contracts import TaskResultModel
 from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult
 from langgraph.runtime import Runtime
+
+
+@pytest.mark.parametrize("reason", ["provider_permission_denied", "provider_permission_fallback_complete"])
+def test_permission_limitations_are_visible_and_not_reported_as_budget_exhaustion(reason):
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="分析银之杰")
+    state["plan"] = {"tasks": [{"id": "income", "task_goal": "查询利润表"}]}
+    state["planner_stop_reason"] = reason
+    result = TaskResultModel(task_id="income", status="business_failure", error_code="provider_permission_denied", content="账号权限不足")
+    _, limitations = _public_research_context(state, [result])
+    assert any("权限" in value for value in limitations)
+    assert not any("预算" in value for value in limitations)
 
 
 class FakeLlmClient:

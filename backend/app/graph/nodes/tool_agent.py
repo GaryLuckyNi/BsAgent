@@ -6,6 +6,11 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, ToolMessage
 
+from app.graph.nodes.permission_fallback import (
+    consume_permission_response,
+    permission_request,
+    selection_context,
+)
 from app.graph.planning.context import task_evidence, user_materials
 from app.graph.planning.contracts import (
     MAX_TASK_RESULT_CONTENT_CHARS,
@@ -76,6 +81,11 @@ def build_tool_agent_node(
         task, legacy_tool_name = _active_tool_task(state)
         registry = selected_registry_factory()
         _validate_tool_catalog(state, registry)
+        resumed_permission = consume_permission_response(
+            state=state, task=task, registry=registry, budget=budget
+        )
+        if resumed_permission is not None:
+            return resumed_permission
         resumed_user_input = _consume_entity_disambiguation(state=state, task=task)
         if resumed_user_input is not None:
             return resumed_user_input
@@ -183,6 +193,11 @@ def build_tool_agent_node(
                 ai_message=selection.message,
             )
             new_messages = [trusted_message]
+            selection_update["tool_selection_contexts"] = {
+                request.call_id: selection_context(
+                    state, task, request, resolution.candidates, registry
+                )
+            }
 
         record = ToolCallRecord(call_id=request.call_id, request=request)
         if _requires_approval(tool_spec) and not _is_approved(state, request):
@@ -227,6 +242,26 @@ def build_tool_agent_node(
                 )
             )
         record = record.model_copy(update={"result": result})
+        contexts = selection_update.get(
+            "tool_selection_contexts", state.get("tool_selection_contexts", {})
+        )
+        context = contexts.get(request.call_id)
+        permission_input = permission_request(state, task, request, result, context)
+        if permission_input is not None:
+            return {
+                **discovery_update,
+                **selection_update,
+                "messages": [
+                    *new_messages,
+                    create_tool_result_message(
+                        tool_call_id=request.call_id or "", tool_name=request.tool_name,
+                        content=_tool_message_content(result), artifact=result.model_dump(mode="json"),
+                    ),
+                ],
+                "tool_calls": [record],
+                # scheduler 从已保存的调用和候选上下文逐个投影中断。
+                # 并行 worker 不直接争写 pending_user_input。
+            }
         user_input_request = _entity_disambiguation_request(
             state=state,
             task=task,

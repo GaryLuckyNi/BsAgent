@@ -14,19 +14,26 @@ from pydantic import (
     ConfigDict,
     JsonValue,
     TypeAdapter,
-    ValidationError as PydanticValidationError,
     model_validator,
+)
+from pydantic import (
+    ValidationError as PydanticValidationError,
 )
 
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
 from app.tools.base import Tool
+from app.tools.mcp_permission import (
+    VERIFIED_READ_ONLY_MCP_TOOLS,
+    permission_failure_envelope,
+    remote_permission_denied,
+)
 from app.tools.redaction import sanitize_untrusted_details
-
 
 MCP_TOOL_ERROR_MESSAGES = {
     "invalid_field_request": "MCP tool arguments are invalid.",
     "mcp_tool_execution_failed": "MCP tool execution failed.",
     "mcp_tool_response_invalid": "MCP tool returned an invalid response.",
+    "provider_permission_denied": "数据源账号权限不足，无法访问该接口。",
 }
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
@@ -129,6 +136,7 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
         permission_scope: list[str] | None = None,
     ) -> None:
         self.name = name
+        self._server_name = server_name
         self.description = description or langchain_tool.name
         self.output_schema = {}
         self.permission_scope = list(
@@ -186,6 +194,7 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                     else None
                 ),
                 start=start,
+                status=self._permission_failure_status(exc.code),
             )
         except TimeoutError as exc:
             return _failure_result(
@@ -204,6 +213,15 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                     "failure_stage": "client_exception",
                     "exception_type": type(exc).__name__[:80],
                 },
+                start=start,
+            )
+
+        if permission_failure_envelope(payload):
+            return _failure_result(
+                tool_name=self.name,
+                code="provider_permission_denied",
+                message=MCP_TOOL_ERROR_MESSAGES["provider_permission_denied"],
+                status=self._permission_failure_status("provider_permission_denied"),
                 start=start,
             )
 
@@ -229,6 +247,12 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
             latency_ms=int((perf_counter() - start) * 1000),
             trace_id="",
         )
+
+    def _permission_failure_status(self, code: str) -> str:
+        identity = (self._server_name, self.name, self._langchain_tool.name)
+        if code == "provider_permission_denied" and identity in VERIFIED_READ_ONLY_MCP_TOOLS:
+            return "denied"
+        return "failed"
 
 
 def discover_mcp_http_tools(
@@ -267,6 +291,8 @@ def _langchain_tool_payload(response: object) -> JsonValue:
             "mcp_tool_execution_failed", failure_stage="response_type_invalid"
         )
     if response.status == "error":
+        if remote_permission_denied(response.content) or remote_permission_denied(response.artifact):
+            raise McpToolResponseError("provider_permission_denied", failure_stage="remote_tool_error")
         raise McpToolResponseError("mcp_tool_execution_failed", failure_stage="remote_tool_error")
     artifact = response.artifact
     if isinstance(artifact, dict) and "structured_content" in artifact:

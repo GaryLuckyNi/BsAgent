@@ -29,6 +29,79 @@ def prepare(database):
     return handle
 
 
+@pytest.mark.parametrize(
+    ("server", "remote_name", "result_status", "receipt_status"),
+    [
+        ("tushare", "income_vip", "denied", "settled"),
+        ("tushare", "write_account", "failed", "unknown"),
+        ("other", "income_vip", "failed", "unknown"),
+    ],
+)
+def test_mcp_permission_denial_only_settles_verified_read_only_receipts(
+    database, monkeypatch, server, remote_name, result_status, receipt_status
+):
+    import asyncio
+
+    from app.conversations.durable import DurableRunService
+    from app.conversations.execution import (
+        ExecutionControl,
+        UnresolvedToolEffect,
+        execution_control,
+    )
+    from app.schemas.tools import ToolCallRequest
+    from app.storage.models import AgentRunToolReceipt
+    from app.tests.unit.test_mcp_http_tool import _langchain_tool
+    from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
+    from app.tools.mcp_http import DynamicMcpHttpTool
+    from app.tools.registry import ExecutionBinding, ToolRegistry
+    from langchain_core.messages import ToolMessage
+    from sqlalchemy import select
+
+    calls = []
+
+    async def rejected(_value):
+        calls.append(True)
+        return ToolMessage(content="抱歉，您没有访问该接口的权限", tool_call_id="remote", status="error")
+
+    tool = DynamicMcpHttpTool(
+        name=f"mcp.{server}.{remote_name}", server_name=server,
+        langchain_tool=_langchain_tool(remote_name, {}), description="验证权限边界",
+        input_schema={"type": "object", "properties": {}}, risk_level="medium",
+    )
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: rejected(value))
+    registry = ToolRegistry()
+    registry.register(tool, execution_binding=ExecutionBinding(
+        provider="mcp", implementation_id=f"mcp.http.{tool.name}", server_id=server,
+        deployment_revision="test", config_revision="test",
+    ))
+    handle = prepare(database)
+    with database() as db:
+        owner = DurableRunService(db).claim(handle.run_id)
+        db.commit()
+    control = ExecutionControl(database, handle.run_id, owner)
+    with execution_control(control):
+        result = asyncio.run(ToolExecutionGateway(registry).execute(
+            ToolCallRequest(tool_name=tool.name, call_id="permission-test", arguments={}, purpose="验证"),
+            trace_id=handle.trace_id, context=ToolExecutionContext(
+                tenant_id="t", user_id="u", session_id="s", allowed_tools=(tool.name,),
+                permission_scopes=(f"mcp:{server}",),
+            ),
+        ))
+    assert result.status == result_status
+    assert result.error.code == "provider_permission_denied"
+    assert len(calls) == 1
+    with database() as db:
+        receipt = db.scalar(select(AgentRunToolReceipt))
+        assert receipt.status == receipt_status
+        assert receipt.result_summary["status"] == result_status
+    if receipt_status == "settled":
+        control.ensure_tool_effects_resolved(risk_level="medium")
+        control.ensure_tool_effects_resolved(risk_level="high")
+    else:
+        with pytest.raises(UnresolvedToolEffect):
+            control.ensure_tool_effects_resolved(risk_level="high")
+
+
 def test_persisted_events_replay_in_order_and_keep_partial_answer(database):
     from app.conversations.durable import DurableRunService
 
