@@ -4,6 +4,7 @@ from app.graph.nodes.analysis_agent import build_analysis_agent_node
 from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult
+from app.schemas.messages import Message
 from app.skills.definitions import SkillDefinition, SkillExecutionGuide
 
 
@@ -165,3 +166,39 @@ def test_analysis_sees_completion_conditions_history_and_image_materials():
     assert payload["dependencies"][0]["task_id"] == "financial"
     assert "图片披露了年度收入" in json.dumps(payload, ensure_ascii=False)
     assert "此前提供的财报材料" in json.dumps(payload, ensure_ascii=False)
+
+
+def test_user_materials_prioritize_context_summary():
+    from app.graph.planning.context import user_materials
+
+    summary = {
+        "goal": "长期目标",
+        "constraints": ["必须中文"],
+        "decisions": [],
+        "open_items": ["核实现金流"],
+        "facts": [],
+        "evidence_refs": [],
+        "user_preferences": [],
+        "superseded": [],
+    }
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        user_message="继续",
+        history=[
+            Message(
+                message_id="cmp-1",
+                role="assistant",
+                content=json.dumps(summary, ensure_ascii=False),
+                metadata={"context_compaction": True},
+            ),
+            Message(message_id="old", role="user", content="普通历史"),
+        ],
+    )
+
+    materials = user_materials(state, limit=13000)
+
+    assert materials[0]["kind"] == "context_summary"
+    assert "长期目标" in materials[0]["text"]
+    assert sum(item["kind"] == "context_summary" for item in materials) == 1

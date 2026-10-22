@@ -47,6 +47,28 @@ class Settings(BaseSettings):
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
     llm_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    context_compaction_enabled: bool = False
+    llm_context_window_tokens: int = Field(default=131_072, ge=8_192)
+    context_compaction_target_ratio: float = Field(default=0.50, gt=0, lt=1)
+    context_compaction_soft_ratio: float = Field(default=0.70, gt=0, lt=1)
+    context_compaction_hard_ratio: float = Field(default=0.85, gt=0, lt=1)
+    context_compaction_keep_recent_turns: int = Field(default=3, ge=1, le=20)
+    context_compaction_min_recent_turns: int = Field(default=1, ge=1, le=20)
+    context_compaction_summary_target_tokens: int = Field(
+        default=2_000,
+        ge=256,
+        le=8_192,
+    )
+    context_compaction_summary_max_tokens: int = Field(
+        default=3_000,
+        ge=256,
+        le=8_192,
+    )
+    context_non_history_reserve_tokens: int = Field(default=24_000, ge=1_024)
+    context_compaction_next_user_reserve_tokens: int = Field(
+        default=2_048,
+        ge=256,
+    )
     web_search_enabled: bool = True
     web_search_provider: Literal["deepseek"] = "deepseek"
     web_search_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
@@ -111,6 +133,7 @@ class Settings(BaseSettings):
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     otel_enabled: bool = False
     otel_exporter_otlp_traces_endpoint: str | None = None
+    otel_exporter_otlp_metrics_endpoint: str | None = None
     otel_trace_sample_ratio: float = Field(default=0.1, ge=0, le=1)
     langfuse_enabled: bool = False
     langfuse_public_key: str = ""
@@ -143,6 +166,28 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production_configuration(self):
+        if not (
+            self.context_compaction_target_ratio
+            < self.context_compaction_soft_ratio
+            < self.context_compaction_hard_ratio
+        ):
+            raise ValueError("上下文压缩水位必须满足 target < soft < hard")
+        if (
+            self.context_compaction_min_recent_turns
+            > self.context_compaction_keep_recent_turns
+        ):
+            raise ValueError(
+                "context_compaction_min_recent_turns 不能大于 "
+                "context_compaction_keep_recent_turns"
+            )
+        if (
+            self.context_compaction_summary_target_tokens
+            > self.context_compaction_summary_max_tokens
+        ):
+            raise ValueError(
+                "context_compaction_summary_target_tokens 不能大于 "
+                "context_compaction_summary_max_tokens"
+            )
         if self.trace_detailed_sample_ratio > self.trace_success_sample_ratio:
             raise ValueError(
                 "trace_detailed_sample_ratio 不能大于 "
@@ -183,6 +228,13 @@ class Settings(BaseSettings):
         if self.langfuse_capture_reasoning and self.langfuse_content_mode != "local_debug":
             raise ValueError(
                 "langfuse_capture_reasoning=true 仅允许用于 local_debug 模式"
+            )
+        if self.otel_enabled and not _has_text(
+            self.otel_exporter_otlp_metrics_endpoint
+        ):
+            raise ValueError(
+                "启用 OpenTelemetry 时必须配置 "
+                "otel_exporter_otlp_metrics_endpoint"
             )
         if not _is_postgres_url(self.memory_store_postgres_url):
             raise ValueError("memory_store_postgres_url 必须是 PostgreSQL URL")

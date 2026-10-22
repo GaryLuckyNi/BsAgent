@@ -40,6 +40,12 @@ class AgentSession(Base):
             "session_id",
             name="uq_agent_sessions_tenant_user_external",
         ),
+        UniqueConstraint(
+            "tenant_id",
+            "user_id",
+            "session_key",
+            name="uq_agent_sessions_owner_key",
+        ),
         Index(
             "ix_agent_sessions_tenant_active_run",
             "tenant_id",
@@ -51,6 +57,16 @@ class AgentSession(Base):
             "user_id",
             "updated_at",
         ),
+        ForeignKeyConstraint(
+            ["session_key", "active_context_compaction_id"],
+            [
+                "agent_context_compactions.session_key",
+                "agent_context_compactions.compaction_id",
+            ],
+            name="fk_agent_sessions_active_context_compaction",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
     )
 
     session_key: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -59,6 +75,10 @@ class AgentSession(Base):
     user_id: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[str] = mapped_column(String(32), default="active")
     active_run_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    active_context_compaction_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
     next_sequence_no: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -86,6 +106,11 @@ class AgentMessage(Base):
             "request_id",
             "role",
             name="uq_agent_messages_tenant_request_role",
+        ),
+        UniqueConstraint(
+            "session_key",
+            "message_id",
+            name="uq_agent_messages_session_message",
         ),
         CheckConstraint(
             "role IN ('user', 'assistant')",
@@ -141,6 +166,118 @@ class AgentMessage(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+
+class AgentContextCompaction(Base):
+    __tablename__ = "agent_context_compactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "session_key",
+            "version",
+            name="uq_agent_context_compactions_session_version",
+        ),
+        UniqueConstraint(
+            "session_key",
+            "compaction_id",
+            name="uq_agent_context_compactions_session_id",
+        ),
+        CheckConstraint(
+            "summary_through_sequence_no <= observed_through_sequence_no",
+            name="ck_agent_context_compactions_sequence_bounds",
+        ),
+        CheckConstraint(
+            "trigger IN ('soft_async', 'hard_sync')",
+            name="ck_agent_context_compactions_trigger",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "user_id", "session_key"],
+            [
+                "agent_sessions.tenant_id",
+                "agent_sessions.user_id",
+                "agent_sessions.session_key",
+            ],
+            name="fk_agent_context_compactions_owner_session",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["session_key", "summary_through_message_id"],
+            ["agent_messages.session_key", "agent_messages.message_id"],
+            name="fk_agent_context_compactions_summary_message",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["session_key", "observed_through_message_id"],
+            ["agent_messages.session_key", "agent_messages.message_id"],
+            name="fk_agent_context_compactions_observed_message",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["session_key", "previous_compaction_id"],
+            [
+                "agent_context_compactions.session_key",
+                "agent_context_compactions.compaction_id",
+            ],
+            name="fk_agent_context_compactions_previous",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_agent_context_compactions_owner_version",
+            "tenant_id",
+            "user_id",
+            "session_key",
+            text("version DESC"),
+        ),
+        Index(
+            "ux_agent_context_compactions_source_identity",
+            "session_key",
+            text("COALESCE(previous_compaction_id, '')"),
+            "summary_through_sequence_no",
+            "source_digest",
+            "prompt_version",
+            unique=True,
+        ),
+    )
+
+    compaction_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    session_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    previous_compaction_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    summary_through_message_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    observed_through_message_id: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+    )
+    summary_through_sequence_no: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    observed_through_sequence_no: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    summary_payload: Mapped[dict] = mapped_column(TRACE_JSON, nullable=False)
+    source_manifest: Mapped[list] = mapped_column(TRACE_JSON, nullable=False)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    summary_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    trigger: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utc_now,
+        server_default=func.now(),
     )
 
 

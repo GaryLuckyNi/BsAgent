@@ -51,6 +51,9 @@ def execute_local_turn(*, session_factory, run_id, memory_store):
             snapshot = sessions._ExecutionSnapshot(
                 history=tuple(Message.model_validate(message) for message in payload["history"]),
                 attachment_resolver=sessions._AttachmentContextSnapshotResolver(**attachment),
+                context_compaction_id=payload.get("context_compaction_id"),
+                context_status=payload.get("context_status", "full"),
+                projected_context_tokens=payload.get("projected_context_tokens", 0),
             )
             frames = sessions._stream_agent_message(
                 session_id=handle.session_id,

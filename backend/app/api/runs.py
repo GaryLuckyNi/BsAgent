@@ -211,11 +211,15 @@ def start_protocol_turn(
                 request=request,
                 handle=handle,
                 attachment_resolver=attachment_resolver,
+                defer_compaction=True,
             )
             payload = {
                 "request": request.model_dump(mode="json"),
                 "history": [message.model_dump(mode="json") for message in snapshot.history],
                 "attachments": asdict(snapshot.attachment_resolver),
+                "context_compaction_id": snapshot.context_compaction_id,
+                "context_status": snapshot.context_status,
+                "projected_context_tokens": snapshot.projected_context_tokens,
             }
             DurableRunService(db).prepare(handle=handle, payload=payload)
         payload.update(

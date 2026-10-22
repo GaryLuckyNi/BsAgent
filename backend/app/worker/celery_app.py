@@ -16,7 +16,13 @@ _worker_langfuse_finalizer = None
 celery_app = Celery(
     "bs_agent",
     broker=settings.celery_broker_url,
-    include=["app.vision.tasks", "app.assets.tasks", "app.harness.tasks", "app.conversations.tasks"],
+    include=[
+        "app.vision.tasks",
+        "app.assets.tasks",
+        "app.harness.tasks",
+        "app.context_compaction.tasks",
+        "app.conversations.tasks",
+    ],
 )
 celery_app.conf.update(
     task_serializer="json",
@@ -35,6 +41,9 @@ celery_app.conf.update(
         "bs_agent.vision.analyze_asset": {"queue": "image-analysis"},
         "bs_agent.assets.purge_expired": {"queue": "maintenance"},
         "bs_agent.traces.purge_expired": {"queue": "maintenance"},
+        "bs_agent.context_compaction.compact_session": {
+            "queue": "context-compaction"
+        },
     },
     beat_schedule={
         "recover-dead-agent-turns": {

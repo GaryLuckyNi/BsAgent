@@ -16,7 +16,6 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.security.principal import Principal
 from app.tools.redaction import redact_sensitive_data, sanitize_trace_error
 
-
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
 _request_context: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
     "request_log_context",
@@ -119,6 +118,7 @@ def configure_telemetry(
     config: Any,
     installer: Any | None = None,
     exporter: Any | None = None,
+    metrics_exporter: Any | None = None,
 ) -> Any | None:
     if not config.otel_enabled:
         return None
@@ -131,10 +131,13 @@ def configure_telemetry(
         "service_name": config.service_name,
         "environment": config.app_env,
         "endpoint": config.otel_exporter_otlp_traces_endpoint,
+        "metrics_endpoint": config.otel_exporter_otlp_metrics_endpoint,
         "sample_ratio": config.otel_trace_sample_ratio,
     }
     if exporter is not None:
         installer_kwargs["exporter"] = exporter
+    if metrics_exporter is not None:
+        installer_kwargs["metrics_exporter"] = metrics_exporter
     runtime = selected_installer(**installer_kwargs)
     app.state._bs_agent_telemetry_runtime = runtime
     app.state._bs_agent_telemetry_configured = True
@@ -155,6 +158,7 @@ def configure_worker_telemetry(
         service_name=f"{config.service_name}-worker",
         environment=config.app_env,
         endpoint=config.otel_exporter_otlp_traces_endpoint,
+        metrics_endpoint=config.otel_exporter_otlp_metrics_endpoint,
         sample_ratio=config.otel_trace_sample_ratio,
     )
 
@@ -166,6 +170,7 @@ class TelemetryRuntime:
     fastapi_instrumentor: Any
     httpx_instrumentor: Any
     sqlalchemy_instrumentor: Any
+    meter_provider: Any | None = None
     _shutdown: bool = field(default=False, init=False, repr=False)
 
     def shutdown(self) -> None:
@@ -178,6 +183,14 @@ class TelemetryRuntime:
             self.sqlalchemy_instrumentor.uninstrument,
             lambda: self.provider.force_flush(timeout_millis=5_000),
             self.provider.shutdown,
+            *(
+                (
+                    lambda: self.meter_provider.force_flush(timeout_millis=5_000),
+                    self.meter_provider.shutdown,
+                )
+                if self.meter_provider is not None
+                else ()
+            ),
         )
 
 
@@ -187,6 +200,7 @@ class WorkerTelemetryRuntime:
     celery_instrumentor: Any
     httpx_instrumentor: Any
     sqlalchemy_instrumentor: Any
+    meter_provider: Any | None = None
     _shutdown: bool = field(default=False, init=False, repr=False)
 
     def shutdown(self) -> None:
@@ -199,6 +213,14 @@ class WorkerTelemetryRuntime:
             self.sqlalchemy_instrumentor.uninstrument,
             lambda: self.provider.force_flush(timeout_millis=5_000),
             self.provider.shutdown,
+            *(
+                (
+                    lambda: self.meter_provider.force_flush(timeout_millis=5_000),
+                    self.meter_provider.shutdown,
+                )
+                if self.meter_provider is not None
+                else ()
+            ),
         )
 
 
@@ -219,32 +241,47 @@ def _install_opentelemetry(
     service_name: str,
     environment: str,
     endpoint: str,
+    metrics_endpoint: str,
     sample_ratio: float,
     exporter: Any | None = None,
+    metrics_exporter: Any | None = None,
 ) -> TelemetryRuntime:
-    from opentelemetry import trace
+    from opentelemetry import metrics, trace
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
+    resource = Resource.create(
+        {
+            "service.name": service_name,
+            "deployment.environment.name": environment,
+        }
+    )
     provider = TracerProvider(
-        resource=Resource.create(
-            {
-                "service.name": service_name,
-                "deployment.environment.name": environment,
-            }
-        ),
+        resource=resource,
         sampler=ParentBased(TraceIdRatioBased(sample_ratio)),
     )
     provider.add_span_processor(
         BatchSpanProcessor(exporter or OTLPSpanExporter(endpoint=endpoint))
     )
     trace.set_tracer_provider(provider)
+    meter_provider = MeterProvider(
+        resource=resource,
+        metric_readers=[
+            PeriodicExportingMetricReader(
+                metrics_exporter or OTLPMetricExporter(endpoint=metrics_endpoint)
+            )
+        ],
+    )
+    metrics.set_meter_provider(meter_provider)
     fastapi_instrumentor = FastAPIInstrumentor()
     httpx_instrumentor = HTTPXClientInstrumentor()
     sqlalchemy_instrumentor = SQLAlchemyInstrumentor()
@@ -264,6 +301,7 @@ def _install_opentelemetry(
         fastapi_instrumentor=fastapi_instrumentor,
         httpx_instrumentor=httpx_instrumentor,
         sqlalchemy_instrumentor=sqlalchemy_instrumentor,
+        meter_provider=meter_provider,
     )
 
 
@@ -273,31 +311,45 @@ def _install_worker_opentelemetry(
     service_name: str,
     environment: str,
     endpoint: str,
+    metrics_endpoint: str,
     sample_ratio: float,
 ) -> WorkerTelemetryRuntime:
-    from opentelemetry import trace
+    from opentelemetry import metrics, trace
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     from opentelemetry.instrumentation.celery import CeleryInstrumentor
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
     from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
+    resource = Resource.create(
+        {
+            "service.name": service_name,
+            "deployment.environment.name": environment,
+        }
+    )
     provider = TracerProvider(
-        resource=Resource.create(
-            {
-                "service.name": service_name,
-                "deployment.environment.name": environment,
-            }
-        ),
+        resource=resource,
         sampler=ParentBased(TraceIdRatioBased(sample_ratio)),
     )
     provider.add_span_processor(
         BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
     )
     trace.set_tracer_provider(provider)
+    meter_provider = MeterProvider(
+        resource=resource,
+        metric_readers=[
+            PeriodicExportingMetricReader(
+                OTLPMetricExporter(endpoint=metrics_endpoint)
+            )
+        ],
+    )
+    metrics.set_meter_provider(meter_provider)
     celery_instrumentor = CeleryInstrumentor()
     httpx_instrumentor = HTTPXClientInstrumentor()
     sqlalchemy_instrumentor = SQLAlchemyInstrumentor()
@@ -309,6 +361,7 @@ def _install_worker_opentelemetry(
         celery_instrumentor=celery_instrumentor,
         httpx_instrumentor=httpx_instrumentor,
         sqlalchemy_instrumentor=sqlalchemy_instrumentor,
+        meter_provider=meter_provider,
     )
 
 

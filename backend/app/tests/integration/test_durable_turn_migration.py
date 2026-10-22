@@ -5,12 +5,24 @@ from uuid import uuid4
 import psycopg
 import pytest
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from app.core.config import settings
 from psycopg import sql
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 from alembic import command
+
+
+def test_integrated_migration_has_one_head_with_both_existing_parents():
+    root = Path(__file__).resolve().parents[4]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "alembic"))
+    scripts = ScriptDirectory.from_config(config)
+    assert scripts.get_heads() == ["20261022_0015"]
+    assert set(scripts.get_revision("head").down_revision) == {
+        "20261010_0014", "20261021_0014",
+    }
 
 
 def test_durable_turn_migration_preserves_rows_and_adds_cancelled(tmp_path, monkeypatch):
@@ -30,7 +42,8 @@ def test_durable_turn_migration_preserves_rows_and_adds_cancelled(tmp_path, monk
              status, content, content_type, sequence_no, metadata)
             VALUES ('msg_1','t','u','s','r','req','assistant','streaming','部分正文','text',1,'{}')""")
         )
-    command.upgrade(config, "head")
+    # SQLite 仅验证 durable 分支；压缩及汇合 head 使用下面的真实 PostgreSQL 测试。
+    command.upgrade(config, "20261021_0014")
     inspector = inspect(engine)
     assert {"agent_run_executions", "agent_run_protocol_events", "agent_run_tool_receipts"} <= set(
         inspector.get_table_names()
@@ -55,7 +68,12 @@ def test_durable_turn_migration_preserves_rows_and_adds_cancelled(tmp_path, monk
         )
 
 
-def test_postgres_durable_migration_upgrade_downgrade_and_reupgrade(monkeypatch):
+@pytest.mark.parametrize("starting_revision", [
+    "20260901_0013", "20261010_0014", "20261021_0014",
+])
+def test_postgres_durable_migration_upgrade_downgrade_and_reupgrade(
+    monkeypatch, starting_revision,
+):
     postgres_url = os.getenv("BS_AGENT_TEST_POSTGRES_URL")
     if not postgres_url:
         pytest.skip("未配置隔离 PostgreSQL 迁移测试地址。")
@@ -83,12 +101,20 @@ def test_postgres_durable_migration_upgrade_downgrade_and_reupgrade(monkeypatch)
                  status, content, content_type, sequence_no, metadata)
                 VALUES ('msg_1','t','u','s','r','req','assistant','streaming','部分正文','text',1,'{}')""")
             )
+        command.upgrade(config, starting_revision)
         command.upgrade(config, "head")
         with engine.begin() as connection:
             connection.execute(
                 text("UPDATE agent_messages SET status='cancelled' WHERE message_id='msg_1'")
             )
-        assert "agent_run_executions" in inspect(engine).get_table_names()
+        assert {
+            "agent_run_executions", "agent_run_protocol_events",
+            "agent_run_tool_receipts", "agent_context_compactions",
+        } <= set(inspect(engine).get_table_names())
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT content FROM agent_messages WHERE message_id='msg_1'")
+            ).scalar_one() == "部分正文"
         command.downgrade(config, "20260901_0013")
         with engine.connect() as connection:
             assert connection.execute(

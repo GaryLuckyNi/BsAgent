@@ -64,6 +64,15 @@ def test_durable_approval_resume_uses_control_and_publishes_terminal(
     monkeypatch, decision, terminal
 ):
     client, factory = _setup(monkeypatch)
+    dispatches = []
+
+    def dispatch(**kwargs):
+        with factory() as db:
+            assert db.get(AgentRun, "run_1").status == terminal
+        dispatches.append(kwargs)
+        return True
+
+    monkeypatch.setattr(approvals, "dispatch_context_compaction", dispatch)
 
     def resume(**_):
         assert current_execution.get() is not None
@@ -80,6 +89,11 @@ def test_durable_approval_resume_uses_control_and_publishes_terminal(
         events = DurableRunService(db).events("run_1", after=execution.phase_start_sequence)
         assert events[-1].data["status"] == terminal
         assert any(event.data.get("type") == "final" for event in events)
+    assert dispatches == [{
+        "tenant_id": "tenant_1", "user_id": "user_1", "session_key": "session_key_1",
+    }]
+    assert _approve(client, decision).status_code == 200
+    assert len(dispatches) == 1
 
 
 @pytest.mark.parametrize("finish_tool", [False, True])

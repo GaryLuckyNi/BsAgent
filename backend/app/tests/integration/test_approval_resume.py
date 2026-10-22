@@ -1,14 +1,7 @@
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
 import pytest
-from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.types import Interrupt
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
-
 from app.api import approvals
 from app.graph.state import build_checkpoint_thread_id, create_initial_state
 from app.harness.tracing import TraceEvent
@@ -26,7 +19,12 @@ from app.storage.models import (
     ApprovalRecord,
     Base,
 )
-
+from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Interrupt
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 TEST_MEMORY_STORE = object()
 EMPTY_BUSINESS_INTENT_CATALOG = BusinessIntentCatalog([])
@@ -57,6 +55,11 @@ class _TestBusinessIntentCatalogRuntime:
 @pytest.fixture(autouse=True)
 def _inject_test_checkpointer(monkeypatch):
     monkeypatch.setattr(approvals, "build_graph_checkpointer", InMemorySaver)
+    monkeypatch.setattr(
+        approvals,
+        "dispatch_context_compaction",
+        lambda **_kwargs: True,
+    )
 
 
 def _test_app():
@@ -221,12 +224,18 @@ def _resumed_state(*, final_content=None, interrupted=False):
 
 
 def test_approval_resume_completes_original_assistant_message(monkeypatch):
+    dispatches = []
     monkeypatch.setattr(
         approvals,
         "resume_question_answer_graph",
         lambda **_kwargs: _resumed_state(final_content="模拟交易已提交。"),
     )
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(
+        approvals,
+        "dispatch_context_compaction",
+        lambda **kwargs: dispatches.append(kwargs) or True,
+    )
     app, session_factory = _test_app()
     with session_factory() as db:
         checkpoint_thread_id = _seed_interrupted_turn(db)
@@ -251,6 +260,13 @@ def test_approval_resume_completes_original_assistant_message(monkeypatch):
     assert assistant.content == "模拟交易已提交。"
     assert run.status == "completed"
     assert session_record.active_run_id is None
+    assert dispatches == [
+        {
+            "tenant_id": "tenant_1",
+            "user_id": "user_1",
+            "session_key": "session_key_1",
+        }
+    ]
 
 
 def test_approval_resume_uses_run_scoped_buffer_and_flushes_after_commit(monkeypatch):
@@ -294,12 +310,18 @@ def test_approval_resume_uses_run_scoped_buffer_and_flushes_after_commit(monkeyp
 
 
 def test_approval_resume_interrupted_again_reuses_original_message(monkeypatch):
+    dispatches = []
     monkeypatch.setattr(
         approvals,
         "resume_question_answer_graph",
         lambda **_kwargs: _resumed_state(interrupted=True),
     )
     monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+    monkeypatch.setattr(
+        approvals,
+        "dispatch_context_compaction",
+        lambda **kwargs: dispatches.append(kwargs) or True,
+    )
     monkeypatch.setattr(
         approvals,
         "_project_current_interrupts",
@@ -331,6 +353,7 @@ def test_approval_resume_interrupted_again_reuses_original_message(monkeypatch):
     assert assistant.status == "interrupted"
     assert run.status == "interrupted"
     assert session_record.active_run_id == "run_1"
+    assert dispatches == []
 
 
 def test_rejected_approval_completes_original_message_with_rejected_run(monkeypatch):

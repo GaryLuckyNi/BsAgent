@@ -1,20 +1,26 @@
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-from contextlib import contextmanager
 import os
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from contextlib import contextmanager
 from threading import Barrier, Event
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, func, select, text
-from sqlalchemy.engine import make_url
-from sqlalchemy.orm import sessionmaker
-
 from app.conversations.repository import (
     ConversationRepository,
     SessionBusyError,
 )
 from app.conversations.service import BeginTurn, ConversationService
-from app.storage.models import AgentMessage, AgentRun, AgentSession, Base
+from app.storage.models import (
+    AgentContextCompaction,
+    AgentMessage,
+    AgentRun,
+    AgentSession,
+    Base,
+)
+from sqlalchemy import create_engine, event, func, select, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.orm import sessionmaker
 
 
 @contextmanager
@@ -55,6 +61,15 @@ def _begin(*, request_id: str) -> BeginTurn:
         user_content=f"content-{request_id}",
         metadata={"attachment_ids": ["asset-1"]},
     )
+
+
+def test_context_compaction_cyclic_schema_create_and_drop():
+    with _live_postgres_sessions() as session_factory:
+        engine = session_factory.kw["bind"]
+
+        assert AgentContextCompaction.__table__.name == "agent_context_compactions"
+        Base.metadata.drop_all(engine)
+        Base.metadata.create_all(engine)
 
 
 def test_waiting_session_lock_refreshes_stale_identity_before_busy_check():

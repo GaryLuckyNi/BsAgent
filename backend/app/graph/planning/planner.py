@@ -310,41 +310,17 @@ def _validate_no_repeated_completed_work(
 
 
 def _tasks_cover_same_research_goal(left: SubTaskModel, right: SubTaskModel) -> bool:
-    left_query = _normalize_research_text(left.tool_search_query or "")
-    right_query = _normalize_research_text(right.tool_search_query or "")
-    if left_query and right_query and left_query == right_query:
-        return True
-
-    left_criteria = {
-        _normalize_research_text(item) for item in left.completion_criteria if item.strip()
-    }
-    right_criteria = {
-        _normalize_research_text(item) for item in right.completion_criteria if item.strip()
-    }
-    if left_criteria and right_criteria and left_criteria == right_criteria:
-        return True
-
-    return _character_ngram_dice(left.task_goal, right.task_goal) >= 0.48
+    # 能力检索语句、通用验收条件或文字相似度都不能证明实体/期间/指标相同。
+    # 硬拦截只采用明确相同的目标，模糊的证据覆盖判断留给反馈模型。
+    left_goal = _normalize_research_text(left.task_goal)
+    right_goal = _normalize_research_text(right.task_goal)
+    return bool(left_goal) and left_goal == right_goal and (
+        left.execution_type == right.execution_type and left.skill_name == right.skill_name
+    )
 
 
 def _normalize_research_text(value: str) -> str:
     return "".join(re.findall(r"[a-z0-9\u4e00-\u9fff]+", value.lower()))
-
-
-def _character_ngram_dice(left: str, right: str, *, width: int = 2) -> float:
-    normalized_left = _normalize_research_text(left)
-    normalized_right = _normalize_research_text(right)
-    if min(len(normalized_left), len(normalized_right)) < 12:
-        return 0.0
-    left_grams = {
-        normalized_left[index : index + width]
-        for index in range(len(normalized_left) - width + 1)
-    }
-    right_grams = {
-        normalized_right[index : index + width]
-        for index in range(len(normalized_right) - width + 1)
-    }
-    return 2 * len(left_grams & right_grams) / (len(left_grams) + len(right_grams))
 
 
 def _validate_disclosed_capabilities(

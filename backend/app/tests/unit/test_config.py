@@ -3,6 +3,55 @@ from app.core.config import Settings
 from pydantic import ValidationError
 
 
+def test_context_compaction_defaults_are_conservative_and_disabled():
+    settings = Settings(_env_file=None)
+
+    assert settings.context_compaction_enabled is False
+    assert settings.llm_context_window_tokens == 131_072
+    assert settings.context_compaction_target_ratio == 0.50
+    assert settings.context_compaction_soft_ratio == 0.70
+    assert settings.context_compaction_hard_ratio == 0.85
+    assert settings.context_compaction_keep_recent_turns == 3
+    assert settings.context_compaction_min_recent_turns == 1
+    assert settings.context_compaction_summary_target_tokens == 2_000
+    assert settings.context_compaction_summary_max_tokens == 3_000
+    assert settings.context_non_history_reserve_tokens == 24_000
+    assert settings.context_compaction_next_user_reserve_tokens == 2_048
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"context_compaction_target_ratio": 0.70},
+        {"context_compaction_soft_ratio": 0.85},
+        {"context_compaction_target_ratio": 0.90},
+        {"context_compaction_min_recent_turns": 4},
+        {"context_compaction_summary_target_tokens": 3_001},
+    ],
+)
+def test_context_compaction_rejects_invalid_cross_field_settings(overrides):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("context_compaction_keep_recent_turns", 0),
+        ("context_compaction_keep_recent_turns", 21),
+        ("context_compaction_min_recent_turns", 0),
+        ("context_compaction_min_recent_turns", 21),
+        ("context_compaction_summary_target_tokens", 255),
+        ("context_compaction_summary_target_tokens", 8_193),
+        ("context_compaction_summary_max_tokens", 255),
+        ("context_compaction_summary_max_tokens", 8_193),
+    ],
+)
+def test_context_compaction_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
 def test_approval_resume_claim_timeout_defaults_to_five_minutes():
     assert Settings(_env_file=None).approval_resume_claim_timeout_seconds == 300
 
@@ -69,6 +118,7 @@ def _production_settings(**overrides):
         "trace_backend": "database",
         "otel_enabled": True,
         "otel_exporter_otlp_traces_endpoint": "http://otel-collector:4318/v1/traces",
+        "otel_exporter_otlp_metrics_endpoint": "http://otel-collector:4318/v1/metrics",
     }
     values.update(overrides)
     return Settings(_env_file=None, **values)
@@ -421,6 +471,15 @@ def test_langfuse_policy_settings_enforce_bounds(field, value):
 def test_langfuse_sample_rate_enforces_bounds(sample_rate):
     with pytest.raises(ValidationError):
         Settings(_env_file=None, langfuse_sample_rate=sample_rate)
+def test_otel_requires_metrics_endpoint_when_enabled():
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            _env_file=None,
+            otel_enabled=True,
+            otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        )
+
+    assert "otel_exporter_otlp_metrics_endpoint" in str(exc_info.value)
 
 
 def test_trace_detailed_ratio_cannot_exceed_success_ratio():

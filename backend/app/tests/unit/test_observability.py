@@ -2,10 +2,6 @@ import json
 import logging
 from io import StringIO
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from langgraph.checkpoint.memory import InMemorySaver
-
 from app.graph.state import create_initial_state
 from app.harness.trace_buffer import TraceArtifactPayload
 from app.harness.tracing import summarize_node_transition
@@ -18,8 +14,11 @@ from app.operations.observability import (
     configure_telemetry,
     configure_worker_telemetry,
 )
-from app.security.principal import Principal
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
+from app.security.principal import Principal
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
 
 
 def test_tool_search_trace_contains_only_safe_discovery_summary():
@@ -256,6 +255,7 @@ def test_configure_telemetry_delegates_enabled_runtime_to_installer():
         _env_file=None,
         otel_enabled=True,
         otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        otel_exporter_otlp_metrics_endpoint="http://collector:4318/v1/metrics",
         otel_trace_sample_ratio=0.25,
     )
 
@@ -273,6 +273,7 @@ def test_configure_telemetry_delegates_enabled_runtime_to_installer():
         "service_name": "bs-agent-service",
         "environment": "local",
         "endpoint": "http://collector:4318/v1/traces",
+        "metrics_endpoint": "http://collector:4318/v1/metrics",
         "sample_ratio": 0.25,
     }
 
@@ -288,6 +289,7 @@ def test_configure_telemetry_allows_exporter_injection_for_tests():
     from app.core.config import Settings
 
     exporter = object()
+    metrics_exporter = object()
     handle = configure_telemetry(
         app=FastAPI(),
         engine=object(),
@@ -295,13 +297,16 @@ def test_configure_telemetry_allows_exporter_injection_for_tests():
             _env_file=None,
             otel_enabled=True,
             otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+            otel_exporter_otlp_metrics_endpoint="http://collector:4318/v1/metrics",
         ),
         installer=installer,
         exporter=exporter,
+        metrics_exporter=metrics_exporter,
     )
 
     assert handle is marker
     assert captured["exporter"] is exporter
+    assert captured["metrics_exporter"] is metrics_exporter
 
 
 def test_configure_telemetry_installs_only_once_per_application():
@@ -314,6 +319,7 @@ def test_configure_telemetry_installs_only_once_per_application():
         _env_file=None,
         otel_enabled=True,
         otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        otel_exporter_otlp_metrics_endpoint="http://collector:4318/v1/metrics",
     )
 
     first = configure_telemetry(
@@ -357,12 +363,14 @@ def test_telemetry_runtime_shutdown_is_idempotent_and_failure_isolated():
             calls.append((self.name, None))
 
     app = object()
+    meter_provider = Provider()
     runtime = TelemetryRuntime(
         app=app,
         provider=Provider(),
         fastapi_instrumentor=FastAPIInstrumentor(),
         httpx_instrumentor=Instrumentor("httpx"),
         sqlalchemy_instrumentor=Instrumentor("sqlalchemy"),
+        meter_provider=meter_provider,
     )
 
     runtime.shutdown()
@@ -372,6 +380,8 @@ def test_telemetry_runtime_shutdown_is_idempotent_and_failure_isolated():
         ("fastapi", app),
         ("httpx", None),
         ("sqlalchemy", None),
+        ("flush", 5_000),
+        ("provider_shutdown", None),
         ("flush", 5_000),
         ("provider_shutdown", None),
     ]
@@ -406,6 +416,7 @@ def test_configure_worker_telemetry_uses_worker_service_name():
         _env_file=None,
         otel_enabled=True,
         otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        otel_exporter_otlp_metrics_endpoint="http://collector:4318/v1/metrics",
         otel_trace_sample_ratio=0.5,
     )
 
@@ -421,5 +432,6 @@ def test_configure_worker_telemetry_uses_worker_service_name():
         "service_name": "bs-agent-service-worker",
         "environment": "local",
         "endpoint": "http://collector:4318/v1/traces",
+        "metrics_endpoint": "http://collector:4318/v1/metrics",
         "sample_ratio": 0.5,
     }

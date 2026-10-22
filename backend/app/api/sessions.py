@@ -17,6 +17,13 @@ from starlette.concurrency import iterate_in_threadpool
 from app.api.assets import get_asset_service
 from app.approvals.repository import ApprovalRepository
 from app.assets.service import AssetService
+from app.context_compaction.dispatcher import dispatch_context_compaction
+from app.context_compaction.errors import (
+    ContextBudgetUnrecoverable,
+    ContextCompactionError,
+    MessageContextTooLarge,
+)
+from app.context_compaction.factory import build_context_compaction_service
 from app.conversations.repository import (
     ConversationConflictError,
     ConversationIntegrityError,
@@ -47,6 +54,7 @@ from app.harness.persistence import (
     finalize_trace_best_effort,
 )
 from app.harness.trace_buffer import TraceBuffer
+from app.harness.tracing import TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
 from app.intent.dependencies import get_business_intent_catalog
 from app.llm.deepseek import LlmConfigurationError
@@ -66,6 +74,7 @@ router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 logger = logging.getLogger(__name__)
 
 PRODUCT_PROGRESS_MESSAGES = {
+    "compacting_context": "正在压缩上下文",
     "planning": "正在规划分析范围",
     "executing_tools": "正在调用投研数据工具",
     "retrieving_knowledge": "正在检索补充资料",
@@ -112,6 +121,9 @@ class _AttachmentContextSnapshotResolver:
 class _ExecutionSnapshot:
     history: tuple[Message, ...]
     attachment_resolver: _AttachmentContextSnapshotResolver
+    context_compaction_id: str | None = None
+    context_status: str = "full"
+    projected_context_tokens: int = 0
 
 
 @dataclass
@@ -282,6 +294,10 @@ def post_message(
             status_code=409,
             detail={"code": str(exc)},
         ) from exc
+    except MessageContextTooLarge as exc:
+        raise HTTPException(status_code=413, detail={"code": exc.code}) from exc
+    except ContextBudgetUnrecoverable as exc:
+        raise HTTPException(status_code=503, detail={"code": exc.code}) from exc
 
 
 @router.get("/{session_id}/messages", response_model=SessionMessagePage)
@@ -390,6 +406,8 @@ def _load_execution_snapshot(
     request: SessionMessageRequest,
     handle: TurnHandle,
     attachment_resolver: VisionAttachmentContextResolver,
+    llm_client=None,
+    defer_compaction: bool = False,
 ) -> _ExecutionSnapshot:
     history_records = ConversationRepository(db).list_context_messages(
         tenant_id=principal.tenant_id,
@@ -422,18 +440,99 @@ def _load_execution_snapshot(
         if request.attachments
         else []
     )
-    return _ExecutionSnapshot(
+    attachment_json = tuple(
+        json.dumps(context, ensure_ascii=False, sort_keys=True)
+        for context in attachment_contexts
+    )
+    snapshot = _ExecutionSnapshot(
         history=history,
         attachment_resolver=_AttachmentContextSnapshotResolver(
             tenant_id=principal.tenant_id,
             user_id=principal.user_id,
             session_id=session_id,
             asset_ids=tuple(request.attachments),
-            contexts_json=tuple(
-                json.dumps(context, ensure_ascii=False, sort_keys=True)
-                for context in attachment_contexts
-            ),
+            contexts_json=attachment_json,
         ),
+    )
+    if defer_compaction or not settings.context_compaction_enabled:
+        # HTTP 的 begin_turn、冻结附件和 durable payload 必须在同一事务提交。
+        return snapshot
+    preparation = _stream_execution_snapshot(
+        db=db, principal=principal, session_id=session_id, request=request,
+        handle=handle, attachment_resolver=attachment_resolver,
+        llm_client=llm_client, execution_snapshot=snapshot,
+    )
+    while True:
+        try:
+            next(preparation)
+        except StopIteration as completed:
+            return completed.value
+
+
+def _stream_execution_snapshot(
+    *,
+    db: Session,
+    principal: Principal,
+    session_id: str,
+    request: SessionMessageRequest,
+    handle: TurnHandle,
+    attachment_resolver: VisionAttachmentContextResolver,
+    llm_client,
+    execution_snapshot: _ExecutionSnapshot | None = None,
+) -> Generator[str, None, _ExecutionSnapshot]:
+    snapshot = execution_snapshot or _load_execution_snapshot(
+        db=db,
+        principal=principal,
+        session_id=session_id,
+        request=request,
+        handle=handle,
+        attachment_resolver=attachment_resolver,
+        llm_client=llm_client,
+        defer_compaction=True,
+    )
+    if not settings.context_compaction_enabled:
+        return snapshot
+    from app.conversations.execution import check_execution_cancelled
+
+    if db.in_transaction():
+        db.commit()
+    # 交接材料不参与历史压缩，但必须作为本轮固定预算计入，避免挤掉未核实回执。
+    handoff = tuple(
+        message for message in snapshot.history
+        if message.metadata.get("source") == "cancelled_turn_handoff"
+    )
+    attachment_json = snapshot.attachment_resolver.contexts_json
+    check_execution_cancelled()
+    service = build_context_compaction_service(db=db, llm_client=llm_client)
+    prepare_events = getattr(service, "prepare_for_request_events", None)
+    prepare_kwargs = {
+        "tenant_id": principal.tenant_id,
+        "user_id": principal.user_id,
+        "session_key": handle.session_key,
+        "request_id": handle.request_id,
+        "current_user_message": request.message,
+        "attachment_texts": (*attachment_json, *(message.model_dump_json() for message in handoff)),
+    }
+    if callable(prepare_events):
+        preparation = prepare_events(**prepare_kwargs)
+        while True:
+            check_execution_cancelled()
+            try:
+                event = next(preparation)
+            except StopIteration as completed:
+                effective = completed.value
+                break
+            yield _sse("progress", _product_progress_payload(event.stage))
+    else:
+        effective = service.prepare_for_request(**prepare_kwargs)
+    check_execution_cancelled()
+
+    return _ExecutionSnapshot(
+        history=(*effective.messages, *handoff),
+        attachment_resolver=snapshot.attachment_resolver,
+        context_compaction_id=effective.compaction_id,
+        context_status=effective.status,
+        projected_context_tokens=effective.projected_tokens,
     )
 
 
@@ -481,6 +580,7 @@ def _run_and_persist_agent_message(
 
     trace_buffer = TraceBuffer()
     try:
+        llm_client = maybe_build_llm_client()
         snapshot = _load_execution_snapshot(
             db=db,
             principal=principal,
@@ -488,11 +588,16 @@ def _run_and_persist_agent_message(
             request=request,
             handle=handle,
             attachment_resolver=attachment_resolver,
+            llm_client=llm_client,
+        )
+        _record_context_snapshot_trace(
+            buffer=trace_buffer,
+            handle=handle,
+            snapshot=snapshot,
         )
         db.commit()
 
         checkpointer = build_graph_checkpointer()
-        llm_client = maybe_build_llm_client()
         state = run_question_answer_graph(
             business_intent_catalog=business_intent_catalog,
             session_id=session_id,
@@ -534,10 +639,40 @@ def _run_and_persist_agent_message(
                 tenant_id=principal.tenant_id,
                 run_id=handle.run_id,
                 content=final_response.get("content", ""),
-                metadata=_assistant_response_metadata(final_response),
+                metadata=_assistant_response_metadata(
+                    final_response,
+                    execution_snapshot=snapshot,
+                ),
             )
         db.commit()
+        if not interrupt_payloads:
+            dispatch_context_compaction(
+                tenant_id=principal.tenant_id,
+                user_id=principal.user_id,
+                session_key=handle.session_key,
+            )
         sync_committed_run(db=db, store=memory_store, run_id=handle.run_id)
+    except ContextCompactionError as exc:
+        db.rollback()
+        try:
+            _fail_turn_after_error(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+                error_code=exc.code,
+            )
+        except SQLAlchemyError as persistence_error:
+            raise ConversationPersistenceUnavailable from persistence_error
+        _finalize_trace_best_effort(
+            db=db,
+            handle=handle,
+            buffer=trace_buffer,
+            state=state,
+            principal=principal,
+            failed=True,
+        )
+        raise
     except SQLAlchemyError as exc:
         db.rollback()
         try:
@@ -596,12 +731,13 @@ def _fail_turn_after_error(
     conversation_service: ConversationService,
     principal: Principal,
     handle: TurnHandle,
+    error_code: str = "agent_execution_failed",
 ) -> None:
     try:
         conversation_service.fail_turn(
             tenant_id=principal.tenant_id,
             run_id=handle.run_id,
-            error_code="agent_execution_failed",
+            error_code=error_code,
         )
         db.commit()
     except ConversationConflictError:
@@ -672,13 +808,21 @@ def _stream_agent_message(
         trace_buffer = TraceBuffer()
         identity = _stream_identity(handle)
         yield _sse("status", {"stage": "accepted", **identity})
-        snapshot = execution_snapshot or _load_execution_snapshot(
+        llm_client = maybe_build_llm_client()
+        snapshot = yield from _stream_execution_snapshot(
             db=db,
             principal=principal,
             session_id=session_id,
             request=request,
             handle=handle,
             attachment_resolver=attachment_resolver,
+            llm_client=llm_client,
+            execution_snapshot=execution_snapshot,
+        )
+        _record_context_snapshot_trace(
+            buffer=trace_buffer,
+            handle=handle,
+            snapshot=snapshot,
         )
         db.commit()
         yield _sse("progress", _product_progress_payload("planning"))
@@ -691,7 +835,6 @@ def _stream_agent_message(
                 },
             )
 
-        llm_client = maybe_build_llm_client()
         emitted_event_count = 0
         emitted_progress_stages = {"planning"}
         answer_streamed = False
@@ -791,7 +934,29 @@ def _stream_agent_message(
             trace_lifecycle=trace_lifecycle,
             answer_streamed=answer_streamed,
             research_process=research_process,
+            execution_snapshot=snapshot,
         )
+    except ContextCompactionError as exc:
+        status = 413 if isinstance(exc, MessageContextTooLarge) else 503
+        finalized = _fail_stream_turn(
+            db=db,
+            conversation_service=conversation_service,
+            principal=principal,
+            handle=handle,
+            error_code=exc.code,
+        )
+        yield _sse(
+            "error",
+            {
+                "code": exc.code,
+                "node": "context_compaction",
+                "message": "请求上下文超出模型预算。",
+                "http_status": status,
+                **_stream_identity(handle),
+            },
+        )
+        yield _sse("done", {"ok": False, **_stream_identity(handle)})
+        return
     except AgentGraphExecutionError as exc:
         finalized = _fail_stream_turn(
             db=db,
@@ -899,6 +1064,7 @@ def _emit_stream_result(
     answer_streamed: bool = False,
     research_process: list[dict] | None = None,
     mark_streaming: bool = True,
+    execution_snapshot: _ExecutionSnapshot | None = None,
 ) -> Generator[str, None, bool]:
     identity = _stream_identity(handle)
     if state["image_analyses"]:
@@ -979,9 +1145,15 @@ def _emit_stream_result(
         metadata=_assistant_response_metadata(
             final_response,
             research_process=research_process,
+            execution_snapshot=execution_snapshot,
         ),
     )
     db.commit()
+    dispatch_context_compaction(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        session_key=handle.session_key,
+    )
     trace_lifecycle.failed = False
     yield _sse("final", {**final_response, **identity})
     yield _sse("done", {"ok": True, **identity})
@@ -1004,6 +1176,7 @@ def _fail_stream_turn(
     conversation_service: ConversationService,
     principal: Principal,
     handle: TurnHandle | None,
+    error_code: str = "agent_execution_failed",
 ) -> bool:
     if handle is None or handle.replayed:
         db.rollback()
@@ -1015,6 +1188,7 @@ def _fail_stream_turn(
             conversation_service=conversation_service,
             principal=principal,
             handle=handle,
+            error_code=error_code,
         )
     except SQLAlchemyError:
         logger.exception("agent_stream_failure_finalization_error")
@@ -1057,6 +1231,29 @@ def _finalize_trace_best_effort(
             verifier_status=verification.get("verdict"),
         ),
         service=TracePersistenceService(session_factory=session_factory),
+    )
+
+
+def _record_context_snapshot_trace(
+    *,
+    buffer: TraceBuffer,
+    handle: TurnHandle,
+    snapshot: _ExecutionSnapshot,
+) -> None:
+    if snapshot.context_status == "full":
+        return
+    buffer.record_event(
+        TraceEvent(
+            trace_id=handle.trace_id,
+            node_name="context_compaction",
+            status="success",
+            latency_ms=0,
+            metadata={
+                "context_status": snapshot.context_status,
+                "context_compaction_id": snapshot.context_compaction_id,
+                "projected_context_tokens": snapshot.projected_context_tokens,
+            },
+        )
     )
 
 
@@ -1636,6 +1833,7 @@ def _assistant_response_metadata(
     final_response: dict,
     *,
     research_process: list[dict] | None = None,
+    execution_snapshot: _ExecutionSnapshot | None = None,
 ) -> dict:
     metadata = {
         "cited_evidence_ids": list(final_response.get("cited_evidence_ids", [])),
@@ -1645,6 +1843,13 @@ def _assistant_response_metadata(
     }
     if research_process:
         metadata["research_process"] = research_process[:32]
+    if execution_snapshot is not None and execution_snapshot.context_status != "full":
+        metadata.update(
+            context_compaction_id=execution_snapshot.context_compaction_id,
+            projected_context_tokens=execution_snapshot.projected_context_tokens,
+        )
+        if execution_snapshot.context_status == "degraded":
+            metadata["context_degraded"] = True
     return metadata
 
 

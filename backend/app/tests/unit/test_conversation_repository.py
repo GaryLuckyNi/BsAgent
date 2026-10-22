@@ -1,15 +1,14 @@
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
-
 from app.conversations.repository import (
     ConversationIntegrityError,
     ConversationNotFoundError,
     ConversationRepository,
 )
 from app.storage.models import AgentMessage, AgentRun, AgentSession, Base
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 
 @pytest.fixture()
@@ -369,6 +368,115 @@ def test_list_context_messages_requires_message_ownership(
         session_key="shared_internal_key",
         exclude_request_id="current_request",
         limit=10,
+    )
+
+    assert messages == []
+
+
+def test_list_context_messages_after_returns_all_eligible_messages_in_order(session):
+    deleted_at = datetime.now(UTC)
+    session.add_all(
+        [
+            _message(
+                message_id="before_boundary",
+                session_key="session_key_1",
+                run_id="run_1",
+                request_id="request_1",
+                role="assistant",
+                status="completed",
+                sequence_no=1,
+            ),
+            _message(
+                message_id="kept_user",
+                session_key="session_key_1",
+                run_id="run_2",
+                request_id="request_2",
+                role="user",
+                status="completed",
+                sequence_no=2,
+            ),
+            _message(
+                message_id="kept_assistant",
+                session_key="session_key_1",
+                run_id="run_2",
+                request_id="request_2",
+                role="assistant",
+                status="completed",
+                sequence_no=3,
+            ),
+            _message(
+                message_id="current",
+                session_key="session_key_1",
+                run_id="run_current",
+                request_id="request_current",
+                role="user",
+                status="completed",
+                sequence_no=4,
+            ),
+            _message(
+                message_id="failed",
+                session_key="session_key_1",
+                run_id="run_5",
+                request_id="request_5",
+                role="assistant",
+                status="failed",
+                sequence_no=5,
+            ),
+            _message(
+                message_id="deleted",
+                session_key="session_key_1",
+                run_id="run_6",
+                request_id="request_6",
+                role="assistant",
+                status="completed",
+                sequence_no=6,
+                deleted_at=deleted_at,
+            ),
+        ]
+    )
+    session.flush()
+
+    messages = ConversationRepository(session).list_context_messages_after(
+        tenant_id="tenant_1",
+        user_id="user_1",
+        session_key="session_key_1",
+        exclude_request_id="request_current",
+        after_sequence_no=1,
+    )
+
+    assert [message.message_id for message in messages] == [
+        "kept_user",
+        "kept_assistant",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("tenant_id", "user_id"),
+    [("tenant_2", "user_1"), ("tenant_1", "user_2")],
+)
+def test_list_context_messages_after_requires_full_owner_scope(
+    session,
+    tenant_id,
+    user_id,
+):
+    session.add(
+        _message(
+            message_id="owned",
+            session_key="shared_internal_key",
+            run_id="run_1",
+            request_id="request_1",
+            role="user",
+            status="completed",
+            sequence_no=1,
+        )
+    )
+    session.flush()
+
+    messages = ConversationRepository(session).list_context_messages_after(
+        tenant_id=tenant_id,
+        user_id=user_id,
+        session_key="shared_internal_key",
+        exclude_request_id="current_request",
     )
 
     assert messages == []

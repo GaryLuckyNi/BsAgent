@@ -91,6 +91,38 @@ def test_revision_cannot_rewrite_completed_task():
         review(client)
 
 
+@pytest.mark.parametrize(
+    "new_goal,new_query",
+    [
+        ("查询贵州茅台2023年财报营收与净利润", "股票财务指标查询"),
+        ("查询五粮液2024年财报营收与净利润", "股票财务指标查询"),
+        ("查询贵州茅台2024年财报营收与经营现金流", "股票财务指标查询"),
+        ("查询贵州茅台2023年财报营收与净利润", "历史财务指标查询"),
+    ],
+)
+def test_revision_allows_distinct_period_entity_or_metric_with_same_capability(
+    new_goal, new_query,
+):
+    current = PlanModel(tasks=[{
+        "id": "completed", "task_goal": "查询贵州茅台2024年财报营收与净利润",
+        "tool_search_query": "股票财务指标查询",
+        "completion_criteria": ["提供可核实的财务指标"],
+    }])
+    client = Decisions({
+        "action": "revise", "reason": "需要可比口径以补充证据",
+        "plan": {"tasks": [{
+            "id": "new_evidence", "task_goal": new_goal,
+            "tool_search_query": new_query,
+            "completion_criteria": ["提供可核实的财务指标"],
+        }]},
+    })
+    result = review(client, current=current, results=[
+        TaskResultModel(task_id="completed", status="success", content="已取得2024年指标"),
+    ])
+    assert result.plan.tasks[0].task_goal == new_goal
+    assert len(client.calls) == 1
+
+
 def test_revision_rejects_new_id_that_repeats_completed_research_goal():
     current = PlanModel(
         tasks=[
@@ -132,6 +164,8 @@ def test_revision_rejects_new_id_that_repeats_completed_research_goal():
             ]
         },
     }
+    # 保留“仅更换 ID 不能重跑相同目标”的契约；不再把相近描述硬判语义等价。
+    repeated["plan"]["tasks"][0]["task_goal"] = current.tasks[0].task_goal
     client = Decisions(repeated, repeated)
 
     with pytest.raises(PlannerOutputError):

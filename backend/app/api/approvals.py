@@ -16,13 +16,14 @@ from app.approvals.repository import (
     ApprovalRepository,
     ApprovalResumeInProgressError,
 )
-from app.core.config import settings
+from app.context_compaction.dispatcher import dispatch_context_compaction
 from app.conversations.repository import (
     ConversationConflictError,
     ConversationIntegrityError,
     ConversationNotFoundError,
 )
 from app.conversations.service import ConversationService
+from app.core.config import settings
 from app.graph.checkpoints import build_graph_checkpointer
 from app.graph.runtime import AgentGraphExecutionError, resume_question_answer_graph
 from app.graph.state import AgentState, build_checkpoint_thread_id
@@ -375,6 +376,12 @@ def _decide_approval(
                 )
         approval_payload = _approval_payload(record)
         db.commit()
+        if not interrupted:
+            dispatch_context_compaction(
+                tenant_id=resume_snapshot.tenant_id,
+                user_id=resume_snapshot.request_user_id,
+                session_key=resume_snapshot.session_key,
+            )
         sync_committed_run(
             db=db,
             store=memory_store,

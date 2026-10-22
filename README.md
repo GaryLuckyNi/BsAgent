@@ -158,6 +158,32 @@ python -m ruff check backend ocr-service
 
 仓库内置 GitHub Actions 持续集成：后端使用 Python 3.11 和锁定依赖运行 Ruff、全量测试及真实 PostgreSQL PostgresSaver 测试；前端运行 `npm ci`、Vitest、生产构建与生产依赖审计，同时静态校验生产 Compose。
 
+## 会话上下文压缩
+
+上下文压缩默认关闭。启用前必须按实际部署模型设置窗口容量，不能直接沿用其他模型的标称值：
+
+```text
+BS_AGENT_CONTEXT_COMPACTION_ENABLED=true
+BS_AGENT_LLM_CONTEXT_WINDOW_TOKENS=131072
+```
+
+系统在窗口投影达到 70% 后向 Celery `context-compaction` 队列派发预压缩任务；达到 85% 时在请求前同步压缩，压缩目标为 50%。默认保留最近 3 个完整回合，极端情况下至少保留 1 个完整回合。`agent_messages` 始终保存原始会话，`agent_context_compactions` 追加保存可追溯的摘要版本，消息分页接口仍只读取原始消息。
+
+专项测试和显式启用的真实模型评测命令如下：
+
+```bash
+BS_AGENT_TEST_POSTGRES_URL="$BS_AGENT_TEST_POSTGRES_URL" \
+  .venv/bin/python -m pytest \
+  backend/app/tests/integration/test_context_compaction_migration.py \
+  backend/app/tests/integration/test_live_postgres_context_compaction.py -q
+
+BS_AGENT_RUN_LIVE_CONTEXT_COMPACTION_EVAL=1 \
+  .venv/bin/python -m pytest \
+  backend/app/tests/evals/test_context_compaction_quality.py -q
+```
+
+需要回滚时将 `BS_AGENT_CONTEXT_COMPACTION_ENABLED` 设为 `false` 并重启 API 与 worker。关闭开关会恢复最近 20 条消息的兼容读取路径；不要删除 compaction 数据，以便审计、诊断和重新启用。
+
 ## 生产部署
 
 生产模式会强制 JWT、PostgreSQL、PostgresSaver、Redis、S3、Celery、真实 OCR/Vision、JSON 日志和非开发版能力 revision。完整步骤见 [生产部署与运维手册](docs/production-deployment.md)。
