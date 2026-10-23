@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     mcp_timeout_seconds: float = 30.0
     mcp_server_revision: str = "local-dev"
     mcp_config_revision: str = "default"
+    mcp_permission_denial_is_pre_execution: bool = False
     tool_search_top_k: int = Field(default=5, ge=1, le=8)
     tool_search_candidate_k: int = Field(default=50, ge=5, le=128)
     tool_search_max_calls: int = Field(default=4, ge=1, le=16)

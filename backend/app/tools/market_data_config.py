@@ -5,7 +5,6 @@ import httpx
 
 from app.tools.mcp_gateway import McpServerConfig
 
-
 _ACTIVE_MCP_CONNECTION_PATH = (
     "/api/internal/market-data-providers/active/mcp-connection"
 )
@@ -52,6 +51,8 @@ class AdminMarketDataConfigClient:
                 timeout_seconds=self._timeout_seconds,
                 enforce_local_rbac=False,
                 deployment_revision="tushare-official",
+                # 受信连接指定的是 TuShare 错误协议，不是逐接口只读白名单。
+                permission_denial_is_pre_execution=True,
                 config_revision=config_revision,
             )
         except (KeyError, TypeError, ValueError) as exc:

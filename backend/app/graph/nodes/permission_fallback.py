@@ -44,6 +44,8 @@ def is_provider_permission_failure(request: ToolCallRequest, result: ToolCallRes
         and result.error is not None
         and result.error.code in PERMISSION_CODES
         and result.status != "success"
+        and result.execution_state == "not_started"
+        and result.result is None
     )
 
 

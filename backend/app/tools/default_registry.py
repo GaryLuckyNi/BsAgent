@@ -2,20 +2,19 @@ import logging
 import re
 
 from app.core.config import settings
-from app.search.factory import build_web_search_client
 from app.schemas.tools import ToolSpec
+from app.search.factory import build_web_search_client
 from app.tools.catalog_runtime import ToolCatalogRuntime
 from app.tools.market_data_config import AdminMarketDataConfigClient
 from app.tools.mcp_gateway import McpGateway, McpServerConfig
-from app.tools.registry import ToolRegistry
 from app.tools.rag_search import build_default_rag_search_registration
+from app.tools.registry import ToolRegistry
 from app.tools.search import (
     SearchTool,
     ToolSearchIndex,
     ToolSearchService,
 )
 from app.tools.web_search import WebSearchTool
-
 
 logger = logging.getLogger(__name__)
 _HTTP_STATUS_PATTERN = re.compile(r"\b([45][0-9]{2})\b")
@@ -83,6 +82,7 @@ def _configured_mcp_servers() -> list[McpServerConfig]:
                 timeout_seconds=settings.mcp_timeout_seconds,
                 deployment_revision=settings.mcp_server_revision,
                 config_revision=settings.mcp_config_revision,
+                permission_denial_is_pre_execution=settings.mcp_permission_denial_is_pre_execution,
             )
         )
     return configs

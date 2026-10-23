@@ -363,3 +363,27 @@ def test_official_tushare_failure_envelope_is_recognized_but_business_data_is_no
     assert result.error.code == "provider_permission_denied"
     normal = _dynamic_tool("income_vip", {"error": "permission_denied", "data": [1]})
     assert asyncio.run(normal.run(normal.input_model.model_validate({}))).status == "success"
+
+
+@pytest.mark.parametrize("trusted", [False, True])
+@pytest.mark.parametrize("structured", [False, True])
+def test_adapter_execution_certainty_requires_trusted_protocol_semantics(monkeypatch, trusted, structured):
+    tool = DynamicMcpHttpTool(
+        name="mcp.any.brand_new_api", server_name="any",
+        langchain_tool=_langchain_tool("brand_new_api", {}),
+        description="新接口", input_schema={"type": "object"},
+        permission_denial_is_pre_execution=trusted,
+    )
+    async def invoke(_value):
+        return ToolMessage(
+            content="抱歉，您没有接口访问权限。token=top-secret",
+            artifact={"structured_content": {"code": "permission_denied"}} if structured else None,
+            status="error", tool_call_id="remote",
+        )
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.execution_state == ("not_started" if trusted else "uncertain")
+    assert result.error.details["source"] == "mcp_adapter"
+    assert result.error.details["rule_id"]
+    assert result.error.details["denied_scope"] == "arguments"
+    assert "top-secret" not in result.model_dump_json()

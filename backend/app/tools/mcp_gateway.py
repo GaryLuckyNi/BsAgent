@@ -10,7 +10,6 @@ from app.tools.base import Tool
 from app.tools.mcp_http import discover_mcp_http_tools
 from app.tools.registry import ExecutionBinding
 
-
 McpToolDiscoverer = Callable[..., list[Tool]]
 
 
@@ -22,6 +21,7 @@ class McpServerConfig(BaseModel):
     enforce_local_rbac: bool = True
     deployment_revision: str = "development"
     config_revision: str = "default"
+    permission_denial_is_pre_execution: bool = False
 
 
 class McpToolManifest(BaseModel):
@@ -39,6 +39,10 @@ class McpGateway:
         self._discoverer = discoverer
 
     def discover_tools(self, config: McpServerConfig) -> list[Tool]:
+        semantics = (
+            {"permission_denial_is_pre_execution": True}
+            if config.permission_denial_is_pre_execution else {}
+        )
         tools = self._discoverer(
             url=config.url,
             server_name=config.name,
@@ -47,6 +51,7 @@ class McpGateway:
             permission_scope=(
                 [f"mcp:{config.name}"] if config.enforce_local_rbac else []
             ),
+            **semantics,
         )
         for tool in tools:
             self._tool_specs[tool.spec.name] = tool.spec
@@ -94,6 +99,7 @@ def _execution_config_revision(config: McpServerConfig) -> str:
             "default_risk_level": config.default_risk_level,
             "enforce_local_rbac": config.enforce_local_rbac,
             "timeout_seconds": config.timeout_seconds,
+            "permission_denial_is_pre_execution": config.permission_denial_is_pre_execution,
             "url_digest": sha256(config.url.encode()).hexdigest(),
         },
         ensure_ascii=True,

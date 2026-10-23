@@ -37,6 +37,7 @@ class DeniedTool(Tool[EmptyInput]):
             tool_call_id="remote",
             tool_name=self.name,
             status="failed",
+            execution_state="not_started",
             trace_id="",
             error=ToolError(code=self.error_code, message="权限不足"),
         )

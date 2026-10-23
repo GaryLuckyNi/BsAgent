@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.tools.redaction import contains_inline_credentials
@@ -56,10 +56,20 @@ class ToolCallResult(BaseModel):
     tool_call_id: str
     tool_name: str
     status: Literal["success", "failed", "timeout", "denied"]
+    execution_state: Literal["not_started", "completed", "uncertain"] = "uncertain"
     result: JsonValue = None
     error: ToolError | None = None
     latency_ms: int = Field(default=0, ge=0)
     trace_id: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_execution_certainty(cls, value):
+        if isinstance(value, dict) and "execution_state" not in value:
+            return {**value, "execution_state": (
+                "completed" if value.get("status") == "success" else "uncertain"
+            )}
+        return value
 
 
 class ToolCallRecord(BaseModel):

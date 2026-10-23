@@ -23,9 +23,7 @@ from pydantic import (
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
 from app.tools.base import Tool
 from app.tools.mcp_permission import (
-    has_execution_result,
-    permission_failure_envelope,
-    remote_permission_denied,
+    classify_mcp_failure,
     standalone_permission_denied,
 )
 from app.tools.redaction import sanitize_untrusted_details
@@ -35,14 +33,19 @@ MCP_TOOL_ERROR_MESSAGES = {
     "mcp_tool_execution_failed": "MCP tool execution failed.",
     "mcp_tool_response_invalid": "MCP tool returned an invalid response.",
     "provider_permission_denied": "数据源账号权限不足，无法访问该接口。",
+    "provider_authentication_failed": "数据源账号认证失败。",
+    "provider_rate_limited": "数据源请求超过频率限制。",
+    "provider_quota_exceeded": "数据源账号额度不足。",
+    "provider_invalid_request": "数据源请求参数无效。",
 }
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
 
 class McpToolResponseError(RuntimeError):
-    def __init__(self, code: str, *, failure_stage: str | None = None) -> None:
+    def __init__(self, code: str, *, failure_stage: str | None = None, classification=None) -> None:
         self.code = code
         self.failure_stage = failure_stage
+        self.classification = classification
         super().__init__(
             MCP_TOOL_ERROR_MESSAGES.get(
                 code,
@@ -81,6 +84,7 @@ class McpHttpClient:
         server_name: str,
         risk_level: Literal["low", "medium", "high"] = "medium",
         permission_scope: list[str] | None = None,
+        permission_denial_is_pre_execution: bool = False,
     ) -> list["DynamicMcpHttpTool"]:
         client = self._client(server_name)
         discovered = await asyncio.wait_for(
@@ -100,6 +104,7 @@ class McpHttpClient:
                     timeout_seconds=self._timeout_seconds,
                     risk_level=risk_level,
                     permission_scope=permission_scope,
+                    permission_denial_is_pre_execution=permission_denial_is_pre_execution,
                 )
             )
         return tools
@@ -135,9 +140,11 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
         timeout_seconds: float = 30.0,
         risk_level: Literal["low", "medium", "high"] = "medium",
         permission_scope: list[str] | None = None,
+        permission_denial_is_pre_execution: bool = False,
     ) -> None:
         self.name = name
         self._server_name = server_name
+        self._permission_denial_is_pre_execution = permission_denial_is_pre_execution
         self.description = description or langchain_tool.name
         self.output_schema = {}
         self.permission_scope = list(
@@ -183,19 +190,22 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 ),
                 timeout=self.timeout_ms / 1000,
             )
-            payload = _langchain_tool_payload(response)
+            payload = _langchain_tool_payload(
+                response, pre_execution_semantics=self._permission_denial_is_pre_execution,
+            )
         except McpToolResponseError as exc:
             return _failure_result(
                 tool_name=self.name,
                 code=exc.code,
                 message=str(exc),
-                details=(
+                details=exc.classification or (
                     {"failure_stage": exc.failure_stage}
                     if exc.code == "mcp_tool_execution_failed" and exc.failure_stage
                     else None
                 ),
                 start=start,
                 status="denied" if exc.code == "provider_permission_denied" else "failed",
+                execution_state=(exc.classification or {}).get("execution_state", "uncertain"),
             )
         except TimeoutError as exc:
             return _failure_result(
@@ -217,12 +227,21 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 start=start,
             )
 
-        if permission_failure_envelope(payload):
+        failed_envelope = isinstance(payload, dict) and (
+            payload.get("code") not in (None, 0, "0") or payload.get("status") == "failed"
+            or isinstance(payload.get("error"), dict)
+        )
+        classification = classify_mcp_failure(
+            payload, error_context=failed_envelope,
+            pre_execution_semantics=self._permission_denial_is_pre_execution,
+        )
+        if classification is not None:
+            code = classification["code"]
             return _failure_result(
                 tool_name=self.name,
-                code="provider_permission_denied",
-                message=MCP_TOOL_ERROR_MESSAGES["provider_permission_denied"],
-                status="denied",
+                code=code, message=MCP_TOOL_ERROR_MESSAGES[code],
+                details=classification, execution_state=classification["execution_state"],
+                status="denied" if code == "provider_permission_denied" else "failed",
                 start=start,
             )
 
@@ -256,6 +275,7 @@ def discover_mcp_http_tools(
     timeout_seconds: float,
     risk_level: Literal["low", "medium", "high"] = "medium",
     permission_scope: list[str] | None = None,
+    permission_denial_is_pre_execution: bool = False,
 ) -> list[DynamicMcpHttpTool]:
     client = McpHttpClient(
         url=url,
@@ -266,6 +286,7 @@ def discover_mcp_http_tools(
             server_name=server_name,
             risk_level=risk_level,
             permission_scope=permission_scope,
+            permission_denial_is_pre_execution=permission_denial_is_pre_execution,
         )
     )
 
@@ -279,17 +300,18 @@ def _langchain_input_schema(tool: LangChainTool) -> dict[str, Any]:
     return {"type": "object", "properties": {}}
 
 
-def _langchain_tool_payload(response: object) -> JsonValue:
+def _langchain_tool_payload(response: object, *, pre_execution_semantics: bool = False) -> JsonValue:
     if not isinstance(response, ToolMessage):
         raise McpToolResponseError(
             "mcp_tool_execution_failed", failure_stage="response_type_invalid"
         )
     if response.status == "error":
-        has_result = has_execution_result(response.content) or has_execution_result(response.artifact)
-        if not has_result and (
-            remote_permission_denied(response.content) or remote_permission_denied(response.artifact)
-        ):
-            raise McpToolResponseError("provider_permission_denied", failure_stage="remote_tool_error")
+        classification = classify_mcp_failure(
+            {"content": response.content, "structured_content": response.artifact},
+            error_context=True, pre_execution_semantics=pre_execution_semantics,
+        )
+        if classification:
+            raise McpToolResponseError(classification["code"], classification=classification)
         raise McpToolResponseError("mcp_tool_execution_failed", failure_stage="remote_tool_error")
     artifact = response.artifact
     if isinstance(artifact, dict) and "structured_content" in artifact:
@@ -306,7 +328,11 @@ def _langchain_tool_payload(response: object) -> JsonValue:
             payload = json.loads(text)
         except json.JSONDecodeError:
             if standalone_permission_denied(text):
-                raise McpToolResponseError("provider_permission_denied") from None
+                classification = classify_mcp_failure(
+                    text, error_context=True, pre_execution_semantics=pre_execution_semantics,
+                )
+                if classification:
+                    raise McpToolResponseError(classification["code"], classification=classification) from None
         else:
             return _validated_json_value(payload)
     raise McpToolResponseError("mcp_tool_response_invalid")
@@ -330,15 +356,20 @@ def _failure_result(
     retryable: bool = False,
     start: float,
     status: str = "failed",
+    execution_state: str = "uncertain",
 ) -> ToolCallResult:
     return ToolCallResult(
         tool_call_id=f"tool_{uuid4().hex}",
         tool_name=tool_name,
         status=status,
+        execution_state=execution_state,
         error=ToolError(
             code=code,
             message=message,
-            details=sanitize_untrusted_details(details),
+            details=sanitize_untrusted_details({
+                key: value for key, value in (details or {}).items()
+                if key not in {"code", "execution_state"}
+            }),
             retryable=retryable,
         ),
         latency_ms=int((perf_counter() - start) * 1000),

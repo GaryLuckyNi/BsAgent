@@ -30,17 +30,18 @@ def prepare(database):
 
 
 @pytest.mark.parametrize(
-    ("server", "remote_name", "result_status", "receipt_status"),
+    ("server", "remote_name", "result_status", "receipt_status", "trusted_semantics"),
     [
-        ("tushare", "income_vip", "denied", "settled"),
-        ("tushare", "fina_mainbz", "denied", "settled"),
-        ("tushare", "write_account", "denied", "settled"),
-        ("other", "unknown_new_api", "denied", "settled"),
+        ("tushare", "income_vip", "denied", "settled", True),
+        ("tushare", "fina_mainbz", "denied", "settled", True),
+        ("tushare", "write_account", "denied", "settled", True),
+        ("other", "unknown_new_api", "denied", "settled", True),
+        ("other", "unknown_new_api", "denied", "unknown", False),
     ],
 )
 @pytest.mark.parametrize("flagged", [False, True])
 def test_explicit_mcp_permission_denial_settles_without_per_interface_allowlist(
-    database, monkeypatch, server, remote_name, result_status, receipt_status, flagged,
+    database, monkeypatch, server, remote_name, result_status, receipt_status, trusted_semantics, flagged,
 ):
     import asyncio
 
@@ -72,6 +73,7 @@ def test_explicit_mcp_permission_denial_settles_without_per_interface_allowlist(
         name=f"mcp.{server}.{remote_name}", server_name=server,
         langchain_tool=_langchain_tool(remote_name, {}), description="验证权限边界",
         input_schema={"type": "object", "properties": {}}, risk_level="medium",
+        permission_denial_is_pre_execution=trusted_semantics,
     )
     monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: rejected(value))
     registry = ToolRegistry()
@@ -99,6 +101,9 @@ def test_explicit_mcp_permission_denial_settles_without_per_interface_allowlist(
         receipt = db.scalar(select(AgentRunToolReceipt))
         assert receipt.status == receipt_status
         assert receipt.result_summary["status"] == result_status
+        assert receipt.result_summary["execution_state"] == (
+            "not_started" if trusted_semantics else "uncertain"
+        )
     if receipt_status == "settled":
         control.ensure_tool_effects_resolved(risk_level="medium")
         control.ensure_tool_effects_resolved(risk_level="high")

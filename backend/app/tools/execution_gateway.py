@@ -101,6 +101,17 @@ def validate_tool_arguments(
     return ToolArgumentValidationResult(valid=not safe_errors, errors=safe_errors)
 
 
+def execution_is_uncertain(result: ToolCallResult, *, risk_level: str) -> bool:
+    """确定性与成功分离；未知副作用不能被 denied 标签或错误清理抹掉。"""
+    if risk_level == "low":
+        return False
+    if result.execution_state == "uncertain":
+        return True
+    if result.execution_state == "not_started":
+        return result.status not in {"failed", "denied"} or result.result is not None
+    return False
+
+
 class ToolExecutionContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -278,6 +289,7 @@ class ToolExecutionGateway:
                 request,
                 trace_id=trace_id,
                 code=_exception_error_code(exc),
+                execution_state="uncertain",
                 start=start,
             )
             if control:
@@ -307,7 +319,7 @@ class ToolExecutionGateway:
                     summary["raw_result"] = raw if isinstance(raw, dict) else str(raw)
                 control.tool_finished(
                     receipt_id, summary,
-                    uncertain=(entry.spec.risk_level != "low" and result.status not in {"success", "denied"}),
+                    uncertain=execution_is_uncertain(result, risk_level=entry.spec.risk_level),
                 )
                 control.guard()
             return result
@@ -319,6 +331,7 @@ class ToolExecutionGateway:
                 request,
                 trace_id=trace_id,
                 code="tool_result_validation_failed",
+                execution_state="uncertain",
                 start=start,
             ))
 
@@ -348,6 +361,7 @@ class ToolExecutionGateway:
                 request,
                 trace_id=trace_id,
                 code="tool_output_schema_invalid",
+                execution_state="uncertain",
                 start=start,
             ))
         try:
@@ -357,6 +371,7 @@ class ToolExecutionGateway:
                 request,
                 trace_id=trace_id,
                 code="tool_output_validation_failed",
+                execution_state="uncertain",
                 start=start,
             ))
         except Exception:
@@ -364,6 +379,7 @@ class ToolExecutionGateway:
                 request,
                 trace_id=trace_id,
                 code="tool_output_validation_failed",
+                execution_state="uncertain",
                 start=start,
             ))
         return settle(result)
@@ -376,11 +392,13 @@ class ToolExecutionGateway:
         code: str,
         start: float,
         status: str = "failed",
+        execution_state: str = "not_started",
     ) -> ToolCallResult:
         return ToolCallResult(
             tool_call_id=f"tool_{uuid4().hex}",
             tool_name=request.tool_name,
             status=status,
+            execution_state=execution_state,
             error=ToolError(code=code, message=_safe_error_message(code)),
             latency_ms=int((perf_counter() - start) * 1000),
             trace_id=trace_id,
@@ -449,6 +467,10 @@ def normalize_failed_tool_result(
         tool_call_id=f"tool_{uuid4().hex}",
         tool_name=request.tool_name,
         status=result.status,
+        execution_state=(
+            "uncertain" if result.execution_state == "not_started" and result.result is not None
+            else result.execution_state
+        ),
         result=None,
         error=ToolError(
             code=code,

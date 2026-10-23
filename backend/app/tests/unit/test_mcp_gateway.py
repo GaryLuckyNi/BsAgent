@@ -84,6 +84,18 @@ def test_mcp_gateway_can_delegate_authorization_to_external_provider():
     assert calls[0]["permission_scope"] == []
 
 
+def test_pre_execution_semantics_are_trusted_config_and_change_binding():
+    calls = []
+    gateway = McpGateway(discoverer=lambda **kwargs: calls.append(kwargs) or [])
+    config = McpServerConfig(name="arbitrary", url="https://provider.example/mcp")
+    assert config.permission_denial_is_pre_execution is False
+    trusted = config.model_copy(update={"permission_denial_is_pre_execution": True})
+    gateway.discover_tools(trusted)
+    assert calls[0]["permission_denial_is_pre_execution"] is True
+    tool = SimpleNamespace(name="mcp.arbitrary.new_api")
+    assert gateway.execution_binding(config, tool=tool).digest != gateway.execution_binding(trusted, tool=tool).digest
+
+
 def test_mcp_execution_binding_tracks_server_and_config_revisions():
     tool = SimpleNamespace(name="mcp.stock.company_profile")
     first = McpGateway.execution_binding(

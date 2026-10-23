@@ -32,6 +32,7 @@ def test_arbitrary_mcp_permission_response_interrupts_and_only_searches_after_co
         name=f"mcp.{server}.{remote_name}", server_name=server,
         langchain_tool=_langchain_tool(remote_name, {}), description="查询信息",
         input_schema={"type": "object", "properties": {}}, risk_level="medium",
+        permission_denial_is_pre_execution=True,
     )
 
     async def rejected(_value):
