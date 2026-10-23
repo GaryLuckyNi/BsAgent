@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from threading import BoundedSemaphore
 from typing import Any
 
+from app.graph.planning.evidence_projection import EvidenceProjection
 from app.operations.langfuse_annotation import ReviewPolicy
+from app.operations.langfuse_content import LangfuseContentPolicy
 from app.operations.langfuse_evaluation import (
     DeepSeekJudgeResult,
     JudgeFailure,
     RuleEvaluationInput,
     evaluate_rules,
 )
+from app.operations.langfuse_langchain_content import sanitized_content_json
 from app.operations.langfuse_scores import record_langfuse_score
 
 _RULE_VERSION = "bsagent-rules-v1"
@@ -348,6 +352,7 @@ def _extract_run_data(state: Any, expected: Mapping[str, Any] | None) -> dict[st
             "output_text": response_content if isinstance(response_content, str) else "",
             "expected_output": expected_output if isinstance(expected_output, str) else None,
             "context": {
+                "research_evidence": _research_evidence(state_map),
                 "claims": [_mapping(claim) for claim in claims],
                 "citations": citations,
                 "tool_calls": [
@@ -370,6 +375,32 @@ def _extract_run_data(state: Any, expected: Mapping[str, Any] | None) -> dict[st
             "approved_high_risk_actions": approved_high_risk_actions,
         },
     }
+
+
+def _research_evidence(state: Mapping[str, Any]) -> dict[str, Any]:
+    """评估只读取外部材料，不把独立分析或最终答复回声当成佐证。"""
+    try:
+        return _project_research_evidence(state)
+    except Exception:  # noqa: BLE001 - 附加证据不安全时只省略证据，不阻断根观测和评分
+        return {"omitted": True, "reason": "unsafe_evidence_context"}
+
+
+def _project_research_evidence(state: Mapping[str, Any]) -> dict[str, Any]:
+    projection = EvidenceProjection()
+    materials = [
+        {"task_id": _get(item, "task_id"), "tool_name": _get(item, "tool_name"),
+         "content": projection.content(_get(item, "content"))}
+        for item in _items(state.get("task_results"))
+        if _get(item, "status") == "success"
+        and _get(item, "tool_name") not in (None, "", "search_tool")
+    ]
+    evidence = [
+        {key: _get(item, key) for key in ("evidence_id", "title", "content", "source_uri")}
+        for item in _items(_get(state.get("evidence"), "items", []))
+    ]
+    value = {"materials": materials, "sources": projection.sources, "retrieved_evidence": evidence}
+    # 整体限长并清理 JSON 字符串内的敏感字段；截断会显式保留标记。
+    return json.loads(sanitized_content_json(value, policy=LangfuseContentPolicy(max_chars=12000)))
 
 
 def _mapping(value: Any) -> dict[str, Any]:

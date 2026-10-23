@@ -1,16 +1,15 @@
+import re
 from collections.abc import Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
-import re
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
+from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMessage
 
 from app.llm.factory import ToolCallingLlmClient, invoke_llm_completion
 from app.schemas.tools import ToolSpec
 from app.tools.redaction import contains_inline_credentials, redact_sensitive_data
-
 
 _VALID_TOOL_NAME = re.compile(r"[^a-zA-Z0-9_-]+")
 
@@ -60,7 +59,20 @@ def create_tool_call_message(
         [_openai_tool_schema(spec, api_name=api_name) for api_name, spec in api_names.items()],
         tool_choice=tool_choice,
     )
-    response = bound_model.invoke(messages)
+    call_requirement = (
+        "本轮允许不调用工具，直接回答子任务或说明证据缺口。"
+        if tool_choice == "auto"
+        else "本轮必须恰好调用一个候选工具，不得直接回答。"
+    )
+    contract = SystemMessage(
+        content=(
+            "【当前轮工具调用硬性约束】本轮是单工具执行器的一次选择，不是多步研究。"
+            "只允许零个或一个 tool call；即使多项信息需要核实，也必须选择当前最有价值的一个工具、生成一组参数。"
+            "严禁一次返回多个 tool call，严禁对同一工具生成多组调用。"
+            f"{call_requirement}需要工具时只返回一个工具调用，不输出调用前的说明或研究过程。"
+        )
+    )
+    response = bound_model.invoke([contract, *messages])
     if not isinstance(response, AIMessage):
         raise TypeError("Tool calling model must return AIMessage.")
     if not response.tool_calls:

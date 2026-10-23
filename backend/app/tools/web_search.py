@@ -1,13 +1,12 @@
-from typing import Protocol
+from typing import ClassVar, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.tools import ToolCallResult, ToolError
 from app.search.deepseek import WebSearchProviderError
-from app.search.schemas import WebSearchResponse
+from app.search.schemas import EvidenceCoverage, SearchResearchContext, WebSearchResponse
 from app.tools.base import Tool
-
 
 WEB_SEARCH_ERROR_MESSAGES = {
     "web_search_timeout": "联网搜索服务响应超时。",
@@ -20,7 +19,9 @@ WEB_SEARCH_ERROR_MESSAGES = {
 
 
 class WebSearchClient(Protocol):
-    async def search(self, *, query: str, max_results: int) -> WebSearchResponse: ...
+    async def search(
+        self, *, query: str, max_results: int, research_context: SearchResearchContext | None = None,
+    ) -> WebSearchResponse: ...
 
 
 class WebSearchInput(BaseModel):
@@ -44,14 +45,15 @@ class WebSearchTool(Tool[WebSearchInput]):
         "联网检索带来源的公开信息，用于当日市场涨跌原因、政策、新闻、公告、行业动态、"
         "事实核验和公司实体关系等需要新鲜或外部证据的投研任务。"
     )
-    permission_scope = ["web:search"]
+    permission_scope: ClassVar[list[str]] = ["web:search"]
     risk_level = "low"
     timeout_ms = 30_000
-    output_schema = {
+    output_schema: ClassVar[dict] = {
         "type": "object",
         "properties": {
             "query": {"type": "string"},
             "answer": {"type": "string"},
+            "coverage": EvidenceCoverage.model_json_schema(),
             "results": {
                 "type": "array",
                 "items": {
@@ -75,11 +77,19 @@ class WebSearchTool(Tool[WebSearchInput]):
         self._client = client
 
     async def run(self, input_data: WebSearchInput) -> ToolCallResult:
+        return await self._run(input_data)
+
+    async def run_with_context(self, input_data: WebSearchInput, *, context) -> ToolCallResult:
+        return await self._run(input_data, research_context=context.research_context)
+
+    async def _run(
+        self, input_data: WebSearchInput, *, research_context: SearchResearchContext | None = None,
+    ) -> ToolCallResult:
         try:
-            response = await self._client.search(
-                query=input_data.query,
-                max_results=input_data.max_results,
-            )
+            kwargs = {"query": input_data.query, "max_results": input_data.max_results}
+            if research_context is not None:
+                kwargs["research_context"] = research_context
+            response = await self._client.search(**kwargs)
         except WebSearchProviderError as exc:
             code = exc.code if exc.code in WEB_SEARCH_ERROR_MESSAGES else "web_search_unavailable"
             return ToolCallResult(
@@ -102,6 +112,8 @@ class WebSearchTool(Tool[WebSearchInput]):
                 "query": response.query,
                 "answer": response.answer,
                 "results": [item.model_dump(mode="json") for item in response.results],
+                **({"coverage": (response.coverage or EvidenceCoverage(status="unknown")).model_dump(mode="json")}
+                   if research_context is not None or response.coverage is not None else {}),
             },
             trace_id=f"trace_{uuid4().hex}",
         )

@@ -26,7 +26,7 @@ def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
                     "user_message": state["user_message"],
                     "task_goal": task.task_goal,
                     "completion_criteria": task.completion_criteria,
-                    "user_materials": user_materials(state),
+                    "user_materials": user_materials(state, include_current_message=False),
                     "dependencies": _dependency_results(state, task),
                 },
                 ensure_ascii=False,

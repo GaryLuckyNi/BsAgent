@@ -143,7 +143,8 @@ def test_thinking_request_asks_model_to_keep_raw_reasoning_in_chinese():
 
     assert "reasoning_content" in client.system_prompt
     assert client.system_prompt.startswith("【推理语言硬性要求】")
-    assert json.loads(client.user_prompt)["reasoning_language"] == "简体中文"
+    assert client.system_prompt.count("【推理语言硬性要求】") == 1
+    assert json.loads(client.user_prompt) == {"question": "分析问题"}
 
 
 def test_invoke_llm_completion_retries_partial_length_output_without_streaming_duplicate():

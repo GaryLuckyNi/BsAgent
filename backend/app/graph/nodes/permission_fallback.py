@@ -3,8 +3,10 @@
 import asyncio
 import json
 from collections.abc import Sequence
+from datetime import datetime
 from hashlib import sha256
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage
 
@@ -13,9 +15,11 @@ from app.graph.planning.contracts import (
     SubTaskModel,
     TaskResultModel,
 )
+from app.graph.planning.evidence_projection import bounded_search_coverage
 from app.graph.state import AgentState
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError, ToolSpec
 from app.schemas.user_input import UserInputOption, UserInputRequest, UserInputSource
+from app.search.schemas import SearchResearchContext
 from app.tools.call_budget import SearchCallBudget
 from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
 from app.tools.fingerprints import tool_call_fingerprint
@@ -229,7 +233,7 @@ def consume_permission_response(
         arguments={"query": query},
         purpose=f"替代来源：{task.task_goal}",
     )
-    result = _execute_search(state=state, request=request, registry=registry, budget=budget)
+    result = _execute_search(state=state, task=task, request=request, registry=registry, budget=budget)
     content = _search_content(result)
     update = _completed_update(
         task,
@@ -261,7 +265,7 @@ def consume_permission_response(
     return {**update, **completion}
 
 
-def _execute_search(*, state, request, registry, budget) -> ToolCallResult:
+def _execute_search(*, state, task, request, registry, budget) -> ToolCallResult:
     call_id = request.call_id
     existing = next(
         (
@@ -305,6 +309,10 @@ def _execute_search(*, state, request, registry, budget) -> ToolCallResult:
                     allowed_tools=("web_search",),
                     permission_scopes=tuple(state["permission_scopes"]),
                     approved_tool_calls=tuple(state["approved_tool_calls"]),
+                    research_context=SearchResearchContext(
+                        task_goal=task.task_goal, completion_criteria=tuple(task.completion_criteria),
+                        as_of=datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+                    ),
                 ),
             )
         )
@@ -336,6 +344,9 @@ def _search_content(result: ToolCallResult) -> str:
             },
             "truncated": True,
         }
+        coverage = bounded_search_coverage(source.get("coverage"))
+        if coverage is not None:
+            summary["search_result"]["coverage"] = coverage
         references = source.get("results")
         for item in references[:10] if isinstance(references, list) else []:
             if not isinstance(item, dict):

@@ -19,7 +19,9 @@ def task_evidence(state: dict, task: SubTaskModel) -> list[dict]:
     ]
 
 
-def user_materials(state: dict, *, limit: int = 16000) -> list[dict]:
+def user_materials(
+    state: dict, *, limit: int = 16000, include_current_message: bool = True,
+) -> list[dict]:
     materials: list[dict] = []
     summary_message = next(
         (
@@ -45,6 +47,10 @@ def user_materials(state: dict, *, limit: int = 16000) -> list[dict]:
 
     candidates = []
     for message in state.get("messages", [])[-12:]:
+        if not include_current_message and message.additional_kwargs.get("metadata", {}).get(
+            "request_id"
+        ) == state.get("request_id") and message.type == "human":
+            continue
         if is_context_compaction_message(message) or isinstance(message, ToolMessage) or (
             isinstance(message, AIMessage)
             and (message.tool_calls or message.additional_kwargs.get("task_role"))

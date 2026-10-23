@@ -494,7 +494,7 @@ class ToolWorkflowLlm:
             )
         elif "投研报告合成器" in prompt:
             research_materials = json.loads(kwargs["user_prompt"])["research_materials"]
-            assert '"close":8.12' in research_materials[0]["content"]
+            assert research_materials[0]["content"]["close"] == 8.12
             content = "## 行情解读\n\n海能达收盘价为 8.12 元，当日上涨 1.5%。"
         else:
             raise AssertionError(prompt)
@@ -799,6 +799,77 @@ def test_parallel_tool_discovery_updates_merge_without_conflict(business_intent_
     assert client.tool_count == 2
     assert result["tool_search_count"] == 2
     assert len(result["tool_calls"]) == 2
+
+
+@pytest.mark.parametrize("handoff,expected_calls", [(False, 8), (True, 6)])
+def test_terminal_analysis_handoff_replay_reduces_eight_calls_to_six(
+    business_intent_catalog, handoff, expected_calls,
+):
+    """相同双取证 DAG 的确定性回放；不把原生工具绑定算成模型调用。"""
+    class ReplayLlm(ToolWorkflowLlm):
+        def __init__(self):
+            self.calls = []
+            self.reviews = 0
+
+        def bind_tools(self, tools, *, tool_choice):
+            bound = super().bind_tools(tools, tool_choice=tool_choice)
+            calls = self.calls
+
+            class Counted:
+                def invoke(self, messages):
+                    calls.append("tool_chooser")
+                    return bound.invoke(messages)
+
+            return Counted()
+
+        async def complete(self, **kwargs):
+            prompt = kwargs["system_prompt"]
+            payload = json.loads(kwargs["user_prompt"])
+            if "投研任务理解器" in prompt:
+                self.calls.append("router")
+                return await super().complete(**kwargs)
+            if "投研任务 Planner" in prompt:
+                self.calls.append("planner")
+                content = {"tasks": [
+                    {"id": "market", "task_goal": "查询最新日线行情"},
+                    {"id": "history", "task_goal": "查询历史日线行情"},
+                    {"id": "judgment", "task_goal": "综合分析价格的意义并说明证据限制",
+                     "completion_criteria": ["区分价格事实与趋势推断"],
+                     "execution_type": "analysis", "depends_on": ["market", "history"]},
+                ]}
+            elif "计划反馈决策器" in prompt:
+                self.calls.append("review")
+                self.reviews += 1
+                assert len(payload["observations"]) == (2 if self.reviews == 1 else 3)
+                content = {"action": "finish" if handoff or self.reviews == 2 else "continue",
+                           "reason": "取证已完成，保留历史材料限制"}
+                if handoff:
+                    content["synthesis_task_id"] = "judgment"
+            elif "投研任务执行器" in prompt:
+                self.calls.append("analysis")
+                assert not handoff
+                return LlmCompletionResult(content="价格为8.12；不足以判断趋势。", model="test", provider="test")
+            elif "投研报告合成器" in prompt:
+                self.calls.append("synthesis")
+                assert kwargs["thinking"] is handoff
+                if handoff:
+                    assert payload["answer_requirements"]["completion_criteria"] == ["区分价格事实与趋势推断"]
+                    assert len(payload["research_materials"]) == 2
+                return LlmCompletionResult(content="价格为8.12；不足以判断趋势。", model="test", provider="test")
+            else:
+                raise AssertionError(prompt)
+            return LlmCompletionResult(content=json.dumps(content), model="test", provider="test")
+
+    client = ReplayLlm()
+    result = _feedback_run(business_intent_catalog, client)
+
+    assert len(client.calls) == expected_calls, (client.calls, result.get("errors"))
+    assert client.calls.count("review") == (1 if handoff else 2)
+    assert client.calls.count("tool_chooser") == 2
+    assert result["planner_decision"]["action"] == "finish"
+    assert {item["task_id"] for item in result["task_results"]} == {"market", "history", "judgment"}
+    assert "不足以判断趋势" in result["final_response"]["content"]
+    assert result["verification"]["verdict"] == "pass"
 
 
 def test_default_runtime_supports_twelve_sequential_tasks(business_intent_catalog):

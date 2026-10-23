@@ -1,11 +1,10 @@
 import asyncio
 
 import pytest
-from pydantic import ValidationError
-
 from app.search.deepseek import WebSearchProviderError
 from app.search.schemas import WebSearchResponse, WebSearchResult
 from app.tools.web_search import WebSearchInput, WebSearchTool
+from pydantic import ValidationError
 
 
 class StubWebSearchClient:
@@ -50,6 +49,34 @@ def test_web_search_tool_returns_bounded_source_evidence():
     assert result.result["results"][0]["url"] == ("https://www.sse.com.cn/disclosure/example")
     assert len(result.result["results"][0]["snippet"]) == 4_000
     assert "usage" not in result.result
+
+
+def test_gateway_binds_trusted_research_context_without_rewriting_tool_arguments():
+    from app.schemas.tools import ToolCallRequest
+    from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
+    from app.tools.registry import ToolRegistry
+
+    client = StubWebSearchClient(WebSearchResponse(
+        query="暴跌原因", answer="未取得估值", results=[
+            WebSearchResult(title="资料", url="https://example.com/source"),
+        ],
+    ))
+    registry = ToolRegistry()
+    registry.register(WebSearchTool(client=client))
+    arguments = {"query": "暴跌原因", "max_results": 3}
+    result = asyncio.run(ToolExecutionGateway(registry).execute(
+        ToolCallRequest(tool_name="web_search", arguments=arguments, purpose="查询估值"),
+        trace_id="trace", context=ToolExecutionContext(
+            tenant_id="t", user_id="u", session_id="s", allowed_tools=("web_search",),
+            permission_scopes=("web:search",), research_context={
+                "task_goal": "查询PE/PB及历史分位", "completion_criteria": ["提供PE和PB"],
+                "as_of": "2026-10-23T12:59:00+08:00",
+            },
+        ),
+    ))
+    assert result.status == "success"
+    assert client.calls[0]["research_context"].task_goal == "查询PE/PB及历史分位"
+    assert arguments == {"query": "暴跌原因", "max_results": 3}
 
 
 def test_web_search_tool_is_discoverable_for_current_market_event_research():

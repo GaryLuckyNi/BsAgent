@@ -46,3 +46,19 @@ UPDATE 影响行数为 1。未更改风险等级、调用结果、原完成时�
 - 对最新 Run 调用真实 `ExecutionControl.ensure_tool_effects_resolved`，`low/medium/high` 均通过历史回执检查。此验证不执行工具、不豁免其他权限/审批/预算检查。
 
 本次解除的是历史误阻塞，不会赋予 TuShare 接口权限，也不会自动重放原来的“分析银之杰”请求。
+
+## 后续会话：通用权限拒绝修正与第二条回执核实
+
+用户随后指出 `fina_mainbz` 的 unknown 同样来自 MCP 账号无权限，并要求不要按接口名维护只读白名单；同时确认仍保留 interrupt、同意后才搜索。运行时分类现已改为通用权限拒绝语义，见[通用权限拒绝修正规格](./superpowers/specs/2026-10-22-mcp-permission-generic-denial-design.md)。原文中只对 income_vip 生效的分类规则仅说明此前版本，不再是当前规则。
+
+本次独立核实的历史记录：
+
+- Receipt：`98a8b5f757df4fb2920cf9f384bf26f8`。
+- Tool：`mcp.tushare.fina_mainbz`。
+- 定位依据：业务 trace `trace_7a067a36cc2e422f993bbdc492b74317` 所属会话。
+- 原回执 `unknown`、风险 `medium`，原错误 `mcp_tool_response_invalid`；Run 已 completed，producer_done 为 true，completed_at 存在。
+- 历史摘要未保留可独立重建的远端拒绝原文；权限原因以用户本次明确确认为依据，不根据工具名或无效响应错误码自动猜测。
+
+使用精确 Receipt ID 行锁及终态断言，在单次事务中将其结算为 settled。完整原结果与错误摘要保持不变，追加 reconciliation（UTC 时间、previous_status=unknown、resolution=permission_denied、用户确认依据与本次修正来源）。没有删除记录、回填 success 或重放外部调用。
+
+新连接回读确认目标状态 settled、reconciliation 存在；同租户原会话的 medium/high 且 unknown/running 回执数为 **0**。真实 `ExecutionControl.ensure_tool_effects_resolved` 的 medium/high 检查均通过。本次只更正一条已确认记录，不增加按接口名自动修复历史数据的规则。

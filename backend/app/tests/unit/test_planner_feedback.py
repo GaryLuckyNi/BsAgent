@@ -65,6 +65,77 @@ def test_model_chooses_action_for_same_observation(action):
     assert decision.action == action
 
 
+def test_summary_only_revision_becomes_continue_without_retry_or_revision_budget():
+    current = plan()
+    proposed = current.model_copy(update={"public_summary": "换一种描述，执行任务未变"})
+    client = Decisions({"action": "revise", "reason": "继续研究", "plan": proposed.model_dump()})
+
+    decision = review(client, current=current, remaining=0)
+
+    assert decision.action == "continue"
+    assert decision.plan is None
+    assert len(client.calls) == 1
+
+
+def test_noop_revision_does_not_namespace_tasks_or_increment_iteration():
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="分析原因")
+    state.update(
+        intent={"intent_type": "research", "domain": "equity", "subdomain": "company", "goal": "分析原因"},
+        plan=plan().model_dump(), planner_iteration=1,
+        task_results=[{"task_id": "facts", "status": "success", "content": "已取得事实"}],
+    )
+    client = Decisions({"action": "revise", "reason": "换摘要", "plan": {
+        **plan().model_dump(), "public_summary": "新的摘要",
+    }})
+
+    result = build_planner_agent_node(llm_client=client)(state)
+
+    assert result["planner_iteration"] == 1
+    assert result["plan_history"] == []
+    assert [task["id"] for task in result["plan"]["tasks"]] == ["facts", "analysis"]
+    assert result["planner_decision"]["action"] == "continue"
+    assert len(client.calls) == 1
+
+
+def test_planner_can_explicitly_handoff_ready_terminal_analysis_to_synthesis():
+    client = Decisions({
+        "action": "finish", "reason": "取证阶段结束，最后的研判由最终节点一次完成",
+        "synthesis_task_id": "analysis", "unresolved_questions": ["估值缺口仍需说明"],
+    })
+
+    decision = review(client)
+
+    assert decision.synthesis_task_id == "analysis"
+    assert decision.action == "finish"
+    assert len(client.calls) == 1
+
+
+@pytest.mark.parametrize("case", ["unknown", "tool", "consumer", "failed_dependency", "other_pending"])
+def test_synthesis_handoff_cannot_skip_real_work_or_failed_dependencies(case):
+    current = plan()
+    task_id = "analysis"
+    results = [TaskResultModel(task_id="facts", status="success", content="事实")]
+    if case == "unknown":
+        task_id = "invented"
+    elif case == "tool":
+        task_id = "facts"
+        results = [TaskResultModel(task_id="archived", status="success", content="历史")]
+    elif case == "consumer":
+        current = PlanModel(tasks=[*current.tasks, {
+            "id": "next_tool", "task_goal": "使用分析结果查询", "depends_on": ["analysis"],
+        }])
+    elif case == "failed_dependency":
+        results = [TaskResultModel(task_id="facts", status="business_failure", content="无权限")]
+    else:
+        current = PlanModel(tasks=[*current.tasks, {"id": "more", "task_goal": "补充取证"}])
+    client = Decisions({"action": "finish", "reason": "交给最终回答", "synthesis_task_id": task_id})
+
+    with pytest.raises(PlannerOutputError):
+        review(client, current=current, results=results)
+
+    assert len(client.calls) == 2
+
+
 def test_no_progress_continue_is_returned_to_model_for_repair():
     client = Decisions(
         {"action": "continue", "reason": "继续"},
@@ -89,6 +160,122 @@ def test_revision_cannot_rewrite_completed_task():
     )
     with pytest.raises(PlannerOutputError):
         review(client)
+
+
+def test_revision_reuses_successful_removed_dependency_without_model_retry():
+    payload = {
+        "action": "revise", "reason": "复用事实，补齐缺口",
+        "plan": {"tasks": [
+            {"id": "more", "task_goal": "补充关键证据"},
+            {"id": "analysis", "task_goal": "分析", "execution_type": "analysis",
+             "depends_on": ["more", "facts"], "evidence_task_ids": ["facts"]},
+        ]},
+    }
+    client = Decisions(payload)
+
+    decision = review(client)
+
+    assert len(client.calls) == 1
+    assert decision.plan.tasks[1].depends_on == ["more"]
+    assert decision.plan.tasks[1].evidence_task_ids == ["facts"]
+    assert payload["plan"]["tasks"][1]["depends_on"] == ["more", "facts"]
+
+
+def test_converted_history_is_available_to_analysis_after_active_dependency_completes():
+    from app.graph.planning.context import task_evidence
+    from app.graph.planning.scheduler import ready_tasks
+
+    decision = review(Decisions({
+        "action": "revise", "reason": "复用已有成功证据",
+        "plan": {"tasks": [
+            {"id": "more", "task_goal": "补充关键证据"},
+            {"id": "analysis", "task_goal": "分析", "execution_type": "analysis",
+             "depends_on": ["more", "facts"]},
+        ]},
+    }))
+    results = [TaskResultModel(task_id="facts", status="success", content="历史证据")]
+    assert [task.id for task in ready_tasks(decision.plan, results=results)] == ["more"]
+    results.append(TaskResultModel(task_id="more", status="success", content="新增证据"))
+    assert [task.id for task in ready_tasks(decision.plan, results=results)] == ["analysis"]
+    evidence = task_evidence(
+        {"task_results": [result.model_dump() for result in results]}, decision.plan.tasks[1],
+    )
+    assert {item["content"] for item in evidence} == {"历史证据", "新增证据"}
+
+
+def test_successful_dependency_still_in_plan_remains_an_execution_dependency():
+    client = Decisions({
+        "action": "revise", "reason": "保留成功任务并补充证据",
+        "plan": {"tasks": [
+            {"id": "facts", "task_goal": "核实事实"},
+            {"id": "more", "task_goal": "补充关键证据", "depends_on": ["facts"]},
+        ]},
+    })
+    decision = review(client)
+    assert len(client.calls) == 1
+    assert decision.plan.tasks[1].depends_on == ["facts"]
+    assert decision.plan.tasks[1].evidence_task_ids == []
+
+
+@pytest.mark.parametrize("tasks", [
+    [{"id": "more", "task_goal": "补充关键证据", "depends_on": ["more"]}],
+    [{"id": "more", "task_goal": "补充关键证据", "depends_on": ["analysis"]},
+     {"id": "analysis", "task_goal": "分析", "depends_on": ["more"]}],
+    [{"id": "more", "task_goal": "补充关键证据", "depends_on": ["facts", "facts"]}],
+    [{"id": "more", "task_goal": "补充关键证据", "evidence_task_ids": ["facts", "facts"]}],
+])
+def test_history_conversion_does_not_hide_invalid_task_graph_or_duplicate_references(tasks):
+    client = Decisions({"action": "revise", "reason": "补充证据", "plan": {"tasks": tasks}})
+    with pytest.raises(PlannerOutputError):
+        review(client)
+
+
+def test_history_dependency_conversion_does_not_mutate_raw_response():
+    from copy import deepcopy
+
+    from app.graph.planning.planner import _normalize_successful_history_dependencies
+
+    raw = {"action": "revise", "reason": "复用历史", "plan": {"tasks": [
+        {"id": "more", "task_goal": "补充证据", "depends_on": ["facts"]},
+    ]}}
+    before = deepcopy(raw)
+    normalized = _normalize_successful_history_dependencies(
+        raw, results=(TaskResultModel(task_id="facts", status="success", content="历史证据"),),
+    )
+
+    assert normalized["plan"]["tasks"][0]["depends_on"] == []
+    assert normalized["plan"]["tasks"][0]["evidence_task_ids"] == ["facts"]
+    assert raw == before
+
+
+@pytest.mark.parametrize("dependency,status", [
+    ("facts", "business_failure"), ("facts", "terminal_failure"), ("invented", "success"),
+])
+def test_revision_does_not_convert_failed_or_unknown_history_to_evidence(dependency, status):
+    client = Decisions({
+        "action": "revise", "reason": "补齐缺口",
+        "plan": {"tasks": [
+            {"id": "more", "task_goal": "补充关键证据"},
+            {"id": "analysis", "task_goal": "分析", "execution_type": "analysis",
+             "depends_on": ["more", dependency]},
+        ]},
+    })
+
+    with pytest.raises(PlannerOutputError):
+        review(client, results=[TaskResultModel(task_id="facts", status=status, content="结果")])
+    assert len(client.calls) == 2
+
+
+def test_feedback_prompt_exposes_current_datetime_and_successful_history_ids():
+    from datetime import datetime
+
+    client = Decisions({"action": "finish", "reason": "已有材料足够"})
+    review(client)
+    prompt = json.loads(client.calls[0]["user_prompt"])
+
+    assert datetime.fromisoformat(prompt["current_datetime"]).utcoffset().total_seconds() == 8 * 3600
+    assert prompt["timezone"] == "Asia/Shanghai"
+    assert prompt["successful_history_task_ids"] == ["facts"]
 
 
 @pytest.mark.parametrize(
@@ -248,6 +435,19 @@ def test_feedback_context_includes_original_goal_plan_and_observations():
     assert data["observations"][0]["content"] == "已取得事实"
     assert data["required_schema"]["continue"]["action"] == "continue"
     assert "$defs" not in data["required_schema"]
+
+
+def test_review_receives_typed_evidence_and_keeps_query_for_target_verification():
+    client = Decisions({"action": "finish", "reason": "保留缺口"})
+    review(client, results=[TaskResultModel(task_id="facts", status="success", content=json.dumps({
+        "query": "实际执行的查询", "answer": "盘中事实", "results": [
+            {"title": "交易所", "url": "https://example.com/source", "snippet": "", "published_at": None},
+        ],
+    }))])
+    payload = json.loads(client.calls[0]["user_prompt"])
+    assert isinstance(payload["observations"][0]["content"], dict)
+    assert payload["observations"][0]["content"]["query"] == "实际执行的查询"
+    assert len(payload["sources"]) == 1
 
 
 def test_analysis_task_cannot_also_bind_skill():

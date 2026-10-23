@@ -79,8 +79,11 @@ class DeepSeekClient:
         )
 
     def bind_tools(self, tools: list[dict[str, Any]], *, tool_choice: str):
-        return self._chat_model.bind(extra_body={"thinking": {"type": "disabled"}}).bind_tools(
-            tools, tool_choice=tool_choice
+        return self._chat_model.bind_tools(
+            tools,
+            tool_choice=tool_choice,
+            temperature=0,
+            extra_body={"thinking": {"type": "disabled"}},
         )
 
     def complete_with_streaming_callbacks(

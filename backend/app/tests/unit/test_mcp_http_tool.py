@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 from app.schemas.tools import ToolError
@@ -283,22 +284,77 @@ def test_unknown_remote_errors_do_not_become_permission_denial(monkeypatch, text
     assert result.status == "failed"
 
 
-def test_same_remote_tool_name_on_untrusted_server_is_not_read_only(monkeypatch):
-    tool = _dynamic_tool("income_vip", {})
-    async def invoke(_value):
-        return ToolMessage(content="抱歉，您没有访问该接口的权限", tool_call_id="remote-1", status="error")
-    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
-    assert asyncio.run(tool.run(tool.input_model.model_validate({}))).status == "failed"
-
-
-def test_possible_write_permission_error_still_has_uncertain_effects(monkeypatch):
-    tool = _dynamic_tool("write_account", {})
+@pytest.mark.parametrize("name", ["income_vip", "fina_mainbz", "unknown_new_api", "write_account"])
+def test_explicit_permission_denial_does_not_depend_on_tool_name_or_server(monkeypatch, name):
+    tool = _dynamic_tool(name, {})
     async def invoke(_value):
         return ToolMessage(content="抱歉，您没有访问该接口的权限", tool_call_id="remote-1", status="error")
     monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
     result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.status == "denied"
     assert result.error.code == "provider_permission_denied"
+
+
+def test_possible_write_with_ambiguous_remote_error_remains_failed(monkeypatch):
+    tool = _dynamic_tool("write_account", {})
+    async def invoke(_value):
+        return ToolMessage(content="执行中断，结果未知", tool_call_id="remote-1", status="error")
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.error.code == "mcp_tool_execution_failed"
     assert result.status == "failed"
+
+
+@pytest.mark.parametrize("content", [
+    "抱歉，您没有访问该接口的权限，权限详情请查看文档。",
+    [{"type": "text", "text": "抱歉，您没有访问该接口的权限"}],
+    [{"type": "text", "text": '{"code":"permission_denied","message":"账号无权限"}'}],
+    [{"type": "text", "text": '{"error":{"code":"forbidden","message":"账号无权限"}}'}],
+])
+def test_unflagged_permission_response_is_not_misreported_as_invalid(monkeypatch, content):
+    tool = _dynamic_tool("new_tool_not_in_any_list", {})
+    async def invoke(_value):
+        return ToolMessage(content=content, tool_call_id="remote-1", status="success")
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "denied"
+    assert result.error.code == "provider_permission_denied"
+
+
+@pytest.mark.parametrize("payload", [
+    {"error": "permission_denied", "data": [1]},
+    {"code": "permission_denied", "data": [{"value": 1}]},
+    {"status": "success", "message": "历史记录：permission denied", "data": None},
+    {"status": "partial", "error": {"code": "permission_denied"}, "data": {"saved": True}},
+    {"text": "文档说明：您没有访问该接口的权限时请联系管理员"},
+])
+def test_permission_words_in_business_data_do_not_become_denial(payload):
+    tool = _dynamic_tool("arbitrary_api", payload)
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.status == "success"
+    assert result.result == payload
+
+
+@pytest.mark.parametrize("structured", [False, True])
+def test_partial_result_with_permission_error_does_not_claim_execution_was_denied(
+    monkeypatch, structured,
+):
+    tool = _dynamic_tool("arbitrary_api", {})
+    payload = {"status": "partial", "code": "permission_denied", "data": {"written": True}}
+    async def invoke(_value):
+        return ToolMessage(
+            content="permission denied" if structured else [
+                {"type": "text", "text": json.dumps(payload)},
+            ],
+            artifact={"structured_content": payload} if structured else None,
+            tool_call_id="remote-1", status="error",
+        )
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.status == "failed"
+    assert result.error.code == "mcp_tool_execution_failed"
 
 
 def test_official_tushare_failure_envelope_is_recognized_but_business_data_is_not():

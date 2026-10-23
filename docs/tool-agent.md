@@ -47,7 +47,7 @@ Tool Agent 对候选执行 `bind_tools(..., tool_choice="auto")`，允许零或�
 
 Planner 生成工具子任务时必须保证它代表一次可执行调用，并能从用户消息或依赖任务结果中确定必需参数。对于“比较多家公司”这类复数目标，应先拆分实体或为每个实体建立独立任务，不能把复数抽象描述直接传给单实体工具。
 
-参数生成上下文包含用户会话、当前 `task_goal`、`completion_criteria`、直接依赖结果、显式引用的历史成功结果，以及有长度限制的用户材料。其他并行分支产生的内部 `AIMessage.tool_calls`、`ToolMessage` 和 Skill/Analysis 过程消息会被过滤，防止不相关工具名与参数污染当前节点。
+参数生成上下文包含当前 `task_goal`、`completion_criteria`、直接依赖结果、显式引用的历史成功结果，以及一份有长度限制的用户材料（当前问题、历史与附件），不再另附完整会话副本。其他并行分支产生的内部 `AIMessage.tool_calls`、`ToolMessage` 和 Skill/Analysis 过程消息会被过滤，防止不相关工具名与参数污染当前节点。
 
 DeepSeek 参数生成通过 LangChain 同步 `invoke()` 执行，并显式使用非 thinking 模式。该步负责候选选择与参数生成；完成情况由后续 planner 结合任务验收条件与结果判断。
 
@@ -80,5 +80,13 @@ LLM 只能提供参数建议。Tool Gateway 在真正调用 Provider 前依次�
 - auto 模式没有 Tool Call 是合法选择；未知工具或多个调用先修复一次，仍不合约才形成可诊断观察。
 - 目录、RBAC 与审批约束继续生效，模型不能用重新规划绕过授权。
 - ToolCallResult 的 success 表示调用完成，不自动证明研究目标充分；planner 在批次反馈中判断后续动作。
+
+## 搜索研究目标与覆盖
+
+`web_search` 通过已有 `run_with_context` 接口收到服务端绑定的 `SearchResearchContext`：当前任务目标、验收条件和带时区的 `as_of`。这些字段不是模型生成的工具参数，不改变参数哈希或审批快照；权限回退也只在用户确认后绑定并执行。建议 query 即使偏向其他方向，搜索模型仍收到原任务契约；盘中时点不得把尚未产生的收盘数据当作当前应取得的事实。续轮保留该上下文。
+
+搜索响应的 `coverage` 独立于调用 status，包含 `complete/partial/missing/unknown`、已覆盖/未覆盖条件和判断依据。条件索引无效、缺少结构化覆盖声明或没有验收条件时为 `unknown`，不自动重试或宣称目标完成。它仍是搜索模型对同一批材料的自述，不能替代 Planner 的证据评审，也不能独立证明事实正确。
+
+本次为工具输出契约增加可选覆盖字段，目录摘要会变化；旧 Run 如被现有目录一致性保护拒绝恢复，应重新发起请求，不绕过保护继续旧调用。不需要业务数据库迁移。
 
 RAG 继续作为普通 rag_search 工具，MCP 连接和业务结果适配未在本轮重写。

@@ -189,6 +189,20 @@ def test_deepseek_tool_calling_explicitly_disables_thinking(monkeypatch):
     assert captured["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
+def test_tool_binding_uses_deterministic_temperature_and_disables_thinking():
+    client = DeepSeekClient(api_key="test_key", model="deepseek-v4-flash")
+    bound = client.bind_tools(
+        [{"type": "function", "function": {
+            "name": "lookup", "description": "查询", "parameters": {"type": "object", "properties": {}},
+        }}],
+        tool_choice="auto",
+    )
+
+    assert bound.kwargs["temperature"] == 0
+    assert bound.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert bound.kwargs["tool_choice"] == "auto"
+
+
 def test_deepseek_callback_completion_enables_thinking_for_graph_stream(monkeypatch):
     captured = {}
 

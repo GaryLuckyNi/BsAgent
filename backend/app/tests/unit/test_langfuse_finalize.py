@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 from threading import Event
 from time import monotonic
 from types import SimpleNamespace
@@ -24,6 +26,56 @@ class _AnnotationQueue:
 
     def enqueue(self, queue_name, **kwargs):
         self.events.append(("enqueue", queue_name, kwargs))
+
+
+def test_judge_receives_bounded_external_evidence_not_analysis_echo_or_private_fields():
+    captured = []
+
+    class Judge:
+        async def evaluate(self, **kwargs):
+            captured.append(kwargs["context"])
+
+    state = {
+        "request_id": "r", "final_response": {"content": "答复"}, "errors": [],
+        "task_results": [
+            {"task_id": "market", "status": "success", "tool_name": "web_search",
+             "content": json.dumps({"answer": "盘中价格8.12", "api_key": "private-key-body",
+                                    "results": [{"title": "资料", "url": "https://example.com/source", "snippet": "盘中价格8.12"}]})},
+            {"task_id": "analysis", "status": "success", "content": "不能当成独立证据的最终分析回声"},
+            {"task_id": "failed", "status": "business_failure", "tool_name": "data", "content": "失败正文不是证据"},
+        ],
+    }
+    original = copy.deepcopy(state)
+    finalizer = LangfuseRunFinalizer(judge=Judge(), annotation_enabled=False)
+    finalizer.finalize(_Handle([]), state)
+    evidence = captured[0]["research_evidence"]
+    assert evidence["materials"][0]["content"]["answer"] == "盘中价格8.12"
+    assert evidence["sources"][0]["url"] == "https://example.com/source"
+    serialized = json.dumps(evidence, ensure_ascii=False)
+    assert "private-key-body" not in serialized
+    assert "分析回声" not in serialized
+    assert "失败正文" not in serialized
+    assert state == original
+
+    state["task_results"][0]["content"] = "公开资料" * 10000
+    finalizer.finalize(_Handle([]), state)
+    assert len(json.dumps(captured[1]["research_evidence"], ensure_ascii=False, separators=(",", ":"))) <= 12000
+
+
+def test_bad_evidence_fragment_never_disables_root_finalization_or_rules():
+    events = []
+    finalizer = LangfuseRunFinalizer(
+        judge_enabled=False, annotation_enabled=False,
+        rule_evaluator=lambda _data: events.append(("rules",)) or SimpleNamespace(scores={}),
+    )
+    state = {"request_id": "r", "final_response": {"content": "最终答复"}, "task_results": [
+        {"task_id": "facts", "status": "success", "tool_name": "web_search", "content": '估值口径 {"pe":'},
+    ]}
+
+    finalizer.finalize(_Handle(events), state)
+
+    assert events[0] == ("update", {"output": state["final_response"]})
+    assert ("rules",) in events
 
 
 def test_finalizer_orders_run_output_evaluation_review_enqueue_and_flush():

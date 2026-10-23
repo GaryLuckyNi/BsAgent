@@ -202,3 +202,16 @@ def test_user_materials_prioritize_context_summary():
     assert materials[0]["kind"] == "context_summary"
     assert "长期目标" in materials[0]["text"]
     assert sum(item["kind"] == "context_summary" for item in materials) == 1
+
+
+def test_tool_prompt_contains_current_question_once_with_bounded_materials():
+    from app.graph.nodes.tool_agent import _tool_call_messages
+    from app.graph.planning.contracts import SubTaskModel
+    from app.graph.state import create_initial_state
+
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="分析今日市场是否探底")
+    task = SubTaskModel(id="valuation", task_goal="获取估值与技术支撑")
+
+    messages = _tool_call_messages(state, task)
+
+    assert sum(str(message.content).count(state["user_message"]) for message in messages) == 1

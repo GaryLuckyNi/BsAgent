@@ -11,6 +11,108 @@ from langgraph.types import Command, Send
 
 
 @pytest.mark.parametrize("choice", ["web_search", "use_existing"])
+@pytest.mark.parametrize("response_format", ["plain", "json", "flagged"])
+def test_arbitrary_mcp_permission_response_interrupts_and_only_searches_after_confirmation(
+    monkeypatch, choice, response_format,
+):
+    import json
+
+    from app.graph.nodes.tool_agent import build_tool_agent_node
+    from app.graph.state import create_initial_state
+    from app.tests.unit.test_mcp_http_tool import _langchain_tool
+    from app.tests.unit.test_permission_fallback import Resolver, SearchTool
+    from app.tools.mcp_http import DynamicMcpHttpTool
+    from app.tools.registry import ExecutionBinding, ToolRegistry
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    remote_calls, model_calls = [], []
+    remote_name = "brand_new_api"
+    server = "external_provider"
+    tool = DynamicMcpHttpTool(
+        name=f"mcp.{server}.{remote_name}", server_name=server,
+        langchain_tool=_langchain_tool(remote_name, {}), description="查询信息",
+        input_schema={"type": "object", "properties": {}}, risk_level="medium",
+    )
+
+    async def rejected(_value):
+        remote_calls.append(True)
+        content = "抱歉，您没有访问该接口的权限"
+        if response_format == "json":
+            content = [{"type": "text", "text": json.dumps({
+                "code": "permission_denied", "message": "数据源账号权限不足",
+            })}]
+        return ToolMessage(
+            content=content, tool_call_id="remote",
+            status="error" if response_format == "flagged" else "success",
+        )
+
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: rejected(value))
+    search = SearchTool()
+    registry = ToolRegistry()
+    registry.register(tool, execution_binding=ExecutionBinding(
+        provider="mcp", implementation_id="mcp.http.test", server_id=server,
+        deployment_revision="test", config_revision="test",
+    ))
+    registry.register(search)
+    registry = registry.snapshot()
+
+    class Client:
+        def bind_tools(self, tools, *, tool_choice):
+            class Bound:
+                def invoke(self, messages):
+                    model_calls.append(True)
+                    return AIMessage(content="", tool_calls=[{
+                        "id": "untrusted", "name": "mcp_external_provider_brand_new_api",
+                        "args": {}, "type": "tool_call",
+                    }])
+            return Bound()
+
+    worker = build_tool_agent_node(
+        registry_factory=lambda: registry, llm_client=Client(),
+        candidate_resolver=Resolver([registry.get(tool.name).spec, registry.get(search.name).spec]),
+    )
+    state = create_initial_state(
+        session_id="generic-permission", tenant_id="t", user_id="u", user_message="查询资料",
+        tool_catalog_digest=registry.catalog_digest,
+        permission_scopes=[f"mcp:{server}", "web:search"],
+    )
+    state["active_task"] = {"id": "facts", "task_goal": "查询资料"}
+    state["plan"] = {"tasks": [state["active_task"]]}
+    builder = StateGraph(AgentState)
+    builder.add_node("tool_agent", worker)
+    builder.add_node("task_scheduler", task_scheduler_node)
+    builder.add_node("user_input_gate", user_input_gate_node)
+    builder.add_node("planner_agent", lambda state: {})
+    builder.add_node("synthesizer", lambda state: {})
+    builder.set_entry_point("tool_agent")
+    builder.add_edge("tool_agent", "task_scheduler")
+    builder.add_conditional_edges("task_scheduler", _dispatch_after_scheduler)
+    builder.add_edge("user_input_gate", "task_scheduler")
+    builder.add_edge("planner_agent", END)
+    builder.add_edge("synthesizer", END)
+    graph = builder.compile(checkpointer=InMemorySaver())
+    config = {"configurable": {"thread_id": "generic-permission"}}
+
+    paused = graph.invoke(state, config)
+    payload = paused["__interrupt__"][0].value
+    assert "权限不足" in payload["question"]
+    assert paused["tool_calls"][0].result.status == "denied"
+    assert paused["tool_calls"][0].result.error.code == "provider_permission_denied"
+    assert not paused["task_results"]
+    assert len(remote_calls) == len(model_calls) == 1
+    assert search.calls == 0
+
+    resumed = graph.invoke(Command(resume={
+        "interaction_id": payload["interaction_id"], "input_type": "selection", "value": choice,
+    }), config)
+    assert len(remote_calls) == len(model_calls) == 1
+    assert search.calls == (1 if choice == "web_search" else 0)
+    assert resumed["task_results"][0]["status"] == (
+        "success" if choice == "web_search" else "business_failure"
+    )
+
+
+@pytest.mark.parametrize("choice", ["web_search", "use_existing"])
 def test_real_scheduler_restores_permission_task_before_planner_review(choice):
     worker, state, data, search, client, _ = setup_worker()
     state["plan"]["tasks"].append({"id": "parallel", "task_goal": "并行任务"})

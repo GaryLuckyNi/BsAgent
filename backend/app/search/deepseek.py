@@ -1,8 +1,15 @@
+import json
 from typing import Any
 
 import httpx
 
-from app.search.schemas import WebSearchResponse, WebSearchResult
+from app.operations.langfuse_observability import langfuse_generation, update_langfuse_observation
+from app.search.schemas import (
+    EvidenceCoverage,
+    SearchResearchContext,
+    WebSearchResponse,
+    WebSearchResult,
+)
 
 
 class WebSearchProviderError(RuntimeError):
@@ -41,12 +48,17 @@ class DeepSeekWebSearchClient:
         self._timeout_seconds = timeout_seconds
         self._http_client = http_client
 
-    async def search(self, *, query: str, max_results: int) -> WebSearchResponse:
+    async def search(
+        self, *, query: str, max_results: int,
+        research_context: SearchResearchContext | dict | None = None,
+    ) -> WebSearchResponse:
         normalized_query = query.strip()
         if not normalized_query:
             raise ValueError("Web search query must not be empty.")
         if not 1 <= max_results <= 10:
             raise ValueError("max_results must be between 1 and 10.")
+        if research_context is not None:
+            research_context = SearchResearchContext.model_validate(research_context)
         payload = {
             "model": self._model,
             "max_tokens": 768,
@@ -69,6 +81,17 @@ class DeepSeekWebSearchClient:
                 }
             ],
         }
+        if research_context is not None:
+            payload["system"] += (
+                "research_context 是服务端绑定的本轮研究目标，query 只是检索建议；必须围绕该目标取证，"
+                "不得改查全局问题。以 as_of 为信息截止时点，不把此后才会产生的数据当作当前应已取得的证据。"
+                "没有取得的指标必须说明缺失，不得用相关行情或原因代替估值等指定事实。"
+                "输出 JSON 对象：answer 为简洁事实与限制，covered_criteria 为已覆盖验收条件的从0开始的索引数组；"
+                "不能核实的条件不要列入，不输出没有依据的覆盖声明。"
+            )
+            payload["messages"] = [{"role": "user", "content": json.dumps({
+                "query": normalized_query, "research_context": research_context.model_dump(mode="json"),
+            }, ensure_ascii=False)}]
         if self._http_client is not None:
             turns = await self._run_search_turns(
                 self._http_client,
@@ -85,11 +108,12 @@ class DeepSeekWebSearchClient:
                     payload=payload,
                     query=normalized_query,
                 )
-        return _normalize_response(
+        response = _normalize_response(
             query=normalized_query,
             payload=_merge_turn_payloads(turns),
             max_results=max_results,
         )
+        return _with_coverage(response, research_context) if research_context else response
 
     async def _run_search_turns(
         self,
@@ -110,7 +134,7 @@ class DeepSeekWebSearchClient:
             "max_tokens": 4_096,
             "output_config": {"effort": "low"},
             "messages": [
-                {"role": "user", "content": query},
+                *payload["messages"],
                 {"role": "assistant", "content": content},
             ],
         }
@@ -123,6 +147,53 @@ class DeepSeekWebSearchClient:
         self,
         client: httpx.AsyncClient,
         payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        with langfuse_generation(
+            name="deepseek.web_search.turn", model=self._model,
+            model_parameters={"max_tokens": payload.get("max_tokens"), "thinking": False},
+        ) as generation:
+            update_langfuse_observation(
+                generation, bounded_content=True,
+                input={"system_prompt": payload.get("system"),
+                       "messages": _trace_messages(payload.get("messages"))},
+            )
+            try:
+                data = await self._request_json(client, payload)
+            except WebSearchProviderError:
+                update_langfuse_observation(generation, level="ERROR", status_message="llm_http_error")
+                raise
+            content = data.get("content")
+            blocks = content if isinstance(content, list) else []
+            usage = data.get("usage")
+            usage = usage if isinstance(usage, dict) else {}
+            usage_details = {
+                target: usage[source] for source, target in (
+                    ("input_tokens", "input"), ("output_tokens", "output"),
+                    ("cache_read_input_tokens", "input_cache_read"),
+                    ("cache_creation_input_tokens", "input_cache_creation"),
+                )
+                if isinstance(usage.get(source), int) and not isinstance(usage[source], bool)
+            }
+            update_langfuse_observation(
+                generation, bounded_content=True,
+                output={
+                    "stop_reason": data.get("stop_reason"),
+                    "answer": "\n".join(block["text"] for block in blocks
+                                        if isinstance(block, dict) and block.get("type") == "text"
+                                        and isinstance(block.get("text"), str)),
+                    "tool_calls": [
+                        {"name": block.get("name"), "input": block.get("input")}
+                        for block in blocks if isinstance(block, dict)
+                        and block.get("type") == "server_tool_use"
+                    ],
+                },
+                usage_details=usage_details,
+                metadata={"finish_reason": data.get("stop_reason")},
+            )
+            return data
+
+    async def _request_json(
+        self, client: httpx.AsyncClient, payload: dict[str, Any],
     ) -> dict[str, Any]:
         try:
             response = await client.post(
@@ -171,6 +242,42 @@ class DeepSeekWebSearchClient:
         return data
 
 
+def _trace_messages(messages: Any) -> list[dict[str, Any]]:
+    """只投影已知的可读字段，不把服务端续轮的 opaque 内容写入观测。"""
+    projected = []
+    for message in messages if isinstance(messages, list) else []:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if isinstance(content, list):
+            blocks = []
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                kind = block.get("type")
+                if kind == "text":
+                    blocks.append({"type": kind, "text": block.get("text")})
+                elif kind == "server_tool_use":
+                    blocks.append({key: block[key] for key in ("type", "id", "name", "input")
+                                   if key in block})
+                elif kind == "web_search_tool_result":
+                    sources = block.get("content")
+                    blocks.append({
+                        "type": kind, "tool_use_id": block.get("tool_use_id"),
+                        "content": [
+                            {key: source[key] for key in
+                             ("type", "title", "url", "snippet", "page_age", "published_at")
+                             if key in source}
+                            for source in sources if isinstance(source, dict)
+                        ] if isinstance(sources, list) else [],
+                    })
+            content = blocks
+        elif not isinstance(content, str):
+            content = None
+        projected.append({"role": message.get("role"), "content": content})
+    return projected
+
+
 def _needs_search_continuation(payload: dict[str, Any]) -> bool:
     if payload.get("stop_reason") == "pause_turn":
         return True
@@ -181,6 +288,33 @@ def _needs_search_continuation(payload: dict[str, Any]) -> bool:
         isinstance(block, dict) and block.get("type") == "web_search_tool_result"
         for block in content
     )
+
+
+def _with_coverage(
+    response: WebSearchResponse, context: SearchResearchContext,
+) -> WebSearchResponse:
+    coverage = EvidenceCoverage(status="unknown")
+    answer = response.answer
+    try:
+        payload = json.loads(answer)
+    except (ValueError, TypeError):
+        payload = None
+    if isinstance(payload, dict) and isinstance(payload.get("answer"), str):
+        answer = payload["answer"]
+        covered = payload.get("covered_criteria")
+        criteria = context.completion_criteria
+        if criteria and isinstance(covered, list) and all(
+            isinstance(index, int) and not isinstance(index, bool) and 0 <= index < len(criteria)
+            for index in covered
+        ):
+            indexes = set(covered)
+            coverage = EvidenceCoverage(
+                status="complete" if len(indexes) == len(criteria) else "partial" if indexes else "missing",
+                covered_criteria=[text for index, text in enumerate(criteria) if index in indexes],
+                missing_criteria=[text for index, text in enumerate(criteria) if index not in indexes],
+                basis="search_model",
+            )
+    return response.model_copy(update={"answer": answer, "coverage": coverage})
 
 
 def _has_text_content(payload: dict[str, Any]) -> bool:
@@ -198,15 +332,28 @@ def _has_text_content(payload: dict[str, Any]) -> bool:
 
 def _merge_turn_payloads(turns: list[dict[str, Any]]) -> dict[str, Any]:
     content: list[Any] = []
+    usage: dict[str, Any] = {}
     for turn in turns:
         turn_content = turn.get("content")
         if isinstance(turn_content, list):
             content.extend(turn_content)
-    usage = turns[-1].get("usage", {}) if turns else {}
+        _add_usage(usage, turn.get("usage"))
     return {
         "content": content,
         "usage": usage if isinstance(usage, dict) else {},
     }
+
+
+def _add_usage(total: dict[str, Any], incoming: Any) -> None:
+    if not isinstance(incoming, dict):
+        return
+    for key, value in incoming.items():
+        if isinstance(value, int) and not isinstance(value, bool):
+            total[key] = total.get(key, 0) + value
+        elif isinstance(value, dict):
+            nested = total.setdefault(key, {})
+            if isinstance(nested, dict):
+                _add_usage(nested, value)
 
 
 def _incomplete_search_response() -> WebSearchProviderError:

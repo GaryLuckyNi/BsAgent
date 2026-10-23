@@ -56,7 +56,9 @@ def build_planner_agent_node(
         constraints = planning_preference_constraints(
             recall_user_preferences(runtime, state, on_failure=on_memory_recall_failure)
         )
-        constraints = {**constraints, "user_materials": user_materials(state)}
+        materials = user_materials(state, include_current_message=False)
+        if materials:
+            constraints = {**constraints, "user_materials": materials}
         current_iteration = state["planner_iteration"]
         if state.get("plan") is not None:
             current_plan = PlanModel.model_validate(state["plan"])
@@ -106,6 +108,8 @@ def build_planner_agent_node(
                 "reason": decision.reason,
                 "unresolved_questions": decision.unresolved_questions,
             }
+            if decision.synthesis_task_id is not None:
+                state["planner_decision"]["synthesis_task_id"] = decision.synthesis_task_id
             state["planner_feedback_count"] = state.get("planner_feedback_count", 0) + 1
             state["planner_reviewed_signature"] = observation_signature(
                 plan, state.get("task_results", [])

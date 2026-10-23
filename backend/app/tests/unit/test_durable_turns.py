@@ -33,12 +33,14 @@ def prepare(database):
     ("server", "remote_name", "result_status", "receipt_status"),
     [
         ("tushare", "income_vip", "denied", "settled"),
-        ("tushare", "write_account", "failed", "unknown"),
-        ("other", "income_vip", "failed", "unknown"),
+        ("tushare", "fina_mainbz", "denied", "settled"),
+        ("tushare", "write_account", "denied", "settled"),
+        ("other", "unknown_new_api", "denied", "settled"),
     ],
 )
-def test_mcp_permission_denial_only_settles_verified_read_only_receipts(
-    database, monkeypatch, server, remote_name, result_status, receipt_status
+@pytest.mark.parametrize("flagged", [False, True])
+def test_explicit_mcp_permission_denial_settles_without_per_interface_allowlist(
+    database, monkeypatch, server, remote_name, result_status, receipt_status, flagged,
 ):
     import asyncio
 
@@ -61,7 +63,10 @@ def test_mcp_permission_denial_only_settles_verified_read_only_receipts(
 
     async def rejected(_value):
         calls.append(True)
-        return ToolMessage(content="抱歉，您没有访问该接口的权限", tool_call_id="remote", status="error")
+        return ToolMessage(
+            content="抱歉，您没有访问该接口的权限", tool_call_id="remote",
+            status="error" if flagged else "success",
+        )
 
     tool = DynamicMcpHttpTool(
         name=f"mcp.{server}.{remote_name}", server_name=server,

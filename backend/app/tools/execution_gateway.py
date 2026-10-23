@@ -16,6 +16,7 @@ from app.operations.langfuse_observability import (
 )
 from app.schemas.approvals import ApprovedToolCall
 from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError, ToolSpec
+from app.search.schemas import SearchResearchContext
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.redaction import redact_sensitive_data, sanitize_untrusted_details
 from app.tools.registry import ToolRegistry
@@ -112,6 +113,7 @@ class ToolExecutionContext(BaseModel):
     skill_allowed_tools: tuple[str, ...] | None = None
     permission_scopes: tuple[str, ...] = Field(default_factory=tuple)
     approved_tool_calls: tuple[ApprovedToolCall, ...] = Field(default_factory=tuple)
+    research_context: SearchResearchContext | None = None
 
 
 class ToolExecutionGateway:

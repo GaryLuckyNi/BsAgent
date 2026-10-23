@@ -58,7 +58,8 @@ from app.harness.trace_buffer import TraceBuffer
 from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
 from app.llm.factory import LlmClient
-from app.operations.langfuse_observability import langfuse_agent_run
+from app.operations.langfuse_observability import langfuse_agent_run, langfuse_observation
+from app.operations.langfuse_scheduler import record_scheduler_dispatch, record_scheduler_input
 from app.schemas.messages import Message
 from app.skills.factory import build_default_skill_registry
 from app.skills.registry import SkillRegistry
@@ -374,8 +375,14 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
 
 
 def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
+    with langfuse_observation(as_type="span", name="dispatch_task_scheduler") as observation:
+        record_scheduler_input(observation, state)
+        return _dispatch_after_scheduler_impl(state, observation)
+
+
+def _dispatch_after_scheduler_impl(state: AgentState, observation: Any) -> str | list[Send]:
     if state.get("pending_user_input") is not None:
-        return "user_input_gate"
+        return record_scheduler_dispatch(observation, "user_input_gate", "user_input_required")
     response = state.get("user_input_response")
     if response is not None and response.source.kind == "provider_permission_fallback":
         # 先消费原调用的响应，避免并行结果触发重新规划而丢失恢复目标。
@@ -388,31 +395,40 @@ def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
             state.get("active_task"),
         )
         task = task or {"id": "permission_resume_invalid", "task_goal": "核实权限恢复请求"}
-        return [Send("tool_agent", {**state, "active_task": task, "active_skill_step": None})]
+        return record_scheduler_dispatch(
+            observation,
+            [Send("tool_agent", {**state, "active_task": task, "active_skill_step": None})],
+            "permission_fallback_resume",
+        )
     if _has_pending_memory_approval(state) or _has_pending_tool_approval(state):
-        return "approval_gate"
+        return record_scheduler_dispatch(observation, "approval_gate", "approval_required")
     if workflow_failed(state):
-        return "synthesizer"
+        return record_scheduler_dispatch(observation, "synthesizer", "skill_workflow_failed")
     workflow_dispatch = dispatch_workflow(state)
     if workflow_dispatch is not None:
-        return workflow_dispatch
+        return record_scheduler_dispatch(observation, workflow_dispatch, "skill_workflow_dispatch")
     if state.get("planner_stop_reason"):
-        return "synthesizer"
+        return record_scheduler_dispatch(
+            observation, "synthesizer", "planner_stopped",
+            planner_stop_reason=state["planner_stop_reason"],
+        )
     plan = PlanModel.model_validate(state.get("plan"))
     results = [TaskResultModel.model_validate(item) for item in state.get("task_results", [])]
     signature = observation_signature(plan, state.get("task_results", []))
     reviewed = state.get("planner_reviewed_signature") == signature
     if reviewed and (state.get("planner_decision") or {}).get("action") == "finish":
-        return "synthesizer"
+        return record_scheduler_dispatch(observation, "synthesizer", "planner_finished")
     active_ids = {task.id for task in plan.tasks}
     has_observations = any(result.task_id in active_ids for result in results)
     if has_observations and not reviewed:
         if state.get("planner_feedback_count", 0) >= MAX_PLANNER_FEEDBACKS:
-            return "synthesizer"
-        return "planner_agent"
+            return record_scheduler_dispatch(
+                observation, "synthesizer", "planner_feedback_budget_exhausted",
+            )
+        return record_scheduler_dispatch(observation, "planner_agent", "new_results_require_review")
     ready = ready_tasks(plan, results=results)
     if not ready:
-        return "synthesizer"
+        return record_scheduler_dispatch(observation, "synthesizer", "no_ready_tasks")
     used_searches = sum(
         1
         for record in state.get("tool_calls", [])
@@ -425,12 +441,12 @@ def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
     # 固定工作流串行启动，避免与其他任务并发审批或修改调度状态。
     skill_task = next((task for task in ready if task.skill_name is not None), None)
     if skill_task is not None:
-        return [
+        return record_scheduler_dispatch(observation, [
             Send(
                 "skill_agent",
                 {**state, "active_task": skill_task.model_dump(), "active_skill_step": None},
             )
-        ]
+        ], "skill_task_ready")
     for task in ready:
         worker = _worker_name(task)
         payload = {
@@ -441,7 +457,9 @@ def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
         if worker == "tool_agent":
             payload["web_search_allowed"] = remaining_web_slots > 0
         sends.append(Send(worker, payload))
-    return sends
+    return record_scheduler_dispatch(
+        observation, sends, "ready_tasks", remaining_web_search_slots=remaining_web_slots,
+    )
 
 
 def _worker_name(task: SubTaskModel) -> str:

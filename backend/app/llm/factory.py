@@ -1,5 +1,4 @@
 import asyncio
-import json
 from collections.abc import AsyncIterator, Callable
 from threading import Lock
 from typing import Any, Protocol
@@ -92,26 +91,7 @@ def _localized_reasoning_prompts(
 ) -> tuple[str, str]:
     if not thinking:
         return system_prompt, user_prompt
-    localized_system_prompt = (
-        f"{_REASONING_LANGUAGE_INSTRUCTION}\n\n{system_prompt}\n\n{_REASONING_LANGUAGE_INSTRUCTION}"
-    )
-    try:
-        payload = json.loads(user_prompt)
-    except (TypeError, json.JSONDecodeError):
-        localized_user_prompt = f"{_REASONING_LANGUAGE_INSTRUCTION}\n\n{user_prompt}"
-    else:
-        if isinstance(payload, dict):
-            localized_user_prompt = json.dumps(
-                {
-                    "reasoning_language": "简体中文",
-                    "reasoning_language_requirement": _REASONING_LANGUAGE_INSTRUCTION,
-                    **payload,
-                },
-                ensure_ascii=False,
-            )
-        else:
-            localized_user_prompt = f"{_REASONING_LANGUAGE_INSTRUCTION}\n\n{user_prompt}"
-    return localized_system_prompt, localized_user_prompt
+    return f"{_REASONING_LANGUAGE_INSTRUCTION}\n\n{system_prompt}", user_prompt
 
 
 def _invoke_llm_completion_once(

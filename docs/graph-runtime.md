@@ -36,7 +36,7 @@ Planner 将 Admin 已按 `domain/subdomain` 过滤的全部轻量 Skill 卡片�
 
 `execution_type=analysis` 路由到 Analysis Agent，仅使用已有材料；`tool` 路由到 Tool Agent，由模型从检索候选中选择一次工具调用或直接回答。绑定已披露 Skill 的任务路由到 Skill Agent。三个执行节点都会收到 `completion_criteria` 和有长度限制的用户材料。修订计划可通过 `evidence_task_ids` 显式引用历史成功结果；Planner 校验引用后才把证据交给执行节点。旧任务省略 execution_type 时默认 tool；这只是字段默认值，不代表旧 Checkpoint 可以跨策略版本恢复。
 
-Planner 保留模型提出的必要末端分析，不按拓扑静默删任务。结构、依赖和能力引用错误允许一次模型修复；无法修复则明确报错。
+Planner 保留模型提出的必要分析，不按拓扑静默删任务。结构、依赖和能力引用错误允许一次模型修复；无法修复则明确报错。
 
 ## 调度、反馈和版本
 
@@ -47,6 +47,12 @@ Scheduler 只派发依赖已成功的任务，无依赖任务通过 LangGraph Se
 - finish：结束研究，可保留证据限制，不等同于所有目标均成功。
 
 业务失败不自动触发修订，工具成功也会进入模型反馈。代码只校验可执行性、依赖、授权和预算。无进展 continue 被反馈给模型修复，不由代码生成替代业务计划。
+
+当 `revise` 的任务列表与现计划完全相同（例如只改摘要）时，本地规范为 `continue`（仍有就绪任务）或 `finish`（无可推进任务），保留未核实问题，不再请求纠错、不消耗修订次数、不重命名任务。任务次序、目标、依赖或验收条件发生变化仍按真实修订处理。
+
+取证评审可以返回 `{"action":"finish","reason":"取证阶段结束","synthesis_task_id":"interpret"}`，显式将最后一次研判交给 Synthesizer。必须是唯一未完成、依赖成功、无后续消费者的就绪 `analysis`，且不能绑定 Skill；未知 ID、失败依赖、仍有工具或其他待办均被拒绝。Synthesizer 接收该任务目标、验收条件、显式引用的历史成功证据及用户材料，启用推理，一次完成分析和最终答复；完成结果只保存对最终答复的引用，不再复制整篇正文。交接路径的推理与正文共用 6144 输出 Token 预算，普通问答正文以800至1200汉字为目标；Planner 可见预算，需要更大输出的长篇报告不交接。普通合成仍保留原有 16384 上限。中间分析仍独立执行，取证后的 Planner 评审不省略，Planner 本身不输出用户答案。
+
+模型输入使用确定性投影，不新增压缩模型：Planner/Analysis 已单列问题时排除用户材料中的当前消息副本；Tool Agent 只用一份有长度限制的会话材料。Planner 评审与合成将 JSON 结果解析成对象，并通过共享来源表去重；评审保留 query 以识别偏题，合成不接收重复 query、调度 action、重复缺口或空证据字段。未知结果字段原样保留，原始 State、ToolMessage artifact 和调用审计不改写。
 
 反馈输出若连续两次不符合契约，Planner 记录 `planner_feedback_invalid` 并停止后续派发，由 Synthesizer 基于已获得的材料说明未核实目标。该停止是 Harness 故障边界，不伪装成模型选择的 finish；初始计划无效仍按明确错误处理。
 

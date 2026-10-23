@@ -25,7 +25,7 @@ from app.tools.native_calls import (
 )
 from app.tools.registry import ToolRegistry
 from app.tools.search import ToolSearchHit, ToolSearchResponse
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
@@ -152,6 +152,55 @@ def test_native_tool_call_uses_bound_schema_and_restores_registry_name():
     ]
 
 
+@pytest.mark.parametrize("choice", ["auto", "required"])
+def test_first_tool_request_has_single_call_contract_without_mutating_messages(choice):
+    client = ToolCallingClient()
+    original = [SystemMessage(content="业务约束"), HumanMessage(content="查询行情")]
+    before = list(original)
+
+    create_tool_call_message(
+        llm_client=client, messages=original, tool_spec=_spec(), tool_choice=choice,
+    )
+
+    contract = client.messages[0]
+    assert isinstance(contract, SystemMessage)
+    assert "严禁一次返回多个" in contract.content
+    assert "同一工具" in contract.content
+    assert ("允许不调用" if choice == "auto" else "必须恰好调用一个") in contract.content
+    assert client.messages[1:] == before
+    assert original == before
+
+
+@pytest.mark.parametrize("fixed_skill", [False, True])
+def test_tool_request_includes_current_datetime_and_preserves_historical_period(
+    monkeypatch, fixed_skill,
+):
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    from app.graph.nodes import tool_agent as node_module
+
+    if fixed_skill:
+        monkeypatch.setattr(node_module, "active_step", lambda _state: (
+            SimpleNamespace(summary="历史估值查询"),
+            SimpleNamespace(source="查询2025年估值", required_fields=[]),
+        ))
+
+    state = create_initial_state(
+        session_id="date", tenant_id="t1", user_id="u1",
+        user_message="查询2025年估值", history=[],
+    )
+    messages = _tool_call_messages(state, SubTaskModel(id="facts", task_goal="查询2025年估值"))
+    instruction = json.loads(messages[-2 if fixed_skill else -1].content)
+
+    timestamp = datetime.fromisoformat(instruction["current_datetime"])
+    assert timestamp.utcoffset().total_seconds() == 8 * 3600
+    assert instruction["timezone"] == "Asia/Shanghai"
+    assert instruction["task_goal"] == "查询2025年估值"
+    assert "历史" in messages[0].content
+    assert "current_datetime" in messages[0].content
+
+
 def test_native_tool_call_distinguishes_missing_call_from_wrong_tool():
     with pytest.raises(ToolCallCountError):
         create_tool_call_message(
@@ -161,7 +210,7 @@ def test_native_tool_call_distinguishes_missing_call_from_wrong_tool():
         )
 
 
-def test_tool_call_messages_keep_context_compaction_ai_message():
+def test_tool_call_messages_keep_context_compaction_once_in_bounded_materials():
     summary_payload = {
         "goal": "长期目标",
         "constraints": [],
@@ -190,11 +239,11 @@ def test_tool_call_messages_keep_context_compaction_ai_message():
 
     messages = _tool_call_messages(state, task)
 
-    assert any(
-        isinstance(message, AIMessage)
-        and message.additional_kwargs.get("metadata", {}).get("context_compaction") is True
-        for message in messages
-    )
+    payload = json.loads(messages[1].content)
+    summaries = [item for item in payload["user_materials"] if item["kind"] == "context_summary"]
+    assert len(summaries) == 1
+    assert json.loads(summaries[0]["text"]) == summary_payload
+    assert sum(str(message.content).count("长期目标") for message in messages) == 1
 
     with pytest.raises(UnexpectedToolCallError):
         create_tool_call_message(

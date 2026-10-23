@@ -23,9 +23,10 @@ from pydantic import (
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
 from app.tools.base import Tool
 from app.tools.mcp_permission import (
-    VERIFIED_READ_ONLY_MCP_TOOLS,
+    has_execution_result,
     permission_failure_envelope,
     remote_permission_denied,
+    standalone_permission_denied,
 )
 from app.tools.redaction import sanitize_untrusted_details
 
@@ -194,7 +195,7 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                     else None
                 ),
                 start=start,
-                status=self._permission_failure_status(exc.code),
+                status="denied" if exc.code == "provider_permission_denied" else "failed",
             )
         except TimeoutError as exc:
             return _failure_result(
@@ -204,7 +205,7 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 start=start,
                 status="timeout",
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - 外部 MCP 异常统一归一化，不泄露远端正文
             return _failure_result(
                 tool_name=self.name,
                 code="mcp_tool_execution_failed",
@@ -221,7 +222,7 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 tool_name=self.name,
                 code="provider_permission_denied",
                 message=MCP_TOOL_ERROR_MESSAGES["provider_permission_denied"],
-                status=self._permission_failure_status("provider_permission_denied"),
+                status="denied",
                 start=start,
             )
 
@@ -247,13 +248,6 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
             latency_ms=int((perf_counter() - start) * 1000),
             trace_id="",
         )
-
-    def _permission_failure_status(self, code: str) -> str:
-        identity = (self._server_name, self.name, self._langchain_tool.name)
-        if code == "provider_permission_denied" and identity in VERIFIED_READ_ONLY_MCP_TOOLS:
-            return "denied"
-        return "failed"
-
 
 def discover_mcp_http_tools(
     *,
@@ -291,7 +285,10 @@ def _langchain_tool_payload(response: object) -> JsonValue:
             "mcp_tool_execution_failed", failure_stage="response_type_invalid"
         )
     if response.status == "error":
-        if remote_permission_denied(response.content) or remote_permission_denied(response.artifact):
+        has_result = has_execution_result(response.content) or has_execution_result(response.artifact)
+        if not has_result and (
+            remote_permission_denied(response.content) or remote_permission_denied(response.artifact)
+        ):
             raise McpToolResponseError("provider_permission_denied", failure_stage="remote_tool_error")
         raise McpToolResponseError("mcp_tool_execution_failed", failure_stage="remote_tool_error")
     artifact = response.artifact
@@ -299,15 +296,19 @@ def _langchain_tool_payload(response: object) -> JsonValue:
         return _validated_json_value(artifact["structured_content"])
 
     content = response.content
+    text = content if isinstance(content, str) else None
     if isinstance(content, list) and len(content) == 1:
         block = content[0]
         if isinstance(block, dict) and block.get("type") == "text":
-            try:
-                payload = json.loads(block.get("text", ""))
-            except (TypeError, json.JSONDecodeError):
-                pass
-            else:
-                return _validated_json_value(payload)
+            text = block.get("text")
+    if isinstance(text, str):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            if standalone_permission_denied(text):
+                raise McpToolResponseError("provider_permission_denied") from None
+        else:
+            return _validated_json_value(payload)
     raise McpToolResponseError("mcp_tool_response_invalid")
 
 
@@ -384,7 +385,7 @@ def _market_envelope_error(
                 "details": sanitize_untrusted_details(error.get("details")),
             }
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - 不可信返回无法满足失败契约时保留无效响应分类
         return _invalid_response_error()
 
 

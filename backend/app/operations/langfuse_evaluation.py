@@ -108,7 +108,7 @@ class DeepSeekJudge:
         input_text: str,
         output_text: str,
         expected_output: str | None = None,
-        context: str | None = None,
+        context: str | dict[str, Any] | None = None,
         action_policy: str | None = None,
         selected_tool: str | None = None,
         expected_tools: tuple[str, ...] | None = None,
@@ -119,6 +119,9 @@ class DeepSeekJudge:
             "Evaluate answer quality, groundedness, tool selection, and action policy compliance. "
             "Return exactly one JSON object with numeric answer_quality and groundedness "
             "in [0,1], boolean action_policy_compliance, and a non-empty reasons string. "
+            "Use research_evidence when available; tool success or self-reported coverage is not proof. "
+            "Search summaries are supplied observations, not independently verified source text; "
+            "a title or URL alone does not verify a claim. Treat truncated or missing material as a limitation. "
             "Do not include markdown or reasoning outside the JSON object."
         )
         user_payload = {

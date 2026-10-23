@@ -30,6 +30,64 @@ class FakeLlmClient:
         return LlmCompletionResult(content=self.content, model="fake", provider="fake")
 
 
+def test_explicit_synthesis_handoff_performs_final_reasoning_once_and_marks_task_complete():
+    llm = FakeLlmClient("## 结论\n\n现有证据不足以确认探底，需保留估值缺口。")
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="是否探底")
+    state["intent"] = {"intent_type": "financial_research", "goal": "是否探底"}
+    state["plan"] = {"tasks": [
+        {"id": "facts", "task_goal": "查询市场数据"},
+        {"id": "analysis", "task_goal": "研判是否探底", "execution_type": "analysis",
+         "depends_on": ["facts"], "completion_criteria": ["解释正反证据"]},
+    ]}
+    state["task_results"] = [{"task_id": "facts", "status": "success", "content": "盘中证据"}]
+    state["planner_decision"] = {
+        "action": "finish", "reason": "由最终回答完成研判", "synthesis_task_id": "analysis",
+        "unresolved_questions": ["估值缺口"],
+    }
+
+    result = build_synthesizer_node(llm_client=llm)(state, Runtime(store=None))
+
+    assert len(llm.calls) == 1
+    assert llm.calls[0]["thinking"] is True
+    assert llm.calls[0]["max_tokens"] == 6144
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert payload["answer_requirements"]["completion_criteria"] == ["解释正反证据"]
+    assert "研判是否探底" not in payload["data_limitations"]
+    assert payload["data_limitations"] == ["估值缺口"]
+    completed = next(item for item in result["task_results"] if item["task_id"] == "analysis")
+    assert completed["status"] == "success"
+    assert "final_response" in completed["content"]
+
+
+def test_synthesis_handoff_retains_referenced_history_and_user_provided_materials():
+    from langchain_core.messages import HumanMessage
+
+    llm = FakeLlmClient("已核实PE为18倍；其他估值指标仍缺失。")
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="根据附件和历史资料，只分析估值")
+    state["intent"] = {"intent_type": "financial_research", "goal": "评估估值"}
+    state["messages"].insert(0, HumanMessage(content="历史要求：不得比较未经核实的证券"))
+    state["image_analyses"] = [{"summary": "用户附件标明PB为2倍"}]
+    state["plan"] = {"tasks": [
+        {"id": "final_analysis", "task_goal": "研判估值", "execution_type": "analysis",
+         "evidence_task_ids": ["archived_facts"]},
+    ]}
+    state["task_results"] = [
+        {"task_id": "archived_facts", "status": "success", "tool_name": "web_search", "content": "已核实PE为18倍"},
+        {"task_id": "unrelated", "status": "success", "tool_name": "web_search", "content": "不能混入的另一份旧资料"},
+    ]
+    state["planner_decision"] = {"action": "finish", "reason": "复用历史证据", "synthesis_task_id": "final_analysis"}
+
+    build_synthesizer_node(llm_client=llm)(state)
+
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert [material["content"] for material in payload["research_materials"]] == ["已核实PE为18倍"]
+    assert payload["user_message"] == state["user_message"]
+    assert "历史要求" in json.dumps(payload["user_materials"], ensure_ascii=False)
+    assert "PB为2倍" in json.dumps(payload["user_materials"], ensure_ascii=False)
+    assert "不能混入" not in llm.calls[0]["user_prompt"]
+    assert llm.calls[0]["user_prompt"].count(state["user_message"]) == 1
+
+
 def test_synthesizer_uses_task_results_without_fixed_section_template():
     llm = FakeLlmClient("## 核心观察\n\n收入增长，但现金流证据仍不足。")
     state = create_initial_state(
@@ -236,7 +294,7 @@ def test_synthesizer_uses_successful_web_result_when_market_data_is_unavailable(
     assert payload["research_materials"] == [
         {
             "research_goal": "检索银之杰公开信息",
-            "content": '{"results":[{"title":"银之杰公开资料","snippet":"金融科技公司"}]}',
+            "content": {"results": [{"title": "银之杰公开资料", "snippet": "金融科技公司"}]},
         }
     ]
     assert payload["data_limitations"] == ["获取银之杰行情快照"]

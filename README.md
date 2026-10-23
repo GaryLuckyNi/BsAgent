@@ -61,6 +61,18 @@ npm run dev:postgres:stop
 PYTHON=/opt/anaconda3/bin/python3 npm run dev
 ```
 
+### VS Code 断点调试 FastAPI
+
+使用 VS Code 打开仓库根目录，并安装推荐的 Python、Python Debugger 扩展。调试配置使用根目录 `.venv/bin/python`，该环境需已安装项目后端依赖；本地密钥从根目录 `.env.local` 加载。
+
+1. 先按上述本地开发流程启动 PostgreSQL、完成迁移，并启动所需的 Admin 等配套服务。
+2. 停止占用 8000 端口的普通 Agent 后端进程，避免与调试服务冲突。
+3. 在 `backend/app/api/health.py` 的 `health()` 返回行或目标 API 的可执行代码行设置断点。
+4. 打开“运行和调试”，选择“FastAPI：断点调试 API”，按 `F5`。启动成功后自动打开 `http://127.0.0.1:8000/docs`。
+5. 请求 `http://127.0.0.1:8000/health` 或在 Swagger 中执行目标接口，即可命中断点；`F10` 单步跳过、`F11` 进入函数、`F5` 继续运行、`Shift+F5` 停止调试。
+
+调试服务使用与一键启动相同的本地 PostgreSQL 和 Admin 地址。为保持断点稳定，使用单进程且不启用自动重载；修改代码后需重启调试会话。调试器由 VS Code 扩展提供，无需在项目虚拟环境单独安装 `debugpy`。
+
 关闭本地开发服务：
 
 ```bash

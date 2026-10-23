@@ -20,6 +20,10 @@ from opentelemetry.sdk.trace import TracerProvider
 
 from app.core.config import Settings
 from app.operations.langfuse_content import LangfuseContentPolicy
+from app.operations.langfuse_langchain_content import (
+    sanitized_content_json,
+    sanitized_langchain_io,
+)
 from langfuse import Langfuse, propagate_attributes
 
 logger = logging.getLogger("bs_agent.langfuse")
@@ -130,6 +134,11 @@ def configure_langfuse(
         service_name=config.service_name,
         environment=config.app_env,
     )
+    content_policy = LangfuseContentPolicy(
+        mode=getattr(config, "langfuse_content_mode", "local_content"),
+        max_chars=getattr(config, "langfuse_max_content_chars", 20_000),
+        capture_reasoning=getattr(config, "langfuse_capture_reasoning", False),
+    )
     selected_client_factory = client_factory or Langfuse
     client = selected_client_factory(
         public_key=config.langfuse_public_key,
@@ -140,7 +149,7 @@ def configure_langfuse(
         tracer_provider=provider,
         mask_otel_spans=lambda *, params: mask_langfuse_otel_spans(
             params=params,
-            content_mode=getattr(config, "langfuse_content_mode", "local_content"),
+            content_policy=content_policy,
         ),
     )
     runtime = LangfuseRuntime(
@@ -149,11 +158,7 @@ def configure_langfuse(
         public_key=config.langfuse_public_key,
         environment=config.app_env,
         handler_factory=handler_factory or CallbackHandler,
-        content_policy=LangfuseContentPolicy(
-            mode=getattr(config, "langfuse_content_mode", "local_content"),
-            max_chars=getattr(config, "langfuse_max_content_chars", 20_000),
-            capture_reasoning=getattr(config, "langfuse_capture_reasoning", False),
-        ),
+        content_policy=content_policy,
     )
     _active_runtime = runtime
     return runtime
@@ -181,13 +186,15 @@ def mask_langfuse_otel_spans(
     *,
     params: MaskOtelSpansParams,
     content_mode: str = "local_content",
+    content_policy: LangfuseContentPolicy | None = None,
 ) -> MaskOtelSpansResult:
+    policy = content_policy or LangfuseContentPolicy(mode=content_mode)
     patches = {}
     for identifier, span in params.spans.items():
         content_policy_applied = (
             span.attributes.get("langfuse.observation.metadata.content_policy_applied")
             is True
-            and content_mode != "metadata_only"
+            and policy.mode != "metadata_only"
         )
         deleted = tuple(
             key
@@ -198,8 +205,16 @@ def mask_langfuse_otel_spans(
                 content_policy_applied=content_policy_applied,
             )
         )
-        if deleted:
-            patches[identifier] = OtelSpanPatch(delete_attributes=deleted)
+        try:
+            safe_io = sanitized_langchain_io(span, policy=policy)
+        except Exception as exc:  # noqa: BLE001 - 转换故障时仍删除原始内容
+            _log_runtime_failure("langfuse_callback_content_failed", exc)
+            safe_io = {}
+        if deleted or safe_io:
+            # SDK 先删除再覆盖；不标记原始正文为可信，只放行转换后的导出副本。
+            patches[identifier] = OtelSpanPatch(
+                delete_attributes=deleted, set_attributes=safe_io,
+            )
     return MaskOtelSpansResult(span_patches=patches)
 
 
@@ -449,12 +464,25 @@ def update_langfuse_generation(generation: Any | None, **attributes: Any) -> Non
         _log_runtime_failure("langfuse_generation_update_failed", exc)
 
 
-def update_langfuse_observation(observation: Any | None, **attributes: Any) -> None:
+def update_langfuse_observation(
+    observation: Any | None, *, bounded_content: bool = False, **attributes: Any,
+) -> None:
     """通过内容策略更新 observation，避免工具结果绕过脱敏。"""
     if observation is None:
         return
     runtime = _active_runtime
     policy = runtime.content_policy if runtime is not None else LangfuseContentPolicy()
+    if bounded_content:
+        for field in ("input", "output"):
+            if field not in attributes:
+                continue
+            value = attributes.pop(field)
+            if policy.mode == "metadata_only":
+                continue
+            try:
+                attributes[field] = sanitized_content_json(value, policy=policy)
+            except Exception as exc:  # noqa: BLE001 - 转换失败时丢弃正文而非回退原值
+                _log_runtime_failure("langfuse_observation_content_failed", exc)
     _safe_update_observation(
         observation,
         content_policy=policy,

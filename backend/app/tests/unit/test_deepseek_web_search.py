@@ -3,8 +3,52 @@ import json
 
 import httpx
 import pytest
-
 from app.search.deepseek import DeepSeekWebSearchClient, WebSearchProviderError
+
+
+def test_search_keeps_trusted_goal_and_as_of_even_when_suggested_query_drifts():
+    requests = []
+    context = {"task_goal": "查询PE/PB及历史分位", "completion_criteria": ["提供PE", "提供PB"],
+               "as_of": "2026-10-23T12:59:00+08:00"}
+
+    def respond(request):
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"content": [
+            {"type": "text", "text": json.dumps({"answer": "仅取得PE", "covered_criteria": [0]})},
+            {"type": "web_search_tool_result", "content": [
+                {"title": "资料", "url": "https://example.com/source", "snippet": "PE为10"},
+            ]},
+        ], "usage": {"input_tokens": 30, "output_tokens": 20}})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond), base_url="https://model.invalid") as http:
+            return await DeepSeekWebSearchClient(api_key="synthetic", model="test", http_client=http).search(
+                query="暴跌原因", max_results=3, research_context=context,
+            )
+
+    result = asyncio.run(run())
+    sent = json.loads(requests[0]["messages"][0]["content"])
+    assert sent["research_context"]["task_goal"] == context["task_goal"]
+    assert sent["research_context"]["as_of"] == context["as_of"]
+    assert result.answer == "仅取得PE"
+    assert result.coverage.status == "partial"
+    assert result.coverage.missing_criteria == ["提供PB"]
+    assert result.coverage.basis == "search_model"
+
+
+def test_search_does_not_invent_complete_coverage_for_unstructured_answer():
+    def respond(_):
+        return httpx.Response(200, json={"content": [
+            {"type": "text", "text": "一段没有覆盖声明的回答"},
+            {"type": "web_search_tool_result", "content": [{"title": "资料", "url": "https://example.com/source"}]},
+        ]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond), base_url="https://model.invalid") as http:
+            return await DeepSeekWebSearchClient(api_key="synthetic", model="test", http_client=http).search(
+                query="估值", max_results=3, research_context={"task_goal": "查询估值", "completion_criteria": ["提供PE"], "as_of": "2026-10-23T12:59:00+08:00"},
+            )
+    assert asyncio.run(run()).coverage.status == "unknown"
 
 
 def test_deepseek_web_search_uses_anthropic_server_tool_and_normalizes_sources():

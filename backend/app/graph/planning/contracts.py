@@ -2,7 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 MAX_PLAN_TASKS = 12
 MAX_TASK_RESULT_CONTENT_CHARS = 8_000
 
@@ -98,9 +97,12 @@ class PlannerFeedback(BaseModel):
     reason: str = Field(min_length=1, max_length=800)
     plan: PlanModel | None = None
     unresolved_questions: list[str] = Field(default_factory=list, max_length=12)
+    synthesis_task_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def validate_action(self):
         if (self.action == "revise") != (self.plan is not None):
             raise ValueError("仅 revise 必须携带 plan；continue 和 finish 不得携带计划。")
+        if self.synthesis_task_id is not None and self.action != "finish":
+            raise ValueError("只有 finish 可以将终端分析任务交给最终回答节点。")
         return self
