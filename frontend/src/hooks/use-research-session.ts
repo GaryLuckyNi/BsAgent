@@ -9,6 +9,7 @@ import {
 } from '../conversation-session'
 import {
   buildEvidenceIndex,
+  parseRecoveryBatch,
   type ResearchMessage,
   type ResearchProgress
 } from '../domain/research'
@@ -57,6 +58,7 @@ type AgentProtocolEvent = {
   interaction_id?: string
   input_type?: 'selection'
   question?: string
+  recovery_batch?: unknown
   options?: Array<{
     value: string
     label: string
@@ -247,6 +249,13 @@ export function useResearchSession(identity: RequestIdentity) {
       && event.options.length >= 2
     ) {
       completedResponseRef.current = true
+      const hasBatch = Object.prototype.hasOwnProperty.call(event, 'recovery_batch')
+      const batch = hasBatch ? parseRecoveryBatch(event.recovery_batch) : null
+      const batchOptionsValid = event.options.length === 2
+        && new Set(event.options.map((item) => item.value)).size === 2
+        && event.options.every((item) => ['web_search', 'use_existing'].includes(item.value))
+      const presentationError = hasBatch && (!batch || !batchOptionsValid)
+        ? '恢复任务清单不完整或显示版本不兼容，请更新页面或重新发起请求。' : undefined
       setMessages((current) => updateMessage(current, assistantId, (message) => ({
         ...message,
         status: 'interrupted',
@@ -256,7 +265,9 @@ export function useResearchSession(identity: RequestIdentity) {
           interactionId: event.interaction_id!,
           inputType: 'selection',
           question: event.question!,
-          options: event.options!
+          options: event.options!,
+          ...(batch && !presentationError ? { recoveryBatch: batch } : {}),
+          ...(presentationError ? { presentationError } : {})
         }
       })))
     }
@@ -582,7 +593,7 @@ export function useResearchSession(identity: RequestIdentity) {
     if (stream.isLoading || isRecovering || isStopping || isInitializing) return
     const message = messagesRef.current.find((item) => item.id === messageId)
     const userInput = message?.userInput
-    if (!userInput || userInput.isSubmitting) return
+    if (!userInput || userInput.isSubmitting || userInput.presentationError) return
     if (!userInput.options.some((option) => option.value === value)) return
 
     interactionEpochRef.current += 1
@@ -610,7 +621,11 @@ export function useResearchSession(identity: RequestIdentity) {
             interrupt_id: userInput.interruptId,
             interaction_id: userInput.interactionId,
             input_type: userInput.inputType,
-            value
+            value,
+            ...(userInput.recoveryBatch ? {
+              presentation_version: userInput.recoveryBatch.version,
+              batch_digest: userInput.recoveryBatch.digest
+            } : {})
           }
         }
       })

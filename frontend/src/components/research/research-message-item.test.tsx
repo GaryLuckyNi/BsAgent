@@ -24,6 +24,19 @@ vi.mock('@/components/ai-elements/reasoning', () => ({
 }))
 
 describe('ResearchMessageItem', () => {
+  it('批次展示不兼容时显示提示且禁止两个选项', () => {
+    render(<ResearchMessageItem message={{
+      id: 'batch', role: 'assistant', content: '', createdAt: '', status: 'interrupted',
+      userInput: {
+        interruptId: 'interrupt', interactionId: 'interaction', inputType: 'selection', question: '确认？',
+        options: [{ value: 'web_search', label: '搜索' }, { value: 'use_existing', label: '已有资料' }],
+        presentationError: '请更新页面后重新发起'
+      }
+    }} onCitation={vi.fn()} />)
+    expect(screen.getByRole('alert').textContent).toBe('请更新页面后重新发起')
+    expect((screen.getByRole('button', { name: '搜索' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: '已有资料' }) as HTMLButtonElement).disabled).toBe(true)
+  })
   it('停止的部分回答明确标记不完整，空回答也显示停止状态', () => {
     render(<ResearchMessageItem message={{ id: 'a1', role: 'assistant', content: '', createdAt: '', status: 'cancelled' }} onCitation={vi.fn()} />)
     expect(screen.getByText('已停止 · 回答可能不完整')).toBeTruthy()

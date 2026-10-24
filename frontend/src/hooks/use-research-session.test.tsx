@@ -480,7 +480,7 @@ describe('useResearchSession', () => {
     ])
   })
 
-  it('保存通用选择中断并用原助手消息提交恢复命令', async () => {
+  it.each([false, true])('保存选择中断并用原助手消息提交恢复命令（批次=%s）', async (batch) => {
     const { result } = renderHook(() => useResearchSession({
       tenantId: 'tenant-1',
       userId: 'user-1'
@@ -497,7 +497,11 @@ describe('useResearchSession', () => {
         interaction_id: 'interaction-1',
         input_type: 'selection',
         question: '请选择证券标的',
-        options: [
+        ...(batch ? { recovery_batch: recoveryBatch() } : {}),
+        options: batch ? [
+          { value: 'web_search', label: '对以上任务使用联网搜索' },
+          { value: 'use_existing', label: '仅使用已有资料' }
+        ] : [
           { value: '688825.SH', label: 'C长鑫', description: '证券代码：688825.SH' },
           { value: '603986.SH', label: '兆易创新', description: '证券代码：603986.SH' }
         ]
@@ -515,7 +519,7 @@ describe('useResearchSession', () => {
     }))
 
     await act(async () => {
-      await result.current.resumeUserInput(assistantId, '688825.SH')
+      await result.current.resumeUserInput(assistantId, batch ? 'web_search' : '688825.SH')
     })
 
     expect(sdk.submit).toHaveBeenLastCalledWith(null, {
@@ -524,9 +528,62 @@ describe('useResearchSession', () => {
           interrupt_id: 'interrupt-1',
           interaction_id: 'interaction-1',
           input_type: 'selection',
-          value: '688825.SH'
+          value: batch ? 'web_search' : '688825.SH',
+          ...(batch ? { presentation_version: 'permission-recovery-batch-v1', batch_digest: 'a'.repeat(64) } : {})
         }
       }
     })
   })
+
+  it.each([
+    { ...recoveryBatch(), version: 'future' },
+    { ...recoveryBatch(), digest: 'invalid' },
+    { ...recoveryBatch(), items: [] },
+    { ...recoveryBatch(), items: [recoveryBatch().items[0], recoveryBatch().items[0]] },
+    { ...recoveryBatch(), items: [{ item_id: 'incomplete' }] }
+  ])('不将未知或残缺批次降级成普通选择', async (batch) => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('查询资料') })
+    const id = result.current.messages.at(-1)!.id
+    const submits = sdk.submit.mock.calls.length
+    act(() => {
+      sdk.options?.onCustomEvent?.({
+        type: 'input_required', interrupt_id: 'interrupt', interaction_id: 'interaction',
+        input_type: 'selection', question: '是否替代取证？', recovery_batch: batch,
+        options: [{ value: 'web_search', label: '搜索' }, { value: 'use_existing', label: '已有资料' }]
+      })
+    })
+    expect(result.current.messages.at(-1)?.userInput?.presentationError).toBeTruthy()
+    await act(async () => { await result.current.resumeUserInput(id, 'web_search') })
+    expect(sdk.submit).toHaveBeenCalledTimes(submits)
+  })
+
+  it('刷新后重放批次清单，恢复提交保留原摘要', async () => {
+    runs.active.mockResolvedValue({ run_id: 'r1', message_id: 'a1', status: 'interrupted', content: '', last_event_sequence: 1 })
+    runs.subscribe.mockImplementationOnce(async (_s, _r, _i, _a, _sig, onEvent) => {
+      onEvent({ sequence: 1, event: 'custom', data: {
+        type: 'input_required', interrupt_id: 'interrupt', interaction_id: 'interaction',
+        input_type: 'selection', question: '是否替代取证？', recovery_batch: recoveryBatch(),
+        options: [{ value: 'web_search', label: '对以上任务使用联网搜索' }, { value: 'use_existing', label: '仅使用已有资料' }]
+      } })
+      onEvent({ sequence: 2, event: 'custom', data: { type: 'run_status', run_id: 'r1', status: 'interrupted' } })
+      return 2
+    })
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.messages.at(-1)?.userInput?.recoveryBatch).toEqual(recoveryBatch())
+    await act(async () => { await result.current.resumeUserInput('a1', 'use_existing') })
+    expect(sdk.submit).toHaveBeenLastCalledWith(null, { command: { resume: {
+      interrupt_id: 'interrupt', interaction_id: 'interaction', input_type: 'selection', value: 'use_existing',
+      presentation_version: 'permission-recovery-batch-v1', batch_digest: 'a'.repeat(64)
+    } } })
+  })
 })
+
+function recoveryBatch() {
+  return {
+    version: 'permission-recovery-batch-v1', batch_id: 'batch', digest: 'a'.repeat(64),
+    items: [{ item_id: 'c1', task_goal: '研究目标', original_tool: 'mcp.x.api',
+      reason: '账号权限不足', source_notice: '不等价于原接口数据' }]
+  }
+}

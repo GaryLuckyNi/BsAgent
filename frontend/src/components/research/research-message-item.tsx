@@ -26,6 +26,8 @@ import {
 } from '@/components/ai-elements/reasoning'
 import type { ResearchMessage, ResearchProgress } from '@/domain/research'
 
+import { PermissionRecoveryItems } from './permission-recovery-items'
+
 export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: {
   message: ResearchMessage
   onCitation: (message: ResearchMessage, index: number) => void
@@ -127,13 +129,15 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
         {userInput?.inputType === 'selection' && (
           <section className="user-input-card" aria-label="需要你选择">
             <h3>{userInput.question}</h3>
+            {userInput.recoveryBatch && <PermissionRecoveryItems items={userInput.recoveryBatch.items} />}
+            {userInput.presentationError && <p role="alert">{userInput.presentationError}</p>}
             <div className="user-input-options">
               {userInput.options.map((option) => (
                 <button
                   className="user-input-option"
                   type="button"
                   key={option.value}
-                  disabled={userInput.isSubmitting}
+                  disabled={userInput.isSubmitting || !!userInput.presentationError}
                   data-selected={userInput.selectedValue === option.value}
                   onClick={() => onUserInputSelect?.(message.id, option.value)}
                 >

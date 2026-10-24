@@ -32,12 +32,48 @@ export type ResearchUserInputOption = {
   description?: string | null
 }
 
+export type RecoveryItemView = {
+  item_id: string
+  task_goal: string
+  original_tool: string
+  reason: string
+  source_notice: string
+}
+
+export type RecoveryBatchView = {
+  version: 'permission-recovery-batch-v1'
+  batch_id: string
+  digest: string
+  items: RecoveryItemView[]
+}
+
+export function parseRecoveryBatch(value: unknown): RecoveryBatchView | null {
+  const record = (input: unknown): input is Record<string, unknown> =>
+    typeof input === 'object' && input !== null && !Array.isArray(input)
+  const text = (input: unknown, max: number): input is string =>
+    typeof input === 'string' && input.trim().length > 0 && input.length <= max
+  if (!record(value) || value.version !== 'permission-recovery-batch-v1'
+      || !text(value.batch_id, 128) || typeof value.digest !== 'string'
+      || !/^[a-f0-9]{64}$/.test(value.digest) || !Array.isArray(value.items)
+      || value.items.length < 1 || value.items.length > 12) return null
+  const ids = new Set<string>()
+  for (const item of value.items) {
+    if (!record(item) || !text(item.item_id, 128) || ids.has(item.item_id)
+        || !text(item.task_goal, 500) || !text(item.original_tool, 255)
+        || !text(item.reason, 240) || !text(item.source_notice, 240)) return null
+    ids.add(item.item_id)
+  }
+  return value as RecoveryBatchView
+}
+
 export type ResearchUserInput = {
   interruptId: string
   interactionId: string
   inputType: 'selection'
   question: string
   options: ResearchUserInputOption[]
+  recoveryBatch?: RecoveryBatchView
+  presentationError?: string
   isSubmitting?: boolean
   selectedValue?: string
 }
