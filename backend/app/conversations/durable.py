@@ -166,6 +166,30 @@ class DurableRunService:
             )
         )
 
+    def accept_recovery_decision(self, run_id, owner, *, batch_id, digest, value):
+        """授权范围通过前置校验后，同批选择持久化且不能反选重开。"""
+        if (value not in {"web_search", "use_existing"} or not batch_id
+                or len(batch_id) > 128 or len(digest) != 64
+                or any(char not in "0123456789abcdef" for char in digest)):
+            raise ValueError("recovery_decision_invalid")
+        self.guard(run_id, owner)
+        execution = self.db.get(AgentRunExecution, run_id)
+        existing = list(self.db.scalars(select(AgentRunProtocolEvent).where(
+            AgentRunProtocolEvent.run_id == run_id,
+            AgentRunProtocolEvent.event == "custom",
+            AgentRunProtocolEvent.data["type"].as_string() == "permission_recovery_decision",
+            AgentRunProtocolEvent.data["batch_id"].as_string() == batch_id,
+        )))
+        data = {"type": "permission_recovery_decision", "version": "permission-recovery-batch-v1",
+                "batch_id": batch_id, "digest": digest, "value": value}
+        if existing:
+            if len(existing) != 1 or existing[0].data != data:
+                raise ValueError("recovery_decision_conflict")
+            return existing[0].data
+        self._event(execution, "custom", data)
+        self.db.commit()
+        return data
+
     def request_stop(self, run_id: str) -> str:
         # 与完成路径使用相同锁顺序，先 execution 后 run。
         execution = self.db.scalar(

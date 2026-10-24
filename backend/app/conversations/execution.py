@@ -6,19 +6,22 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 from threading import Event, Lock, Thread
 from time import monotonic, sleep
+from typing import Literal
 from uuid import uuid4
 
 from sqlalchemy import select, update
 
 from app.conversations.durable import DurableRunService, RunOwnershipLost, TurnCancelled
+from app.schemas.tools import ToolCallResult
 from app.storage.models import AgentRun, AgentRunExecution, AgentRunToolReceipt
 
 logger = logging.getLogger(__name__)
 _finished_owners: set[tuple[str, str]] = set()
 _finished_owners_lock = Lock()
-_pending_tool_results: dict[str, tuple[object, dict, bool]] = {}
+_pending_tool_results: dict[str, tuple[object, dict, bool, str | None]] = {}
 
 
 def producer_finished_locally(run_id, owner):
@@ -53,13 +56,13 @@ def retry_pending_tool_results(engine, *, run_id=None):
     with _finished_owners_lock:
         pending = list(_pending_tool_results.items())
     persisted = 0
-    for receipt_id, (control, summary, uncertain) in pending:
+    for receipt_id, (control, summary, uncertain, result_digest) in pending:
         if getattr(control.session_factory, "kw", {}).get("bind") is not engine:
             continue
         if run_id is not None and control.run_id != run_id:
             continue
         try:
-            control.tool_finished(receipt_id, summary, uncertain=uncertain)
+            control._persist_tool_result(receipt_id, summary, uncertain, result_digest)
             persisted += 1
         except RunOwnershipLost:
             with _finished_owners_lock:
@@ -76,6 +79,23 @@ class UnresolvedToolEffect(RuntimeError):
 
 class ToolCallAlreadyExecuted(UnresolvedToolEffect):
     code = "tool_call_already_executed"
+
+
+@dataclass(frozen=True)
+class SearchInvocationClaim:
+    disposition: Literal["execute", "reuse", "blocked", "exhausted"]
+    receipt_id: str | None = None
+    result: ToolCallResult | None = None
+
+
+def _result_digest(value) -> str | None:
+    try:
+        result = ToolCallResult.model_validate(value)
+        canonical = json.dumps(result.model_dump(mode="json"), sort_keys=True,
+                               ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (ValueError, TypeError):
+        return None
+    return sha256(canonical.encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -131,7 +151,7 @@ class ExecutionControl:
             if succeeded:
                 raise ToolCallAlreadyExecuted("tool_call_already_executed")
 
-    def tool_started(self, request, *, risk_level):
+    def tool_started(self, request, *, risk_level, capability_scope=None):
         receipt_id = uuid4().hex
         with self.session_factory() as db:
             self.guard(db)
@@ -145,21 +165,96 @@ class ExecutionControl:
                     call_id=request.call_id,
                     risk_level=risk_level,
                     status="running",
-                    result_summary={},
+                    result_summary=({"_capability_scope": capability_scope} if capability_scope else {}),
                 )
             )
             db.commit()
         return receipt_id
 
+    def capability_observations(self, *, tool_name=None):
+        from app.tools.runtime_capabilities import observation_from_receipt
+
+        with self.session_factory() as db:
+            self.guard(db)
+            query = select(AgentRunToolReceipt).where(
+                AgentRunToolReceipt.run_id == self.run_id,
+                AgentRunToolReceipt.status == "settled",
+            )
+            if tool_name is not None:
+                query = query.where(AgentRunToolReceipt.tool_name == tool_name)
+            return tuple(observation for receipt in db.scalars(query)
+                         if (observation := observation_from_receipt(receipt)) is not None)
+
+    def claim_search_invocation(self, request, *, binding_digest, budget_limit, existing_call_ids):
+        """同 Run 锁内预留真实搜索；未决调用不能因低风险而被自动重发。"""
+        from app.tools.fingerprints import tool_call_fingerprint
+
+        if (request.tool_name != "web_search" or not request.call_id or not binding_digest
+                or isinstance(budget_limit, bool) or budget_limit < 1):
+            raise ValueError("search_invocation_invalid")
+        identity = {"version": "search-invocation-v1", "binding_digest": binding_digest,
+                    "fingerprint": tool_call_fingerprint(request)}
+        with self.session_factory() as db:
+            self.guard(db)
+            rows = list(db.scalars(select(AgentRunToolReceipt).where(
+                AgentRunToolReceipt.run_id == self.run_id,
+                AgentRunToolReceipt.call_id == request.call_id,
+            )))
+            if rows:
+                if len(rows) != 1:
+                    return SearchInvocationClaim("blocked")
+                receipt = rows[0]
+                summary = receipt.result_summary
+                stored = summary.get("_invocation", {}) if isinstance(summary, dict) else {}
+                if (receipt.tool_name != "web_search" or receipt.status != "settled"
+                        or not isinstance(stored, dict)
+                        or any(stored.get(k) != v for k, v in identity.items())
+                        or not stored.get("result_digest")
+                        or _result_digest(summary) != stored["result_digest"]):
+                    return SearchInvocationClaim("blocked", receipt.receipt_id)
+                return SearchInvocationClaim(
+                    "reuse", receipt.receipt_id, ToolCallResult.model_validate(summary),
+                )
+            used = set(existing_call_ids)
+            for receipt in db.scalars(select(AgentRunToolReceipt).where(
+                AgentRunToolReceipt.run_id == self.run_id,
+                AgentRunToolReceipt.tool_name == "web_search",
+            )):
+                used.add(receipt.call_id or f"legacy:{receipt.receipt_id}")
+            if len(used) >= budget_limit:
+                return SearchInvocationClaim("exhausted")
+            receipt_id = uuid4().hex
+            db.add(AgentRunToolReceipt(
+                receipt_id=receipt_id, run_id=self.run_id, owner_token=self.owner,
+                tool_name="web_search", call_id=request.call_id, risk_level="low",
+                status="running", result_summary={"_invocation": identity},
+            ))
+            db.commit()
+            return SearchInvocationClaim("execute", receipt_id)
+
     def tool_finished(self, receipt_id, result, *, uncertain=False):
         from app.tools.redaction import sanitize_untrusted_details
 
         summary = sanitize_untrusted_details(result)
+        # 保留清理前的完整性指纹；重试落库也不得把截断摘要升级为完整结果。
+        result_digest = _result_digest(result)
         with _finished_owners_lock:
-            _pending_tool_results[receipt_id] = (self, summary, uncertain)
+            _pending_tool_results[receipt_id] = (self, summary, uncertain, result_digest)
+        self._persist_tool_result(receipt_id, summary, uncertain, result_digest)
+
+    def _persist_tool_result(self, receipt_id, summary, uncertain, result_digest):
         with self.session_factory() as db:
             # 先保存结果，再观察取消；不允许因为 stop 丢弃已执行工具结果。
             DurableRunService(db).owned(self.run_id, self.owner, allow_done=True)
+            receipt = db.get(AgentRunToolReceipt, receipt_id)
+            # 调用身份只接受预留时落盘的服务端元数据，不接受工具返回中的同名字段。
+            summary = {k: v for k, v in summary.items() if k not in {"_invocation", "_capability_scope"}}
+            if receipt is not None and isinstance(receipt.result_summary.get("_capability_scope"), dict):
+                summary["_capability_scope"] = receipt.result_summary["_capability_scope"]
+            if receipt is not None and isinstance(receipt.result_summary.get("_invocation"), dict):
+                summary["_invocation"] = {
+                    **receipt.result_summary["_invocation"], "result_digest": result_digest,
+                }
             db.execute(
                 update(AgentRunToolReceipt)
                 .where(

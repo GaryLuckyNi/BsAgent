@@ -253,6 +253,7 @@ class AgentState(TypedDict):
     disclosed_tool_names: Annotated[list[str], merge_disclosed_tool_names]
     tool_discovery_events: Annotated[dict[str, Any], merge_discovery_events]
     tool_selection_contexts: Annotated[dict[str, Any], merge_discovery_events]
+    capability_observations: Annotated[dict[str, Any], merge_discovery_events]
     tool_search_count: int
     selection_observation_id: Annotated[
         str | None,
@@ -345,6 +346,7 @@ def create_initial_state(
         "disclosed_tool_names": [],
         "tool_discovery_events": {},
         "tool_selection_contexts": {},
+        "capability_observations": {},
         "tool_search_count": 0,
         "selection_observation_id": None,
         "selection_confidence": None,

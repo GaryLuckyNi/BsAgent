@@ -24,6 +24,8 @@ from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
 from app.tools.base import Tool
 from app.tools.mcp_permission import (
     classify_mcp_failure,
+    has_execution_result,
+    mcp_failure_envelope,
     standalone_permission_denied,
 )
 from app.tools.redaction import sanitize_untrusted_details
@@ -227,10 +229,7 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 start=start,
             )
 
-        failed_envelope = isinstance(payload, dict) and (
-            payload.get("code") not in (None, 0, "0") or payload.get("status") == "failed"
-            or isinstance(payload.get("error"), dict)
-        )
+        failed_envelope = mcp_failure_envelope(payload)
         classification = classify_mcp_failure(
             payload, error_context=failed_envelope,
             pre_execution_semantics=self._permission_denial_is_pre_execution,
@@ -243,6 +242,14 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 details=classification, execution_state=classification["execution_state"],
                 status="denied" if code == "provider_permission_denied" else "failed",
                 start=start,
+            )
+
+        if failed_envelope and not self._langchain_tool.name.startswith("stock."):
+            return _failure_result(
+                tool_name=self.name, code="mcp_tool_execution_failed",
+                message=MCP_TOOL_ERROR_MESSAGES["mcp_tool_execution_failed"],
+                details={"source": "mcp_adapter", "rule_id": "mcp-unknown-failure-envelope-v1",
+                         "phase": "unknown", "has_partial_result": False}, start=start,
             )
 
         market_error = _market_envelope_error(
@@ -306,12 +313,19 @@ def _langchain_tool_payload(response: object, *, pre_execution_semantics: bool =
             "mcp_tool_execution_failed", failure_stage="response_type_invalid"
         )
     if response.status == "error":
+        content = {"content": response.content, "structured_content": response.artifact}
         classification = classify_mcp_failure(
-            {"content": response.content, "structured_content": response.artifact},
+            content,
             error_context=True, pre_execution_semantics=pre_execution_semantics,
         )
         if classification:
             raise McpToolResponseError(classification["code"], classification=classification)
+        if has_execution_result(content):
+            raise McpToolResponseError("mcp_tool_execution_failed", classification={
+                "source": "mcp_adapter", "rule_id": "mcp-mixed-result-v1",
+                "phase": "unknown", "has_partial_result": True,
+                "execution_state": "uncertain",
+            })
         raise McpToolResponseError("mcp_tool_execution_failed", failure_stage="remote_tool_error")
     artifact = response.artifact
     if isinstance(artifact, dict) and "structured_content" in artifact:

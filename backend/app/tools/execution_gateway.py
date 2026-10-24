@@ -1,6 +1,6 @@
 # ruff: noqa: BLE001
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from fnmatch import fnmatchcase
 from time import perf_counter
 from typing import Any
@@ -20,6 +20,12 @@ from app.search.schemas import SearchResearchContext
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.redaction import redact_sensitive_data, sanitize_untrusted_details
 from app.tools.registry import ToolRegistry
+from app.tools.runtime_capabilities import (
+    CapabilityObservation,
+    arguments_fingerprint,
+    matches_observation,
+    scope_for,
+)
 
 SAFE_TOOL_ERROR_MESSAGES = {
     "tool_execution_context_required": "缺少工具执行上下文。",
@@ -46,6 +52,7 @@ SAFE_TOOL_ERROR_MESSAGES = {
     "provider_authentication_failed": "市场数据源认证失败。",
     "provider_permission_denied": "市场数据源权限不足。",
     "provider_rate_limited": "市场数据源请求超过频率限制。",
+    "provider_quota_exceeded": "数据源账号额度不足。",
     "provider_invalid_request": "市场数据源请求无效。",
     "provider_timeout": "市场数据源响应超时。",
     "provider_unavailable": "市场数据源暂不可用。",
@@ -69,6 +76,9 @@ SAFE_TOOL_ERROR_MESSAGES = {
     "tool_search_unavailable": "工具检索暂不可用。",
     "tool_side_effects_unresolved": "此前写入的结果尚未核实，请先核实后再执行写操作。",
     "tool_call_already_executed": "此调用此前已执行成功，请核实已有结果，避免重复写入。",
+    "search_invocation_unresolved": "同一搜索已有未决执行或结果不完整，未重新派发，请核实已有调用。",
+    "research_budget_exhausted": "本轮搜索调用预算已耗尽。",
+    "tool_capability_unavailable": "本轮已确认当前工具及参数范围权限不足，未重复派发。",
 }
 
 
@@ -118,6 +128,9 @@ class ToolExecutionContext(BaseModel):
     tenant_id: str
     user_id: str
     session_id: str
+    request_id: str | None = None
+    account_revision: str | None = None
+    capability_observations: tuple[CapabilityObservation, ...] = Field(default_factory=tuple)
     business_trace_id: str | None = None
     allowed_tools: tuple[str, ...] = Field(default_factory=tuple)
     skill_name: str | None = None
@@ -125,6 +138,8 @@ class ToolExecutionContext(BaseModel):
     permission_scopes: tuple[str, ...] = Field(default_factory=tuple)
     approved_tool_calls: tuple[ApprovedToolCall, ...] = Field(default_factory=tuple)
     research_context: SearchResearchContext | None = None
+    search_budget_limit: int | None = Field(default=None, ge=1, le=100)
+    existing_search_call_ids: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class ToolExecutionGateway:
@@ -266,10 +281,46 @@ class ToolExecutionGateway:
         from app.conversations.execution import UnresolvedToolEffect, current_execution
 
         control = current_execution.get()
+        scope = scope_for(context, entry)
+        fingerprint = arguments_fingerprint(request, tool_version=entry.spec.version)
+        if scope is not None:
+            observations = context.capability_observations
+            if control is not None:
+                observations = (*observations, *control.capability_observations(tool_name=request.tool_name))
+            for observation in observations:
+                if matches_observation(observation, scope, arguments_fingerprint=fingerprint):
+                    skipped = self._failure(
+                        request, trace_id=trace_id, start=start, status="denied",
+                        code="tool_capability_unavailable",
+                    )
+                    skipped.error.details.update(
+                        event="availability_skip", observation_call_id=observation.original_call_id,
+                        denied_scope=observation.denied_scope,
+                    )
+                    return skipped
         try:
-            receipt_id = (
-                control.tool_started(request, risk_level=entry.spec.risk_level) if control else None
-            )
+            if control and request.tool_name == "web_search" and context.search_budget_limit is not None:
+                claim = control.claim_search_invocation(
+                    request, binding_digest=entry.execution_binding_digest,
+                    budget_limit=context.search_budget_limit,
+                    existing_call_ids=context.existing_search_call_ids,
+                )
+                if claim.disposition == "reuse":
+                    return claim.result
+                if claim.disposition in {"blocked", "exhausted"}:
+                    return self._failure(
+                        request, trace_id=trace_id, start=start, status="denied",
+                        code=("research_budget_exhausted" if claim.disposition == "exhausted"
+                              else "search_invocation_unresolved"),
+                    )
+                receipt_id = claim.receipt_id
+            else:
+                receipt_id = (
+                    control.tool_started(request, risk_level=entry.spec.risk_level, **({
+                        "capability_scope": {"scope": asdict(scope),
+                                             "arguments_fingerprint": fingerprint},
+                    } if scope is not None else {})) if control else None
+                )
         except UnresolvedToolEffect as exc:
             return self._failure(
                 request, trace_id=trace_id,

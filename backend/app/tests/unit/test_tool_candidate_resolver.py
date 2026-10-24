@@ -34,6 +34,29 @@ class FakeSearchService:
     def resolve_specs(self, names):
         return [self.specs[name] for name in names]
 
+    def execution_binding_digest(self, name, version):
+        return "binding-1"
+
+
+def test_resolver_only_excludes_observations_that_can_be_matched_before_arguments_exist():
+    from app.tools.runtime_capabilities import CapabilityObservation, CapabilityScope
+
+    service = FakeSearchService([_hit("mcp.tushare.daily")])
+    resolver = ToolCandidateResolver(search_service=service)
+    scope = CapabilityScope("t", "u", "r", "mcp.tushare.daily", "1.0.0", "binding-1", None)
+    kwargs = {
+        "task_goal": "查询日线", "tenant_id": "t", "user_id": "u", "request_id": "r",
+        "permission_scopes": ("mcp:tushare", "web:search"), "has_successful_dependencies": False,
+    }
+    argument_only = CapabilityObservation("old", scope, "arguments", "fp", None)
+    result = resolver.resolve(**kwargs, capability_observations=(argument_only,))
+    assert "mcp.tushare.daily" in [item.name for item in result.candidates]
+    tool_wide = CapabilityObservation("old", scope, "tool", "fp", None)
+    result = resolver.resolve(**kwargs, capability_observations=(tool_wide,))
+    assert [item.name for item in result.candidates] == ["web_search"]
+    assert result.availability_skips[0]["observation_call_id"] == "old"
+    assert service.catalog_digest == "digest"
+
 
 def _hit(
     name: str,

@@ -4,8 +4,12 @@ from typing import Literal
 from app.core.config import settings
 from app.schemas.tools import ToolSpec
 from app.tools.execution_gateway import has_required_scopes, matches_tool_name
+from app.tools.runtime_capabilities import (
+    CapabilityObservation,
+    CapabilityScope,
+    matches_observation,
+)
 from app.tools.search import ToolSearchContext, ToolSearchHit, ToolSearchInput, ToolSearchService
-
 
 _PLATFORM_TOOL_NAMES = frozenset({"search_tool", "web_search"})
 _MIN_LEXICAL_COVERAGE = 0.15
@@ -17,6 +21,7 @@ class ToolCandidateResolution:
     hits: tuple[ToolSearchHit, ...]
     tool_choice: Literal["auto", "required"]
     fallback_reason: str | None
+    availability_skips: tuple[dict, ...] = ()
 
 
 class ToolCandidateResolver:
@@ -44,6 +49,8 @@ class ToolCandidateResolver:
         has_successful_dependencies: bool,
         web_search_allowed: bool = True,
         skill_allowed_tools: tuple[str, ...] | None = None,
+        request_id: str | None = None,
+        capability_observations: tuple[CapabilityObservation, ...] = (),
     ) -> ToolCandidateResolution:
         response = self._search_service.search(
             ToolSearchInput(query=tool_search_query or task_goal, top_k=self._top_k),
@@ -66,6 +73,25 @@ class ToolCandidateResolver:
             else []
         )
         reason = None if specs else "no_specialized_candidate"
+        skipped = []
+        if request_id and capability_observations:
+            binding = getattr(self._search_service, "execution_binding_digest", None)
+            retained = []
+            for spec in specs:
+                scope = CapabilityScope(tenant_id, user_id, request_id, spec.name, spec.version,
+                                        binding(spec.name, spec.version), None) if callable(binding) else None
+                observation = next((item for item in capability_observations
+                                    if scope is not None and matches_observation(
+                                        item, scope, arguments_fingerprint=None)), None)
+                if observation is None:
+                    retained.append(spec)
+                else:
+                    skipped.append({"event": "availability_skip", "tool_name": spec.name,
+                                    "observation_call_id": observation.original_call_id,
+                                    "denied_scope": observation.denied_scope})
+            specs = retained
+            if skipped and not specs:
+                reason = "runtime_capability_unavailable"
         if web_search_allowed:
             try:
                 web_spec = self._search_service.resolve_specs(["web_search"])[0]
@@ -85,7 +111,8 @@ class ToolCandidateResolver:
         elif not specs:
             reason = "research_budget_exhausted"
         return ToolCandidateResolution(
-            candidates=tuple(specs), hits=hits, tool_choice="auto", fallback_reason=reason
+            candidates=tuple(specs), hits=hits, tool_choice="auto", fallback_reason=reason,
+            availability_skips=tuple(skipped),
         )
 
     def _qualified(self, hit: ToolSearchHit) -> bool:

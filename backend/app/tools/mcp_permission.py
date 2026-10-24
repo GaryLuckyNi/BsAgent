@@ -23,6 +23,15 @@ _DENIAL_MESSAGE = re.compile(
     r"|access denied\b|forbidden\b)",
     re.IGNORECASE,
 )
+_EXECUTION_HINT = re.compile(
+    r"已(?:经)?(?:执行|写入|保存|提交)|already (?:executed|written|saved|committed)"
+    r"|partial(?:ly)? (?:result|data|execution)", re.IGNORECASE,
+)
+_OTHER_ERROR_SUBJECTS = (
+    (re.compile(r"^(?:超过调用频次|请求过于频繁|rate limit exceeded)", re.IGNORECASE), "provider_rate_limited"),
+    (re.compile(r"^(?:账户额度不足|额度不足|quota exceeded)", re.IGNORECASE), "provider_quota_exceeded"),
+    (re.compile(r"^(?:缺少必要参数|参数错误|invalid parameters)", re.IGNORECASE), "provider_invalid_request"),
+)
 
 
 def remote_permission_denied(value: Any) -> bool:
@@ -36,16 +45,16 @@ def has_execution_result(value: Any, *, _depth: int = 0) -> bool:
         return True
     value = _decoded(value)
     if isinstance(value, str):
-        return len(value) > 100_000
+        return len(value) > 100_000 or bool(_EXECUTION_HINT.search(value))
     if isinstance(value, list):
         return len(value) > 32 or any(has_execution_result(x, _depth=_depth + 1) for x in value)
     if not isinstance(value, dict):
         return False
     if (value.get("status") in ("success", "complete", "completed", "partial")
-            or any(value.get(key) is not None for key in ("data", "result", "results"))):
+            or any(value.get(key) is not None for key in ("data", "result", "results", "output"))):
         return True
     return any(has_execution_result(value.get(key), _depth=_depth + 1)
-               for key in ("structured_content", "structuredContent", "text", "content", "error"))
+               for key in ("structured_content", "structuredContent", "text", "content", "error", "message", "msg"))
 
 
 def permission_failure_envelope(payload: Any) -> bool:
@@ -96,6 +105,11 @@ def classify_mcp_failure(payload, *, error_context: bool, pre_execution_semantic
         rule = "mcp-error-code-v1"
         if code is None and isinstance(message, str) and standalone_permission_denied(message):
             code, rule = "provider_permission_denied", "mcp-denial-subject-v1"
+        if code is None and isinstance(message, str):
+            for pattern, category in _OTHER_ERROR_SUBJECTS:
+                if pattern.match(message.strip()):
+                    code, rule = category, "mcp-error-subject-v1"
+                    break
         if code is None:
             continue
         pre_execution = pre_execution_semantics and code == "provider_permission_denied"
@@ -110,3 +124,14 @@ def classify_mcp_failure(payload, *, error_context: bool, pre_execution_semantic
             "has_partial_result": False, "denied_scope": "arguments",
         }
     return None
+
+
+def mcp_failure_envelope(payload) -> bool:
+    if not isinstance(payload, dict) or has_execution_result(payload):
+        return False
+    code = payload.get("code")
+    return (
+        (isinstance(code, str) and code.lower() in _ERROR_CODES)
+        or (code not in (None, 0, "0") and "msg" in payload and "data" in payload)
+        or payload.get("status") == "failed" or isinstance(payload.get("error"), dict)
+    )

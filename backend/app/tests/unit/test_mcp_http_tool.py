@@ -273,15 +273,21 @@ def test_explicit_remote_permission_denial_is_normalized_without_raw_secrets(mon
     assert "secret" not in str(result.model_dump())
 
 
-@pytest.mark.parametrize("text", ["参数错误", "connection timed out", "permission service unavailable", "授权检查服务内部错误"])
-def test_unknown_remote_errors_do_not_become_permission_denial(monkeypatch, text):
+@pytest.mark.parametrize("text,code", [
+    ("参数错误", "provider_invalid_request"),
+    ("connection timed out", "mcp_tool_execution_failed"),
+    ("permission service unavailable", "mcp_tool_execution_failed"),
+    ("授权检查服务内部错误", "mcp_tool_execution_failed"),
+])
+def test_non_permission_remote_errors_keep_their_category(monkeypatch, text, code):
     tool = _dynamic_tool("income_vip", {})
     async def invoke(_value):
         return ToolMessage(content=text, tool_call_id="remote-1", status="error")
     monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
     result = asyncio.run(tool.run(tool.input_model.model_validate({})))
-    assert result.error.code == "mcp_tool_execution_failed"
+    assert result.error.code == code
     assert result.status == "failed"
+    assert result.execution_state == "uncertain"
 
 
 @pytest.mark.parametrize("name", ["income_vip", "fina_mainbz", "unknown_new_api", "write_account"])
@@ -387,3 +393,17 @@ def test_adapter_execution_certainty_requires_trusted_protocol_semantics(monkeyp
     assert result.error.details["rule_id"]
     assert result.error.details["denied_scope"] == "arguments"
     assert "top-secret" not in result.model_dump_json()
+
+
+def test_unknown_failure_envelope_is_not_a_successful_business_result():
+    tool = _dynamic_tool("new_api", {"code": -999, "msg": "未知上游错误", "data": None})
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.status == "failed"
+    assert result.error.code == "mcp_tool_execution_failed"
+    assert result.execution_state == "uncertain"
+
+
+def test_business_code_field_is_not_itself_an_error_envelope():
+    payload = {"code": "600519", "name": "公司资料"}
+    tool = _dynamic_tool("new_api", payload)
+    assert asyncio.run(tool.run(tool.input_model.model_validate({}))).result == payload

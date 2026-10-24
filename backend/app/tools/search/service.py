@@ -59,6 +59,9 @@ class ToolSearchService:
     def resolve_specs(self, tool_names: Sequence[str]) -> list[ToolSpec]:
         return [self._registry.get(tool_name).spec for tool_name in tool_names]
 
+    def execution_binding_digest(self, name: str, version: str) -> str:
+        return self._registry.get(name, version).execution_binding_digest
+
     @staticmethod
     def _allowed_by_skill(
         tool_name: str,

@@ -1,6 +1,8 @@
 import asyncio
 import json
+import logging
 from collections.abc import Callable
+from dataclasses import asdict
 from datetime import datetime
 from hashlib import sha256
 from typing import Any
@@ -56,8 +58,16 @@ from app.tools.redaction import (
     reject_server_injected_arguments,
 )
 from app.tools.registry import ToolCatalogChangedError, ToolRegistry
+from app.tools.runtime_capabilities import (
+    arguments_fingerprint,
+    observe_denial,
+    read_observations,
+    scope_for,
+)
 
 BUSINESS_FAILURE_CODES = {
+    "tool_capability_unavailable",
+    "search_invocation_unresolved",
     "invalid_field_request",
     "provider_invalid_request",
     "provider_permission_denied",
@@ -251,6 +261,19 @@ def build_tool_agent_node(
                     context=_execution_context(state, task, request),
                 )
             )
+        from app.conversations.execution import current_execution
+
+        try:
+            observation = observe_denial(
+                scope=scope_for(_execution_context(state, task, request), registry.get(request.tool_name)),
+                call_id=request.call_id, arguments_fingerprint=arguments_fingerprint(
+                    request, tool_version=tool_spec.version,
+                ), result=result, receipt_settled=current_execution.get() is not None,
+            )
+            if observation is not None:
+                selection_update["capability_observations"] = {request.call_id: asdict(observation)}
+        except Exception as exc:  # noqa: BLE001 - 派生投影失败不能丢失已经结算的工具结果
+            logging.getLogger(__name__).warning("capability_projection_failed type=%s", type(exc).__name__)
         record = record.model_copy(update={"result": result})
         contexts = selection_update.get(
             "tool_selection_contexts", state.get("tool_selection_contexts", {})
@@ -466,6 +489,8 @@ def _resolve_candidates(
         permission_scopes=tuple(state["permission_scopes"]),
         has_successful_dependencies=has_successful_dependencies,
         web_search_allowed=bool(state.get("web_search_allowed", True)),
+        request_id=state["request_id"],
+        capability_observations=read_observations(state.get("capability_observations", {}).values()),
     )
 
 
@@ -484,6 +509,7 @@ def _discovery_update(
                 "candidates": names,
                 "hits": [hit.tool_name for hit in resolution.hits],
                 "reason": resolution.fallback_reason,
+                **({"availability_skips": list(resolution.availability_skips)} if resolution.availability_skips else {}),
             }
         },
     }
@@ -809,6 +835,8 @@ def _execution_context(state, task, request):
         tenant_id=state["tenant_id"],
         user_id=state["user_id"],
         session_id=state["session_id"],
+        request_id=state["request_id"],
+        capability_observations=read_observations(state.get("capability_observations", {}).values()),
         business_trace_id=state["trace_id"],
         allowed_tools=(request.tool_name,),
         permission_scopes=tuple(state["permission_scopes"]),

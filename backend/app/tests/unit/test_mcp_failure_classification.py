@@ -27,6 +27,7 @@ def test_pre_execution_permission_variants(message):
     {"message": "文档说明：permission denied 时联系管理员"},
     "If permission denied, use a different token",
     "Previous call: permission denied; current call failed after writing",
+    "抱歉，您没有接口访问权限，但已保存部分数据",
 ])
 def test_business_data_and_quoted_denial_are_not_pre_execution_proof(payload):
     found = mcp_permission.classify_mcp_failure(
@@ -77,3 +78,17 @@ def test_no_error_context_means_no_classification():
         {"code": "permission_denied"}, error_context=False,
         pre_execution_semantics=True,
     ) is None
+
+
+@pytest.mark.parametrize("message,expected", [
+    ("超过调用频次", "provider_rate_limited"),
+    ("账户额度不足", "provider_quota_exceeded"),
+    ("缺少必要参数", "provider_invalid_request"),
+])
+def test_native_error_message_categories_remain_distinct(message, expected):
+    found = mcp_permission.classify_mcp_failure(
+        {"code": -2002, "msg": message, "data": None}, error_context=True,
+        pre_execution_semantics=True,
+    )
+    assert found["code"] == expected
+    assert found["execution_state"] == "uncertain"
