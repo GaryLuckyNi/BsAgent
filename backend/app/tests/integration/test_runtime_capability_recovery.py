@@ -384,6 +384,85 @@ def test_medium_risk_healthy_call_waits_for_peer_refusal_settlement_without_disa
         assert len(receipts) == 2 and all(row.status == "settled" for row in receipts)
 
 
+@pytest.mark.parametrize("permission_denied", [False, True])
+def test_three_medium_calls_do_not_drop_a_second_deferred_attempt(
+    control, monkeypatch, permission_denied,
+):
+    """首轮两个等待项；重派时不能再互相碰撞并丢掉其中一个。"""
+    import asyncio
+    from threading import Event, Lock
+
+    from app.conversations.execution import ExecutionControl, UnresolvedToolEffect
+    from app.schemas.tools import ToolCallResult, ToolError
+    from app.storage.models import AgentRunToolReceipt
+    from app.tests.unit.test_permission_fallback import DeniedTool
+
+    initial_waiters, repeated_collision = Event(), Event()
+    lock, blocked = Lock(), []
+    original_guard = ExecutionControl.ensure_tool_effects_resolved
+
+    def guard(self, **kwargs):
+        try:
+            return original_guard(self, **kwargs)
+        except UnresolvedToolEffect:
+            if kwargs.get("db") is not None:
+                with lock:
+                    blocked.append(kwargs.get("call_id"))
+                    if len(blocked) >= 2:
+                        initial_waiters.set()
+                    if len(blocked) >= 3:
+                        repeated_collision.set()
+            raise
+
+    async def run(self, input_data):
+        with lock:
+            self.calls += 1
+            attempt = self.calls
+        if attempt == 1:
+            assert await asyncio.to_thread(initial_waiters.wait, 3)
+        elif attempt == 2:
+            # 旧实现会并发重派两个等待项，确保其二次碰撞发生在本次结果落盘之前。
+            # 修复后只派发一个，这里超时继续即可，不要求制造不存在的碰撞。
+            await asyncio.to_thread(repeated_collision.wait, 1)
+        return ToolCallResult(
+            tool_call_id=f"result_{attempt}", tool_name=self.name, trace_id="",
+            status="denied" if permission_denied else "success",
+            execution_state="not_started" if permission_denied else "completed",
+            result=None if permission_denied else {"data": [attempt]},
+            error=(ToolError(code="provider_permission_denied", message="权限不足")
+                if permission_denied else None),
+        )
+
+    monkeypatch.setattr(ExecutionControl, "ensure_tool_effects_resolved", guard)
+    monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    monkeypatch.setattr(DeniedTool, "run", run)
+    graph, state, data, search, client, _ = batch_graph(control, monkeypatch)
+    state["plan"]["tasks"][2].update(
+        execution_type="tool", source_requirement="public_information",
+    )
+    config = {"configurable": {"thread_id": "three-medium"}}
+    with execution_control(control):
+        finished = graph.invoke(state, config)
+        assert data.calls == client.calls == 3
+        if permission_denied:
+            payload = finished["__interrupt__"][0].value
+            assert len(payload["recovery_batch"]["items"]) == 3 and search.calls == 0
+            finished = graph.invoke(confirm(payload), config)
+            assert search.calls == 3
+        else:
+            assert "__interrupt__" not in finished and search.calls == 0
+    assert all(row["status"] == "success" for row in finished["task_results"])
+    assert len(finished["task_results"]) == 3
+    assert data.calls == client.calls == 3
+    assert len(blocked) == 2
+    with control.session_factory() as db:
+        receipts = list(db.scalars(select(AgentRunToolReceipt).where(
+            AgentRunToolReceipt.run_id == control.run_id,
+            AgentRunToolReceipt.tool_name == data.name,
+        )))
+        assert len(receipts) == 3 and all(row.status == "settled" for row in receipts)
+
+
 def test_budget_is_shared_with_prior_searches_and_consumed_in_stable_batch_order(
     control, monkeypatch
 ):

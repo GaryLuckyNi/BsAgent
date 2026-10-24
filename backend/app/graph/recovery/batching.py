@@ -178,7 +178,9 @@ def deferred_sends(state):
         for row in (state.get("plan") or {}).get("tasks", [])
     }
     for call_id, deferred in sorted(state.get("deferred_tool_calls", {}).items()):
-        if deferred["task_id"] in completed or deferred.get("status") != "waiting":
+        # 已形成恢复事项的原调用已经执行并结算，不能再当作未派发等待项。
+        if (deferred["task_id"] in completed or call_id in state.get("recovery_items", {})
+                or deferred.get("status") != "waiting"):
             continue
         context = state["tool_selection_contexts"][call_id]
         record = records[call_id]
@@ -202,7 +204,9 @@ def deferred_sends(state):
                 },
             )
         )
-    return sends
+    # 中高风险副作用保护只容许一个未结算调用；等待项一起重派会再次竞争，
+    # 将仍未远端开始的调用误记为最终失败。每次只放行一个，其他项保留原参数继续等待。
+    return sends[:1]
 
 
 def settle_blocked_deferred(state, registry):
@@ -216,7 +220,8 @@ def settle_blocked_deferred(state, registry):
     results = []
     records = {row.request.call_id: row for row in state.get("tool_calls", [])}
     for call_id, deferred in sorted(state.get("deferred_tool_calls", {}).items()):
-        if deferred["task_id"] in completed or deferred.get("status") != "waiting":
+        if (deferred["task_id"] in completed or call_id in state.get("recovery_items", {})
+                or deferred.get("status") != "waiting"):
             continue
         record = records[call_id]
         try:
