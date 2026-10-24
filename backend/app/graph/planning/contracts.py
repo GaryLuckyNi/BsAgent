@@ -17,6 +17,7 @@ class SubTaskModel(BaseModel):
     evidence_task_ids: list[str] = Field(default_factory=list, max_length=24)
     depends_on: list[str] = Field(default_factory=list, max_length=16)
     skill_name: str | None = None
+    source_requirement: Literal["public_information", "original_data", "unclear"] = "unclear"
 
     @model_validator(mode="after")
     def validate_execution_capability(self):

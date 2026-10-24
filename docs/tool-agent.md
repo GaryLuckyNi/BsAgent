@@ -1,8 +1,16 @@
 # Tool Agent、Function Calling 与 MCP
 
-> 2026-10-24：默认关闭的新批次恢复已完成当前受控代码回归，启用仍受来源契约和专用 PostgreSQL 并发验证约束，见[第三检查点](./acceptance/2026-10-24-runtime-capability-recovery.md)。下文内存预算和单项恢复描述对应原兼容模式。
+> 2026-10-24：新批次恢复默认关闭；来源政策已最小接入，专用 PostgreSQL 两项恢复并发测试已通过，另有五项已在修改前复现的历史数据库回归失败，详见[来源政策验收](./acceptance/2026-10-24-recovery-source-policy.md)。下文内存预算和单项恢复描述对应原兼容模式。
 
 新模式的普通及替代搜索均经 Gateway 共享持久化六次预算，调用身份稳定；完整结果摘要可复用，running/unknown/不完整结果不重发。恢复不重跑工具选择模型，仍保留正常 Planner 证据评审。TaskResult success 表示本次执行观察，不证明原任务验收或原接口数据已满足。
+
+### 新模式来源约束的最小接入
+
+`BS_AGENT_PERMISSION_RECOVERY_SOURCE_POLICY` 默认 `unknown`；显式配置为 `public_supplement_only` 后，业务仅允许询问用户是否补充公开资料，并不自动执行搜索，也不承认原接口等价替代。新 Run 冻结版本化配置，恢复前与当前配置重新比较；配置放宽不能升级旧 Run，撤回会拒绝旧批次。总开关仍默认关闭，配置示例不代表完成生产启用验收。
+
+既有 Intent Router 同一次调用提取 `source_constraint`（`unrestricted/original_only/unclear`），既有 Planner 同一次调用提取任务 `source_requirement`（`public_information/original_data/unclear`），不增加模型调用。局部来源限制保守收紧整个请求。只有服务端契约允许、请求不限来源、任务可用公开资料且不绑定固定 Skill，才可能进入原有批次确认；缺字段默认 unclear，模型不能通过输出 allowed 授权搜索。
+
+原始序列/结构化数据计算、指定来源、固定流程和未知约束均不走替代搜索，返回业务缺口，不因此抛权限异常结束整个 Run。可独立执行的健康任务继续；依赖缺失数据的任务不能冒充完成。自然语言约束识别仍依赖既有模型，不保证任意自由文本绝不误解；强制来源限制需要结构化请求契约，当前未增加这类新 UI 或后台系统。
 
 固定 Skill 验收查找冻结工具/版本的成功且执行确定的原始调用，再检查必需字段；不能把另一条搜索文章当成原始序列。JSON schema 只证明其实际可执行的字段、类型、数组长度等条件，不证明模型生成数字真实，也不自动验证任意自然语言期间要求。
 

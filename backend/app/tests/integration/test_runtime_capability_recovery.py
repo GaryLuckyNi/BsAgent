@@ -2,6 +2,7 @@
 
 import pytest
 from app.conversations.execution import execution_control
+from app.core import config as app_config
 from app.graph.nodes import tool_agent
 from app.graph.nodes.user_input_gate import user_input_gate_node
 from app.graph.recovery.batching import capture_dispatch
@@ -31,20 +32,20 @@ def telemetry(request):
 
 
 def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planner_node=None):
+    monkeypatch.setattr(app_config, "settings", app_config.settings.model_copy(
+        update={"permission_recovery_source_policy": "public_supplement_only"}
+    ))
     worker, _, data, search, client, registry = setup_worker()
-    # 明确的受控业务契约替身，不让 LLM 或全局目录声明来源等价。
-    original_context = tool_agent.selection_context
+    # 默认使用生产来源解析；只在非法/缺失快照用例注入错误，不再注入 allowed 替身。
+    if policy is not None:
+        original_context = tool_agent.selection_context
 
-    def context(*args, **kwargs):
-        value = original_context(*args, **kwargs)
-        value["source_policy"] = (
-            policy
-            if policy is not None
-            else {"public_alternative": "allowed", "basis": ["test-contract:public-materials-v1"]}
-        )
-        return value
+        def context(*args, **kwargs):
+            value = original_context(*args, **kwargs)
+            value["source_policy"] = policy
+            return value
 
-    monkeypatch.setattr(tool_agent, "selection_context", context)
+        monkeypatch.setattr(tool_agent, "selection_context", context)
     with control.session_factory() as db:
         run = db.get(AgentRun, control.run_id)
         assistant = db.scalar(
@@ -65,10 +66,13 @@ def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planne
             permission_scopes=["web:search"],
         )
     state["recovery_policy_version"] = RECOVERY_VERSION
+    state["intent"] = {"source_constraint": "unrestricted"}
     state["plan"] = {
         "tasks": [
-            {"id": "income", "task_goal": "查询利润表", "completion_criteria": ["保留报告期间"]},
-            {"id": "cashflow", "task_goal": "查询现金流", "completion_criteria": ["保留报告期间"]},
+            {"id": "income", "task_goal": "查询利润表公开披露", "completion_criteria": ["保留报告期间"],
+             "source_requirement": "public_information"},
+            {"id": "cashflow", "task_goal": "查询现金流公开披露", "completion_criteria": ["保留报告期间"],
+             "source_requirement": "public_information"},
             {"id": "healthy", "task_goal": "分析已有材料", "execution_type": "analysis"},
         ]
     }
@@ -162,6 +166,86 @@ def confirm(payload, value="web_search"):
             "batch_digest": payload["recovery_batch"]["digest"],
         }
     )
+
+
+def test_production_source_contract_reaches_interrupt_without_allowed_policy_stub(control, monkeypatch):
+    graph, state, _, search, _, _ = batch_graph(control, monkeypatch)
+    with execution_control(control):
+        paused = graph.invoke(state, {"configurable": {"thread_id": "real-source-contract"}})
+    assert "__interrupt__" in paused and search.calls == 0
+    for context in paused["tool_selection_contexts"].values():
+        assert context["source_policy"]["basis"][0] == "runtime-contract:public-supplement-v1"
+
+
+def test_existing_router_and_planner_produce_source_labels_without_additional_calls(
+    control, monkeypatch, business_intent_catalog,
+):
+    from app.graph.nodes.intent_router import build_intent_router_node
+    from app.graph.nodes.planner_agent import build_planner_agent_node
+    from app.tests.unit.test_dynamic_planner import RecordingLlmClient
+    from app.tests.unit.test_intent_router import FakeLlmClient
+
+    graph, state, _, search, _, _ = batch_graph(control, monkeypatch)
+    router_llm = FakeLlmClient({
+        "intent_type": "financial_research", "domain": "a_share_equity_research",
+        "subdomain": "financial_report_analysis", "goal": state["user_message"],
+        "confidence": 0.95, "source_constraint": "unrestricted",
+    })
+    planner_llm = RecordingLlmClient(state["plan"])
+    state["plan"] = None
+    build_intent_router_node(catalog=business_intent_catalog, llm_client=router_llm)(state)
+    build_planner_agent_node(llm_client=planner_llm)(state)
+    with execution_control(control):
+        paused = graph.invoke(state, {"configurable": {"thread_id": "existing-model-passes"}})
+    assert "__interrupt__" in paused and search.calls == 0
+    assert len(router_llm.calls) == len(planner_llm.calls) == 1
+    assert all("test-contract" not in str(row["source_policy"])
+        for row in paused["tool_selection_contexts"].values())
+
+
+def test_original_data_task_keeps_gap_while_public_task_can_be_confirmed(control, monkeypatch):
+    graph, state, _, search, _, _ = batch_graph(control, monkeypatch)
+    state["plan"]["tasks"][0]["source_requirement"] = "original_data"
+    config = {"configurable": {"thread_id": "mixed-source-contract"}}
+    with execution_control(control):
+        paused = graph.invoke(state, config)
+        payload = paused["__interrupt__"][0].value
+        assert len(payload["recovery_batch"]["items"]) == 1 and search.calls == 0
+        finished = graph.invoke(confirm(payload), config)
+    results = {row["task_id"]: row for row in finished["task_results"]}
+    assert results["income"]["status"] == "business_failure"
+    assert results["cashflow"]["status"] == results["healthy"]["status"] == "success"
+    assert "原接口数据仍缺失" in results["income"]["content"]
+    assert search.calls == 1
+
+
+@pytest.mark.parametrize("restriction", ["original_only", "unclear", None])
+def test_request_source_constraint_returns_gap_without_interrupt_or_external_search(
+    control, monkeypatch, restriction,
+):
+    graph, state, _, search, _, _ = batch_graph(control, monkeypatch)
+    state["intent"] = {} if restriction is None else {"source_constraint": restriction}
+    with execution_control(control):
+        finished = graph.invoke(state, {"configurable": {"thread_id": "restricted-request"}})
+    assert "__interrupt__" not in finished and search.calls == 0
+    assert sum(row["status"] == "business_failure" for row in finished["task_results"]) == 2
+    assert any(row["task_id"] == "healthy" and row["status"] == "success" for row in finished["task_results"])
+
+
+def test_source_deployment_revocation_after_confirmation_blocks_execution(control, monkeypatch):
+    from app.core import config as app_config
+    from app.graph.nodes.user_input_gate import UserInputResumeError
+
+    graph, state, _, search, _, _ = batch_graph(control, monkeypatch)
+    config = {"configurable": {"thread_id": "source-revoked"}}
+    with execution_control(control):
+        paused = graph.invoke(state, config)
+        monkeypatch.setattr(app_config, "settings", app_config.settings.model_copy(
+            update={"permission_recovery_source_policy": "unknown"}
+        ))
+        with pytest.raises(UserInputResumeError):
+            graph.invoke(confirm(paused["__interrupt__"][0].value), config)
+    assert search.calls == 0
 
 
 def test_results_landed_before_checkpoint_failure_are_reused_without_remote_replay(
@@ -509,7 +593,8 @@ def test_new_task_has_new_batch_and_cannot_inherit_the_old_confirmation(control,
         first = paused["__interrupt__"][0].value
         finished = graph.invoke(confirm(first), config)
         new_plan = {
-            "tasks": [*state["plan"]["tasks"], {"id": "later", "task_goal": "查询新的数据"}]
+            "tasks": [*state["plan"]["tasks"], {"id": "later", "task_goal": "查询新的公开资料",
+                "source_requirement": "public_information"}]
         }
         next_pause = graph.invoke(
             {
@@ -626,6 +711,7 @@ def test_recovery_does_not_reselect_tools_and_preserves_one_normal_planner_revie
         "domain": "equity",
         "subdomain": "company",
         "goal": "依据材料回答",
+        "source_constraint": "unrestricted",
     }
     config = {"configurable": {"thread_id": "one-review"}}
     with execution_control(control):

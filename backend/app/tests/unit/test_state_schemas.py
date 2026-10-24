@@ -50,7 +50,7 @@ def test_create_initial_state_contains_trace_and_empty_collections():
     assert state["planner_iteration"] == 0
 
 
-def test_intent_decision_keeps_only_scope_taxonomy_and_goal():
+def test_intent_decision_keeps_scope_goal_and_restrictive_source_label():
     result = IntentDecisionModel(
         intent_type="financial_research",
         domain="a_share_equity_research",
@@ -65,7 +65,9 @@ def test_intent_decision_keeps_only_scope_taxonomy_and_goal():
         "subdomain",
         "goal",
         "confidence",
+        "source_constraint",
     }
+    assert result.source_constraint == "unclear"
 
 
 def test_compat_session_key_uses_unambiguous_stable_identity_encoding():

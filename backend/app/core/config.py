@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     graph_checkpoint_postgres_url: str | None = None
     graph_recursion_limit: int = Field(default=128, ge=8, le=256)
     runtime_capability_recovery_enabled: bool = False
+    permission_recovery_source_policy: Literal["unknown", "public_supplement_only"] = "unknown"
     admin_base_url: str = "http://localhost:8002"
     skill_registry_base_url: str = "http://localhost:8010"
     intent_catalog_refresh_seconds: int = Field(default=30, ge=5, le=3600)

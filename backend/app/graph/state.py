@@ -34,6 +34,7 @@ class IntentDecision(TypedDict, total=False):
     subdomain: str | None
     goal: str | None
     confidence: float
+    source_constraint: Literal["unrestricted", "original_only", "unclear"]
 
 
 class EvidenceChannels(TypedDict):
@@ -257,6 +258,7 @@ class AgentState(TypedDict):
     tool_selection_contexts: Annotated[dict[str, Any], merge_discovery_events]
     capability_observations: Annotated[dict[str, Any], merge_discovery_events]
     recovery_policy_version: NotRequired[str | None]
+    recovery_source_policy: NotRequired[dict[str, str]]
     research_as_of: NotRequired[str]
     account_revision: NotRequired[str | None]
     active_dispatch_batch: NotRequired[dict[str, Any] | None]
@@ -327,6 +329,7 @@ def create_initial_state(
     attachment_ids: list[str] | None = None,
 ) -> AgentState:
     from app.core.config import settings
+    from app.graph.recovery.source_policy import configured_source_policy
     from app.schemas.recovery import RECOVERY_VERSION
 
     session_key = session_key or _compat_session_key(
@@ -362,6 +365,7 @@ def create_initial_state(
         "tool_selection_contexts": {},
         "capability_observations": {},
         "recovery_policy_version": RECOVERY_VERSION if settings.runtime_capability_recovery_enabled else None,
+        "recovery_source_policy": configured_source_policy(),
         "research_as_of": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
         "dispatch_batches": {}, "recovery_items": {}, "recovery_batches": {}, "recovery_outcomes": {},
         "deferred_tool_calls": {},

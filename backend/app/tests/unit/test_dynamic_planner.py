@@ -40,6 +40,22 @@ def _skill(name: str) -> SkillCard:
     )
 
 
+@pytest.mark.parametrize("requirement", ["public_information", "original_data", "unclear"])
+def test_task_source_requirement_is_preserved_without_granting_permission(requirement):
+    task = PlanModel.model_validate({"tasks": [{
+        "id": "facts", "task_goal": "获取研究证据", "source_requirement": requirement,
+    }]}).tasks[0]
+    assert task.source_requirement == requirement
+
+
+def test_missing_task_source_requirement_is_unclear_and_cannot_declare_allowed():
+    assert PlanModel.model_validate({"tasks": [{"id": "facts", "task_goal": "取证"}]}).tasks[0].source_requirement == "unclear"
+    with pytest.raises(ValidationError):
+        PlanModel.model_validate({"tasks": [{
+            "id": "facts", "task_goal": "取证", "source_requirement": "allowed",
+        }]})
+
+
 
 def test_plan_allows_reasoning_task_without_capability():
     plan = PlanModel.model_validate(
@@ -161,6 +177,8 @@ def test_llm_planner_only_discloses_skills_and_atomic_task_schema():
     assert "tools" not in prompt
     assert "tool_name" not in prompt["required_schema"]["tasks"][0]
     assert "tool_search_query" in prompt["required_schema"]["tasks"][0]
+    assert "source_requirement" in prompt["required_schema"]["tasks"][0]
+    assert len(llm.calls) == 1
     assert prompt["observations"][0]["error_code"] == "entity_not_found"
     assert prompt["timezone"] == "Asia/Shanghai"
     assert prompt["current_datetime"].startswith("20")
@@ -292,6 +310,7 @@ def test_planner_node_discovers_only_skills_and_stores_unbound_task_dag():
                     "evidence_task_ids": [],
                     "depends_on": [],
                 "skill_name": None,
+                "source_requirement": "unclear",
             }
         ]
     }

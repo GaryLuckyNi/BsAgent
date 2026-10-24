@@ -16,6 +16,7 @@ from app.graph.planning.contracts import (
     TaskResultModel,
 )
 from app.graph.planning.evidence_projection import bounded_search_coverage
+from app.graph.recovery.source_policy import resolve_source_policy
 from app.graph.state import AgentState
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError, ToolSpec
 from app.schemas.user_input import UserInputOption, UserInputRequest, UserInputSource
@@ -61,8 +62,7 @@ def selection_context(
         "task": task.model_dump(mode="json"),
         "call_id": request.call_id,
         "request_fingerprint": tool_call_fingerprint(request),
-        # 来源适用性不等于工具可用性。没有结构化业务依据时不默认允许替代。
-        "source_policy": {"public_alternative": "unknown", "basis": []},
+        "source_policy": resolve_source_policy(state, task),
         "dispatch_batch_id": (state.get("active_dispatch_batch") or {}).get("dispatch_batch_id"),
         "as_of": state.get("research_as_of"),
         "fixed_skill": bool(state.get("active_skill_step") or task.skill_name),

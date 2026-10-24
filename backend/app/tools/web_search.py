@@ -44,6 +44,8 @@ class WebSearchTool(Tool[WebSearchInput]):
     description = (
         "联网检索带来源的公开信息，用于当日市场涨跌原因、政策、新闻、公告、行业动态、"
         "事实核验和公司实体关系等需要新鲜或外部证据的投研任务。"
+        "仅补充公开资料，搜索成功不代表已取得原接口完整数据或满足计算条件；"
+        "用户或固定流程限定来源时不得自行替换。权限失败后的来源切换须走用户确认，不自动兜底。"
     )
     permission_scope: ClassVar[list[str]] = ["web:search"]
     risk_level = "low"

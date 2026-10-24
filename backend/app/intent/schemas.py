@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -21,6 +23,7 @@ class IntentDecisionModel(BaseModel):
     subdomain: str | None = None
     goal: str | None = None
     confidence: float = Field(ge=0, le=1)
+    source_constraint: Literal["unrestricted", "original_only", "unclear"] = "unclear"
 
     @model_validator(mode="after")
     def validate_scope_shape(self) -> "IntentDecisionModel":

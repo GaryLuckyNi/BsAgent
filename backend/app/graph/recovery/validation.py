@@ -7,6 +7,7 @@ from app.graph.nodes.user_input_gate import UserInputResumeError
 from app.graph.planning.contracts import SubTaskModel
 from app.graph.recovery.batching import batch_request, run_identity
 from app.graph.recovery.policy import eligible_recovery, seal_batch
+from app.graph.recovery.source_policy import resolve_source_policy
 from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.recovery import RECOVERY_VERSION, RecoveryBatch, RecoveryItem, snapshot_digest
 from app.schemas.tools import ToolCallResult
@@ -115,7 +116,8 @@ def make_recovery_item(state, task, request, result, selection, registry):
         result=result,
         receipt_settled=settled_original(state, request, result, registry),
         selection=selection,
-        source_allows_search=source_allows_search(selection),
+        source_allows_search=(source_allows_search(selection)
+            and selection["source_policy"] == resolve_source_policy(state, task)),
         consumed=request.call_id in state.get("recovery_outcomes", {}),
     )
     if not eligible:
@@ -133,7 +135,7 @@ def make_recovery_item(state, task, request, result, selection, registry):
             original_tool=request.tool_name,
             fallback_version=fallback["version"],
             fallback_binding=fallback["binding"],
-            source_constraint="允许公开替代来源；原接口数据仍缺失，不代表原验收条件已满足。",
+            source_constraint="仅允许经确认补充公开资料；原接口数据仍缺失，不代表原验收条件已满足。",
         )
     except ValueError:
         return None, "task_contract_too_large"
@@ -209,6 +211,7 @@ def _validate_batch(state, request, *, registry) -> RecoveryBatch:
             or task.task_goal != item.task_goal
             or tuple(task.completion_criteria) != item.completion_criteria
             or not source_allows_search(context)
+            or context.get("source_policy") != resolve_source_policy(state, task)
             or task.skill_name is not None
         ):
             raise invalid()
