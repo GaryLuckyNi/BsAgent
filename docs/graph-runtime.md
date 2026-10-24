@@ -1,5 +1,7 @@
 # Graph Runtime
 
+> 2026-10-24：默认关闭的新权限恢复模式新增确定性 `permission_recovery` 节点：同批收敛 → 完整清单确认 → 独立搜索 → 原 Planner 证据评审。Gate 不调用工具，恢复不重跑原 Tool Agent；普通主链保持不变。状态及启用限制见[第二检查点](./acceptance/2026-10-24-runtime-capability-recovery-batch.md)。
+
 ## 主链路
 
 BsAgent 使用单一动态任务图，不再按固定的知识问答、工具动作或 A 股模板分叉：

@@ -61,6 +61,11 @@ def selection_context(
         "task": task.model_dump(mode="json"),
         "call_id": request.call_id,
         "request_fingerprint": tool_call_fingerprint(request),
+        # 来源适用性不等于工具可用性。没有结构化业务依据时不默认允许替代。
+        "source_policy": {"public_alternative": "unknown", "basis": []},
+        "dispatch_batch_id": (state.get("active_dispatch_batch") or {}).get("dispatch_batch_id"),
+        "as_of": state.get("research_as_of"),
+        "fixed_skill": bool(state.get("active_skill_step") or task.skill_name),
         "candidates": [
             {
                 "name": spec.name,

@@ -1,5 +1,7 @@
 # Tool Agent、Function Calling 与 MCP
 
+> 2026-10-24：默认关闭的新批次恢复模式已接入 Gateway 的持久化搜索防重和 Run 预算。下文内存预算及单项恢复说明对应原兼容模式；新模式的真实来源依据、并发数据库验证及启用仍有门槛，见[第二检查点](./acceptance/2026-10-24-runtime-capability-recovery-batch.md)。
+
 ## 定位
 
 Tool Agent 执行 planner 给出的信息目标，不负责上层任务拆分。模型根据任务、已有材料和检索候选，自主决定是否调用工具以及调用哪个工具。

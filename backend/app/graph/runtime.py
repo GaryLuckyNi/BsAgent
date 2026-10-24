@@ -39,6 +39,14 @@ from app.graph.planning.policy import (
 from app.graph.planning.scheduler import ready_tasks
 from app.graph.planning.skill_workflow import dispatch_workflow, workflow_failed
 from app.graph.public_events import emit_public_progress
+from app.graph.recovery.batching import (
+    capture_dispatch,
+    deferred_sends,
+    dispatch_snapshot,
+    pending_batch_update,
+    settle_blocked_deferred,
+)
+from app.graph.recovery.executor import accept_confirmation, build_recovery_node
 from app.graph.state import (
     AgentState,
     build_checkpoint_thread_id,
@@ -61,6 +69,7 @@ from app.llm.factory import LlmClient
 from app.operations.langfuse_observability import langfuse_agent_run, langfuse_observation
 from app.operations.langfuse_scheduler import record_scheduler_dispatch, record_scheduler_input
 from app.schemas.messages import Message
+from app.schemas.recovery import RECOVERY_KIND, RECOVERY_VERSION
 from app.skills.factory import build_default_skill_registry
 from app.skills.registry import SkillRegistry
 from app.tools.call_budget import SearchCallBudget
@@ -308,7 +317,7 @@ _OPERATIONAL_RETRY_POLICY = RetryPolicy(
 
 
 def _node_retry_policy(node_name: str) -> tuple[RetryPolicy, ...] | None:
-    if node_name == "tool_agent":
+    if node_name in {"tool_agent", "permission_recovery"}:
         # 工具调用可能已经在上游产生副作用，不能因响应超时而重放整个节点。
         return ()
     return None
@@ -345,7 +354,9 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
     from app.graph.nodes.permission_fallback import PERMISSION_CODES, pending_permission_request
 
     update = {}
-    if (
+    if state.get("recovery_policy_version") == RECOVERY_VERSION:
+        update.update(pending_batch_update(state))
+    elif (
         not state.get("planner_stop_reason")
         and state.get("pending_user_input") is None
         and state.get("user_input_response") is None
@@ -374,6 +385,18 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
     return update
 
 
+def build_task_scheduler_node(registry: ToolRegistry):
+    def schedule(state):
+        blocked = settle_blocked_deferred(state, registry) if state.get("recovery_policy_version") == RECOVERY_VERSION else {}
+        staged_state = {**state}
+        if blocked.get("task_results"):
+            from app.graph.state import merge_task_results
+
+            staged_state["task_results"] = merge_task_results(state.get("task_results"), blocked["task_results"])
+        return {**blocked, **task_scheduler_node(staged_state)}
+    return schedule
+
+
 def _dispatch_after_scheduler(state: AgentState) -> str | list[Send]:
     with langfuse_observation(as_type="span", name="dispatch_task_scheduler") as observation:
         record_scheduler_input(observation, state)
@@ -384,6 +407,12 @@ def _dispatch_after_scheduler_impl(state: AgentState, observation: Any) -> str |
     if state.get("pending_user_input") is not None:
         return record_scheduler_dispatch(observation, "user_input_gate", "user_input_required")
     response = state.get("user_input_response")
+    if response is not None and response.source.kind == RECOVERY_KIND:
+        return record_scheduler_dispatch(observation, "permission_recovery", "permission_recovery_confirmed")
+    if state.get("recovery_policy_version") == RECOVERY_VERSION:
+        deferred = deferred_sends(state)
+        if deferred:
+            return record_scheduler_dispatch(observation, deferred, "settled_peer_allows_deferred_dispatch")
     if response is not None and response.source.kind == "provider_permission_fallback":
         # 先消费原调用的响应，避免并行结果触发重新规划而丢失恢复目标。
         context = state.get("tool_selection_contexts", {}).get(response.source.call_id, {})
@@ -441,10 +470,13 @@ def _dispatch_after_scheduler_impl(state: AgentState, observation: Any) -> str |
     # 固定工作流串行启动，避免与其他任务并发审批或修改调度状态。
     skill_task = next((task for task in ready if task.skill_name is not None), None)
     if skill_task is not None:
+        skill_payload = {**state, "active_task": skill_task.model_dump(), "active_skill_step": None}
+        if state.get("recovery_policy_version") == RECOVERY_VERSION:
+            skill_payload["active_dispatch_batch"] = dispatch_snapshot(state, [skill_task])
         return record_scheduler_dispatch(observation, [
             Send(
                 "skill_agent",
-                {**state, "active_task": skill_task.model_dump(), "active_skill_step": None},
+                skill_payload,
             )
         ], "skill_task_ready")
     for task in ready:
@@ -456,6 +488,8 @@ def _dispatch_after_scheduler_impl(state: AgentState, observation: Any) -> str |
         }
         if worker == "tool_agent":
             payload["web_search_allowed"] = remaining_web_slots > 0
+        if state.get("recovery_policy_version") == RECOVERY_VERSION:
+            payload["active_dispatch_batch"] = dispatch_snapshot(state, ready)
         sends.append(Send(worker, payload))
     return record_scheduler_dispatch(
         observation, sends, "ready_tasks", remaining_web_search_slots=remaining_web_slots,
@@ -602,20 +636,20 @@ def build_question_answer_graph(
         runner,
         runtime_aware=True,
     )
-    _add_harnessed_node(graph, "task_scheduler", task_scheduler_node, runner)
+    _add_harnessed_node(graph, "task_scheduler", build_task_scheduler_node(tool_registry_snapshot), runner)
     _add_harnessed_node(
         graph, "skill_step_check", build_skill_step_check_node(llm_client=llm_client), runner
     )
     _add_harnessed_node(
         graph,
         "skill_agent",
-        selected_skill_agent_node,
+        capture_dispatch(selected_skill_agent_node),
         runner,
     )
     _add_harnessed_node(
         graph,
         "tool_agent",
-        selected_tool_agent_node,
+        capture_dispatch(selected_tool_agent_node),
         runner,
     )
     _add_harnessed_node(
@@ -624,11 +658,15 @@ def build_question_answer_graph(
         build_approval_gate_node(tool_catalog_digest=tool_registry_snapshot.catalog_digest),
         runner,
     )
-    _add_harnessed_node(graph, "user_input_gate", user_input_gate_node, runner)
+    def input_gate(state):
+        return user_input_gate_node(state, accept_recovery=lambda *args: accept_confirmation(*args, registry=tool_registry_snapshot))
+
+    _add_harnessed_node(graph, "user_input_gate", input_gate, runner)
+    _add_harnessed_node(graph, "permission_recovery", build_recovery_node(tool_registry_snapshot), runner)
     _add_harnessed_node(
         graph,
         "analysis_agent",
-        build_analysis_agent_node(llm_client=llm_client),
+        capture_dispatch(build_analysis_agent_node(llm_client=llm_client)),
         runner,
     )
     _add_harnessed_node(
@@ -676,6 +714,7 @@ def build_question_answer_graph(
             "planner_agent": "planner_agent",
             "approval_gate": "approval_gate",
             "user_input_gate": "user_input_gate",
+            "permission_recovery": "permission_recovery",
             "synthesizer": "synthesizer",
         },
     )
@@ -684,6 +723,7 @@ def build_question_answer_graph(
     graph.add_edge("tool_agent", "task_scheduler")
     graph.add_edge("analysis_agent", "task_scheduler")
     graph.add_edge("user_input_gate", "task_scheduler")
+    graph.add_edge("permission_recovery", "task_scheduler")
     graph.add_conditional_edges(
         "approval_gate",
         _route_after_approval_gate,
@@ -1156,6 +1196,9 @@ def resume_user_input_graph(
     interaction_id: str,
     input_type: Literal["selection"],
     value: str,
+    presentation_version: str | None = None,
+    batch_digest: str | None = None,
+    expected_identity: dict[str, str] | None = None,
     skill_agent_node: Callable[[AgentState], AgentState] | None = None,
     tool_agent_node: Callable[[AgentState], AgentState] | None = None,
     store: BaseStore | None = None,
@@ -1200,6 +1243,14 @@ def resume_user_input_graph(
         },
     }
     snapshot = graph.get_state(config)
+    if expected_identity is not None and (
+        not snapshot.values
+        or any(snapshot.values.get(key) != value for key, value in expected_identity.items())
+    ):
+        raise AgentGraphExecutionError(
+            node_name="user_input_resume", message="恢复状态归属与原会话不匹配。",
+            code="user_input_resume_mismatch", http_status=409,
+        )
     if snapshot.values:
         _validate_planner_checkpoint(snapshot.values)
     interrupt_payload = _find_interrupt_payload(snapshot, interrupt_id=interrupt_id)
@@ -1215,6 +1266,38 @@ def resume_user_input_graph(
             code="user_input_resume_mismatch",
             http_status=409,
         )
+    presentation = interrupt_payload.get("recovery_batch")
+    pending = snapshot.values.get("pending_user_input")
+    pending_kind = pending.source.kind if pending is not None else None
+    if (
+        pending_kind == RECOVERY_KIND and (presentation is None or snapshot.values.get("recovery_policy_version") != RECOVERY_VERSION)
+        or pending_kind == "provider_permission_fallback" and snapshot.values.get("recovery_policy_version") == RECOVERY_VERSION
+    ):
+        raise AgentGraphExecutionError(
+            node_name="user_input_resume", message="权限恢复版本或完整批次元数据缺失，请重新发起请求。",
+            code="permission_recovery_version_mismatch", http_status=409,
+        )
+    if presentation is not None and (
+        not isinstance(presentation, dict)
+        or presentation_version != presentation.get("version")
+        or batch_digest != presentation.get("digest")
+    ):
+        raise AgentGraphExecutionError(
+            node_name="user_input_resume", message="恢复任务清单或显示协议不匹配，请刷新后重新确认。",
+            code="permission_recovery_presentation_mismatch", http_status=409,
+        )
+    if presentation is not None:
+        from app.schemas.recovery import RecoveryBatchView
+
+        try:
+            presented = RecoveryBatchView.model_validate(presentation)
+            if pending is None or pending.recovery_batch != presented:
+                raise ValueError("presentation_changed")
+        except ValueError as exc:
+            raise AgentGraphExecutionError(
+                node_name="user_input_resume", message="显示的恢复任务清单与服务端授权快照不一致。",
+                code="permission_recovery_presentation_mismatch", http_status=409,
+            ) from exc
     checkpoint_digest = snapshot.values.get("tool_catalog_digest")
     if snapshot.values and checkpoint_digest != tool_registry_snapshot.catalog_digest:
         _record_resume_catalog_guard_trace(
@@ -1229,6 +1312,19 @@ def resume_user_input_graph(
             code="tool_catalog_changed",
             http_status=409,
         )
+    if presentation is not None:
+        from app.graph.recovery.validation import validate_batch
+
+        validation_state = {**snapshot.values}
+        if permission_scopes is not None:
+            validation_state["permission_scopes"] = list(permission_scopes)
+        try:
+            validate_batch(validation_state, snapshot.values["pending_user_input"], registry=tool_registry_snapshot)
+        except ValueError as exc:
+            raise AgentGraphExecutionError(
+                node_name="user_input_resume", message="权限恢复授权或快照不匹配，请重新发起请求。",
+                code=getattr(exc, "code", "permission_recovery_snapshot_mismatch"), http_status=409,
+            ) from exc
     return graph.invoke(
         Command(
             # 来自恢复请求已认证 Principal；空列表表示权限已撤销，不能回退旧快照。
@@ -1237,6 +1333,8 @@ def resume_user_input_graph(
                 "interaction_id": interaction_id,
                 "input_type": input_type,
                 "value": value,
+                **({"presentation_version": presentation_version, "batch_digest": batch_digest}
+                   if presentation_version is not None or batch_digest is not None else {}),
             }
         ),
         config=config,

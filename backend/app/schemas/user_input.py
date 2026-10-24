@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.recovery import RECOVERY_KIND, RECOVERY_VERSION, RecoveryBatchView
+
 
 class _StrictFrozenModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -46,6 +48,7 @@ class UserInputRequest(_StrictFrozenModel):
     question: str = Field(min_length=1, max_length=500)
     options: tuple[UserInputOption, ...] = Field(min_length=2, max_length=10)
     source: UserInputSource
+    recovery_batch: RecoveryBatchView | None = None
 
     @field_validator("interaction_id", "question")
     @classmethod
@@ -60,6 +63,13 @@ class UserInputRequest(_StrictFrozenModel):
         values = [option.value for option in self.options]
         if len(values) != len(set(values)):
             raise ValueError("user input option values must be unique")
+        if (self.source.kind == RECOVERY_KIND) != (self.recovery_batch is not None):
+            raise ValueError("permission recovery requires its complete batch view")
+        if self.recovery_batch is not None and (
+            self.source.node != "task_scheduler" or self.source.task_id is not None
+            or self.source.call_id is not None or set(values) != {"web_search", "use_existing"}
+        ):
+            raise ValueError("permission recovery must use batch source and fixed choices")
         return self
 
 
@@ -68,6 +78,17 @@ class UserInputResponse(_StrictFrozenModel):
     input_type: Literal["selection"]
     value: str = Field(min_length=1, max_length=256)
     source: UserInputSource
+    presentation_version: str | None = Field(default=None, max_length=128)
+    batch_digest: str | None = Field(default=None, max_length=64)
+
+    @model_validator(mode="after")
+    def require_batch_presentation(self):
+        if self.source.kind == RECOVERY_KIND and (
+            self.presentation_version != RECOVERY_VERSION or self.batch_digest is None
+            or len(self.batch_digest) != 64
+        ):
+            raise ValueError("permission recovery presentation missing")
+        return self
 
     @field_validator("interaction_id", "value")
     @classmethod

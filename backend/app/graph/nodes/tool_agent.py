@@ -98,10 +98,20 @@ def build_tool_agent_node(
     budget = search_budget or SearchCallBudget(limit=MAX_WEB_SEARCH_TASKS)
 
     def node(state: AgentState) -> dict[str, Any]:
+        from app.graph.recovery.validation import require_control
+        from app.schemas.recovery import RECOVERY_VERSION
+
+        batch_recovery = state.get("recovery_policy_version") == RECOVERY_VERSION
+        if batch_recovery:
+            require_control(state)
         task, legacy_tool_name = _active_tool_task(state)
         registry = selected_registry_factory()
         _validate_tool_catalog(state, registry)
-        resumed_permission = consume_permission_response(
+        if batch_recovery and state.get("user_input_response") is not None and state["user_input_response"].source.kind == "provider_permission_fallback":
+            from app.graph.recovery.validation import invalid
+
+            raise invalid("permission_recovery_version_mismatch")
+        resumed_permission = None if batch_recovery else consume_permission_response(
             state=state, task=task, registry=registry, budget=budget
         )
         if resumed_permission is not None:
@@ -230,7 +240,7 @@ def build_tool_agent_node(
             }
 
         result = None
-        if request.tool_name == "web_search":
+        if request.tool_name == "web_search" and not batch_recovery:
             run_key = json.dumps([state["tenant_id"], state["session_id"], state["request_id"]])
             existing = tuple(
                 record.request.call_id
@@ -279,7 +289,35 @@ def build_tool_agent_node(
             "tool_selection_contexts", state.get("tool_selection_contexts", {})
         )
         context = contexts.get(request.call_id)
-        permission_input = permission_request(state, task, request, result, context)
+        if (batch_recovery and result.execution_state == "not_started" and result.error is not None
+                and result.error.code == "tool_side_effects_unresolved"
+                and request.call_id not in state.get("deferred_tool_calls", {})):
+            from app.graph.recovery.batching import has_remote_receipt
+
+            if context and context.get("dispatch_batch_id") and not has_remote_receipt(state, request.call_id):
+                return {**discovery_update, **selection_update, "messages": new_messages, "tool_calls": [record],
+                    "deferred_tool_calls": {request.call_id: {"task_id": task.id, "status": "waiting",
+                        "dispatch_batch_id": context["dispatch_batch_id"]}}}
+        if batch_recovery and result.error is not None and result.error.code == "provider_permission_denied":
+            from app.graph.recovery.validation import make_recovery_item
+
+            item, reason = make_recovery_item(state, task, request, result, context, registry)
+            update = {
+                **discovery_update, **selection_update, "tool_calls": [record],
+                "messages": [*new_messages, create_tool_result_message(
+                    tool_call_id=request.call_id or "", tool_name=request.tool_name,
+                    content=_tool_message_content(result), artifact=result.model_dump(mode="json"),
+                )],
+            }
+            if item is not None:
+                update["recovery_items"] = {item.original_call_id: item.model_dump(mode="json")}
+            else:
+                update["task_results"] = [TaskResultModel(
+                    task_id=task.id, status="business_failure", error_code=reason, tool_name=request.tool_name,
+                    content="原数据源权限不足；不满足已验证的替代来源约束，未搜索，原接口数据仍缺失。",
+                ).model_dump(mode="python")]
+            return update
+        permission_input = None if batch_recovery else permission_request(state, task, request, result, context)
         if permission_input is not None:
             return {
                 **discovery_update,
@@ -822,7 +860,11 @@ def _staged_request(state: AgentState, task: SubTaskModel) -> ToolCallRequest | 
         (
             record.request
             for record in state["tool_calls"]
-            if record.result is None
+            if (record.result is None or (
+                record.request.call_id in state.get("deferred_tool_calls", {})
+                and record.result.execution_state == "not_started" and record.result.error is not None
+                and record.result.error.code == "tool_side_effects_unresolved"
+            ))
             and record.request.call_id == _trusted_call_id(state, task, record.request.tool_name)
         ),
         None,
@@ -830,12 +872,15 @@ def _staged_request(state: AgentState, task: SubTaskModel) -> ToolCallRequest | 
 
 
 def _execution_context(state, task, request):
+    from app.schemas.recovery import RECOVERY_VERSION
+
     fixed = active_step(state)
     return ToolExecutionContext(
         tenant_id=state["tenant_id"],
         user_id=state["user_id"],
         session_id=state["session_id"],
         request_id=state["request_id"],
+        account_revision=state.get("account_revision"),
         capability_observations=read_observations(state.get("capability_observations", {}).values()),
         business_trace_id=state["trace_id"],
         allowed_tools=(request.tool_name,),
@@ -843,7 +888,13 @@ def _execution_context(state, task, request):
         approved_tool_calls=tuple(state["approved_tool_calls"]),
         research_context=SearchResearchContext(
             task_goal=task.task_goal, completion_criteria=tuple(task.completion_criteria),
-            as_of=datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+            as_of=state.get("research_as_of") or datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+        ),
+        search_budget_limit=(MAX_WEB_SEARCH_TASKS if state.get("recovery_policy_version") == RECOVERY_VERSION else None),
+        existing_search_call_ids=tuple(
+            row.request.call_id for row in state.get("tool_calls", [])
+            if row.request.tool_name == "web_search" and row.request.call_id and row.result is not None
+            and not (row.result.error and row.result.error.code == "research_budget_exhausted")
         ),
         skill_name=fixed[0].skill_name if fixed else task.skill_name,
         skill_allowed_tools=(fixed[1].tool_name,) if fixed else None,

@@ -28,6 +28,19 @@ class ClassifiedRecoverableError:
 
 
 _RECOVERABLE_ERROR_DEFINITIONS: Mapping[str, RecoverableErrorDefinition] = {
+    **{
+        code: RecoverableErrorDefinition(
+            code=code, message="权限恢复授权或快照不匹配，请刷新或重新发起请求。",
+            http_status=409, terminal=True,
+        )
+        for code in (
+            "permission_recovery_presentation_mismatch", "permission_recovery_context_required",
+            "permission_recovery_snapshot_mismatch", "permission_recovery_identity_mismatch",
+            "permission_recovery_version_mismatch", "permission_recovery_permission_revoked",
+            "permission_recovery_decision_conflict", "permission_recovery_decision_missing",
+            "permission_recovery_response_missing",
+        )
+    },
     "rag_index_unavailable": RecoverableErrorDefinition(
         code="rag_index_unavailable",
         message="检索服务暂不可用。",

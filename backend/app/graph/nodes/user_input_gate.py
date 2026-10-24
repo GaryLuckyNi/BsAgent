@@ -1,10 +1,11 @@
+from collections.abc import Callable
 from typing import Literal
 
 from langgraph.types import interrupt
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.graph.state import AgentState
-from app.schemas.user_input import UserInputResponse
+from app.schemas.user_input import UserInputRequest, UserInputResponse
 
 
 class _UserInputResume(BaseModel):
@@ -13,6 +14,8 @@ class _UserInputResume(BaseModel):
     interaction_id: str = Field(min_length=1, max_length=128)
     input_type: Literal["selection"]
     value: str = Field(min_length=1, max_length=256)
+    presentation_version: str | None = Field(default=None, max_length=128)
+    batch_digest: str | None = Field(default=None, max_length=64)
 
     @field_validator("interaction_id", "value")
     @classmethod
@@ -31,20 +34,24 @@ class UserInputResumeError(ValueError):
         super().__init__(message)
 
 
-def user_input_gate_node(state: AgentState) -> dict:
+def user_input_gate_node(
+    state: AgentState, *,
+    accept_recovery: Callable[[AgentState, UserInputRequest, str], None] | None = None,
+) -> dict:
     request = state.get("pending_user_input")
     if request is None:
         return {}
 
-    resume_value = interrupt(
-        {
+    payload = {
             "interrupt_type": "user_input",
             "interaction_id": request.interaction_id,
             "input_type": request.input_type,
             "question": request.question,
             "options": [option.model_dump(mode="json") for option in request.options],
         }
-    )
+    if request.recovery_batch is not None:
+        payload["recovery_batch"] = request.recovery_batch.model_dump(mode="json")
+    resume_value = interrupt(payload)
     try:
         resume = _UserInputResume.model_validate(resume_value)
     except ValidationError as exc:
@@ -68,6 +75,21 @@ def user_input_gate_node(state: AgentState) -> dict:
             code="user_input_selection_invalid",
         )
 
+    if request.recovery_batch is not None:
+        expected = request.recovery_batch
+        if resume.presentation_version != expected.version or resume.batch_digest != expected.digest:
+            raise UserInputResumeError(
+                "恢复任务清单或显示协议不匹配，请刷新后重新确认。",
+                code="permission_recovery_presentation_mismatch",
+            )
+        if accept_recovery is None:
+            raise UserInputResumeError(
+                "当前执行上下文不支持批次恢复，请重新发起请求。",
+                code="permission_recovery_context_required",
+            )
+        # 回调必须先校验服务端快照并持久化决定；等待节点不执行外部工具。
+        accept_recovery(state, request, resume.value)
+
     return {
         "pending_user_input": None,
         "user_input_response": UserInputResponse(
@@ -75,5 +97,7 @@ def user_input_gate_node(state: AgentState) -> dict:
             input_type=request.input_type,
             value=resume.value,
             source=request.source,
+            presentation_version=resume.presentation_version,
+            batch_digest=resume.batch_digest,
         ),
     }

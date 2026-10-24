@@ -2,6 +2,8 @@
 
 BsAgent 通过 `UserInputRequest` 和公共 `user_input_gate` 支持与业务 workflow 无关的用户输入中断。第一版只支持 `selection`，协议保留 `input_type` 字段，便于后续扩展确认和文本输入。
 
+> 2026-10-24：已增加默认关闭的批次权限恢复协议。下文原单项权限路径仍用于关闭开关的兼容模式；新模式使用完整 `recovery_batch` 清单、`presentation_version` / `batch_digest` 回执及独立恢复节点，不再恢复到原 Tool Agent。具体边界和未完成启用门槛见[第二检查点](./acceptance/2026-10-24-runtime-capability-recovery-batch.md)。普通 selection 载荷不变。
+
 ## 生产中断
 
 业务节点只需在 Agent State 写入 `pending_user_input`：

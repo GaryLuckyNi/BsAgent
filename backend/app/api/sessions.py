@@ -163,6 +163,8 @@ class _ProtocolUserInputResume(BaseModel):
     interaction_id: str = Field(min_length=1, max_length=128)
     input_type: Literal["selection"]
     value: str = Field(min_length=1, max_length=256)
+    presentation_version: str | None = Field(default=None, max_length=128)
+    batch_digest: str | None = Field(default=None, max_length=64)
 
 
 class _ProtocolUserInputCommand(BaseModel):
@@ -1432,6 +1434,13 @@ def _stream_user_input_resume(
             interaction_id=resume.interaction_id,
             input_type=resume.input_type,
             value=resume.value,
+            presentation_version=resume.presentation_version,
+            batch_digest=resume.batch_digest,
+            expected_identity={
+                "tenant_id": principal.tenant_id, "user_id": principal.user_id,
+                "session_id": handle.session_id, "session_key": handle.session_key,
+                "request_id": handle.request_id, "assistant_message_id": handle.assistant_message_id,
+            },
             store=memory_store,
             trace_buffer=trace_buffer,
             checkpointer=build_graph_checkpointer(),
@@ -1783,7 +1792,7 @@ def _user_input_interrupt_payloads(payloads: list[dict]) -> list[dict]:
 
 
 def _public_user_input_interrupt(payload: dict) -> dict:
-    return {
+    public = {
         "interrupt_type": "user_input",
         "interrupt_id": payload["interrupt_id"],
         "interaction_id": payload["interaction_id"],
@@ -1791,6 +1800,13 @@ def _public_user_input_interrupt(payload: dict) -> dict:
         "question": payload["question"],
         "options": payload["options"],
     }
+    if "recovery_batch" in payload:
+        from app.schemas.recovery import RecoveryBatchView
+
+        public["recovery_batch"] = RecoveryBatchView.model_validate(
+            payload["recovery_batch"]
+        ).model_dump(mode="json")
+    return public
 
 
 def _session_message_response(

@@ -1,12 +1,11 @@
 import pytest
-from pydantic import ValidationError
-
 from app.schemas.user_input import (
     UserInputOption,
     UserInputRequest,
     UserInputResponse,
     UserInputSource,
 )
+from pydantic import ValidationError
 
 
 def _source() -> UserInputSource:
@@ -99,3 +98,50 @@ def test_first_version_rejects_unimplemented_input_types():
             options=_options(),
             source=_source(),
         )
+
+
+def batch_view(count=2):
+    from app.schemas.recovery import RecoveryBatchView
+
+    return RecoveryBatchView(
+        batch_id="recovery_1", digest="a" * 64,
+        items=[{
+            "item_id": f"c{i}", "task_goal": f"研究目标{i}", "original_tool": "mcp.x.api",
+            "reason": "数据源账号权限不足", "source_notice": "公开来源不等价于原接口数据",
+        } for i in range(count)],
+    )
+
+
+def batch_request():
+    return UserInputRequest(
+        interaction_id="interaction_batch", input_type="selection", question="是否替代取证？",
+        options=[UserInputOption(value="web_search", label="对以上任务使用联网搜索"),
+                 UserInputOption(value="use_existing", label="仅使用已有资料")],
+        source=UserInputSource(node="task_scheduler", kind="provider_permission_recovery_batch"),
+        recovery_batch=batch_view(),
+    )
+
+
+def test_batch_source_cannot_masquerade_as_single_call_or_omit_view():
+    data = batch_request().model_dump(mode="json")
+    data["source"]["call_id"] = "c0"
+    with pytest.raises(ValidationError):
+        UserInputRequest.model_validate(data)
+    data["source"]["call_id"] = None
+    data["recovery_batch"] = None
+    with pytest.raises(ValidationError):
+        UserInputRequest.model_validate(data)
+
+
+def test_public_batch_rejects_oversized_or_duplicate_items_and_unknown_version():
+    from app.schemas.recovery import RecoveryBatchView
+
+    with pytest.raises(ValidationError):
+        batch_view(13)
+    data = batch_view().model_dump(mode="json")
+    data["items"][1]["item_id"] = data["items"][0]["item_id"]
+    with pytest.raises(ValidationError):
+        RecoveryBatchView.model_validate(data)
+    data = batch_view().model_dump(mode="json") | {"version": "future"}
+    with pytest.raises(ValidationError):
+        RecoveryBatchView.model_validate(data)

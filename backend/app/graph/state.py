@@ -1,7 +1,9 @@
 import json
+from datetime import datetime
 from hashlib import sha256
 from typing import Annotated, Any, Literal, NotRequired, TypedDict
 from uuid import NAMESPACE_URL, uuid4, uuid5
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import (
     AIMessage,
@@ -254,6 +256,15 @@ class AgentState(TypedDict):
     tool_discovery_events: Annotated[dict[str, Any], merge_discovery_events]
     tool_selection_contexts: Annotated[dict[str, Any], merge_discovery_events]
     capability_observations: Annotated[dict[str, Any], merge_discovery_events]
+    recovery_policy_version: NotRequired[str | None]
+    research_as_of: NotRequired[str]
+    account_revision: NotRequired[str | None]
+    active_dispatch_batch: NotRequired[dict[str, Any] | None]
+    dispatch_batches: Annotated[dict[str, Any], merge_discovery_events]
+    recovery_items: Annotated[dict[str, Any], merge_discovery_events]
+    recovery_batches: Annotated[dict[str, Any], merge_discovery_events]
+    recovery_outcomes: Annotated[dict[str, Any], merge_discovery_events]
+    deferred_tool_calls: Annotated[dict[str, Any], merge_discovery_events]
     tool_search_count: int
     selection_observation_id: Annotated[
         str | None,
@@ -315,6 +326,9 @@ def create_initial_state(
     tool_catalog_digest: str = "",
     attachment_ids: list[str] | None = None,
 ) -> AgentState:
+    from app.core.config import settings
+    from app.schemas.recovery import RECOVERY_VERSION
+
     session_key = session_key or _compat_session_key(
         session_id=session_id,
         tenant_id=tenant_id,
@@ -347,6 +361,10 @@ def create_initial_state(
         "tool_discovery_events": {},
         "tool_selection_contexts": {},
         "capability_observations": {},
+        "recovery_policy_version": RECOVERY_VERSION if settings.runtime_capability_recovery_enabled else None,
+        "research_as_of": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+        "dispatch_batches": {}, "recovery_items": {}, "recovery_batches": {}, "recovery_outcomes": {},
+        "deferred_tool_calls": {},
         "tool_search_count": 0,
         "selection_observation_id": None,
         "selection_confidence": None,
