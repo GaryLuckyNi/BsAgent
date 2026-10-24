@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 
 from app.graph.planning.contracts import SubTaskModel
 from app.graph.recovery.policy import seal_batch
+from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.recovery import (
     RECOVERY_KIND,
     RECOVERY_VERSION,
@@ -126,6 +127,13 @@ def pending_batch_update(state) -> dict:
         existing = state.get("recovery_batches", {}).get(batch.batch_id)
         if existing is not None and existing != batch.model_dump(mode="json"):
             raise ValueError("recovery_batch_changed")
+        if existing is None:
+            record_recovery_event(
+                "recovery_batch_sealed",
+                request_id=state["request_id"],
+                batch_id=batch.batch_id,
+                route_reason="dispatch_members_converged",
+            )
         return {
             "recovery_batches": {batch.batch_id: batch.model_dump(mode="json")},
             "pending_user_input": batch_request(batch),

@@ -61,3 +61,41 @@ def test_escaped_contract_does_not_evict_source_notice_or_coverage_from_bounded_
     assert "原接口数据仍缺失" in observation["source_notice"]
     assert observation["coverage"]["missing_criteria"] == ["实际序列"]
     assert len(original.completion_criteria) == 8
+
+
+def test_search_success_is_not_original_data_completion_or_independent_verification():
+    original = item(completion_criteria=("连续20日数据",))
+    result = ToolCallResult(
+        tool_call_id="result",
+        tool_name="web_search",
+        status="success",
+        trace_id="t",
+        result={
+            "query": "不复制此查询",
+            "answer": "相关文章，不是实际序列",
+            "results": [],
+            "coverage": {
+                "status": "partial",
+                "basis": "unknown",
+                "missing_criteria": ["连续20日数据"],
+            },
+        },
+    )
+    content = json.loads(executor._content(original, None, result))
+    assert content["coverage"]["basis"] == "search_model"
+    assert content["coverage"]["missing_criteria"] == ["连续20日数据"]
+    assert content["completion_criteria"] == list(original.completion_criteria)
+    assert "原接口数据仍缺失" in content["source_notice"]
+    assert "query" not in json.dumps(content)
+    assert result.result["coverage"]["basis"] == "unknown"
+
+
+def test_recovery_observation_does_not_forward_credentials_echoed_in_search_answer():
+    result = ToolCallResult(
+        tool_call_id="result",
+        tool_name="web_search",
+        status="success",
+        trace_id="t",
+        result={"answer": "Authorization: Bearer synthetic-search-secret", "results": []},
+    )
+    assert "synthetic-search-secret" not in executor._content(item(), None, result)

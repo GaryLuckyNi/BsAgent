@@ -25,9 +25,119 @@ INPUT = "langfuse.observation.input"
 OUTPUT = "langfuse.observation.output"
 
 
+def test_recovery_event_exports_only_bounded_machine_fields(telemetry):
+    from app.operations.langfuse_scheduler import record_recovery_event
+
+    runtime, exporter = telemetry
+    fields = {
+        "request_id": "req-1",
+        "original_call_id": "call-original",
+        "replacement_call_id": "call-search",
+        "batch_id": "recovery-1",
+        "rule_id": "mcp-error-code-v1",
+        "execution_state": "not_started",
+        "settlement_reason": "confirmed_not_started",
+        "availability_scope": "arguments",
+        "budget_disposition": "execute",
+        "coverage_status": "partial",
+        "route_reason": "web_search",
+    }
+    for event in (
+        "result_classified",
+        "receipt_settled",
+        "availability_skip",
+        "recovery_batch_sealed",
+        "recovery_decision",
+        "recovery_invalidated",
+        "recovery_dispatch",
+        "recovery_result",
+    ):
+        record_recovery_event(
+            event,
+            **fields,
+            query="synthetic-private-query",
+            answer="synthetic-private-answer",
+            error="Bearer synthetic-secret",
+        )
+    runtime.client.flush()
+    runtime.provider.force_flush()
+    spans = exporter.get_finished_spans()
+    assert len(spans) == 8
+    for span in spans:
+        exported = json.loads(span.attributes[OUTPUT])
+        assert exported == {"event": span.name, **fields}
+        assert "synthetic-private" not in str(span.attributes)
+        assert "synthetic-secret" not in str(span.attributes)
+
+
+def test_recovery_telemetry_fault_cannot_raise_into_business(monkeypatch):
+    from app.operations.langfuse_scheduler import record_recovery_event
+
+    def fail(**kwargs):
+        raise RuntimeError("synthetic-observer-secret")
+
+    monkeypatch.setattr(langfuse_observability, "langfuse_observation", fail)
+    assert (
+        record_recovery_event("recovery_result", request_id="req", coverage_status="partial")
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "reason,destination",
+    [
+        ("permission_recovery_confirmed", "permission_recovery"),
+        ("settled_peer_allows_deferred_dispatch", "tool_agent"),
+    ],
+)
+def test_recovery_scheduler_route_has_explanation_and_output(telemetry, reason, destination):
+    from app.operations.langfuse_observability import langfuse_observation
+    from app.operations.langfuse_scheduler import record_scheduler_dispatch
+
+    runtime, exporter = telemetry
+    with langfuse_observation(as_type="span", name="dispatch_task_scheduler") as observation:
+        assert record_scheduler_dispatch(observation, destination, reason) == destination
+    runtime.client.flush()
+    runtime.provider.force_flush()
+    assert json.loads(exporter.get_finished_spans()[0].attributes[OUTPUT])["reason"] == reason
+
+
+def test_scheduler_projects_recovery_refs_without_task_or_tool_payload_copies():
+    state = _state()
+    state["recovery_policy_version"] = "permission-recovery-batch-v1"
+    state["recovery_batches"] = {
+        "batch": {
+            "batch_id": "batch",
+            "items": [
+                {
+                    "original_call_id": "original",
+                    "task_goal": "private-recovery-goal",
+                    "selection_digest": "s",
+                }
+            ],
+        }
+    }
+    state["recovery_outcomes"] = {
+        "original": {
+            "batch_id": "batch",
+            "replacement_call_id": "search",
+            "coverage_status": "partial",
+            "status": "search_returned",
+            "answer": "private-answer",
+        }
+    }
+    summary = scheduler_trace_input(state)["recovery"]
+    assert summary["batches"][0] == {"batch_id": "batch", "original_call_ids": ["original"]}
+    assert summary["outcomes"][0]["coverage_status"] == "partial"
+    assert "private-recovery-goal" not in json.dumps(summary)
+    assert "private-answer" not in json.dumps(summary)
+
+
 def _state():
     state = create_initial_state(
-        session_id="private-session", tenant_id="private-tenant", user_id="private-user",
+        session_id="private-session",
+        tenant_id="private-tenant",
+        user_id="private-user",
         user_message="查行情，Authorization: Bearer synthetic-credential",
     )
     state["plan"] = {
@@ -39,11 +149,14 @@ def _state():
 def test_scheduler_trace_preserves_explicit_synthesis_handoff():
     state = _state()
     state["planner_decision"] = {
-        "action": "finish", "reason": "取证完成，由回答节点承接最终分析",
-        "synthesis_task_id": "final_analysis", "unresolved_questions": ["无需重复写入调度观测"],
+        "action": "finish",
+        "reason": "取证完成，由回答节点承接最终分析",
+        "synthesis_task_id": "final_analysis",
+        "unresolved_questions": ["无需重复写入调度观测"],
     }
     assert scheduler_trace_input(state)["planner_decision"] == {
-        "action": "finish", "reason": "取证完成，由回答节点承接最终分析",
+        "action": "finish",
+        "reason": "取证完成，由回答节点承接最终分析",
         "synthesis_task_id": "final_analysis",
     }
 
@@ -53,18 +166,24 @@ def telemetry(request):
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     params = getattr(getattr(request.node, "callspec", None), "params", {})
-    with httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={}))) as http:
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json={}))
+    ) as http:
         config = Settings(
-            _env_file=None, langfuse_enabled=True,
+            _env_file=None,
+            langfuse_enabled=True,
             langfuse_public_key=f"pk-lf-test-{uuid4().hex}",
             langfuse_secret_key="sk-lf-test-synthetic",
             langfuse_content_mode=params.get("mode", "local_content"),
             langfuse_max_content_chars=params.get("limit", 20000),
         )
         runtime = configure_langfuse(
-            config=config, provider_factory=lambda **_: provider,
+            config=config,
+            provider_factory=lambda **_: provider,
             client_factory=lambda **kwargs: Langfuse(
-                **kwargs, span_exporter=exporter, httpx_client=http,
+                **kwargs,
+                span_exporter=exporter,
+                httpx_client=http,
             ),
         )
         try:
@@ -80,14 +199,21 @@ def test_real_graph_exports_scheduler_update_and_dispatch_reason(telemetry, mode
     graph.add_node("task_scheduler", task_scheduler_node)
 
     def tool(state):
-        return {"task_results": [{
-            "task_id": "market", "status": "success", "content": "private-tool-result",
-        }]}
+        return {
+            "task_results": [
+                {
+                    "task_id": "market",
+                    "status": "success",
+                    "content": "private-tool-result",
+                }
+            ]
+        }
 
     def planner(state):
         return {
             "planner_reviewed_signature": observation_signature(
-                PlanModel.model_validate(state["plan"]), state["task_results"],
+                PlanModel.model_validate(state["plan"]),
+                state["task_results"],
             ),
             "planner_decision": {"action": "finish", "reason": "证据足够"},
             "planner_feedback_count": 1,
@@ -102,7 +228,9 @@ def test_real_graph_exports_scheduler_update_and_dispatch_reason(telemetry, mode
     graph.add_edge("planner_agent", "task_scheduler")
     graph.add_edge("synthesizer", END)
     with langfuse_agent_run(
-        business_trace_id=f"test-scheduler-{uuid4().hex}", session_key="s", tenant_id="t",
+        business_trace_id=f"test-scheduler-{uuid4().hex}",
+        session_key="s",
+        tenant_id="t",
         execution_segment="initial",
     ) as run:
         result = graph.compile().invoke(_state(), config={"callbacks": list(run)})
@@ -112,7 +240,9 @@ def test_real_graph_exports_scheduler_update_and_dispatch_reason(telemetry, mode
     dispatches = [span for span in spans if span.name == "dispatch_task_scheduler"]
     assert len(dispatches) == 3
     assert result["planner_feedback_count"] == 1
-    assert not any(span.attributes.get("langfuse.observation.type") == "generation" for span in spans)
+    assert not any(
+        span.attributes.get("langfuse.observation.type") == "generation" for span in spans
+    )
     schedulers = [span for span in spans if span.name == "task_scheduler"]
     assert len(schedulers) == 3
     for span in [*dispatches, *schedulers]:
@@ -123,13 +253,20 @@ def test_real_graph_exports_scheduler_update_and_dispatch_reason(telemetry, mode
             assert INPUT in span.attributes, span.name
             assert OUTPUT in span.attributes, span.name
             serialized = json.dumps(dict(span.attributes))
-            for private in ("private-tenant", "private-session", "private-user",
-                            "private-tool-result", "synthetic-credential"):
+            for private in (
+                "private-tenant",
+                "private-session",
+                "private-user",
+                "private-tool-result",
+                "synthetic-credential",
+            ):
                 assert private not in serialized
     if mode == "local_content":
         by_reason = {json.loads(span.attributes[OUTPUT])["reason"]: span for span in dispatches}
         assert set(by_reason) == {
-            "ready_tasks", "new_results_require_review", "planner_finished",
+            "ready_tasks",
+            "new_results_require_review",
+            "planner_finished",
         }
         initial = json.loads(by_reason["ready_tasks"].attributes[OUTPUT])
         assert initial["next_node"] == "tool_agent"
@@ -156,7 +293,9 @@ def test_real_graph_exports_scheduler_update_and_dispatch_reason(telemetry, mode
         ("no_ready", "synthesizer", "no_ready_tasks"),
     ],
 )
-def test_dispatch_reasons_match_actual_branch_without_mutating_state(telemetry, case, target, reason):
+def test_dispatch_reasons_match_actual_branch_without_mutating_state(
+    telemetry, case, target, reason
+):
     from app.schemas.approvals import PendingToolApproval
 
     runtime, exporter = telemetry
@@ -169,24 +308,34 @@ def test_dispatch_reasons_match_actual_branch_without_mutating_state(telemetry, 
             state["planner_feedback_count"] = MAX_PLANNER_FEEDBACKS
         else:
             state["planner_reviewed_signature"] = observation_signature(
-                PlanModel.model_validate(state["plan"]), state["task_results"],
+                PlanModel.model_validate(state["plan"]),
+                state["task_results"],
             )
     elif case == "approval":
         state["pending_tool_approval"] = PendingToolApproval(
-            task_id="market", call_id="call", step_index=0, request_fingerprint="hash",
-            tool_name="test", risk_level="high", purpose="执行工具",
+            task_id="market",
+            call_id="call",
+            step_index=0,
+            request_fingerprint="hash",
+            tool_name="test",
+            risk_level="high",
+            purpose="执行工具",
         )
     else:
         state["skill_workflows"] = {"market": {"status": "failed"}}
     original = copy.deepcopy(state)
     with langfuse_agent_run(
-        business_trace_id=f"test-branch-{uuid4().hex}", session_key="s", tenant_id="t",
+        business_trace_id=f"test-branch-{uuid4().hex}",
+        session_key="s",
+        tenant_id="t",
         execution_segment="initial",
     ):
         assert _dispatch_after_scheduler(state) == target
     assert state == original
     runtime.client.flush()
-    span = next(span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler")
+    span = next(
+        span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler"
+    )
     output = json.loads(span.attributes[OUTPUT])
     assert output["next_node"] == target
     assert output["reason"] == reason
@@ -207,31 +356,43 @@ def test_inactive_telemetry_preserves_send_payload_and_return_type(monkeypatch):
 def test_dispatch_content_is_bounded_and_nested_json_secrets_are_removed(telemetry, limit):
     runtime, exporter = telemetry
     state = _state()
-    state["plan"]["tasks"][0]["task_goal"] = json.dumps({
-        "goal": "查询行情", "password": "nested-private-value",
-    })
+    state["plan"]["tasks"][0]["task_goal"] = json.dumps(
+        {
+            "goal": "查询行情",
+            "password": "nested-private-value",
+        }
+    )
     # 只扩大调度上下文，不增加任何实际任务或工具调用。
     state["task_results"] = [
         {"task_id": f"old_{index}", "status": "success", "content": "不应上传的正文"}
         for index in range(200)
     ]
     with langfuse_agent_run(
-        business_trace_id=f"test-bounds-{uuid4().hex}", session_key="s", tenant_id="t",
+        business_trace_id=f"test-bounds-{uuid4().hex}",
+        session_key="s",
+        tenant_id="t",
         execution_segment="initial",
     ):
         assert _dispatch_after_scheduler(state)[0].node == "tool_agent"
     runtime.client.flush()
-    span = next(span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler")
+    span = next(
+        span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler"
+    )
     assert "nested-private-value" not in span.attributes[INPUT]
     assert "不应上传的正文" not in span.attributes[INPUT]
     assert len(span.attributes[INPUT]) <= limit
     assert len(span.attributes[OUTPUT]) <= limit
     value = json.loads(span.attributes[INPUT])
     assert value["truncated"] is True
-    assert len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) <= runtime.content_policy.max_chars
+    assert (
+        len(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
+        <= runtime.content_policy.max_chars
+    )
 
 
-@pytest.mark.parametrize("case", ["user_input", "permission_resume", "skill_ready", "skill_workflow"])
+@pytest.mark.parametrize(
+    "case", ["user_input", "permission_resume", "skill_ready", "skill_workflow"]
+)
 def test_dispatch_confirmation_and_skill_branches(telemetry, case):
     from app.schemas.user_input import (
         UserInputOption,
@@ -246,42 +407,69 @@ def test_dispatch_confirmation_and_skill_branches(telemetry, case):
     expected_task = "market"
     if case in {"user_input", "permission_resume"}:
         source = UserInputSource(
-            node="tool_agent", kind="provider_permission_fallback", task_id="market", call_id="call",
+            node="tool_agent",
+            kind="provider_permission_fallback",
+            task_id="market",
+            call_id="call",
         )
         if case == "user_input":
             state["pending_user_input"] = UserInputRequest(
-                interaction_id="interaction", input_type="selection", question="private-question",
-                options=[UserInputOption(value="accept", label="确认"),
-                         UserInputOption(value="decline", label="取消")], source=source,
+                interaction_id="interaction",
+                input_type="selection",
+                question="private-question",
+                options=[
+                    UserInputOption(value="accept", label="确认"),
+                    UserInputOption(value="decline", label="取消"),
+                ],
+                source=source,
             )
             target, reason = "user_input_gate", "user_input_required"
         else:
             state["user_input_response"] = UserInputResponse(
-                interaction_id="interaction", input_type="selection", value="accept", source=source,
+                interaction_id="interaction",
+                input_type="selection",
+                value="accept",
+                source=source,
             )
             target, reason = "tool_agent", "permission_fallback_resume"
     else:
         state["plan"]["tasks"][0]["skill_name"] = "research"
         target, reason = "skill_agent", "skill_task_ready"
         if case == "skill_workflow":
-            state["skill_workflows"] = {"market": SkillWorkflow(
-                parent_task_id="market", skill_name="research", skill_version="1",
-                definition_hash="hash", summary="研究", output_requirement="结论",
-                steps=[WorkflowStep(task_id="market_step_1", instruction="查询行情",
-                                    source="private-workflow-source", tool_name="daily")],
-            ).model_dump()}
+            state["skill_workflows"] = {
+                "market": SkillWorkflow(
+                    parent_task_id="market",
+                    skill_name="research",
+                    skill_version="1",
+                    definition_hash="hash",
+                    summary="研究",
+                    output_requirement="结论",
+                    steps=[
+                        WorkflowStep(
+                            task_id="market_step_1",
+                            instruction="查询行情",
+                            source="private-workflow-source",
+                            tool_name="daily",
+                        )
+                    ],
+                ).model_dump()
+            }
             expected_task = "market_step_1"
             target, reason = "tool_agent", "skill_workflow_dispatch"
     original = copy.deepcopy(state)
     with langfuse_agent_run(
-        business_trace_id=f"test-priority-{uuid4().hex}", session_key="s", tenant_id="t",
+        business_trace_id=f"test-priority-{uuid4().hex}",
+        session_key="s",
+        tenant_id="t",
         execution_segment="initial",
     ):
         route = _dispatch_after_scheduler(state)
     assert state == original
     assert (route if isinstance(route, str) else route[0].node) == target
     runtime.client.flush()
-    span = next(span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler")
+    span = next(
+        span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler"
+    )
     output = json.loads(span.attributes[OUTPUT])
     assert output["reason"] == reason
     assert output["next_node"] == target
@@ -303,7 +491,9 @@ def test_telemetry_failures_do_not_change_dispatch(telemetry, monkeypatch, failu
         raise ValueError("synthetic telemetry failure")
 
     with langfuse_agent_run(
-        business_trace_id=f"test-isolation-{uuid4().hex}", session_key="s", tenant_id="t",
+        business_trace_id=f"test-isolation-{uuid4().hex}",
+        session_key="s",
+        tenant_id="t",
         execution_segment="initial",
     ):
         if failure == "input_projection":
@@ -320,17 +510,25 @@ def test_telemetry_failures_do_not_change_dispatch(telemetry, monkeypatch, failu
 def test_parallel_dispatch_reports_nodes_and_task_ids_without_full_send_args(telemetry):
     runtime, exporter = telemetry
     state = _state()
-    state["plan"]["tasks"].append({
-        "id": "explain", "task_goal": "解释概念", "execution_type": "analysis",
-    })
+    state["plan"]["tasks"].append(
+        {
+            "id": "explain",
+            "task_goal": "解释概念",
+            "execution_type": "analysis",
+        }
+    )
     with langfuse_agent_run(
-        business_trace_id=f"test-parallel-{uuid4().hex}", session_key="s", tenant_id="t",
+        business_trace_id=f"test-parallel-{uuid4().hex}",
+        session_key="s",
+        tenant_id="t",
         execution_segment="initial",
     ):
         route = _dispatch_after_scheduler(state)
     assert [send.node for send in route] == ["tool_agent", "analysis_agent"]
     runtime.client.flush()
-    span = next(span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler")
+    span = next(
+        span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler"
+    )
     output = json.loads(span.attributes[OUTPUT])
     assert output["next_node"] is None
     assert output["next_nodes"] == ["tool_agent", "analysis_agent"]

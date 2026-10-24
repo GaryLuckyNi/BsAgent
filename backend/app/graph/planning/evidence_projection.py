@@ -4,6 +4,20 @@ import json
 from copy import deepcopy
 from typing import Any
 
+from app.search.schemas import EvidenceCoverage
+
+
+def recovery_coverage(value: Any) -> dict[str, Any]:
+    """搜索覆盖是自述，不是原始结构化数据或独立验证的证明。"""
+    try:
+        coverage = EvidenceCoverage.model_validate(value)
+    except ValueError:
+        coverage = EvidenceCoverage(status="unknown")
+    result = coverage.model_dump(mode="json")
+    if coverage.status != "unknown":
+        result["basis"] = "search_model"
+    return bounded_search_coverage(result)
+
 
 def bounded_search_coverage(value: Any) -> dict[str, Any] | None:
     """仅缩短超长观测副本，保证任务正文仍保留覆盖状态和明确截断标记。"""
@@ -47,10 +61,14 @@ class EvidenceProjection:
         if not isinstance(result.get("results"), list):
             return result
         sources = result["results"]
+        if not sources and not self.include_query and isinstance(result.get("answer"), str):
+            result.pop("query", None)
         if not sources or not all(
-            isinstance(item, dict) and isinstance(item.get("url"), str)
+            isinstance(item, dict)
+            and isinstance(item.get("url"), str)
             and isinstance(item.get("title"), str)
-            and set(item) <= {"url", "title", "snippet", "published_at"} for item in sources
+            and set(item) <= {"url", "title", "snippet", "published_at"}
+            for item in sources
         ):
             return result
         references = []
@@ -58,8 +76,11 @@ class EvidenceProjection:
             url = item["url"]
             source = self._by_url.get(url)
             if source is None:
-                source = {"source_id": f"source_{len(self.sources) + 1}",
-                          "title": item["title"], "url": url}
+                source = {
+                    "source_id": f"source_{len(self.sources) + 1}",
+                    "title": item["title"],
+                    "url": url,
+                }
                 self.sources.append(source)
                 self._by_url[url] = source
             for key in ("title", "snippet", "published_at"):

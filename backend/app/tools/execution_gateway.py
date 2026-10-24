@@ -14,6 +14,7 @@ from app.operations.langfuse_observability import (
     langfuse_observation,
     update_langfuse_observation,
 )
+from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.approvals import ApprovedToolCall
 from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError, ToolSpec
 from app.search.schemas import SearchResearchContext
@@ -140,6 +141,30 @@ class ToolExecutionContext(BaseModel):
     research_context: SearchResearchContext | None = None
     search_budget_limit: int | None = Field(default=None, ge=1, le=100)
     existing_search_call_ids: tuple[str, ...] = Field(default_factory=tuple)
+    recovery_batch_id: str | None = None
+    recovery_original_call_id: str | None = None
+
+
+def _trace_fields(request, context):
+    fields = {"request_id": context.request_id,
+              "original_call_id": context.recovery_original_call_id or request.call_id}
+    if context.recovery_batch_id is not None:
+        fields.update(batch_id=context.recovery_batch_id, replacement_call_id=request.call_id)
+    return fields
+
+
+def _trace_classified(request, result, context):
+    details = result.error.details if result.error else {}
+    record_recovery_event("result_classified", **_trace_fields(request, context),
+        execution_state=result.execution_state, rule_id=details.get("rule_id"),
+        availability_scope=details.get("denied_scope"))
+
+
+def _trace_settled(request, result, context):
+    reason = {"not_started": "confirmed_not_started", "completed": "execution_completed",
+              "uncertain": "low_risk_existing_exemption"}[result.execution_state]
+    record_recovery_event("receipt_settled", **_trace_fields(request, context),
+        execution_state=result.execution_state, settlement_reason=reason)
 
 
 class ToolExecutionGateway:
@@ -297,6 +322,9 @@ class ToolExecutionGateway:
                         event="availability_skip", observation_call_id=observation.original_call_id,
                         denied_scope=observation.denied_scope,
                     )
+                    record_recovery_event("availability_skip", request_id=context.request_id,
+                        original_call_id=observation.original_call_id, availability_scope=observation.denied_scope,
+                        execution_state="not_started", route_reason="known_capability_denied")
                     return skipped
         try:
             if control and request.tool_name == "web_search" and context.search_budget_limit is not None:
@@ -305,6 +333,8 @@ class ToolExecutionGateway:
                     budget_limit=context.search_budget_limit,
                     existing_call_ids=context.existing_search_call_ids,
                 )
+                record_recovery_event("recovery_dispatch", **_trace_fields(request, context), budget_disposition=claim.disposition,
+                    route_reason="permission_recovery" if context.recovery_batch_id else "ordinary_search")
                 if claim.disposition == "reuse":
                     return claim.result
                 if claim.disposition in {"blocked", "exhausted"}:
@@ -343,11 +373,14 @@ class ToolExecutionGateway:
                 execution_state="uncertain",
                 start=start,
             )
+            _trace_classified(request, failure, context)
             if control:
                 control.tool_finished(
                     receipt_id, failure.model_dump(mode="json"),
                     uncertain=entry.spec.risk_level != "low",
                 )
+                if entry.spec.risk_level == "low":
+                    _trace_settled(request, failure, context)
                 control.guard()
             return failure
         except BaseException:  # asyncio 取消等控制信号不能遗留永远 running 的工具回执。
@@ -359,6 +392,7 @@ class ToolExecutionGateway:
             raise
 
         def settle(result: ToolCallResult) -> ToolCallResult:
+            _trace_classified(request, result, context)
             if control:
                 summary = result.model_dump(mode="json")
                 if result.status != "success":
@@ -372,6 +406,8 @@ class ToolExecutionGateway:
                     receipt_id, summary,
                     uncertain=execution_is_uncertain(result, risk_level=entry.spec.risk_level),
                 )
+                if not execution_is_uncertain(result, risk_level=entry.spec.risk_level):
+                    _trace_settled(request, result, context)
                 control.guard()
             return result
 

@@ -11,6 +11,7 @@ from app.graph.state import AgentState, create_initial_state
 from app.schemas.recovery import RECOVERY_VERSION
 from app.storage.models import AgentMessage, AgentRun
 from app.tests.unit.test_durable_turns import database  # noqa: F401
+from app.tests.unit.test_langfuse_scheduler import telemetry as telemetry_runtime  # noqa: F401
 from app.tests.unit.test_permission_fallback import setup_worker
 from app.tests.unit.test_recovery_durability import control as durable_control  # noqa: F401
 from langgraph.checkpoint.memory import InMemorySaver
@@ -24,7 +25,12 @@ def control(request):
     return request.getfixturevalue("durable_control")
 
 
-def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None):
+@pytest.fixture
+def telemetry(request):
+    return request.getfixturevalue("telemetry_runtime")
+
+
+def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planner_node=None):
     worker, _, data, search, client, registry = setup_worker()
     # 明确的受控业务契约替身，不让 LLM 或全局目录声明来源等价。
     original_context = tool_agent.selection_context
@@ -94,7 +100,7 @@ def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None):
         return update
 
     builder.add_node("permission_recovery", recover)
-    builder.add_node("planner_agent", lambda state: {})
+    builder.add_node("planner_agent", planner_node or (lambda state: {}))
     builder.add_node("synthesizer", lambda state: {})
     builder.set_entry_point("task_scheduler")
     builder.add_conditional_edges("task_scheduler", _dispatch_after_scheduler)
@@ -523,3 +529,112 @@ def test_new_task_has_new_batch_and_cannot_inherit_the_old_confirmation(control,
         len(first["recovery_batch"]["items"]) == 2 and len(second["recovery_batch"]["items"]) == 1
     )
     assert data.calls == client.calls == 3 and search.calls == 2
+
+
+def test_real_recovery_trace_links_calls_and_does_not_duplicate_private_inputs(
+    control, monkeypatch, telemetry
+):
+    import json
+
+    from app.operations.langfuse_observability import langfuse_observation
+
+    runtime, exporter = telemetry
+    graph, state, _, search, _, _ = batch_graph(control, monkeypatch)
+    state["user_message"] = "synthetic-private-query"
+    config = {"configurable": {"thread_id": "telemetry"}}
+    with (
+        execution_control(control),
+        langfuse_observation(as_type="span", name="controlled_recovery_test"),
+    ):
+        paused = graph.invoke(state, config)
+        graph.invoke(confirm(paused["__interrupt__"][0].value), config)
+    runtime.client.flush()
+    runtime.provider.force_flush()
+    events = [
+        span
+        for span in exporter.get_finished_spans()
+        if span.name
+        in {
+            "result_classified",
+            "receipt_settled",
+            "recovery_batch_sealed",
+            "recovery_decision",
+            "recovery_dispatch",
+            "recovery_result",
+        }
+    ]
+    names = {span.name for span in events}
+    assert names == {
+        "result_classified",
+        "receipt_settled",
+        "recovery_batch_sealed",
+        "recovery_decision",
+        "recovery_dispatch",
+        "recovery_result",
+    }
+    payloads = [json.loads(span.attributes["langfuse.observation.output"]) for span in events]
+    dispatches = [payload for payload in payloads if payload["event"] == "recovery_dispatch"]
+    assert len(dispatches) == search.calls == 2
+    assert all(
+        payload["budget_disposition"] == "execute" and payload["batch_id"] for payload in dispatches
+    )
+    assert "synthetic-private-query" not in json.dumps(payloads)
+    assert all("query" not in payload and "answer" not in payload for payload in payloads)
+
+
+def test_observer_failure_preserves_receipts_and_recovery_results(control, monkeypatch):
+    from app.operations import langfuse_observability
+    from app.storage.models import AgentRunToolReceipt
+
+    def broken(**kwargs):
+        raise RuntimeError("controlled-observer-failure")
+
+    monkeypatch.setattr(langfuse_observability, "langfuse_observation", broken)
+    graph, state, data, search, _, _ = batch_graph(control, monkeypatch)
+    config = {"configurable": {"thread_id": "observer-failure"}}
+    with execution_control(control):
+        paused = graph.invoke(state, config)
+        finished = graph.invoke(confirm(paused["__interrupt__"][0].value), config)
+    assert data.calls == search.calls == 2 and len(finished["task_results"]) == 3
+    with control.session_factory() as db:
+        assert all(row.status == "settled" for row in db.scalars(select(AgentRunToolReceipt)))
+
+
+def test_recovery_does_not_reselect_tools_and_preserves_one_normal_planner_review(
+    control, monkeypatch
+):
+    from app.graph.nodes.planner_agent import build_planner_agent_node
+    from app.llm.schemas import LlmCompletionResult
+
+    class Review:
+        calls = 0
+
+        async def complete(self, **kwargs):
+            self.calls += 1
+            return LlmCompletionResult(
+                content='{"action":"finish","reason":"依据已有材料与缺口结束"}',
+                model="fake",
+                provider="fake",
+            )
+
+    review = Review()
+    graph, state, data, search, client, _ = batch_graph(
+        control, monkeypatch, planner_node=build_planner_agent_node(llm_client=review)
+    )
+    state["intent"] = {
+        "intent_type": "financial_research",
+        "domain": "equity",
+        "subdomain": "company",
+        "goal": "依据材料回答",
+    }
+    config = {"configurable": {"thread_id": "one-review"}}
+    with execution_control(control):
+        paused = graph.invoke(state, config)
+
+        def no_reselection(*args, **kwargs):
+            raise AssertionError("恢复不得调用工具选择模型")
+
+        monkeypatch.setattr(client, "bind_tools", no_reselection)
+        finished = graph.invoke(confirm(paused["__interrupt__"][0].value), config)
+    assert review.calls == 1 and data.calls == search.calls == 2
+    assert finished["planner_decision"]["action"] == "finish"

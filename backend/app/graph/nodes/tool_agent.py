@@ -30,6 +30,7 @@ from app.operations.langfuse_observability import (
     langfuse_observation,
     update_langfuse_observation,
 )
+from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.approvals import PendingToolApproval
 from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult, ToolError, ToolSpec
 from app.schemas.user_input import UserInputOption, UserInputRequest, UserInputSource
@@ -539,6 +540,10 @@ def _discovery_update(
     task_id = str((state.get("active_task") or {}).get("id", ""))
     event_id = f"{state['request_id']}:{state.get('planner_iteration', 0)}:{task_id}"
     names = [spec.name for spec in resolution.candidates]
+    for skipped in resolution.availability_skips:
+        record_recovery_event("availability_skip", request_id=state["request_id"],
+            original_call_id=skipped.get("observation_call_id"), availability_scope=skipped.get("denied_scope"),
+            route_reason="candidate_capability_denied")
     return {
         "disclosed_tool_names": names,
         "tool_discovery_events": {

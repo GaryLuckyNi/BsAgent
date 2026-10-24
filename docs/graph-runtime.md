@@ -1,6 +1,15 @@
 # Graph Runtime
 
-> 2026-10-24：默认关闭的新权限恢复模式新增确定性 `permission_recovery` 节点：同批收敛 → 完整清单确认 → 独立搜索 → 原 Planner 证据评审。Gate 不调用工具，恢复不重跑原 Tool Agent；普通主链保持不变。状态及启用限制见[第二检查点](./acceptance/2026-10-24-runtime-capability-recovery-batch.md)。
+> 2026-10-24：默认关闭的确定性 `permission_recovery` 节点与证据/恢复观测已接线。普通主链保持不变；状态、受控测试与启用门槛见[第三检查点](./acceptance/2026-10-24-runtime-capability-recovery.md)。
+
+```text
+实际批次 Send（先固定成员） → worker 结果/恢复事项 → Scheduler 收敛并封存
+→ UserInputGate（完整清单、版本/摘要、持久化决定）
+→ Scheduler → permission_recovery（只执行批准的替代搜索）
+→ Scheduler → 原 Planner 证据评审 → 继续或合成
+```
+
+Gate 不调用工具，恢复不重跑原 MCP 或工具选择模型。来源变化本身不强制 revise；partial/search_model 和原数据缺失事实随观察进入评审。正常调用被同批 running 保护本地拦住时，只有尚无远端回执且参数快照未变的等待可在同批结算后继续一次；真实 running/unknown 不因此放开。
 
 ## 主链路
 

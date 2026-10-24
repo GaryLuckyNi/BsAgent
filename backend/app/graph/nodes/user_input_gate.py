@@ -5,6 +5,7 @@ from langgraph.types import interrupt
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.graph.state import AgentState
+from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.user_input import UserInputRequest, UserInputResponse
 
 
@@ -78,6 +79,8 @@ def user_input_gate_node(
     if request.recovery_batch is not None:
         expected = request.recovery_batch
         if resume.presentation_version != expected.version or resume.batch_digest != expected.digest:
+            record_recovery_event("recovery_invalidated", request_id=state.get("request_id"), batch_id=expected.batch_id,
+                route_reason="permission_recovery_presentation_mismatch")
             raise UserInputResumeError(
                 "恢复任务清单或显示协议不匹配，请刷新后重新确认。",
                 code="permission_recovery_presentation_mismatch",

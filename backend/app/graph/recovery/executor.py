@@ -7,10 +7,11 @@ from sqlalchemy import select
 
 from app.conversations.durable import DurableRunService
 from app.graph.planning.contracts import MAX_TASK_RESULT_CONTENT_CHARS, TaskResultModel
-from app.graph.planning.evidence_projection import bounded_search_coverage
+from app.graph.planning.evidence_projection import recovery_coverage
 from app.graph.planning.policy import MAX_WEB_SEARCH_TASKS
 from app.graph.recovery.batching import SOURCE_NOTICE, batch_request
 from app.graph.recovery.validation import invalid, require_control, validate_batch
+from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.recovery import RECOVERY_KIND, RecoveryBatch
 from app.schemas.tools import ToolCallRecord, ToolCallRequest
 from app.search.schemas import SearchResearchContext
@@ -32,7 +33,19 @@ def accept_confirmation(state, request, value, *, registry):
                 value=value,
             )
         except ValueError as exc:
+            record_recovery_event(
+                "recovery_invalidated",
+                request_id=state["request_id"],
+                batch_id=batch.batch_id,
+                route_reason="permission_recovery_decision_conflict",
+            )
             raise invalid("permission_recovery_decision_conflict") from exc
+    record_recovery_event(
+        "recovery_decision",
+        request_id=state["request_id"],
+        batch_id=batch.batch_id,
+        route_reason=value,
+    )
 
 
 def recovery_search_request(*, batch, item):
@@ -87,8 +100,7 @@ def _content(item, request, result=None, *, code=None):
         "original_call_id": item.original_call_id,
         "replacement_call_id": request.call_id if request else None,
         "completion_criteria": list(item.completion_criteria),
-        "coverage": bounded_search_coverage(raw.get("coverage"))
-        or {"status": "unknown", "basis": "unknown"},
+        "coverage": recovery_coverage(raw.get("coverage")),
     }
     if code:
         payload["error_code"] = code
@@ -104,6 +116,7 @@ def _content(item, request, result=None, *, code=None):
             if len(json.dumps(payload, ensure_ascii=False)) > MAX_TASK_RESULT_CONTENT_CHARS:
                 payload["search_result"]["results"].pop()
                 payload["truncated"] = True
+    payload = sanitize_untrusted_details(payload, max_string_length=8000, max_nodes=512)
     text = json.dumps(payload, ensure_ascii=False)
     if len(text) > MAX_TASK_RESULT_CONTENT_CHARS:
         # 保留授权契约、来源限制与覆盖缺口，不让正文挤掉这些字段。
@@ -180,6 +193,8 @@ def build_recovery_node(registry):
                                 user_id=state["user_id"],
                                 session_id=state["session_id"],
                                 request_id=state["request_id"],
+                                recovery_batch_id=batch.batch_id,
+                                recovery_original_call_id=item.original_call_id,
                                 allowed_tools=("web_search",),
                                 business_trace_id=state["trace_id"],
                                 permission_scopes=tuple(state["permission_scopes"]),
@@ -218,6 +233,23 @@ def build_recovery_node(registry):
                 "status": "gap" if code else "search_returned",
                 "error_code": code,
             }
+            coverage = recovery_coverage(
+                result.result.get("coverage")
+                if result and isinstance(result.result, dict)
+                else None
+            )
+            update["recovery_outcomes"][item.original_call_id]["coverage_status"] = coverage[
+                "status"
+            ]
+            record_recovery_event(
+                "recovery_result",
+                request_id=state["request_id"],
+                batch_id=batch.batch_id,
+                original_call_id=item.original_call_id,
+                replacement_call_id=request.call_id if request else None,
+                coverage_status=coverage["status"],
+                route_reason=code or "search_returned",
+            )
         return update
 
     return node

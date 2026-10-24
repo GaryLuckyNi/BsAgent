@@ -2,6 +2,16 @@
 
 Agent/RAG 的日常使用、评测与优化流程见[使用与优化闭环指南](langfuse-usage-and-optimization.md)。2026-09-26 的 EU 验收材料仅作为历史记录，见[归档报告](acceptance/archive/2026-09-26-langfuse-eu-smoke.md)。
 
+## 权限恢复事件（2026-10-24）
+
+恢复观测使用普通 span，不新增 Generation。固定事件为 result_classified、receipt_settled、availability_skip、recovery_batch_sealed、recovery_decision、recovery_invalidated、recovery_dispatch、recovery_result。只输出有界的 request/call/batch 引用、规则/阶段/结算原因、拒绝范围、预算动作、覆盖状态和路由原因码，不复制 query、answer、参数或原始错误。
+
+`task_scheduler` 与 `dispatch_task_scheduler` 的安全摘要增加 recovery 批次引用、实际派发成员、恢复结果引用和覆盖状态。permission_recovery_confirmed 表示确认已持久化后进入独立恢复节点；settled_peer_allows_deferred_dispatch 表示继续从未远端派发的原参数本地等待，不是重试已拒绝 MCP。
+
+recovery_dispatch 中 execute/reuse/blocked/exhausted 来自独立回执预留；ordinary_search 与 permission_recovery 区分普通搜索和批次替代，共享 Run 预算。receipt_settled 在落库之后导出，低风险原有豁免单独标明；不把真正 unknown 记为 settled。观测可能重复或丢失，不作为幂等执行证明，业务事实以回执/持久化决定为准。metadata_only 不强制导出这些正文，导出故障不影响业务。
+
+受控真实 SDK＋内存导出器验收见[第三检查点](acceptance/2026-10-24-runtime-capability-recovery.md)。本次没有查询线上 Trace 或发起真实模型请求，不能据此声称线上延迟已经降低或真实源权限已验收。
+
 ## 1. 定位与运行版本
 
 本项目目标平台为本机 Langfuse 4.16.0，Web UI/API endpoint 为 `http://localhost:3000`，Python SDK 锁定为 4.16.0。真实验收时必须从 `/api/public/health` 回读运行版本；代码或 compose 中的版本号只能说明期望版本，不能代替运行证据。Langfuse 用于查看 Agent/RAG 执行树、Generation、Token、耗时和成本；它不替代 PostgreSQL 中的业务 AgentRun、审批和审计数据。Alerts 与 Playground 本轮不在实施范围内。

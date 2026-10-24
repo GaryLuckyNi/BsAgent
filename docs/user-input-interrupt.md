@@ -2,7 +2,17 @@
 
 BsAgent 通过 `UserInputRequest` 和公共 `user_input_gate` 支持与业务 workflow 无关的用户输入中断。第一版只支持 `selection`，协议保留 `input_type` 字段，便于后续扩展确认和文本输入。
 
-> 2026-10-24：已增加默认关闭的批次权限恢复协议。下文原单项权限路径仍用于关闭开关的兼容模式；新模式使用完整 `recovery_batch` 清单、`presentation_version` / `batch_digest` 回执及独立恢复节点，不再恢复到原 Tool Agent。具体边界和未完成启用门槛见[第二检查点](./acceptance/2026-10-24-runtime-capability-recovery-batch.md)。普通 selection 载荷不变。
+> 2026-10-24：默认关闭的批次权限恢复已补齐受控证据/观测回归，见[第三检查点及启用门槛](./acceptance/2026-10-24-runtime-capability-recovery.md)。下文原单项权限路径仍用于关闭开关的兼容模式，普通 selection 载荷不变。
+
+## 新批次协议（默认关闭）
+
+同一实际派发批次的可恢复事项收敛后，由 Scheduler 发布一次 `source.kind=provider_permission_recovery_batch` 的请求，source 不使用单个 task_id/call_id 冒充整批。公开事件另含 `recovery_batch`：version、batch_id、64位 digest 和1至12个唯一 items；每项包含 item_id、task_goal、original_tool、reason、source_notice。前端完整显示全部条目，不以 question 截断文本承载授权范围。
+
+选择固定为“对以上任务使用联网搜索”或“仅使用已有资料”。恢复命令在原 selection 字段上额外回传 `presentation_version=permission-recovery-batch-v1` 与原 `batch_digest`，不接受客户端任务列表、参数或来源覆盖。未知版本、残缺清单和缺回执拒绝继续；刷新从同一 Run 事件重放恢复原清单。
+
+Gate 在服务端完整快照、原调用回执、当前身份/RBAC、候选和 binding 校验后持久化选择。搜索由独立 `permission_recovery` 节点执行，不在等待节点内执行，也不重新派发原 MCP。新任务需要新批次，旧同意不扩展；拒绝不搜索且保留本批缺口。搜索运行中、摘要不完整或预算耗尽时不盲重发，也不递归确认。
+
+目前生产来源政策没有结构化许可依据时为 unknown，不因候选里有 web_search 就生成替代确认；固定 Skill 未声明替代时不换来源。开关本身不是来源许可。
 
 ## 生产中断
 

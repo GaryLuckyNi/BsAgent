@@ -7,6 +7,7 @@ from app.graph.nodes.user_input_gate import UserInputResumeError
 from app.graph.planning.contracts import SubTaskModel
 from app.graph.recovery.batching import batch_request, run_identity
 from app.graph.recovery.policy import eligible_recovery, seal_batch
+from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.recovery import RECOVERY_VERSION, RecoveryBatch, RecoveryItem, snapshot_digest
 from app.schemas.tools import ToolCallResult
 from app.storage.models import AgentMessage, AgentRun, AgentRunToolReceipt
@@ -142,9 +143,20 @@ def make_recovery_item(state, task, request, result, selection, registry):
 def validate_batch(state, request, *, registry) -> RecoveryBatch:
     try:
         return _validate_batch(state, request, registry=registry)
-    except UserInputResumeError:
+    except UserInputResumeError as exc:
+        record_recovery_event(
+            "recovery_invalidated",
+            request_id=state.get("request_id"),
+            batch_id=getattr(getattr(request, "recovery_batch", None), "batch_id", None),
+            route_reason=exc.code,
+        )
         raise
     except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        record_recovery_event(
+            "recovery_invalidated",
+            request_id=state.get("request_id"),
+            route_reason="permission_recovery_snapshot_mismatch",
+        )
         raise invalid() from exc
 
 

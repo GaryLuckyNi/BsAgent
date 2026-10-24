@@ -67,7 +67,11 @@ from app.harness.tracing import InMemoryTraceStore, TraceEvent
 from app.intent.catalog import BusinessIntentCatalog
 from app.llm.factory import LlmClient
 from app.operations.langfuse_observability import langfuse_agent_run, langfuse_observation
-from app.operations.langfuse_scheduler import record_scheduler_dispatch, record_scheduler_input
+from app.operations.langfuse_scheduler import (
+    record_recovery_event,
+    record_scheduler_dispatch,
+    record_scheduler_input,
+)
 from app.schemas.messages import Message
 from app.schemas.recovery import RECOVERY_KIND, RECOVERY_VERSION
 from app.skills.factory import build_default_skill_registry
@@ -1247,6 +1251,8 @@ def resume_user_input_graph(
         not snapshot.values
         or any(snapshot.values.get(key) != value for key, value in expected_identity.items())
     ):
+        record_recovery_event("recovery_invalidated", request_id=snapshot.values.get("request_id"),
+            route_reason="user_input_resume_mismatch")
         raise AgentGraphExecutionError(
             node_name="user_input_resume", message="恢复状态归属与原会话不匹配。",
             code="user_input_resume_mismatch", http_status=409,
@@ -1273,6 +1279,8 @@ def resume_user_input_graph(
         pending_kind == RECOVERY_KIND and (presentation is None or snapshot.values.get("recovery_policy_version") != RECOVERY_VERSION)
         or pending_kind == "provider_permission_fallback" and snapshot.values.get("recovery_policy_version") == RECOVERY_VERSION
     ):
+        record_recovery_event("recovery_invalidated", request_id=snapshot.values.get("request_id"),
+            route_reason="permission_recovery_version_mismatch")
         raise AgentGraphExecutionError(
             node_name="user_input_resume", message="权限恢复版本或完整批次元数据缺失，请重新发起请求。",
             code="permission_recovery_version_mismatch", http_status=409,
@@ -1282,6 +1290,9 @@ def resume_user_input_graph(
         or presentation_version != presentation.get("version")
         or batch_digest != presentation.get("digest")
     ):
+        record_recovery_event("recovery_invalidated", request_id=snapshot.values.get("request_id"),
+            batch_id=presentation.get("batch_id") if isinstance(presentation, dict) else None,
+            route_reason="permission_recovery_presentation_mismatch")
         raise AgentGraphExecutionError(
             node_name="user_input_resume", message="恢复任务清单或显示协议不匹配，请刷新后重新确认。",
             code="permission_recovery_presentation_mismatch", http_status=409,
@@ -1294,6 +1305,8 @@ def resume_user_input_graph(
             if pending is None or pending.recovery_batch != presented:
                 raise ValueError("presentation_changed")
         except ValueError as exc:
+            record_recovery_event("recovery_invalidated", request_id=snapshot.values.get("request_id"),
+                route_reason="permission_recovery_presentation_mismatch")
             raise AgentGraphExecutionError(
                 node_name="user_input_resume", message="显示的恢复任务清单与服务端授权快照不一致。",
                 code="permission_recovery_presentation_mismatch", http_status=409,

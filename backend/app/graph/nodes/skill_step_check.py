@@ -30,11 +30,20 @@ def build_skill_step_check_node(*, llm_client):
         if step.tool_name:
             task = SubTaskModel.model_validate(state["active_task"])
             call_id = _trusted_call_id(state, task, step.tool_name)
-            record = next(item for item in state["tool_calls"] if item.request.call_id == call_id)
-            payload = record.result.result
-            missing = missing_fields(payload, step.required_fields)
-            if missing:
-                reasons.append("缺少必需字段：" + "、".join(missing))
+            record = next((item for item in state["tool_calls"] if item.request.call_id == call_id), None)
+            if (record is None or record.result is None or record.result.status != "success"
+                    or record.result.execution_state != "completed"
+                    or record.request.tool_name != step.tool_name
+                    or record.request.tool_version != step.tool_version
+                    or record.result.tool_name != step.tool_name):
+                payload = None
+                reasons.append("缺少固定工具的成功原始结果，搜索文章或任务 success 不能代替原数据。")
+                invalid_verdict = True
+            else:
+                payload = record.result.result
+                missing = missing_fields(payload, step.required_fields)
+                if missing:
+                    reasons.append("缺少必需字段：" + "、".join(missing))
         else:
             payload = result["content"]
         if step.completion_criteria and not reasons:
