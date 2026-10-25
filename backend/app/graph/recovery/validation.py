@@ -2,10 +2,10 @@
 
 from sqlalchemy import select
 
-from app.conversations.execution import current_execution
+from app.conversations.execution import UnresolvedToolEffect, current_execution
 from app.graph.nodes.user_input_gate import UserInputResumeError
-from app.graph.planning.contracts import SubTaskModel
-from app.graph.recovery.batching import batch_request, run_identity
+from app.graph.planning.contracts import SubTaskModel, task_snapshot_matches
+from app.graph.recovery.batching import LOCAL_BLOCKED_SOURCE_CONSTRAINT, batch_request, run_identity
 from app.graph.recovery.policy import eligible_recovery, seal_batch
 from app.graph.recovery.source_policy import resolve_source_policy
 from app.operations.langfuse_scheduler import record_recovery_event
@@ -110,6 +110,37 @@ def source_allows_search(selection) -> bool:
     )
 
 
+def locally_unstarted_original(state, request, result, registry) -> bool:
+    """证明本轮调用被本地门禁拦截；不声称历史 unknown 已结算或未执行。"""
+    if (
+        not request.call_id
+        or not request.tool_name.startswith("mcp.")
+        or result.tool_name != request.tool_name
+        or result.status != "denied"
+        or result.execution_state != "not_started"
+        or result.result is not None
+        or result.error is None
+        or result.error.code != "tool_side_effects_unresolved"
+    ):
+        return False
+    control = require_control(state)
+    entry = registry.get(request.tool_name, request.tool_version)
+    with control.session_factory() as db:
+        control.guard(db)
+        if db.scalar(select(AgentRunToolReceipt.receipt_id).where(
+            AgentRunToolReceipt.run_id == control.run_id,
+            AgentRunToolReceipt.call_id == request.call_id,
+        )) is not None:
+            return False  # 已有远端执行身份，不能走“本地未派发”证明。
+        try:
+            control.ensure_tool_effects_resolved(
+                risk_level=entry.spec.risk_level, db=db, call_id=request.call_id,
+            )
+        except UnresolvedToolEffect as exc:
+            return exc.code == "tool_side_effects_unresolved"
+    return False
+
+
 def make_recovery_item(state, task, request, result, selection, registry):
     eligible, reason = eligible_recovery(
         request=request,
@@ -119,6 +150,7 @@ def make_recovery_item(state, task, request, result, selection, registry):
         source_allows_search=(source_allows_search(selection)
             and selection["source_policy"] == resolve_source_policy(state, task)),
         consumed=request.call_id in state.get("recovery_outcomes", {}),
+        local_unstarted=locally_unstarted_original(state, request, result, registry),
     )
     if not eligible:
         return None, reason
@@ -135,7 +167,11 @@ def make_recovery_item(state, task, request, result, selection, registry):
             original_tool=request.tool_name,
             fallback_version=fallback["version"],
             fallback_binding=fallback["binding"],
-            source_constraint="仅允许经确认补充公开资料；原接口数据仍缺失，不代表原验收条件已满足。",
+            source_constraint=(
+                LOCAL_BLOCKED_SOURCE_CONSTRAINT
+                if result.error.code == "tool_side_effects_unresolved"
+                else "仅允许经确认补充公开资料；原接口数据仍缺失，不代表原验收条件已满足。"
+            ),
         )
     except ValueError:
         return None, "task_contract_too_large"
@@ -207,7 +243,7 @@ def _validate_batch(state, request, *, registry) -> RecoveryBatch:
             or item.task_id not in dispatch.get("members", [])
             or snapshot_digest(context) != item.selection_digest
             or context.get("request_fingerprint") != tool_call_fingerprint(record.request)
-            or context.get("task") != task.model_dump(mode="json")
+            or not task_snapshot_matches(context.get("task"), task)
             or task.task_goal != item.task_goal
             or tuple(task.completion_criteria) != item.completion_criteria
             or not source_allows_search(context)
@@ -239,6 +275,7 @@ def _validate_batch(state, request, *, registry) -> RecoveryBatch:
             selection=context,
             source_allows_search=True,
             consumed=False,
+            local_unstarted=locally_unstarted_original(state, record.request, record.result, registry),
         )
         if not eligible:
             raise invalid()

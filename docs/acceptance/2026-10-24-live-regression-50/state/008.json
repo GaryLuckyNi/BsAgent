@@ -1,0 +1,163 @@
+{
+  "case_id": "008",
+  "run": {
+    "run_id": "run_93c819ffe0069671dcaa18920fb3134b83bf1a0480e20b30feaeeb9439c8",
+    "session_id": "live50-20261024-a-008",
+    "session_key": "sess_199d03e75f4d4eabb01e58a519183458",
+    "trace_id": "trace_6b054904e85d4df7b733682749cc2964",
+    "status": "completed",
+    "created_at": "2026-10-24 14:39:16.522818+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 54,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:39:16.539071+00:00",
+    "ended_at": "2026-10-24 14:39:28.650054+00:00",
+    "events": 54
+  },
+  "receipts": [],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {},
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_03ac94d7aaba5f339b6301a1f9d948d1": {
+        "dispatch_batch_id": "dispatch_03ac94d7aaba5f339b6301a1f9d948d1",
+        "run_identity": "d3568fc468504b1c3934cf1c190ec066b76d32a1c5965d1ddc5f9930a80002f6",
+        "plan_digest": "9f26744d47ea76fc37ea90790c4ac4f750e71bce5bfe9d84caa56898c97c4fb9",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "calculate_fcf_and_net_debt"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "针对以下纯假设公司计算自由现金流和净负债：经营现金流5亿元，资本开支2亿元，有息负债8亿元，现金3亿元，不联网。",
+      "confidence": 0.82,
+      "source_constraint": "original_only"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "唯一分析任务已成功完成，自由现金流3亿元与净负债5亿元的计算过程及口径说明齐全，无需外部取证。",
+      "unresolved_questions": []
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "基于用户给定的纯假设数据，直接计算自由现金流与净负债，不联网、不调用外部工具。",
+      "tasks": [
+        {
+          "id": "calculate_fcf_and_net_debt",
+          "task_goal": "依据用户提供的假设数据计算：自由现金流=经营现金流5亿元-资本开支2亿元=3亿元；净负债=有息负债8亿元-现金3亿元=5亿元，并说明计算口径与符号含义。",
+          "execution_type": "analysis",
+          "completion_criteria": [
+            "明确给出自由现金流为3亿元，并列出5-2的计算过程",
+            "明确给出净负债为5亿元，并列出8-3的计算过程",
+            "说明净负债为正表示净债务状态，自由现金流为经营现金流扣除资本开支后的口径"
+          ],
+          "tool_search_query": null,
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "unclear"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "calculate_fcf_and_net_debt",
+        "status": "success",
+        "content": "按用户提供的纯假设数据计算：\n\n1. **自由现金流**  \n   自由现金流 = 经营现金流 − 资本开支  \n   = 5亿元 − 2亿元  \n   = **3亿元**  \n   口径含义：自由现金流表示经营现金流扣除资本开支后，可用于偿债、分红、回购或再投资的剩余现金流。\n\n2. **净负债**  \n   净负债 = 有息负债 − 现金  \n   = 8亿元 − 3亿元  \n   = **5亿元**  \n   口径含义：净负债为正，表示公司扣除现金后仍处于**净债务状态**；若为负，则通常表示净现金状态。\n\n**结论：自由现金流为3亿元，净负债为5亿元。**  \n以上仅基于给定假设数据，未考虑税费、营运资本变动、利息及其他可能调整项。",
+        "error_code": null
+      }
+    ],
+    "tool_calls": [],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "按你给出的假设数据，两项指标计算如下。\n\n## 计算结果\n\n| 指标 | 计算式 | 结果 |\n|---|---|---|\n| 自由现金流 | 经营现金流 5亿元 − 资本开支 2亿元 | **3亿元** |\n| 净负债 | 有息负债 8亿元 − 现金 3亿元 | **5亿元** |\n\n## 口径说明\n\n**自由现金流（3亿元）**：反映公司经营活动产生的现金，在扣除维持和扩张所需的资本开支后，剩余可自由支配的部分。这部分现金可用于偿债、分红、回购或再投资。此处采用的是简化的“经营现金流减资本开支”口径。\n\n**净负债（5亿元）**：以有息负债扣除现金后的余额衡量。结果为正值，说明公司在动用全部现金后仍处于净债务状态，而非净现金状态。这一数字常用于衡量真实杠杆水平，比有息负债总额更能反映偿债压力。\n\n## 两项指标的关系\n\n自由现金流与净负债可以结合起来看：以当年3亿元的自由现金流对应5亿元净负债，静态估算约需1.7年自由现金流覆盖净负债（5 ÷ 3）。但这只是基于单一年度数据的粗略比例，不代表未来实际偿债节奏——自由现金流若出现波动，覆盖时间会相应拉长或缩短。\n\n## 数据边界\n\n以上计算完全基于你提供的四项假设数据，属于简化口径，未纳入以下可能显著影响结果的项目：\n\n- 自由现金流方面：未考虑税费支付、营运资本变动、利息支出，也未区分维持性资本开支与扩张性资本开支；\n- 净负债方面：未考虑受限现金、短期投资等类现金资产，也未纳入应付票据、租赁负债等可能被视为有息负债的项目。\n\n因此，3亿元和5亿元应理解为在该简化口径下的结果；若用于实际判断，需按更完整的报表口径调整后再使用。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_6b054904e85d4df7b733682749cc2964",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    },
+    "errors": []
+  }
+}

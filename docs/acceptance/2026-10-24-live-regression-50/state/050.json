@@ -1,0 +1,274 @@
+{
+  "case_id": "050",
+  "run": {
+    "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+    "session_id": "live50-20261024-a-050",
+    "session_key": "sess_0c915d3194274db4b4728a0450abc9d0",
+    "trace_id": "trace_83681cb0e7dd451f9629c790175edc74",
+    "status": "completed",
+    "created_at": "2026-10-24 14:48:46.901083+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 18,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:48:46.941487+00:00",
+    "ended_at": "2026-10-24 14:48:57.971678+00:00",
+    "events": 18
+  },
+  "receipts": [
+    {
+      "receipt_id": "beac038aaba1435ab1754c76f44d0700",
+      "tool_name": "web_search",
+      "call_id": "call_db9a266c62d75e19287d4515093b8908",
+      "risk_level": "low",
+      "status": "settled",
+      "result_summary": {
+        "error": {
+          "code": "web_search_no_results",
+          "details": {},
+          "message": "联网搜索未返回可验证来源。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_83681cb0e7dd451f9629c790175edc74",
+        "tool_name": "web_search",
+        "latency_ms": 3062,
+        "raw_result": {
+          "error": {
+            "code": "web_search_no_results",
+            "details": {},
+            "message": "联网搜索未返回可验证来源。",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "trace_65573a3f54a74cd9b5ef616afb80da43",
+          "tool_name": "web_search",
+          "latency_ms": 0,
+          "tool_call_id": "tool_c3a57d9dbe094ae8953e8547ff0828ea",
+          "execution_state": "uncertain"
+        },
+        "_invocation": {
+          "version": "search-invocation-v1",
+          "fingerprint": "290dc43448acf26d111649e310546332709eb014b2cde85e7e161f7a0dc7e384",
+          "result_digest": "43ce37bd04d5b1eeeaef0ab9fd56e6ce7820e8f47e0164972d43b809aac79cfb",
+          "binding_digest": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+        },
+        "tool_call_id": "tool_207dc2863de04f1c8a0c7ceda9b1a929",
+        "execution_state": "uncertain"
+      },
+      "created_at": "2026-10-24 14:48:52.316201+00:00",
+      "completed_at": "2026-10-24 14:48:55.357379+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_db9a266c62d75e19287d4515093b8908": {
+        "request_id": "live50-20261024-a-050",
+        "task": {
+          "id": "verify_entity_existence",
+          "task_goal": "核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出是否存在该名称A股上市公司的明确结论",
+            "若存在，提供可验证的股票代码及来源；若不存在，说明检索范围与未命中依据",
+            "不得以名称相近的其他公司替代"
+          ],
+          "tool_search_query": "A股上市公司名称与股票代码查询 证券简称检索",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_db9a266c62d75e19287d4515093b8908",
+        "request_fingerprint": "290dc43448acf26d111649e310546332709eb014b2cde85e7e161f7a0dc7e384",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_7d7411d90a83b647eadad2b759321e04",
+        "as_of": "2026-10-24T22:48:47+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.irm_qa_sh",
+            "version": "mcp-http-v1",
+            "binding": "08212ad01034bb4c8b198b112144a147a5eda30c9f2a4674513b107c095c9fbf"
+          },
+          {
+            "name": "mcp.tushare.stk_rewards",
+            "version": "mcp-http-v1",
+            "binding": "c856a4239e765bb21cb54d1d39d3565a6dc0df0059356a058183759e8fc8bee6"
+          },
+          {
+            "name": "mcp.tushare.hk_income",
+            "version": "mcp-http-v1",
+            "binding": "d347dd2ab6872e2861dbb13021e31248fb06eebecedd1f23033a605d7f86b34e"
+          },
+          {
+            "name": "mcp.tushare.hk_balancesheet",
+            "version": "mcp-http-v1",
+            "binding": "3465f08b33f90777274a91e99e98b072408ac0963304552dde40e1f8b157cd3b"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_7d7411d90a83b647eadad2b759321e04": {
+        "dispatch_batch_id": "dispatch_7d7411d90a83b647eadad2b759321e04",
+        "run_identity": "66d5cb201da98efdea4e5ae5fb2214c1280e1cd524a5221d902791cede0ec316",
+        "plan_digest": "3a24d703efe2f1a79812f2188dcb9e49b199245204a44f0d3fdcfde6fcb0fe0c",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "verify_entity_existence"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "查询A股公司“回归测试不存在公司XYZ987654”的股票代码和2024年营收；先核实主体，找不到就停止，不要替换成别的公司。",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "唯一取证任务已终态失败：联网检索未返回任何可验证来源，无法确认该名称A股上市主体或股票代码；按用户要求先核实主体、找不到即停止，不查询营收、不替换其他公司。",
+      "unresolved_questions": [
+        "A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司及其股票代码，因检索无结果而未能核实"
+      ]
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "先核实A股是否存在“回归测试不存在公司XYZ987654”这一主体；若无法确认其股票代码，则按要求停止，不查询营收、不替换为其他公司。",
+      "tasks": [
+        {
+          "id": "verify_entity_existence",
+          "task_goal": "核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出是否存在该名称A股上市公司的明确结论",
+            "若存在，提供可验证的股票代码及来源；若不存在，说明检索范围与未命中依据",
+            "不得以名称相近的其他公司替代"
+          ],
+          "tool_search_query": "A股上市公司名称与股票代码查询 证券简称检索",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "verify_entity_existence",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"web_search_no_results\",\"message\":\"联网搜索未返回可验证来源。\",\"status\":\"failed\"}",
+        "error_code": "web_search_no_results",
+        "tool_name": "web_search"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_db9a266c62d75e19287d4515093b8908' request=ToolCallRequest(call_id='call_db9a266c62d75e19287d4515093b8908', tool_name='web_search', tool_version='1.0.0', arguments={'query': '\"回归测试不存在公司XYZ987654\" A股 上市公司 股票代码', 'max_results': 5}, purpose='核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。', approval_required=False) result=ToolCallResult(tool_call_id='tool_207dc2863de04f1c8a0c7ceda9b1a929', tool_name='web_search', status='failed', execution_state='uncertain', result=None, error=ToolError(code='web_search_no_results', message='联网搜索未返回可验证来源。', details={}, retryable=False), latency_ms=3062, trace_id='trace_83681cb0e7dd451f9629c790175edc74')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- 联网搜索未返回可验证来源。",
+      "trace_id": "trace_83681cb0e7dd451f9629c790175edc74",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "web_search_no_results"
+    },
+    "errors": []
+  }
+}

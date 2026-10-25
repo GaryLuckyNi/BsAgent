@@ -1,0 +1,264 @@
+{
+  "date": "2026-10-25",
+  "model": "deepseek-v4-flash",
+  "scope": "真实模型+合成材料；不是真实 MCP 数据源端到端测试",
+  "cases": 12,
+  "generations": 13,
+  "tokens": 17766,
+  "traces": [
+    {
+      "trace_id": "085e489558cd3a73b02a4c138d9de52a",
+      "generations": 1,
+      "names": [
+        "ChatOpenAI"
+      ],
+      "tokens": 807,
+      "root_output": {
+        "case": "router_explain",
+        "model": "deepseek-v4-flash",
+        "expected": "direct_answer",
+        "actual": "direct_answer",
+        "match": true,
+        "reason_type": null,
+        "trace_id": "085e489558cd3a73b02a4c138d9de52a",
+        "seconds": 1.541,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "c7d3e279cb760624958d47d691d24f02",
+      "generations": 1,
+      "names": [
+        "ChatOpenAI"
+      ],
+      "tokens": 752,
+      "root_output": {
+        "case": "router_mixed",
+        "model": "deepseek-v4-flash",
+        "expected": "plan",
+        "actual": "plan",
+        "match": true,
+        "reason_type": null,
+        "trace_id": "c7d3e279cb760624958d47d691d24f02",
+        "seconds": 0.617,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "d88c93e4a3187f6d99d5ae8da5e3d4c9",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1436,
+      "root_output": {
+        "case": "missing_task",
+        "model": "deepseek-v4-flash",
+        "expected": "request_replan",
+        "actual": "request_replan",
+        "match": true,
+        "reason_type": "missing_task",
+        "trace_id": "d88c93e4a3187f6d99d5ae8da5e3d4c9",
+        "seconds": 1.773,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "7b3fa245627348c1d5a916b3859f2243",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1491,
+      "root_output": {
+        "case": "new_evidence",
+        "model": "deepseek-v4-flash",
+        "expected": "request_replan",
+        "actual": "request_replan",
+        "match": true,
+        "reason_type": "missing_task",
+        "trace_id": "7b3fa245627348c1d5a916b3859f2243",
+        "seconds": 2.18,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "d917118b7a07c2789e5bc84e64db9bad",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1512,
+      "root_output": {
+        "case": "evidence_conflict",
+        "model": "deepseek-v4-flash",
+        "expected": "request_replan",
+        "actual": "request_replan",
+        "match": true,
+        "reason_type": "evidence_conflict",
+        "trace_id": "d917118b7a07c2789e5bc84e64db9bad",
+        "seconds": 2.446,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "519ed013a62b86f572b4c7d58fdb5d1f",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1474,
+      "root_output": {
+        "case": "path_invalid",
+        "model": "deepseek-v4-flash",
+        "expected": "request_replan",
+        "actual": "request_replan",
+        "match": true,
+        "reason_type": "path_invalid",
+        "trace_id": "519ed013a62b86f572b4c7d58fdb5d1f",
+        "seconds": 1.552,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "eb8fd621dd533127b15ac5bd09305e99",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1460,
+      "root_output": {
+        "case": "premise_invalid",
+        "model": "deepseek-v4-flash",
+        "expected": "request_replan",
+        "actual": "request_replan",
+        "match": true,
+        "reason_type": "premise_invalid",
+        "trace_id": "eb8fd621dd533127b15ac5bd09305e99",
+        "seconds": 1.818,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "4c2656d3a7fdd83a85e319c972c824e0",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1880,
+      "root_output": {
+        "case": "permission_only",
+        "model": "deepseek-v4-flash",
+        "expected": "answer",
+        "actual": "answer",
+        "match": true,
+        "reason_type": null,
+        "trace_id": "4c2656d3a7fdd83a85e319c972c824e0",
+        "seconds": 5.609,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "d11a19ab2951a562d500085126309859",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1743,
+      "root_output": {
+        "case": "timeout_only",
+        "model": "deepseek-v4-flash",
+        "expected": "answer",
+        "actual": "answer",
+        "match": true,
+        "reason_type": null,
+        "trace_id": "d11a19ab2951a562d500085126309859",
+        "seconds": 4.683,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "f906c1ea86071d1f7ed3f4b874a37323",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1632,
+      "root_output": {
+        "case": "partial_only",
+        "model": "deepseek-v4-flash",
+        "expected": "answer",
+        "actual": "answer",
+        "match": true,
+        "reason_type": null,
+        "trace_id": "f906c1ea86071d1f7ed3f4b874a37323",
+        "seconds": 3.598,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "530de1b6bd0d8ae3c063bacc68863bc4",
+      "generations": 1,
+      "names": [
+        "deepseek.chat.completions"
+      ],
+      "tokens": 1452,
+      "root_output": {
+        "case": "finished",
+        "model": "deepseek-v4-flash",
+        "expected": "answer",
+        "actual": "answer",
+        "match": true,
+        "reason_type": null,
+        "trace_id": "530de1b6bd0d8ae3c063bacc68863bc4",
+        "seconds": 2.184,
+        "stop_reason": null
+      }
+    },
+    {
+      "trace_id": "e8b11da00c84c6b37d01ed2392c16886",
+      "generations": 2,
+      "names": [
+        "ChatOpenAI",
+        "ChatOpenAI"
+      ],
+      "tokens": 2127,
+      "root_output": {
+        "case": "router_reuse",
+        "model": "deepseek-v4-flash",
+        "expected": "plan",
+        "actual": "plan",
+        "match": true,
+        "reason_type": null,
+        "trace_id": "e8b11da00c84c6b37d01ed2392c16886",
+        "seconds": 3.212,
+        "stop_reason": null,
+        "available_information": {
+          "company": "甲公司",
+          "eps_2025": "2元/股",
+          "eps_source": "用户提供，作为已知前提，无需再次查询",
+          "calculation_method": "静态市盈率=最近交易日股价÷2025年每股收益"
+        },
+        "plan": {
+          "public_summary": "沿用甲公司2025年每股收益2元的前提，仅查询其最近交易日股价，再由最终回答计算静态市盈率。",
+          "tasks": [
+            {
+              "id": "latest_stock_price",
+              "task_goal": "查询甲公司最近一个交易日的收盘价（并确认该交易日日期），不查询每股收益。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "取得甲公司最近交易日的收盘价数值及对应交易日日期",
+                "明确价格来源与币种/单位"
+              ],
+              "tool_search_query": "A股个股最近交易日收盘价行情查询",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

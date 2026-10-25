@@ -1,0 +1,1001 @@
+{
+  "case_id": "028",
+  "category": "宽泛研究",
+  "question": "现在贵州茅台还值得关注吗？给投研框架和可验证证据，不要把历史数据当成最新。",
+  "session_id": "live50-20261024-a-028",
+  "request_id": "live50-20261024-a-028",
+  "started_at": "2026-10-24T14:42:43.174844+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "message_id": "msg_77aaa55217e8441d93f9098f225a634b",
+      "request_id": "live50-20261024-a-028"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "completed",
+      "message": "围绕贵州茅台是否仍值得关注，先核实最新披露的经营、财务与估值证据，再给出可验证的投研框架和情景判断，严格区分历史数据与最新数据。"
+    },
+    {
+      "id": "tool_agent:latest_fundamental_evidence",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "started",
+      "message": "正在获取研究证据：获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。",
+      "task_id": "latest_fundamental_evidence",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:valuation_and_market_evidence",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "started",
+      "message": "正在获取研究证据：获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。",
+      "task_id": "valuation_and_market_evidence",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:valuation_and_market_evidence",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "completed",
+      "message": "已取得研究证据：获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。",
+      "task_id": "valuation_and_market_evidence",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:latest_fundamental_evidence",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "completed",
+      "message": "已取得研究证据：获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。",
+      "task_id": "latest_fundamental_evidence",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "completed",
+      "message": "围绕贵州茅台是否仍值得关注，先核实最新披露的经营、财务与估值证据，再给出可验证的投研框架和情景判断，严格区分历史数据与最新数据。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "**先给判断：仍值得关注，但应定义为“有条件关注"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "、等待三季报验证”，而不是无条件乐观。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "** 截至材料时点2026-10-24，可核实的最新"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "经营数据仍是2026年中报（报告期2026-06"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "-30、披露日2026-08-15），属于历史定期"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "报告，不能当作三季度最新数据；最新行情为2026"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "-10-23收盘，也不是盘中实时。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "三季报尚未披露，公开业绩日历提示预计10月31日"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "发布，这是短期最重要的验证节点。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "中报新浪口径营收907.03亿元、同比+1.47"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "%，净利润445.17亿元、同比-1.95%，毛利率"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "75.01%；证券之星口径营业总收入922.78"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "亿元、净利润460.33亿元，口径存在差异，归母"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "净利润和同比变化需以报告原文核对。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "这个组合只能说明收入仍有韧性、利润端有放缓迹象，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "尚不能判断渠道和现金流是否恶化，因为合同负债与经营"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "现金流未取得。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "**投研框架应覆盖四类核心变量。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "** 第一，需求与渠道：跟踪飞天批价、渠道库存、"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "动销、合同负债/预收款；来源为公司定期报告和公告"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "，渠道调研只能作辅助。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "本次材料未取得批价和库存数据，渠道状态是核心缺口"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "第二，产品结构与提价能力：跟踪茅台酒与系列酒收入"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "结构、直销占比、提价及渠道改革公告；公告原文未核实"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "，不能把市场传闻当事实。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "第三，盈利与现金流质量：跟踪营收、归母净利润、毛利率"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "、经营现金流/净利润、合同负债环比；中报毛利率仍"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "高，但现金流和合同负债缺失，盈利质量判断不完整。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "第四，估值与股东回报：最新10月23日收盘133"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "5元、总市值约1.67万亿元、PE(TTM)约20"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": ".49倍、静态PE20.27倍、动态PE18.74"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "倍；动态PB6.64仅为单一来源，股息率、分红方案"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "原文和近一年相对沪深300/白酒板块表现均缺失。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "政策与消费环境本次没有可验证证据，只能作为风险变量"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "，跟踪消费税、白酒流通监管、宏观消费及公司公告。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "**情景判断。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "** 基准情景：三季报显示营收和利润温和增长、合同"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "负债与经营现金流不恶化，当前约20倍TTM估值仍"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "具备持续跟踪价值。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "谨慎情景：三季报利润负增长扩大，或合同负债明显下降"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "、经营现金流显著弱于利润，则应下调关注优先级。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "乐观情景：提价、渠道改革或分红安排超预期，同时批"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "价和库存指标改善，关注度可提升。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "上述触发条件都必须由三季报和公司公告验证，不能由"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "中报或卖方预测替代；结论对10月31日前后披露的最新"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "数据依赖很高。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "**数据边界要明确。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "** 历史数据包括2026年中报及10月19日、"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "10月21日行情快照，不能冒充最新；最新行情是10"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "月23日收盘；三季报属于待披露数据。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "第三方所称“前三季度营收1284.54亿元”与已"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "披露中报及三季报发布时间冲突，存疑不采信；卖方预测"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "也不是公司披露数据。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "数据缺口主要影响“渠道健康度、盈利质量、股东回报"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "”三项判断，但不改变仍需跟踪的框架结论：茅台仍值得"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "研究关注，只是当前应把关注点从增速故事转向三季报"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "对收入、合同负债、经营现金流和分红政策的验证。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "以上为研究跟踪判断，不构成交易指令。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "证据入口：新浪财经历史业绩报表（https://"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "vip.stock.finance.sina.com"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": ".cn/q/go.php/vFinanceAnaly"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "ze/kind/history/index.phtml"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "?symbol=600519）、证券之星财务分析"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "（https://stock.quote.stock"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "star.com/finance_600519.s"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "html）、上交所公司页（https://www"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": ".sse.com.cn/assortment/stock"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "/list/info/company/index"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": ".shtml?COMPANY_CODE=600519"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "）、东方财富行情（https://quote.e"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "astmoney.com/concept/sh600"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "type": "ai",
+        "content": "519.html）。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "response": {
+        "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+        "content": "**先给判断：仍值得关注，但应定义为“有条件关注、等待三季报验证”，而不是无条件乐观。** 截至材料时点2026-10-24，可核实的最新经营数据仍是2026年中报（报告期2026-06-30、披露日2026-08-15），属于历史定期报告，不能当作三季度最新数据；最新行情为2026-10-23收盘，也不是盘中实时。三季报尚未披露，公开业绩日历提示预计10月31日发布，这是短期最重要的验证节点。中报新浪口径营收907.03亿元、同比+1.47%，净利润445.17亿元、同比-1.95%，毛利率75.01%；证券之星口径营业总收入922.78亿元、净利润460.33亿元，口径存在差异，归母净利润和同比变化需以报告原文核对。这个组合只能说明收入仍有韧性、利润端有放缓迹象，尚不能判断渠道和现金流是否恶化，因为合同负债与经营现金流未取得。\n\n**投研框架应覆盖四类核心变量。** 第一，需求与渠道：跟踪飞天批价、渠道库存、动销、合同负债/预收款；来源为公司定期报告和公告，渠道调研只能作辅助。本次材料未取得批价和库存数据，渠道状态是核心缺口。第二，产品结构与提价能力：跟踪茅台酒与系列酒收入结构、直销占比、提价及渠道改革公告；公告原文未核实，不能把市场传闻当事实。第三，盈利与现金流质量：跟踪营收、归母净利润、毛利率、经营现金流/净利润、合同负债环比；中报毛利率仍高，但现金流和合同负债缺失，盈利质量判断不完整。第四，估值与股东回报：最新10月23日收盘1335元、总市值约1.67万亿元、PE(TTM)约20.49倍、静态PE20.27倍、动态PE18.74倍；动态PB6.64仅为单一来源，股息率、分红方案原文和近一年相对沪深300/白酒板块表现均缺失。政策与消费环境本次没有可验证证据，只能作为风险变量，跟踪消费税、白酒流通监管、宏观消费及公司公告。\n\n**情景判断。** 基准情景：三季报显示营收和利润温和增长、合同负债与经营现金流不恶化，当前约20倍TTM估值仍具备持续跟踪价值。谨慎情景：三季报利润负增长扩大，或合同负债明显下降、经营现金流显著弱于利润，则应下调关注优先级。乐观情景：提价、渠道改革或分红安排超预期，同时批价和库存指标改善，关注度可提升。上述触发条件都必须由三季报和公司公告验证，不能由中报或卖方预测替代；结论对10月31日前后披露的最新数据依赖很高。\n\n**数据边界要明确。** 历史数据包括2026年中报及10月19日、10月21日行情快照，不能冒充最新；最新行情是10月23日收盘；三季报属于待披露数据。第三方所称“前三季度营收1284.54亿元”与已披露中报及三季报发布时间冲突，存疑不采信；卖方预测也不是公司披露数据。数据缺口主要影响“渠道健康度、盈利质量、股东回报”三项判断，但不改变仍需跟踪的框架结论：茅台仍值得研究关注，只是当前应把关注点从增速故事转向三季报对收入、合同负债、经营现金流和分红政策的验证。以上为研究跟踪判断，不构成交易指令。\n\n证据入口：新浪财经历史业绩报表（https://vip.stock.finance.sina.com.cn/q/go.php/vFinanceAnalyze/kind/history/index.phtml?symbol=600519）、证券之星财务分析（https://stock.quote.stockstar.com/finance_600519.shtml）、上交所公司页（https://www.sse.com.cn/assortment/stock/list/info/company/index.shtml?COMPANY_CODE=600519）、东方财富行情（https://quote.eastmoney.com/concept/sh600519.html）。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_926a2e4b8f544f33a00cc834d54a8b07",
+        "message_id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "request_id": "live50-20261024-a-028",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_09ef9ac04af447fd88f1b7f8a16819ae",
+        "request_id": "live50-20261024-a-028",
+        "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+        "role": "user",
+        "status": "completed",
+        "content": "现在贵州茅台还值得关注吗？给投研框架和可验证证据，不要把历史数据当成最新。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:42:43.240275Z",
+        "completed_at": "2026-10-24T14:42:43.235132Z"
+      },
+      {
+        "message_id": "msg_77aaa55217e8441d93f9098f225a634b",
+        "request_id": "live50-20261024-a-028",
+        "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+        "role": "assistant",
+        "status": "completed",
+        "content": "**先给判断：仍值得关注，但应定义为“有条件关注、等待三季报验证”，而不是无条件乐观。** 截至材料时点2026-10-24，可核实的最新经营数据仍是2026年中报（报告期2026-06-30、披露日2026-08-15），属于历史定期报告，不能当作三季度最新数据；最新行情为2026-10-23收盘，也不是盘中实时。三季报尚未披露，公开业绩日历提示预计10月31日发布，这是短期最重要的验证节点。中报新浪口径营收907.03亿元、同比+1.47%，净利润445.17亿元、同比-1.95%，毛利率75.01%；证券之星口径营业总收入922.78亿元、净利润460.33亿元，口径存在差异，归母净利润和同比变化需以报告原文核对。这个组合只能说明收入仍有韧性、利润端有放缓迹象，尚不能判断渠道和现金流是否恶化，因为合同负债与经营现金流未取得。\n\n**投研框架应覆盖四类核心变量。** 第一，需求与渠道：跟踪飞天批价、渠道库存、动销、合同负债/预收款；来源为公司定期报告和公告，渠道调研只能作辅助。本次材料未取得批价和库存数据，渠道状态是核心缺口。第二，产品结构与提价能力：跟踪茅台酒与系列酒收入结构、直销占比、提价及渠道改革公告；公告原文未核实，不能把市场传闻当事实。第三，盈利与现金流质量：跟踪营收、归母净利润、毛利率、经营现金流/净利润、合同负债环比；中报毛利率仍高，但现金流和合同负债缺失，盈利质量判断不完整。第四，估值与股东回报：最新10月23日收盘1335元、总市值约1.67万亿元、PE(TTM)约20.49倍、静态PE20.27倍、动态PE18.74倍；动态PB6.64仅为单一来源，股息率、分红方案原文和近一年相对沪深300/白酒板块表现均缺失。政策与消费环境本次没有可验证证据，只能作为风险变量，跟踪消费税、白酒流通监管、宏观消费及公司公告。\n\n**情景判断。** 基准情景：三季报显示营收和利润温和增长、合同负债与经营现金流不恶化，当前约20倍TTM估值仍具备持续跟踪价值。谨慎情景：三季报利润负增长扩大，或合同负债明显下降、经营现金流显著弱于利润，则应下调关注优先级。乐观情景：提价、渠道改革或分红安排超预期，同时批价和库存指标改善，关注度可提升。上述触发条件都必须由三季报和公司公告验证，不能由中报或卖方预测替代；结论对10月31日前后披露的最新数据依赖很高。\n\n**数据边界要明确。** 历史数据包括2026年中报及10月19日、10月21日行情快照，不能冒充最新；最新行情是10月23日收盘；三季报属于待披露数据。第三方所称“前三季度营收1284.54亿元”与已披露中报及三季报发布时间冲突，存疑不采信；卖方预测也不是公司披露数据。数据缺口主要影响“渠道健康度、盈利质量、股东回报”三项判断，但不改变仍需跟踪的框架结论：茅台仍值得研究关注，只是当前应把关注点从增速故事转向三季报对收入、合同负债、经营现金流和分红政策的验证。以上为研究跟踪判断，不构成交易指令。\n\n证据入口：新浪财经历史业绩报表（https://vip.stock.finance.sina.com.cn/q/go.php/vFinanceAnalyze/kind/history/index.phtml?symbol=600519）、证券之星财务分析（https://stock.quote.stockstar.com/finance_600519.shtml）、上交所公司页（https://www.sse.com.cn/assortment/stock/list/info/company/index.shtml?COMPANY_CODE=600519）、东方财富行情（https://quote.eastmoney.com/concept/sh600519.html）。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "围绕贵州茅台是否仍值得关注，先核实最新披露的经营、财务与估值证据，再给出可验证的投研框架和情景判断，严格区分历史数据与最新数据。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:latest_fundamental_evidence",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。",
+              "task_id": "latest_fundamental_evidence",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "tool_agent:valuation_and_market_evidence",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。",
+              "task_id": "valuation_and_market_evidence",
+              "group_id": "evidence:1",
+              "sequence": 2,
+              "task_label": "获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "围绕贵州茅台是否仍值得关注，先核实最新披露的经营、财务与估值证据，再给出可验证的投研框架和情景判断，严格区分历史数据与最新数据。",
+              "sequence": 3
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:42:43.240330Z",
+        "completed_at": "2026-10-24T14:44:38.153066Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:44:38.328024+00:00",
+  "elapsed_seconds": 115.153
+}

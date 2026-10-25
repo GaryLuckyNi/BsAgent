@@ -45,6 +45,7 @@ def eligible_recovery(
     selection: Mapping[str, Any] | None,
     source_allows_search: bool,
     consumed: bool,
+    local_unstarted: bool = False,
 ) -> tuple[bool, str]:
     # result.tool_call_id 在现有网关中是结果 ID，不是请求身份；原调用由 Record/回执绑定。
     if not request.call_id or request.tool_name != result.tool_name:
@@ -53,12 +54,17 @@ def eligible_recovery(
         not request.tool_name.startswith("mcp.")
         or result.status not in {"denied", "failed"}
         or result.error is None
-        or result.error.code != "provider_permission_denied"
+        or not (
+            result.error.code == "provider_permission_denied"
+            or (local_unstarted and result.error.code == "tool_side_effects_unresolved")
+        )
     ):
         return False, "not_provider_permission_denial"
     if result.execution_state != "not_started" or result.result is not None:
         return False, "execution_not_confirmed_unstarted"
-    if not receipt_settled:
+    if not receipt_settled and not (
+        local_unstarted and result.error.code == "tool_side_effects_unresolved"
+    ):
         return False, "receipt_not_settled"
     if consumed:
         return False, "recovery_already_consumed"
@@ -73,4 +79,4 @@ def eligible_recovery(
         return False, "fallback_not_in_original_candidates"
     if not source_allows_search:
         return False, "source_policy_unavailable"
-    return True, "permission_recovery_eligible"
+    return True, "local_unstarted_recovery_eligible" if local_unstarted else "permission_recovery_eligible"

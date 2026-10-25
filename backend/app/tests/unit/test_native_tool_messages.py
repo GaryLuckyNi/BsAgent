@@ -332,6 +332,26 @@ def test_auto_tool_choice_accepts_plain_analysis_content():
     assert selection.message.content == "未调用工具"
 
 
+def test_tool_argument_dates_follow_declared_format_before_request_binding():
+    from app.graph.nodes.tool_agent import _repair_arguments_once
+
+    state=create_initial_state(session_id="s",tenant_id="t",user_id="u",user_message="查询历史")
+    spec=ToolSpec(name="mcp.any.history",version="1",description="历史数据",input_schema={
+        "type":"object","properties":{
+            "trade_date":{"type":"string","description":"交易日期（格式：YYYYMMDD，下同）"},
+            "start_date":{"type":"string","description":"开始日期"},
+            "query":{"type":"string"},
+        }})
+    from app.tools.native_calls import NativeToolSelection
+    message=AIMessage(content="",tool_calls=[{"id":"untrusted","name":spec.name,"type":"tool_call",
+        "args":{"trade_date":"2025-09-01","start_date":"2025-08-01","query":"资料发布于2025-09-01"}}])
+    repaired=_repair_arguments_once(llm_client=None,state=state,task=SubTaskModel(id="history",task_goal="历史查询"),
+        selection=NativeToolSelection(message=message,selected_tool=spec))
+    assert repaired.message.tool_calls[0]["args"]=={
+        "trade_date":"20250901","start_date":"20250801","query":"资料发布于2025-09-01"}
+    assert message.tool_calls[0]["args"]["trade_date"]=="2025-09-01"
+
+
 def test_tool_result_message_matches_call_id_and_keeps_raw_payload_in_artifact():
     message = create_tool_result_message(
         tool_call_id="call-1",
@@ -544,6 +564,11 @@ def test_tool_worker_accepts_model_decision_not_to_call():
 
     assert update["task_results"][0]["status"] == "success"
     assert not update.get("tool_calls")
+    from app.graph.planning.context import user_materials
+
+    state["messages"]=add_messages(state["messages"],update["messages"])
+    assert update["messages"][0].additional_kwargs["task_role"]=="tool_analysis"
+    assert "缺少可确定的证券代码" not in json.dumps(user_materials(state),ensure_ascii=False)
 
 
 def test_tool_worker_does_not_retry_a_valid_no_call_decision():

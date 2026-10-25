@@ -1,6 +1,7 @@
+import json
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 
 class BusinessIntentProfile(BaseModel):
@@ -23,7 +24,28 @@ class IntentDecisionModel(BaseModel):
     subdomain: str | None = None
     goal: str | None = None
     confidence: float = Field(ge=0, le=1)
-    source_constraint: Literal["unrestricted", "original_only", "unclear"] = "unclear"
+    source_constraint: Literal["unrestricted", "original_only", "confirmation_required", "unclear"] = "unclear"
+    available_information: dict[str, JsonValue] = Field(default_factory=dict)
+    route: Literal["direct_answer", "synthesize", "plan"] = "plan"
+    answer: str | None = None
+
+    @field_validator("available_information")
+    @classmethod
+    def validate_json_information(cls, value):
+        json.dumps(value, ensure_ascii=False, allow_nan=False)
+        return value
+
+    @model_validator(mode="after")
+    def validate_response_branch(self) -> "IntentDecisionModel":
+        if self.intent_type is None:
+            if self.answer is not None or self.available_information or self.route != "plan":
+                raise ValueError("范围外请求不携带回答或业务信息")
+        elif self.route == "direct_answer":
+            if not self.answer or not self.answer.strip():
+                raise ValueError("直接回答必须提供非空 answer")
+        elif self.answer is not None:
+            raise ValueError("执行或合成分支不能提前输出答案")
+        return self
 
     @model_validator(mode="after")
     def validate_scope_shape(self) -> "IntentDecisionModel":

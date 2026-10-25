@@ -138,6 +138,10 @@ export function useResearchSession(identity: RequestIdentity) {
   const stopCurrentRef = useRef<() => Promise<void>>(async () => undefined)
   const interactionEpochRef = useRef(0)
   const expectedRequestRef = useRef<string | null>(null)
+  const pendingResumeRef = useRef<{
+    messageId: string
+    input: NonNullable<ResearchMessage['userInput']>
+  } | null>(null)
   const sdkStopRef = useRef<() => Promise<void>>(async () => undefined)
   const identityKey = JSON.stringify([identity.tenantId, identity.userId, identity.accessToken || ''])
   const identityKeyRef = useRef(identityKey)
@@ -157,10 +161,26 @@ export function useResearchSession(identity: RequestIdentity) {
     [identity, sessionId]
   )
 
+  const restorePendingInput = useCallback(() => {
+    const pending = pendingResumeRef.current
+    if (!pending) return false
+    pendingResumeRef.current = null
+    completedResponseRef.current = true
+    if (activeRunRef.current) activeRunRef.current.terminal = true
+    setMessages((current) => updateMessage(current, pending.messageId, (message) => ({
+      ...message,
+      status: 'interrupted',
+      processStatus: undefined,
+      userInput: { ...pending.input, isSubmitting: false, selectedValue: undefined }
+    })))
+    return true
+  }, [])
+
   const handleCustomEvent = useCallback((event: AgentProtocolEvent) => {
     if (event.type === 'run_started' && event.run_id) {
       if (event.request_id && expectedRequestRef.current && event.request_id !== expectedRequestRef.current) return
       if (activeRunRef.current && event.run_id !== activeRunRef.current.runId) return
+      pendingResumeRef.current = null
       activeRunRef.current = { runId: event.run_id, messageId: event.message_id, terminal: false, replayAfter: event.replay_after || 0 }
       if (stoppingRef.current) void stopCurrentRef.current()
       return
@@ -220,6 +240,7 @@ export function useResearchSession(identity: RequestIdentity) {
       return
     }
     if (event.type === 'final') {
+      pendingResumeRef.current = null
       completedResponseRef.current = true
       const response = event.response || {}
       const evidence = buildEvidenceIndex((response.cited_evidence_ids || []).map((id) => ({
@@ -248,6 +269,7 @@ export function useResearchSession(identity: RequestIdentity) {
       && event.options
       && event.options.length >= 2
     ) {
+      pendingResumeRef.current = null
       completedResponseRef.current = true
       const hasBatch = Object.prototype.hasOwnProperty.call(event, 'recovery_batch')
       const batch = hasBatch ? parseRecoveryBatch(event.recovery_batch) : null
@@ -378,6 +400,7 @@ export function useResearchSession(identity: RequestIdentity) {
       if (activeRunRef.current?.terminal) return
       const message = errorMessage(caught)
       setError(message)
+      if (restorePendingInput()) return
       if ((activeRunRef.current && !activeRunRef.current.terminal) || !completedResponseRef.current) {
         void recoverRun()
         return
@@ -462,6 +485,7 @@ export function useResearchSession(identity: RequestIdentity) {
       subscriptionRef.current?.abort()
       void sdkStopRef.current()
       activeAssistantIdRef.current = null
+      pendingResumeRef.current = null
       activeRunRef.current = null
       expectedRequestRef.current = null
       completedResponseRef.current = false
@@ -590,13 +614,15 @@ export function useResearchSession(identity: RequestIdentity) {
   stopCurrentRef.current = cancelMessage
 
   const resumeUserInput = useCallback(async (messageId: string, value: string) => {
-    if (stream.isLoading || isRecovering || isStopping || isInitializing) return
+    if (stream.isLoading || isRecovering || isStopping || isInitializing || pendingResumeRef.current) return
     const message = messagesRef.current.find((item) => item.id === messageId)
     const userInput = message?.userInput
     if (!userInput || userInput.isSubmitting || userInput.presentationError) return
     if (!userInput.options.some((option) => option.value === value)) return
 
     interactionEpochRef.current += 1
+    const resumeEpoch = interactionEpochRef.current
+    pendingResumeRef.current = { messageId, input: userInput }
     callbackContext.epoch = interactionEpochRef.current
     expectedRequestRef.current = null
     completedResponseRef.current = false
@@ -607,12 +633,9 @@ export function useResearchSession(identity: RequestIdentity) {
     lastStreamedAnswerRef.current = null
     setMessages((current) => updateMessage(current, messageId, (item) => ({
       ...item,
-      status: 'interrupted',
-      userInput: item.userInput ? {
-        ...item.userInput,
-        isSubmitting: true,
-        selectedValue: value
-      } : undefined
+      status: 'streaming',
+      processStatus: '正在继续研究…',
+      userInput: undefined
     })))
     try {
       await stream.submit(null, {
@@ -629,13 +652,12 @@ export function useResearchSession(identity: RequestIdentity) {
           }
         }
       })
-    } finally {
-      setMessages((current) => updateMessage(current, messageId, (item) => ({
-        ...item,
-        userInput: item.userInput ? { ...item.userInput, isSubmitting: false } : undefined
-      })))
+    } catch (caught) {
+      if (resumeEpoch !== interactionEpochRef.current) return
+      setError(errorMessage(caught))
+      restorePendingInput()
     }
-  }, [stream])
+  }, [stream, restorePendingInput])
 
   return {
     sessionId,

@@ -3,7 +3,6 @@ import re
 from app.graph.nodes.synthesizer import FINANCIAL_DISCLAIMER
 from app.graph.state import AgentState
 
-
 _PROHIBITED_PATTERNS = (
     re.compile(r"(?:保证|确保|必然).{0,12}(?:收益|盈利|上涨)"),
     re.compile(r"(?:建议|应该|必须).{0,8}(?:买入|卖出|加仓|减仓)"),
@@ -31,6 +30,14 @@ def verifier_node(state: AgentState) -> AgentState:
     if not content:
         risk_flags.append("empty_answer")
     if risk_flags:
+        # 声明可本地补齐；其余不合格正文不能继续由 final_response 原样发布。
+        if set(risk_flags) == {"missing_financial_disclaimer"}:
+            draft["content"] = f"{content}\n\n{FINANCIAL_DISCLAIMER}"
+            state["verification"] = _result("pass", "respond")
+            return state
+        draft["content"] = (
+            "现有答复未通过输出检查，暂无法提供可靠结论。\n\n" + FINANCIAL_DISCLAIMER
+        )
         state["verification"] = {
             **_result("needs_revision", "revise_answer"),
             "risk_flags": list(dict.fromkeys(risk_flags)),

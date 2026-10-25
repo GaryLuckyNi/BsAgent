@@ -1,0 +1,56 @@
+{
+  "company_snapshot": {
+    "name": "company_snapshot",
+    "version": "1.0.0",
+    "summary": "生成 A 股公司基础资料、行情、公告与知识证据速览。\n第 1 步：调用工具 `mcp.local.stock.resolve_company`，根据用户问题和前序步骤结果填写参数。必须返回字段：symbol、name；缺失则停止并说明原因。\n第 2 步：调用工具 `mcp.local.stock.company_profile`，根据用户问题和前序步骤结果填写参数。必须返回字段：name、industry、main_business；缺失则停止并说明原因。\n第 3 步：调用工具 `mcp.local.stock.market_snapshot`，根据用户问题和前序步骤结果填写参数。必须返回字段：price；缺失则停止并说明原因。\n第 4 步：调用工具 `mcp.local.stock.announcement_search`，根据用户问题和前序步骤结果填写参数。结果为空时明确标注缺失，允许继续后续步骤。\n最后仅依据实际结果用中文整理报告，列出数据来源和缺失项，不得补造数据。",
+    "supported_intents": [
+      "financial_research"
+    ],
+    "supported_domains": [
+      "a_share_equity_research"
+    ],
+    "supported_sub_intents": [
+      "general_research"
+    ],
+    "risk_level": "medium",
+    "enabled": true,
+    "created_at": "2026-07-26T05:55:27.118776",
+    "updated_at": "2026-10-25T03:31:51.129181"
+  },
+  "financial_report_analysis": {
+    "name": "financial_report_analysis",
+    "version": "1.0.0",
+    "summary": "分析 A 股公司指定报告期的财务指标与公告证据。\n第 1 步：调用工具 `mcp.local.stock.resolve_company`，根据用户问题和前序步骤结果填写参数。必须返回字段：symbol、name；缺失则停止并说明原因。\n第 2 步：调用工具 `mcp.local.stock.financial_metrics`，根据用户问题和前序步骤结果填写参数。必须返回字段：revenue、net_profit_parent；缺失则停止并说明原因。\n第 3 步：调用工具 `mcp.local.stock.announcement_search`，根据用户问题和前序步骤结果填写参数。结果为空时明确标注缺失，允许继续后续步骤。\n最后仅依据实际结果用中文整理报告，列出数据来源和缺失项，不得补造数据。",
+    "supported_intents": [
+      "financial_research"
+    ],
+    "supported_domains": [
+      "a_share_equity_research"
+    ],
+    "supported_sub_intents": [
+      "general_research"
+    ],
+    "risk_level": "medium",
+    "enabled": true,
+    "created_at": "2026-07-26T05:55:27.118782",
+    "updated_at": "2026-10-25T03:31:51.210743"
+  },
+  "risk_scan": {
+    "name": "risk_scan",
+    "version": "1.0.0",
+    "summary": "扫描 A 股公司公告、风险事件与知识证据\n第 1 步：调用工具 `mcp.local.stock.resolve_company`，根据用户问题和前序步骤结果填写参数。必须返回字段：symbol、name；缺失则停止并说明原因。\n第 2 步：调用工具 `mcp.local.stock.announcement_search`，根据用户问题和前序步骤结果填写参数。必须返回字段：announcements；缺失则停止并说明原因。\n最后仅依据实际结果整理输出，列出缺失项，不得补造数据。",
+    "supported_intents": [
+      "financial_research"
+    ],
+    "supported_domains": [
+      "a_share_equity_research"
+    ],
+    "supported_sub_intents": [
+      "general_research"
+    ],
+    "risk_level": "medium",
+    "enabled": true,
+    "created_at": "2026-07-26T05:55:27.118782",
+    "updated_at": "2026-10-25T03:31:51.233017"
+  }
+}

@@ -116,6 +116,55 @@ def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planne
     return graph, state, data, search, client, registry
 
 
+def test_legacy_batch_tasks_resume_without_rewriting_sealed_snapshots(control, monkeypatch):
+    original = tool_agent.selection_context
+
+    def legacy_context(*args, **kwargs):
+        context = original(*args, **kwargs)
+        context["task"].pop("tool_candidate_refs")
+        return context
+
+    monkeypatch.setattr(tool_agent, "selection_context", legacy_context)
+    graph, state, data, search, client, _ = batch_graph(control, monkeypatch)
+    config = {"configurable": {"thread_id": "legacy-candidate-field"}}
+    with execution_control(control):
+        paused = graph.invoke(state, config)
+        payload = paused["__interrupt__"][0].value
+        contexts = paused["tool_selection_contexts"]
+        resumed = graph.invoke(Command(resume={
+            "interaction_id": payload["interaction_id"], "input_type": "selection", "value": "web_search",
+            "presentation_version": payload["recovery_batch"]["version"],
+            "batch_digest": payload["recovery_batch"]["digest"],
+        }), config)
+    assert search.calls == 2 and data.calls == client.calls == 2
+    assert "__interrupt__" not in resumed
+    for call_id, context in contexts.items():
+        assert resumed["tool_selection_contexts"][call_id]["task"] == context["task"]
+        assert "tool_candidate_refs" not in context["task"]
+
+
+def test_legacy_deferred_task_compares_semantically_without_rewriting_context(control, monkeypatch):
+    from app.graph.planning.contracts import SubTaskModel
+    from app.graph.recovery.batching import deferred_sends
+    from app.schemas.tools import ToolCallRecord, ToolCallRequest
+    from app.tools.fingerprints import tool_call_fingerprint
+
+    _graph, state, _data, _search, _client, _registry = batch_graph(control, monkeypatch)
+    task = SubTaskModel.model_validate(state["plan"]["tasks"][0]).model_dump(mode="json")
+    task.pop("tool_candidate_refs")
+    request = ToolCallRequest(call_id="deferred", tool_name="mcp.tushare.income_vip", arguments={}, purpose="取数")
+    state["tool_calls"] = [ToolCallRecord(call_id="deferred", request=request, result=None)]
+    state["tool_selection_contexts"] = {"deferred": {
+        "request_id": state["request_id"], "task": task, "request_fingerprint": tool_call_fingerprint(request),
+    }}
+    state["deferred_tool_calls"] = {"deferred": {"task_id": task["id"], "status": "waiting", "dispatch_batch_id": "d"}}
+    state["dispatch_batches"] = {"d": {"members": [task["id"]]}}
+    with execution_control(control):
+        sends = deferred_sends(state)
+    assert len(sends) == 1 and sends[0].arg["active_task"] == task
+    assert "tool_candidate_refs" not in state["tool_selection_contexts"]["deferred"]["task"]
+
+
 @pytest.mark.parametrize("choice", ["web_search", "use_existing"])
 def test_same_dispatch_refusals_form_one_complete_interrupt_without_model_reselection(
     control, monkeypatch, choice
@@ -156,6 +205,83 @@ def test_same_dispatch_refusals_form_one_complete_interrupt_without_model_resele
     assert "planner_stop_reason" not in resumed
 
 
+@pytest.mark.parametrize("choice",["web_search","use_existing"])
+@pytest.mark.parametrize("constraint", ["unrestricted", "confirmation_required"])
+@pytest.mark.parametrize("requirement", ["public_information", "original_data"])
+def test_real_adapter_error_text_reaches_merged_interrupt_and_durable_settlement(
+    control, monkeypatch, choice, constraint, requirement,
+):
+    import json
+
+    from app.storage.models import AgentRunToolReceipt
+    from app.tests.unit.test_mcp_http_tool import _langchain_tool
+    from app.tests.unit.test_permission_fallback import Resolver
+    from app.tools.mcp_gateway import McpGateway, McpServerConfig
+    from app.tools.mcp_http import DynamicMcpHttpTool
+    from app.tools.registry import ToolRegistry
+    from langchain_core.messages import AIMessage, ToolMessage
+
+    original=setup_worker
+    invoked=[]
+
+    def setup():
+        _,state,data,search,client,_=original()
+        adapter=DynamicMcpHttpTool(name=data.name,server_name="tushare",
+            langchain_tool=_langchain_tool("income_vip",{}),description="年报公开披露",
+            input_schema={"type":"object","properties":{"dataset":{"type":"string"}},"required":["dataset"]},
+            permission_scope=[],permission_denial_is_pre_execution=True)
+
+        class SelectDataset:
+            def bind_tools(self,tools,*,tool_choice):
+                class Bound:
+                    def invoke(self,messages):
+                        goal=json.loads(messages[-1].content)["task_goal"]
+                        return AIMessage(content="",tool_calls=[{"id":"untrusted","type":"tool_call",
+                            "name":"mcp_tushare_income_vip","args":{"dataset":goal}}])
+                return Bound()
+
+        client=SelectDataset()
+
+        async def remote(_value):
+            invoked.append(_value)
+            return ToolMessage(content=[{"type":"text","text":
+                "tushare API 错误 [40203]: 抱歉，您没有接口(income_vip)访问权限，权限详情请查文档。"
+            }],status="error",tool_call_id="remote")
+
+        monkeypatch.setattr(type(adapter._langchain_tool),"ainvoke",lambda self,value:remote(value))
+        registry=ToolRegistry()
+        registry.register(adapter,execution_binding=McpGateway.execution_binding(
+            McpServerConfig(name="tushare",url="https://provider.example/mcp",
+                permission_denial_is_pre_execution=True),tool=adapter))
+        registry.register(search)
+        registry=registry.snapshot()
+        worker=tool_agent.build_tool_agent_node(registry_factory=lambda:registry,llm_client=client,
+            candidate_resolver=Resolver([registry.get(adapter.name).spec,registry.get("web_search").spec]))
+        return worker,state,data,search,client,registry
+
+    monkeypatch.setitem(globals(),"setup_worker",setup)
+    graph,state,_,search,_,_=batch_graph(control,monkeypatch)
+    state["intent"]={"source_constraint":constraint}
+    for task in state["plan"]["tasks"][:2]:
+        task["source_requirement"] = requirement
+    cfg={"configurable":{"thread_id":"real-text-recovery"}}
+    with execution_control(control):
+        paused=graph.invoke(state,cfg)
+        assert len(paused["__interrupt__"])==1
+        payload=paused["__interrupt__"][0].value
+        assert len(payload["recovery_batch"]["items"])==2
+        assert len(invoked)==2 and search.calls==0
+        with control.session_factory() as db:
+            rows=list(db.scalars(select(AgentRunToolReceipt).where(AgentRunToolReceipt.run_id==control.run_id)))
+            assert len(rows)==2 and all(r.status=="settled" for r in rows)
+            assert all(r.result_summary["execution_state"]=="not_started" for r in rows)
+        resumed=graph.invoke(confirm(payload,choice),cfg)
+    assert "__interrupt__" not in resumed
+    assert len(invoked)==2
+    assert search.calls==(2 if choice=="web_search" else 0)
+    assert any(r["task_id"]=="healthy" and r["status"]=="success" for r in resumed["task_results"])
+
+
 def confirm(payload, value="web_search"):
     return Command(
         resume={
@@ -166,6 +292,129 @@ def confirm(payload, value="web_search"):
             "batch_digest": payload["recovery_batch"]["digest"],
         }
     )
+
+
+def add_historical_unknown(control, *, session_key=None):
+    from app.storage.models import AgentRunToolReceipt
+
+    with control.session_factory() as db:
+        current = db.get(AgentRun, control.run_id)
+        db.add(AgentRun(
+            run_id="historical-run", trace_id="historical-trace", status="completed",
+            tenant_id=current.tenant_id, user_id=current.user_id,
+            session_id=current.session_id, session_key=session_key or current.session_key,
+        ))
+        db.flush()
+        db.add(AgentRunToolReceipt(
+            receipt_id="historical-unknown", run_id="historical-run", owner_token="old-owner",
+            tool_name="mcp.tushare.anns_d", call_id="historical-call", risk_level="medium",
+            status="unknown", result_summary={"execution_state": "uncertain"},
+        ))
+        db.commit()
+
+
+@pytest.mark.parametrize("choice", ["web_search", "use_existing"])
+@pytest.mark.parametrize("requirement", ["public_information", "original_data"])
+def test_historical_unknown_offers_frozen_search_without_clearing_or_replaying_original(
+    control, monkeypatch, choice, requirement,
+):
+    from app.storage.models import AgentRunToolReceipt
+    from app.tests.unit.test_permission_fallback import DeniedTool
+
+    monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    graph, state, data, search, client, _ = batch_graph(control, monkeypatch)
+    for task in state["plan"]["tasks"][:2]:
+        task["source_requirement"] = requirement
+    add_historical_unknown(control)
+    cfg = {"configurable": {"thread_id": "historical-unknown-recovery"}}
+    with execution_control(control):
+        paused = graph.invoke(state, cfg)
+        assert "__interrupt__" in paused, paused.get("task_results")
+        assert len(paused["__interrupt__"]) == 1
+        payload = paused["__interrupt__"][0].value
+        assert len(payload["recovery_batch"]["items"]) == 2
+        assert data.calls == search.calls == 0
+        assert client.calls == 2
+        assert "权限不足" not in payload["question"]
+        assert all("未核实" in item["source_notice"] for item in payload["recovery_batch"]["items"])
+        finished = graph.invoke(confirm(payload, choice), cfg)
+    assert "__interrupt__" not in finished
+    assert data.calls == 0 and client.calls == 2
+    assert search.calls == (2 if choice == "web_search" else 0)
+    assert any(r["task_id"] == "healthy" and r["status"] == "success" for r in finished["task_results"])
+    from app.conversations.execution import UnresolvedToolEffect
+
+    with pytest.raises(UnresolvedToolEffect):
+        control.ensure_tool_effects_resolved(risk_level="medium")
+    with control.session_factory() as db:
+        old = db.get(AgentRunToolReceipt, "historical-unknown")
+        assert old.status == "unknown" and old.result_summary == {"execution_state": "uncertain"}
+        current = list(db.scalars(select(AgentRunToolReceipt).where(AgentRunToolReceipt.run_id == control.run_id)))
+        assert len(current) == (2 if choice == "web_search" else 0)
+        assert all(r.tool_name == "web_search" and r.status == "settled" for r in current)
+
+
+@pytest.mark.parametrize("restriction", ["original_only", "unclear", "no_candidate"])
+def test_historical_unknown_cannot_offer_search_without_source_and_original_candidate(
+    control, monkeypatch, restriction,
+):
+    from app.tests.unit.test_permission_fallback import DeniedTool
+
+    monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    if restriction == "no_candidate":
+        original_setup = setup_worker
+        monkeypatch.setitem(globals(), "setup_worker", lambda: original_setup(candidates=False))
+    graph, state, data, search, _, _ = batch_graph(control, monkeypatch)
+    add_historical_unknown(control)
+    for task in state["plan"]["tasks"][:2]:
+        task["source_requirement"] = "original_data"
+    if restriction != "no_candidate":
+        state["intent"]["source_constraint"] = restriction
+    with execution_control(control):
+        finished = graph.invoke(state, {"configurable": {"thread_id": "restricted-history"}})
+    assert "__interrupt__" not in finished
+    assert data.calls == search.calls == 0
+    assert sum(r["status"] == "business_failure" for r in finished["task_results"]) == 2
+
+
+@pytest.mark.parametrize("change", ["remote_receipt", "uncertain_result", "blocker_resolved"])
+def test_local_unstarted_recovery_rechecks_execution_proof_before_confirmed_search(
+    control, monkeypatch, change,
+):
+    from copy import deepcopy
+
+    from app.graph.nodes.user_input_gate import UserInputResumeError
+    from app.graph.recovery.batching import batch_request
+    from app.schemas.recovery import RecoveryBatch
+    from app.storage.models import AgentRunToolReceipt
+    from app.tests.unit.test_permission_fallback import DeniedTool
+
+    monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    graph, state, data, search, _, registry = batch_graph(control, monkeypatch)
+    add_historical_unknown(control)
+    with execution_control(control):
+        paused = graph.invoke(state, {"configurable": {"thread_id": "proof-change"}})
+        batch = RecoveryBatch.model_validate(next(iter(paused["recovery_batches"].values())))
+        altered = deepcopy(paused)
+        call_id = batch.items[0].original_call_id
+        if change == "uncertain_result":
+            for record in altered["tool_calls"]:
+                if record.request.call_id == call_id:
+                    record.result = record.result.model_copy(update={"execution_state": "uncertain"})
+        else:
+            with control.session_factory() as db:
+                if change == "remote_receipt":
+                    db.add(AgentRunToolReceipt(
+                        receipt_id="unexpected-execution", run_id=control.run_id, owner_token=control.owner,
+                        tool_name=batch.items[0].original_tool, call_id=call_id, risk_level="medium",
+                        status="unknown", result_summary={"execution_state": "uncertain"},
+                    ))
+                else:
+                    db.get(AgentRunToolReceipt, "historical-unknown").status = "settled"
+                db.commit()
+        with pytest.raises(UserInputResumeError):
+            accept_confirmation(altered, batch_request(batch), "web_search", registry=registry)
+    assert data.calls == search.calls == 0
 
 
 def test_production_source_contract_reaches_interrupt_without_allowed_policy_stub(control, monkeypatch):
@@ -203,20 +452,30 @@ def test_existing_router_and_planner_produce_source_labels_without_additional_ca
         for row in paused["tool_selection_contexts"].values())
 
 
-def test_original_data_task_keeps_gap_while_public_task_can_be_confirmed(control, monkeypatch):
-    graph, state, _, search, _, _ = batch_graph(control, monkeypatch)
+@pytest.mark.parametrize("choice", ["web_search", "use_existing"])
+def test_original_data_and_public_tasks_share_confirmation_without_changing_requirements(control, monkeypatch, choice):
+    import json
+    from copy import deepcopy
+
+    graph, state, data, search, client, _ = batch_graph(control, monkeypatch)
     state["plan"]["tasks"][0]["source_requirement"] = "original_data"
+    original_plan = deepcopy(state["plan"])
     config = {"configurable": {"thread_id": "mixed-source-contract"}}
     with execution_control(control):
         paused = graph.invoke(state, config)
         payload = paused["__interrupt__"][0].value
-        assert len(payload["recovery_batch"]["items"]) == 1 and search.calls == 0
-        finished = graph.invoke(confirm(payload), config)
+        assert len(payload["recovery_batch"]["items"]) == 2 and search.calls == 0
+        assert data.calls == client.calls == 2
+        finished = graph.invoke(confirm(payload, choice), config)
     results = {row["task_id"]: row for row in finished["task_results"]}
-    assert results["income"]["status"] == "business_failure"
-    assert results["cashflow"]["status"] == results["healthy"]["status"] == "success"
-    assert "原接口数据仍缺失" in results["income"]["content"]
-    assert search.calls == 1
+    assert finished["plan"] == original_plan
+    assert results["income"]["status"] == results["cashflow"]["status"] == (
+        "success" if choice == "web_search" else "business_failure"
+    )
+    assert results["healthy"]["status"] == "success"
+    assert "原接口数据仍缺失" in json.loads(results["income"]["content"])["source_notice"]
+    assert search.calls == (2 if choice == "web_search" else 0)
+    assert data.calls == client.calls == 2
 
 
 @pytest.mark.parametrize("restriction", ["original_only", "unclear", None])
@@ -650,12 +909,15 @@ def test_existing_uncertain_effect_remains_protected_and_is_not_rewritten(contro
         before = dict(db.get(AgentRunToolReceipt, receipt).result_summary)
     graph, state, data, search, client, _ = batch_graph(control, monkeypatch)
     with execution_control(control):
-        finished = graph.invoke(state, {"configurable": {"thread_id": "real-unknown"}})
+        cfg = {"configurable": {"thread_id": "real-unknown"}}
+        paused = graph.invoke(state, cfg)
+        assert "__interrupt__" in paused
+        finished = graph.invoke(confirm(paused["__interrupt__"][0].value, "use_existing"), cfg)
     assert data.calls == search.calls == 0 and client.calls == 2
     assert "__interrupt__" not in finished
     assert [
         row["error_code"] for row in finished["task_results"] if row["status"] != "success"
-    ] == ["tool_side_effects_unresolved"] * 2
+    ] == ["permission_recovery_declined"] * 2
     with control.session_factory() as db:
         original = db.get(AgentRunToolReceipt, receipt)
         assert original.status == "unknown" and original.result_summary == before

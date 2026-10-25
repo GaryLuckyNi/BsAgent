@@ -1,0 +1,1491 @@
+{
+  "case_id": "002",
+  "category": "概念",
+  "question": "为什么净利润增长但经营现金流下降？只解释一般原理。",
+  "session_id": "live50-20261024-a-002",
+  "request_id": "live50-20261024-a-002",
+  "started_at": "2026-10-24T14:36:16.200435+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "message_id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+      "request_id": "live50-20261024-a-002"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "completed",
+      "message": "用户只需一般原理，无需外部取证。计划用一项分析任务，从利润与现金流的会计口径差异、营运资本变动、非现金损益及分类口径四方面解释净利润增长而经营现金流下降的机制，并给出识别要点。"
+    },
+    {
+      "id": "analysis_agent:explain_mechanism",
+      "kind": "status",
+      "type": "progress",
+      "label": "分析证据",
+      "stage": "analysis_agent",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "started",
+      "message": "正在分析：仅依据一般财务与会计原理，系统解释净利润增长但经营活动现金流下降的成因：一是利润表权责发生制与现金流量表收付实现制的口径差异（收入确认但未回款、应收账款及合同资产增加）；二是营运资本变动（存货积压、预付增加、应付及预收减少）；三是非现金损益与利润构成（资产减值、公允价值变动、投资收益、折旧摊销与处置损益等不影响经营现金流或计入投资/筹资活动的项目）；四是现金流分类口径（票据贴现、保理、供应链金融、"
+    },
+    {
+      "id": "analysis_agent:explain_mechanism",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究发现",
+      "stage": "analysis_agent",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "completed",
+      "message": "净利润增长而经营现金流下降：一般原理分析 一、核心口径差异：权责发生制 vs 收付实现制 净利润按权责发生制确认：收入在商品控制权转移、取得收款权利时确认，费用按受益期间配比，与现金是否收付无关。经营活动现金流按收付实现制编制，只反映当期实际收到和付出的现金。因此，收入已确认但未回款、成本已发生但未付现、或相反情形，都会使两者背离。 **数值示例（简化，不考虑税费）** 某公司当期营业收入 1,000（全部赊销），营业成本 600（全部付现），无其他费用： | 项目 | 金…"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "completed",
+      "message": "用户只需一般原理，无需外部取证。计划用一项分析任务，从利润与现金流的会计口径差异、营运资本变动、非现金损益及分类口径四方面解释净利润增长而经营现金流下降的机制，并给出识别要点。"
+    },
+    {
+      "type": "progress",
+      "stage": "composing_answer",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "message": "正在生成最终投研报告"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "# 净利润增长而经营现金流下降：一般原理\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "净利润和经营活动现金流净额分别按两套不同的规则编制"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "，前者按权责发生制、后者按收付实现制，因此两者出现"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "方向背离并不异常。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "理解这一现象，关键是看利润表确认了多少“纸面利润"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "”，以及这些利润有多少被资产负债表上的营运资本占用"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "、或被非现金和非经营项目抬高。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "## 一、根本原因：两套确认口径不同\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "净利润在商品控制权转移、取得收款权利时确认收入，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "费用按受益期间配比，与现金是否实际收付无关；经营活动"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "现金流只记录当期实际收到和付出的现金。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "因此，收入已确认但尚未回款、采购已付现但成本尚未"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "结转，都会让利润与现金流分道扬镳。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "一个简化示例可以说明机制（不考虑税费）：某公司营业收入"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " 1,000 全部赊销，营业成本 600 全部付"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "现，则净利润 400，但销售只收到现金 700（"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "应收账款增加 300），经营现金流仅 100，差额"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "恰好等于应收增加额。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "若再叠加存货增加 100、应付账款增加 40，经营"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "现金流进一步降至 40，而净利润仍是 400。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "这可以用一个近似关系概括：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "> 经营现金流 ≈ 净利润 + 折旧摊销等非付现"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "费用 − 应收（含合同资产、应收票据）增加 − "
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "存货增加 − 预付增加 + 应付（含应付票据）增加"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " + 合同负债/预收增加 + 应交税费增加 − "
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "非经营性收益\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "利润表确认了收入和利润，资产负债表却沉淀了债权和"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "存货，这就是“利润增长、现金流失血”的基本机制。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "## 二、营运资本变动：最常见的直接来源\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "营运资本净增加（应收 + 存货 + 预付 − 应付"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " − 预收）会等额侵蚀经营现金流。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "各科目的方向性影响如下：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 科目变动 | 对经营现金流方向 | 说明 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "|---|---|---|\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 应收账款、合同资产增加 | 减少 | 收入已"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "确认未收现，最常见的背离来源 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 应收票据增加（未贴现/未背书） | 减少 |"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " 票据是债权而非现金，贴现或背书后才转化 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 存货增加 | 减少 | 采购已付现、成本尚未"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "结转 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 预付款项、其他应收款增加 | 减少 | 资金"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "被上游或关联方占用 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 应付账款、应付票据增加 | 增加 | 占用供应商"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "资金，延缓付现 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 合同负债、预收款项增加 | 增加 | 先收款"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "后确认收入，现金流领先于利润 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 应付职工薪酬、应交税费增加 | 增加 | 已"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "计提未支付 |\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "扩张期企业收入快速增长时，应收和存货往往同步膨胀"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "，于是出现“越增长越缺钱”的典型格局。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "反过来，如果前期预收红利消失、合同负债由正转负，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "未来现金流也会承压。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "## 三、非现金损益与利润构成\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "折旧、摊销、资产减值准备、股份支付等非付现成本会"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "减少净利润但不流出现金，编制间接法时需加回，通常"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "使经营现金流**高于**净利润。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "因此单靠折旧无法解释“净利增、现金流降”。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "真正会推高利润却不带来经营现金流入的，是以下几类"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "- **非现金收益占比上升**：资产减值转回、公允价值"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "变动收益等计入利润但不产生现金。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "- **非经营损益**：投资收益、处置长期资产损益"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "的现金流入归入投资活动（或根本未实现），间接法下"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "需从净利润中扣除，这类收益占比越高，缺口越大。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "- **递延所得税、汇兑损益**：影响利润但不对"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "应当期经营现金收付。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "- **利润结构变化**：主业毛利率上升但以放宽"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "账期换取收入，会同时推高利润和应收。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "## 四、现金流分类口径与一次性因素\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "同一笔现金记入哪一类活动，也会改变经营现金流的表现"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "- **票据贴现与应收账款保理**：若终止确认并按"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "经营活动列报，经营现金流增加；若作为质押借款或未"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "终止确认，现金流入计入筹资活动，经营现金流不变而"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "筹资现金流增加，等于压低了经营现金流。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "- **供应链金融/反向保理**：由银行代付应付"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "账款，可能把原本属于经营活动的付款重分类为筹资活动"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "- **利息与税费归类**：利息支出通常列入筹资"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "活动、利息收入列入投资活动，财务费用不减少经营现金流"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "；准则允许一定政策选择，影响跨期和跨主体可比性。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "- **一次性因素**：大额预收款集中确认收入、"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "政府补助、资产处置、税收返还等，会阶段性扭曲利润"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "与现金流的关系。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "## 五、如何定位具体原因\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 指标 | 计算 | 解读 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "|---|---|---|\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 收现比 | 销售商品、提供劳务收到的现金 ÷"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " 营业收入 | 持续低于 1 且下降，说明回款质量"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "恶化；需注意含税口径与票据结算影响 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 净现比 | 经营活动现金流净额 ÷ 净利润 |"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " 长期显著低于 1 需警惕；若因折旧摊销大而低于"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " 1 属正常，应结合间接法判断 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 应收账款周转率/天数 | 收入 ÷ 平均应收账款"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " | 周转天数拉长、应收增速持续高于收入增速，是"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "收入质量弱化的先行信号 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 存货周转率/天数 | 营业成本 ÷ 平均存货"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " | 天数上升说明备货或滞销，占用经营现金 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 应付周转天数 | 应付账款 ÷ 营业成本 ×"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " 天数 | 异常拉长可能靠占用供应商资金维持现金流"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": " |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 合同负债/预收变动 | 期末减期初 | 由正"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "转负说明前期预收红利消失 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "| 利润构成 | 投资收益、公允价值变动、处置收益"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "占利润总额比重 | 占比上升说明利润的非现金、非"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "经营性成分增加 |\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "最直接的工具是**现金流量表补充资料（间接法调节"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "表）**，它把净利润逐项调节为经营现金流，可清晰"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "拆分出资产减值、折旧摊销、投资收益、经营性应收增加"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "、存货增加、经营性应付增加各占多少，从而定位具体"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "原因。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "分析应看多期趋势与结构，而非单期数据。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "## 六、结论\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "净利润增长而经营现金流下降，本身是两套确认口径差异"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "的正常表现，常见于快速扩张、账期放宽、备货增加，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "或利润中非现金、非经营收益占比上升的企业，**不"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "必然意味着财务造假**。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "但若同时出现收现比与净现比持续走低、应收和存货增速"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "长期高于收入增速、利润高度依赖投资收益或公允价值"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "变动、现金流依赖票据贴现与保理维持，则需警惕收入"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "确认激进、回款风险上升与盈利质量问题。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "判断应结合间接法调节表、多期趋势与同业对比，而非"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "依赖单一指标。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "> 说明：以上为一般财务与会计原理层面的解释，未"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "涉及任何具体公司的实际数据；如需判断某家企业的具体情况"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "，需要其财务报表及附注中的间接法调节表、应收与存货"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "type": "ai",
+        "content": "明细等资料加以验证。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "response": {
+        "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+        "content": "# 净利润增长而经营现金流下降：一般原理\n\n净利润和经营活动现金流净额分别按两套不同的规则编制，前者按权责发生制、后者按收付实现制，因此两者出现方向背离并不异常。理解这一现象，关键是看利润表确认了多少“纸面利润”，以及这些利润有多少被资产负债表上的营运资本占用、或被非现金和非经营项目抬高。\n\n## 一、根本原因：两套确认口径不同\n\n净利润在商品控制权转移、取得收款权利时确认收入，费用按受益期间配比，与现金是否实际收付无关；经营活动现金流只记录当期实际收到和付出的现金。因此，收入已确认但尚未回款、采购已付现但成本尚未结转，都会让利润与现金流分道扬镳。\n\n一个简化示例可以说明机制（不考虑税费）：某公司营业收入 1,000 全部赊销，营业成本 600 全部付现，则净利润 400，但销售只收到现金 700（应收账款增加 300），经营现金流仅 100，差额恰好等于应收增加额。若再叠加存货增加 100、应付账款增加 40，经营现金流进一步降至 40，而净利润仍是 400。\n\n这可以用一个近似关系概括：\n\n> 经营现金流 ≈ 净利润 + 折旧摊销等非付现费用 − 应收（含合同资产、应收票据）增加 − 存货增加 − 预付增加 + 应付（含应付票据）增加 + 合同负债/预收增加 + 应交税费增加 − 非经营性收益\n\n利润表确认了收入和利润，资产负债表却沉淀了债权和存货，这就是“利润增长、现金流失血”的基本机制。\n\n## 二、营运资本变动：最常见的直接来源\n\n营运资本净增加（应收 + 存货 + 预付 − 应付 − 预收）会等额侵蚀经营现金流。各科目的方向性影响如下：\n\n| 科目变动 | 对经营现金流方向 | 说明 |\n|---|---|---|\n| 应收账款、合同资产增加 | 减少 | 收入已确认未收现，最常见的背离来源 |\n| 应收票据增加（未贴现/未背书） | 减少 | 票据是债权而非现金，贴现或背书后才转化 |\n| 存货增加 | 减少 | 采购已付现、成本尚未结转 |\n| 预付款项、其他应收款增加 | 减少 | 资金被上游或关联方占用 |\n| 应付账款、应付票据增加 | 增加 | 占用供应商资金，延缓付现 |\n| 合同负债、预收款项增加 | 增加 | 先收款后确认收入，现金流领先于利润 |\n| 应付职工薪酬、应交税费增加 | 增加 | 已计提未支付 |\n\n扩张期企业收入快速增长时，应收和存货往往同步膨胀，于是出现“越增长越缺钱”的典型格局。反过来，如果前期预收红利消失、合同负债由正转负，未来现金流也会承压。\n\n## 三、非现金损益与利润构成\n\n折旧、摊销、资产减值准备、股份支付等非付现成本会减少净利润但不流出现金，编制间接法时需加回，通常使经营现金流**高于**净利润。因此单靠折旧无法解释“净利增、现金流降”。真正会推高利润却不带来经营现金流入的，是以下几类：\n\n- **非现金收益占比上升**：资产减值转回、公允价值变动收益等计入利润但不产生现金。\n- **非经营损益**：投资收益、处置长期资产损益的现金流入归入投资活动（或根本未实现），间接法下需从净利润中扣除，这类收益占比越高，缺口越大。\n- **递延所得税、汇兑损益**：影响利润但不对应当期经营现金收付。\n- **利润结构变化**：主业毛利率上升但以放宽账期换取收入，会同时推高利润和应收。\n\n## 四、现金流分类口径与一次性因素\n\n同一笔现金记入哪一类活动，也会改变经营现金流的表现：\n\n- **票据贴现与应收账款保理**：若终止确认并按经营活动列报，经营现金流增加；若作为质押借款或未终止确认，现金流入计入筹资活动，经营现金流不变而筹资现金流增加，等于压低了经营现金流。\n- **供应链金融/反向保理**：由银行代付应付账款，可能把原本属于经营活动的付款重分类为筹资活动。\n- **利息与税费归类**：利息支出通常列入筹资活动、利息收入列入投资活动，财务费用不减少经营现金流；准则允许一定政策选择，影响跨期和跨主体可比性。\n- **一次性因素**：大额预收款集中确认收入、政府补助、资产处置、税收返还等，会阶段性扭曲利润与现金流的关系。\n\n## 五、如何定位具体原因\n\n| 指标 | 计算 | 解读 |\n|---|---|---|\n| 收现比 | 销售商品、提供劳务收到的现金 ÷ 营业收入 | 持续低于 1 且下降，说明回款质量恶化；需注意含税口径与票据结算影响 |\n| 净现比 | 经营活动现金流净额 ÷ 净利润 | 长期显著低于 1 需警惕；若因折旧摊销大而低于 1 属正常，应结合间接法判断 |\n| 应收账款周转率/天数 | 收入 ÷ 平均应收账款 | 周转天数拉长、应收增速持续高于收入增速，是收入质量弱化的先行信号 |\n| 存货周转率/天数 | 营业成本 ÷ 平均存货 | 天数上升说明备货或滞销，占用经营现金 |\n| 应付周转天数 | 应付账款 ÷ 营业成本 × 天数 | 异常拉长可能靠占用供应商资金维持现金流 |\n| 合同负债/预收变动 | 期末减期初 | 由正转负说明前期预收红利消失 |\n| 利润构成 | 投资收益、公允价值变动、处置收益占利润总额比重 | 占比上升说明利润的非现金、非经营性成分增加 |\n\n最直接的工具是**现金流量表补充资料（间接法调节表）**，它把净利润逐项调节为经营现金流，可清晰拆分出资产减值、折旧摊销、投资收益、经营性应收增加、存货增加、经营性应付增加各占多少，从而定位具体原因。分析应看多期趋势与结构，而非单期数据。\n\n## 六、结论\n\n净利润增长而经营现金流下降，本身是两套确认口径差异的正常表现，常见于快速扩张、账期放宽、备货增加，或利润中非现金、非经营收益占比上升的企业，**不必然意味着财务造假**。但若同时出现收现比与净现比持续走低、应收和存货增速长期高于收入增速、利润高度依赖投资收益或公允价值变动、现金流依赖票据贴现与保理维持，则需警惕收入确认激进、回款风险上升与盈利质量问题。判断应结合间接法调节表、多期趋势与同业对比，而非依赖单一指标。\n\n> 说明：以上为一般财务与会计原理层面的解释，未涉及任何具体公司的实际数据；如需判断某家企业的具体情况，需要其财务报表及附注中的间接法调节表、应收与存货明细等资料加以验证。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_cf9387188735468d9750fafbd652fa24",
+        "message_id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "request_id": "live50-20261024-a-002",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+  "ended_at": "2026-10-24T14:38:12.392638+00:00",
+  "elapsed_seconds": 0.439,
+  "replay_started_at": "2026-10-24T14:38:11.952101+00:00",
+  "collector_note": "初次采集器未兼容 messages 数组，已用 GET 重采原 run，未重发问题",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_2dd50abe1549445299a5bb6d202498cc",
+        "request_id": "live50-20261024-a-002",
+        "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+        "role": "user",
+        "status": "completed",
+        "content": "为什么净利润增长但经营现金流下降？只解释一般原理。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:36:16.550751Z",
+        "completed_at": "2026-10-24T14:36:16.543711Z"
+      },
+      {
+        "message_id": "msg_e9610c0e9dcb40079a2855aaed52e039",
+        "request_id": "live50-20261024-a-002",
+        "run_id": "run_94798de0330d4f3e7637f85e13d28377ae6280d676c5b2c245e336195da3",
+        "role": "assistant",
+        "status": "completed",
+        "content": "# 净利润增长而经营现金流下降：一般原理\n\n净利润和经营活动现金流净额分别按两套不同的规则编制，前者按权责发生制、后者按收付实现制，因此两者出现方向背离并不异常。理解这一现象，关键是看利润表确认了多少“纸面利润”，以及这些利润有多少被资产负债表上的营运资本占用、或被非现金和非经营项目抬高。\n\n## 一、根本原因：两套确认口径不同\n\n净利润在商品控制权转移、取得收款权利时确认收入，费用按受益期间配比，与现金是否实际收付无关；经营活动现金流只记录当期实际收到和付出的现金。因此，收入已确认但尚未回款、采购已付现但成本尚未结转，都会让利润与现金流分道扬镳。\n\n一个简化示例可以说明机制（不考虑税费）：某公司营业收入 1,000 全部赊销，营业成本 600 全部付现，则净利润 400，但销售只收到现金 700（应收账款增加 300），经营现金流仅 100，差额恰好等于应收增加额。若再叠加存货增加 100、应付账款增加 40，经营现金流进一步降至 40，而净利润仍是 400。\n\n这可以用一个近似关系概括：\n\n> 经营现金流 ≈ 净利润 + 折旧摊销等非付现费用 − 应收（含合同资产、应收票据）增加 − 存货增加 − 预付增加 + 应付（含应付票据）增加 + 合同负债/预收增加 + 应交税费增加 − 非经营性收益\n\n利润表确认了收入和利润，资产负债表却沉淀了债权和存货，这就是“利润增长、现金流失血”的基本机制。\n\n## 二、营运资本变动：最常见的直接来源\n\n营运资本净增加（应收 + 存货 + 预付 − 应付 − 预收）会等额侵蚀经营现金流。各科目的方向性影响如下：\n\n| 科目变动 | 对经营现金流方向 | 说明 |\n|---|---|---|\n| 应收账款、合同资产增加 | 减少 | 收入已确认未收现，最常见的背离来源 |\n| 应收票据增加（未贴现/未背书） | 减少 | 票据是债权而非现金，贴现或背书后才转化 |\n| 存货增加 | 减少 | 采购已付现、成本尚未结转 |\n| 预付款项、其他应收款增加 | 减少 | 资金被上游或关联方占用 |\n| 应付账款、应付票据增加 | 增加 | 占用供应商资金，延缓付现 |\n| 合同负债、预收款项增加 | 增加 | 先收款后确认收入，现金流领先于利润 |\n| 应付职工薪酬、应交税费增加 | 增加 | 已计提未支付 |\n\n扩张期企业收入快速增长时，应收和存货往往同步膨胀，于是出现“越增长越缺钱”的典型格局。反过来，如果前期预收红利消失、合同负债由正转负，未来现金流也会承压。\n\n## 三、非现金损益与利润构成\n\n折旧、摊销、资产减值准备、股份支付等非付现成本会减少净利润但不流出现金，编制间接法时需加回，通常使经营现金流**高于**净利润。因此单靠折旧无法解释“净利增、现金流降”。真正会推高利润却不带来经营现金流入的，是以下几类：\n\n- **非现金收益占比上升**：资产减值转回、公允价值变动收益等计入利润但不产生现金。\n- **非经营损益**：投资收益、处置长期资产损益的现金流入归入投资活动（或根本未实现），间接法下需从净利润中扣除，这类收益占比越高，缺口越大。\n- **递延所得税、汇兑损益**：影响利润但不对应当期经营现金收付。\n- **利润结构变化**：主业毛利率上升但以放宽账期换取收入，会同时推高利润和应收。\n\n## 四、现金流分类口径与一次性因素\n\n同一笔现金记入哪一类活动，也会改变经营现金流的表现：\n\n- **票据贴现与应收账款保理**：若终止确认并按经营活动列报，经营现金流增加；若作为质押借款或未终止确认，现金流入计入筹资活动，经营现金流不变而筹资现金流增加，等于压低了经营现金流。\n- **供应链金融/反向保理**：由银行代付应付账款，可能把原本属于经营活动的付款重分类为筹资活动。\n- **利息与税费归类**：利息支出通常列入筹资活动、利息收入列入投资活动，财务费用不减少经营现金流；准则允许一定政策选择，影响跨期和跨主体可比性。\n- **一次性因素**：大额预收款集中确认收入、政府补助、资产处置、税收返还等，会阶段性扭曲利润与现金流的关系。\n\n## 五、如何定位具体原因\n\n| 指标 | 计算 | 解读 |\n|---|---|---|\n| 收现比 | 销售商品、提供劳务收到的现金 ÷ 营业收入 | 持续低于 1 且下降，说明回款质量恶化；需注意含税口径与票据结算影响 |\n| 净现比 | 经营活动现金流净额 ÷ 净利润 | 长期显著低于 1 需警惕；若因折旧摊销大而低于 1 属正常，应结合间接法判断 |\n| 应收账款周转率/天数 | 收入 ÷ 平均应收账款 | 周转天数拉长、应收增速持续高于收入增速，是收入质量弱化的先行信号 |\n| 存货周转率/天数 | 营业成本 ÷ 平均存货 | 天数上升说明备货或滞销，占用经营现金 |\n| 应付周转天数 | 应付账款 ÷ 营业成本 × 天数 | 异常拉长可能靠占用供应商资金维持现金流 |\n| 合同负债/预收变动 | 期末减期初 | 由正转负说明前期预收红利消失 |\n| 利润构成 | 投资收益、公允价值变动、处置收益占利润总额比重 | 占比上升说明利润的非现金、非经营性成分增加 |\n\n最直接的工具是**现金流量表补充资料（间接法调节表）**，它把净利润逐项调节为经营现金流，可清晰拆分出资产减值、折旧摊销、投资收益、经营性应收增加、存货增加、经营性应付增加各占多少，从而定位具体原因。分析应看多期趋势与结构，而非单期数据。\n\n## 六、结论\n\n净利润增长而经营现金流下降，本身是两套确认口径差异的正常表现，常见于快速扩张、账期放宽、备货增加，或利润中非现金、非经营收益占比上升的企业，**不必然意味着财务造假**。但若同时出现收现比与净现比持续走低、应收和存货增速长期高于收入增速、利润高度依赖投资收益或公允价值变动、现金流依赖票据贴现与保理维持，则需警惕收入确认激进、回款风险上升与盈利质量问题。判断应结合间接法调节表、多期趋势与同业对比，而非依赖单一指标。\n\n> 说明：以上为一般财务与会计原理层面的解释，未涉及任何具体公司的实际数据；如需判断某家企业的具体情况，需要其财务报表及附注中的间接法调节表、应收与存货明细等资料加以验证。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "用户只需一般原理，无需外部取证。计划用一项分析任务，从利润与现金流的会计口径差异、营运资本变动、非现金损益及分类口径四方面解释净利润增长而经营现金流下降的机制，并给出识别要点。",
+              "sequence": 0
+            },
+            {
+              "id": "analysis_agent:explain_mechanism",
+              "kind": "summary",
+              "label": "研究发现",
+              "status": "completed",
+              "message": "净利润增长而经营现金流下降：一般原理分析 一、核心口径差异：权责发生制 vs 收付实现制 净利润按权责发生制确认：收入在商品控制权转移、取得收款权利时确认，费用按受益期间配比，与现金是否收付无关。经营活动现金流按收付实现制编制，只反映当期实际收到和付出的现金。因此，收入已确认但未回款、成本已发生但未付现、或相反情形，都会使两者背离。 **数值示例（简化，不考虑税费）** 某公司当期营业收入 1,000（全部赊销），营业成本 600（全部付现），无其他费用： | 项目 | 金…",
+              "sequence": 1
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "用户只需一般原理，无需外部取证。计划用一项分析任务，从利润与现金流的会计口径差异、营运资本变动、非现金损益及分类口径四方面解释净利润增长而经营现金流下降的机制，并给出识别要点。",
+              "sequence": 2
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:36:16.550756Z",
+        "completed_at": "2026-10-24T14:36:53.684713Z"
+      }
+    ],
+    "next_before_sequence": null
+  }
+}

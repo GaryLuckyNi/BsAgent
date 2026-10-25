@@ -120,6 +120,35 @@ def setup_worker(*, candidates=True, budget=None):
     return worker, state, data, search, client, registry
 
 
+@pytest.mark.parametrize("constraint,prior_failure",[("original_only",False),("unrestricted",True)])
+def test_ordinary_search_cannot_bypass_source_constraints_by_renaming_task(constraint,prior_failure):
+    from app.graph.nodes.tool_agent import build_tool_agent_node
+    from app.schemas.tools import ToolCallRecord, ToolCallRequest
+
+    _,state,data,search,_,registry=setup_worker()
+    state["intent"]={"source_constraint":constraint}
+    state["active_task"]={"id":"renamed_public_task","task_goal":"补充公开资料","source_requirement":"public_information"}
+    state["plan"]={"tasks":[state["active_task"]]}
+    if prior_failure:
+        state["tool_calls"]=[ToolCallRecord(request=ToolCallRequest(
+            call_id="original",tool_name=data.name,arguments={},purpose="原始取证",
+        ),result=ToolCallResult(tool_call_id="remote",tool_name=data.name,status="failed",
+            execution_state="uncertain",trace_id="",error=ToolError(code="mcp_tool_execution_failed",message="远端失败")))]
+
+    class SearchSelection:
+        def bind_tools(self, tools, *, tool_choice):
+            class Bound:
+                def invoke(self, messages):
+                    return AIMessage(content="",tool_calls=[{"id":"untrusted","name":"web_search","args":{"query":"公开资料"},"type":"tool_call"}])
+            return Bound()
+
+    worker=build_tool_agent_node(registry_factory=lambda:registry,llm_client=SearchSelection(),
+        candidate_resolver=Resolver([registry.get("web_search").spec]))
+    update=worker(state)
+    assert search.calls==0
+    assert update["task_results"][0]["error_code"]=="source_switch_not_authorized"
+
+
 def apply_update(state, update):
     for key, value in update.items():
         if key == "tool_calls":
@@ -166,6 +195,19 @@ def test_actual_search_candidate_creates_question_and_keeps_original_failure():
     assert isinstance(update["messages"][-1], ToolMessage)
     assert data.calls == client.calls == 1
     assert search.calls == 0
+
+
+def test_legacy_task_snapshot_without_candidate_refs_resumes_without_replaying_mcp():
+    worker, state, data, search, client, _ = setup_worker()
+    paused = run_worker(worker, state)
+    respond(state, paused, "web_search")
+    context = next(iter(state["tool_selection_contexts"].values()))
+    context["task"].pop("tool_candidate_refs")
+    update = run_worker(worker, state)
+    assert search.calls == 1
+    assert data.calls == client.calls == 1
+    assert update["task_results"][0]["status"] == "success"
+    assert "tool_candidate_refs" not in context["task"]
 
 
 def test_registry_or_old_disclosure_does_not_offer_search():

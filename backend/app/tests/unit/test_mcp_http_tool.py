@@ -403,6 +403,44 @@ def test_unknown_failure_envelope_is_not_a_successful_business_result():
     assert result.execution_state == "uncertain"
 
 
+@pytest.mark.parametrize("name", ["anns_d", "income_vip", "new_api_2027"])
+@pytest.mark.parametrize("trusted", [False, True])
+def test_real_tushare_error_text_is_classified_without_interface_allowlist(monkeypatch, name, trusted):
+    tool = DynamicMcpHttpTool(
+        name=f"mcp.any.{name}", server_name="any", langchain_tool=_langchain_tool(name, {}),
+        description="只验证错误协议", input_schema={"type": "object"},
+        permission_denial_is_pre_execution=trusted,
+    )
+
+    async def invoke(_value):
+        return ToolMessage(content=[{"type": "text", "text": (
+            f"tushare API 错误 [40203]: 抱歉，您没有接口({name})访问权限，"
+            "权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+        )}], tool_call_id="remote", status="error")
+
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.error.code == "provider_permission_denied"
+    assert result.status == "denied"
+    assert result.execution_state == ("not_started" if trusted else "uncertain")
+
+
+def test_real_tushare_40203_rate_limit_is_not_permission_denial(monkeypatch):
+    tool = _dynamic_tool("arbitrary_api", {})
+
+    async def invoke(_value):
+        return ToolMessage(content=[{"type": "text", "text": (
+            "tushare API 错误 [40203]: 抱歉，您访问接口(hk_daily)频率超限(1次/分钟)，"
+            "具体频次详情：https://tushare.pro/document/1?doc_id=108。"
+        )}], tool_call_id="remote", status="error")
+
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.error.code == "provider_rate_limited"
+    assert result.status == "failed"
+    assert result.execution_state == "uncertain"
+
+
 def test_business_code_field_is_not_itself_an_error_envelope():
     payload = {"code": "600519", "name": "公司资料"}
     tool = _dynamic_tool("new_api", payload)

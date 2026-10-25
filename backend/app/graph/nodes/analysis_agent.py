@@ -3,8 +3,9 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from app.graph.planning.context import task_evidence, user_materials
+from app.graph.planning.context import request_context, task_evidence, user_materials
 from app.graph.planning.contracts import SubTaskModel, TaskResultModel
+from app.graph.planning.request_flow import uses_request_flow
 from app.graph.state import AgentState
 from app.llm.factory import LlmClient, invoke_llm_completion
 
@@ -18,7 +19,7 @@ def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
             llm_client,
             system_prompt=(
                 "你是投研任务执行器。只完成当前 task_goal，不生成最终答复。"
-                "只能基于用户原始问题与 dependencies 中已有事实推理；不得补造外部事实、"
+                "只能基于用户原始问题、request_context 用户材料与 dependencies 中已有事实推理；不得补造外部事实、"
                 "实时数据或来源。证据不足时明确说明缺口。输出简洁专业的中文分析。"
             ),
             user_prompt=json.dumps(
@@ -26,7 +27,9 @@ def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
                     "user_message": state["user_message"],
                     "task_goal": task.task_goal,
                     "completion_criteria": task.completion_criteria,
-                    "user_materials": user_materials(state, include_current_message=False),
+                    **({"request_context": request_context(state)} if uses_request_flow(state) else {
+                        "user_materials": user_materials(state, include_current_message=False),
+                    }),
                     "dependencies": _dependency_results(state, task),
                 },
                 ensure_ascii=False,

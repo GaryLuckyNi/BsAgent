@@ -22,15 +22,16 @@ def seed_default_skills(
 
 
 def _default_skill_profiles(*, mcp_server_name: str) -> list[dict]:
-    prefix = f"mcp.{mcp_server_name}.stock"
-    common = {
+    """BsAgent内置的skill
+        prefix = f"mcp.{mcp_server_name}.stock"
+        common = {
         "version": "1.0.0",
-        "supported_intents": ["task_workflow"],
+        "supported_intents": ["financial_research"],
         "supported_domains": ["a_share_equity_research"],
+        "supported_sub_intents": ["general_research"],
         "risk_level": "medium",
         "enabled": True,
-    }
-    return [
+        return [
         {
             **common,
             "name": "company_snapshot",
@@ -44,7 +45,6 @@ def _default_skill_profiles(*, mcp_server_name: str) -> list[dict]:
                     ("rag_search", []),
                 ],
             ),
-            "supported_sub_intents": ["company_snapshot"],
         },
         {
             **common,
@@ -58,7 +58,6 @@ def _default_skill_profiles(*, mcp_server_name: str) -> list[dict]:
                     ("rag_search", []),
                 ],
             ),
-            "supported_sub_intents": ["financial_report_analysis"],
         },
         {
             **common,
@@ -71,9 +70,12 @@ def _default_skill_profiles(*, mcp_server_name: str) -> list[dict]:
                     ("rag_search", []),
                 ],
             ),
-            "supported_sub_intents": ["risk_scan"],
         },
     ]
+    }
+    """
+    return []
+
 
 
 def _workflow_summary(title: str, steps: list[tuple[str, list[str]]]) -> str:

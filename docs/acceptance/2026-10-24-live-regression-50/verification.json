@@ -1,0 +1,272 @@
+{
+  "verified_at": "2026-10-24T15:06:43.946155+00:00",
+  "requests": 50,
+  "unique_runs": 50,
+  "unique_sessions": 50,
+  "unique_langfuse_traces": 50,
+  "protocol_completed": 50,
+  "business_response_types": {
+    "research_answer": 35,
+    "out_of_scope": 1,
+    "execution_error_response": 14
+  },
+  "observations": 1981,
+  "generations": 373,
+  "foreground_generations": 324,
+  "background_judge_generations": 49,
+  "reported_total_tokens": 847160,
+  "reported_foreground_tokens": 775432,
+  "root_latency_seconds": {
+    "min": 1.551,
+    "median": 16.962,
+    "mean": 25.21548,
+    "p90": 44.437,
+    "p95": 74.91,
+    "max": 114.289,
+    "method": "nearest_rank"
+  },
+  "generation_names": {
+    "deepseek.chat.completions": 84,
+    "ChatOpenAI": 274,
+    "deepseek.web_search.turn": 15
+  },
+  "generation_missing_io": [
+    {
+      "case_id": "027",
+      "id": "7709b2624d5a299a",
+      "name": "ChatOpenAI",
+      "missing_input": true,
+      "missing_output": false
+    },
+    {
+      "case_id": "027",
+      "id": "74aff6c808b010f4",
+      "name": "ChatOpenAI",
+      "missing_input": true,
+      "missing_output": false
+    },
+    {
+      "case_id": "027",
+      "id": "98cea430451cf9c6",
+      "name": "deepseek.web_search.turn",
+      "missing_input": false,
+      "missing_output": true
+    },
+    {
+      "case_id": "045",
+      "id": "e0a98bd2e2888549",
+      "name": "ChatOpenAI",
+      "missing_input": true,
+      "missing_output": false
+    },
+    {
+      "case_id": "045",
+      "id": "0e7b2c7ef03acdc0",
+      "name": "deepseek.web_search.turn",
+      "missing_input": false,
+      "missing_output": true
+    }
+  ],
+  "generation_without_cost": 373,
+  "receipt_counts": {
+    "settled": 46,
+    "unknown": 15
+  },
+  "unknown_receipts": [
+    {
+      "case_id": "014",
+      "receipt_id": "7ce2fb161df34e7cb5c7cc41e513b78f",
+      "tool_name": "mcp.tushare.rt_idx_k",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "021",
+      "receipt_id": "ea56172988cd4b1e9fb76e0efef0a0cd",
+      "tool_name": "mcp.tushare.anns_d",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "022",
+      "receipt_id": "7734a321ec3f47eab63947a68c89c5e0",
+      "tool_name": "mcp.tushare.anns_d",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "031",
+      "receipt_id": "b023a17b6edd45ee8a99d9b382d2cbdf",
+      "tool_name": "mcp.tushare.income_vip",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "032",
+      "receipt_id": "85d71414216748fd911c5ff15169397e",
+      "tool_name": "mcp.tushare.income_vip",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "034",
+      "receipt_id": "780ec1bd2335458491c99602715d2f07",
+      "tool_name": "mcp.tushare.income_vip",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "036",
+      "receipt_id": "f158b7be1b854a0ea1d5cadd4f362a24",
+      "tool_name": "mcp.tushare.hk_daily",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "040",
+      "receipt_id": "88af9cadc4dd451c8c16bda53855bd11",
+      "tool_name": "mcp.tushare.limit_list_ths",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "042",
+      "receipt_id": "32b7072e75a94f50b2c0024b6107ce87",
+      "tool_name": "mcp.tushare.anns_d",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "043",
+      "receipt_id": "3cd4c2487ca84f14a2e18ab4d8a72b09",
+      "tool_name": "mcp.tushare.fina_indicator_vip",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "045",
+      "receipt_id": "faac264d80cc4a05b93d160cd672e91b",
+      "tool_name": "mcp.tushare.anns_d",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "046",
+      "receipt_id": "eb8cb8ce5b2d415b8edb6a4eb2a799f2",
+      "tool_name": "mcp.tushare.anns_d",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "047",
+      "receipt_id": "15c0809495b3410faf2c492c09aa4c7e",
+      "tool_name": "mcp.tushare.us_fina_indicator",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "048",
+      "receipt_id": "1604c8da1d6145d395b93b5431760af0",
+      "tool_name": "mcp.tushare.anns_d",
+      "risk_level": "medium",
+      "status": "unknown"
+    },
+    {
+      "case_id": "049",
+      "receipt_id": "a6626768b7e7434a8fe8b8a3091ee956",
+      "tool_name": "mcp.tushare.stock_basic",
+      "risk_level": "medium",
+      "status": "unknown"
+    }
+  ],
+  "classification_replay": [
+    {
+      "case_id": "014",
+      "name": "rt_idx_k",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(rt_idx_k)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "021",
+      "name": "anns_d",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(anns_d)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "022",
+      "name": "anns_d",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(anns_d)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "031",
+      "name": "income_vip",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(income_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "032",
+      "name": "income_vip",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(income_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "034",
+      "name": "income_vip",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(income_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "036",
+      "name": "hk_daily",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您访问接口(hk_daily)频率超限(1次/分钟)，具体频次详情：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "040",
+      "name": "limit_list_ths",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(limit_list_ths)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "042",
+      "name": "anns_d",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(anns_d)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "043",
+      "name": "fina_indicator_vip",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(fina_indicator_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "045",
+      "name": "anns_d",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(anns_d)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "046",
+      "name": "anns_d",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(anns_d)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "047",
+      "name": "us_fina_indicator",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(us_fina_indicator)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    },
+    {
+      "case_id": "048",
+      "name": "anns_d",
+      "captured_message": "tushare API 错误 [40203]: 抱歉，您没有接口(anns_d)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "classification": null
+    }
+  ],
+  "protocol_period": {
+    "start": "2026-10-24 14:36:16.664355+00:00",
+    "end": "2026-10-24 14:48:57.971678+00:00"
+  }
+}

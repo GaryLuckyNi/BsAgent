@@ -1,0 +1,330 @@
+{
+  "case_id": "043",
+  "category": "并行任务",
+  "question": "比较贵州茅台、五粮液、泸州老窖2024年营业收入，只需三个数及单位、年度和来源。",
+  "session_id": "live50-20261024-a-043",
+  "request_id": "live50-20261024-a-043",
+  "started_at": "2026-10-24T14:47:04.126878+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "message_id": "msg_11841d34d3674c358a2c47fa758ee97a",
+      "request_id": "live50-20261024-a-043"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "completed",
+      "message": "计划通过一次公开信息取证，核实贵州茅台、五粮液、泸州老窖2024年年报营业收入，并统一为同一单位后给出三个数值、年度及来源。"
+    },
+    {
+      "id": "tool_agent:fetch_2024_revenue",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "started",
+      "message": "正在获取研究证据：获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。",
+      "task_id": "fetch_2024_revenue",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:fetch_2024_revenue",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "completed",
+      "message": "已取得研究证据：获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。",
+      "task_id": "fetch_2024_revenue",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "completed",
+      "message": "重新核实贵州茅台、五粮液、泸州老窖2024年年报营业收入，统一为亿元，并给出年度与来源。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "tool_agent:r1_fetch_2024_revenue_retry",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "started",
+      "message": "正在获取研究证据：获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。",
+      "task_id": "r1_fetch_2024_revenue_retry",
+      "group_id": "evidence:2",
+      "task_label": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:r1_fetch_2024_revenue_retry",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "failed",
+      "message": "获取研究证据未完成：获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。",
+      "task_id": "r1_fetch_2024_revenue_retry",
+      "group_id": "evidence:2",
+      "task_label": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:2",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:2",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "completed",
+      "message": "重新核实贵州茅台、五粮液、泸州老窖2024年年报营业收入，统一为亿元，并给出年度与来源。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    [
+      {
+        "id": "msg_11841d34d3674c358a2c47fa758ee97a",
+        "type": "ai",
+        "content": "## 本次执行未完成\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_11841d34d3674c358a2c47fa758ee97a",
+        "type": "ai",
+        "content": "- MCP 工具执行失败"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_11841d34d3674c358a2c47fa758ee97a",
+        "type": "ai",
+        "content": "。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "type": "final",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "response": {
+        "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+        "content": "## 本次执行未完成\n\n- MCP 工具执行失败。",
+        "trace_id": "trace_950dd84f506847cb876fdbda55065d96",
+        "message_id": "msg_11841d34d3674c358a2c47fa758ee97a",
+        "request_id": "live50-20261024-a-043",
+        "response_type": "execution_error_response",
+        "approval_status": "not_required",
+        "cited_evidence_ids": [],
+        "business_error_code": "mcp_tool_execution_failed"
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_854a4cde807e48bf9cf0539828fc26dc",
+        "request_id": "live50-20261024-a-043",
+        "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+        "role": "user",
+        "status": "completed",
+        "content": "比较贵州茅台、五粮液、泸州老窖2024年营业收入，只需三个数及单位、年度和来源。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:47:04.267682Z",
+        "completed_at": "2026-10-24T14:47:04.254827Z"
+      },
+      {
+        "message_id": "msg_11841d34d3674c358a2c47fa758ee97a",
+        "request_id": "live50-20261024-a-043",
+        "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 本次执行未完成\n\n- MCP 工具执行失败。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "execution_error_response",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "计划通过一次公开信息取证，核实贵州茅台、五粮液、泸州老窖2024年年报营业收入，并统一为同一单位后给出三个数值、年度及来源。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:fetch_2024_revenue",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。",
+              "task_id": "fetch_2024_revenue",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "重新核实贵州茅台、五粮液、泸州老窖2024年年报营业收入，统一为亿元，并给出年度与来源。",
+              "sequence": 2
+            },
+            {
+              "id": "tool_agent:r1_fetch_2024_revenue_retry",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "failed",
+              "message": "获取研究证据未完成：获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。",
+              "task_id": "r1_fetch_2024_revenue_retry",
+              "group_id": "evidence:2",
+              "sequence": 3,
+              "task_label": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:2",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "重新核实贵州茅台、五粮液、泸州老窖2024年年报营业收入，统一为亿元，并给出年度与来源。",
+              "sequence": 4
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": "mcp_tool_execution_failed"
+        },
+        "created_at": "2026-10-24T14:47:04.267688Z",
+        "completed_at": "2026-10-24T14:48:21.880633Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:48:22.287253+00:00",
+  "elapsed_seconds": 78.16
+}

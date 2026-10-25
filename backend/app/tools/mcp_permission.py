@@ -16,9 +16,14 @@ _ERROR_CODES = {
     **dict.fromkeys(("invalid_params", "invalid_request", "provider_invalid_request"),
                    "provider_invalid_request"),
 }
+_PROVIDER_ERROR_PREFIX = re.compile(
+    r"^[A-Za-z][\w.-]{0,63}\s+API\s+(?:错误|error)\s*\[(-?\d{1,10})\]\s*[:：]\s*",
+    re.IGNORECASE,
+)
+_INTERFACE_NAME = r"(?:\([\w.:-]{1,128}\)|（[\w.:-]{1,128}）)?"
 _DENIAL_MESSAGE = re.compile(
     r"^(?:error\s*[:：]\s*)?(?:抱歉[，,]?\s*)?"
-    r"(?:(?:您|你)?没有(?:访问(?:该|此)?接口的权限|(?:该|此)?接口(?:的)?访问权限)"
+    rf"(?:(?:您|你)?没有(?:访问(?:该|此)?接口{_INTERFACE_NAME}的权限|(?:该|此)?接口{_INTERFACE_NAME}(?:的)?访问权限)"
     r"|无权限访问(?:该|此)?接口|permission denied\b|insufficient permissions\b"
     r"|access denied\b|forbidden\b)",
     re.IGNORECASE,
@@ -28,7 +33,10 @@ _EXECUTION_HINT = re.compile(
     r"|partial(?:ly)? (?:result|data|execution)", re.IGNORECASE,
 )
 _OTHER_ERROR_SUBJECTS = (
-    (re.compile(r"^(?:超过调用频次|请求过于频繁|rate limit exceeded)", re.IGNORECASE), "provider_rate_limited"),
+    (re.compile(
+        rf"^(?:超过调用频次|请求过于频繁|rate limit exceeded|(?:抱歉[，,]?\s*)?(?:您|你)?访问接口{_INTERFACE_NAME}频率超限)",
+        re.IGNORECASE,
+    ), "provider_rate_limited"),
     (re.compile(r"^(?:账户额度不足|额度不足|quota exceeded)", re.IGNORECASE), "provider_quota_exceeded"),
     (re.compile(r"^(?:缺少必要参数|参数错误|invalid parameters)", re.IGNORECASE), "provider_invalid_request"),
 )
@@ -69,7 +77,16 @@ def permission_failure_envelope(payload: Any) -> bool:
 
 def standalone_permission_denied(text: str) -> bool:
     """兼容未设置 isError 的纯文本拒绝；不扫描正常业务正文中的权限关键词。"""
-    return bool(_DENIAL_MESSAGE.match(text.strip()))
+    return bool(_DENIAL_MESSAGE.match(_error_subject_text(text)[0]))
+
+
+def _error_subject_text(text: str) -> tuple[str, int | None]:
+    """只剥离错误主体的有界协议前缀，不在业务正文中搜索权限关键词。"""
+    text = text.strip()
+    prefix = _PROVIDER_ERROR_PREFIX.match(text)
+    if prefix is None:
+        return text, None
+    return text[prefix.end():], int(prefix.group(1))
 
 
 def _decoded(value: Any) -> Any:
@@ -101,6 +118,10 @@ def classify_mcp_failure(payload, *, error_context: bool, pre_execution_semantic
     if not error_context or has_execution_result(payload):
         return None
     for provider_code, message in _error_subjects(payload):
+        if isinstance(message, str):
+            message, prefixed_code = _error_subject_text(message)
+            if provider_code is None:
+                provider_code = prefixed_code
         code = _ERROR_CODES.get(provider_code.lower()) if isinstance(provider_code, str) else None
         rule = "mcp-error-code-v1"
         if code is None and isinstance(message, str) and standalone_permission_denied(message):

@@ -1,0 +1,278 @@
+{
+  "case_id": "016",
+  "run": {
+    "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+    "session_id": "live50-20261024-a-016",
+    "session_key": "sess_ca89905e58064de48fbdd0481af4aea1",
+    "trace_id": "trace_5685b235ba584bf89d9437a7b2a70af2",
+    "status": "completed",
+    "created_at": "2026-10-24 14:40:16.258822+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 50,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:40:16.273557+00:00",
+    "ended_at": "2026-10-24 14:40:27.446536+00:00",
+    "events": 50
+  },
+  "receipts": [
+    {
+      "receipt_id": "a7d25eaccfb84a7fa8a8916e99f0c1ec",
+      "tool_name": "mcp.tushare.income",
+      "call_id": "call_63817577dfece18f227c28b48a270611",
+      "risk_level": "medium",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": [
+          {
+            "revenue": 170899152276.34,
+            "ts_code": "600519.SH",
+            "ann_date": "20250403",
+            "end_date": "20241231",
+            "n_income": 89334728025.9,
+            "f_ann_date": "20250403",
+            "report_type": "1",
+            "total_profit": 119638578194.46,
+            "total_revenue": 174144069958.25,
+            "operate_profit": 119688579453.23,
+            "n_income_attr_p": 86228146421.62
+          }
+        ],
+        "status": "success",
+        "trace_id": "trace_5685b235ba584bf89d9437a7b2a70af2",
+        "tool_name": "mcp.tushare.income",
+        "latency_ms": 1047,
+        "tool_call_id": "tool_264e7f8d3d1444b7afb6846b1c5407e0",
+        "execution_state": "completed",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.income",
+            "request_id": "live50-20261024-a-016",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "2e48c8f2f3dd00750221b4b038ef09a297b0ea33c5caab47c3d1c30664af4db1",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "68e6272d6a2c943e535deadf3ed38868338b2883c189b77f6e7fbec34f162253"
+        }
+      },
+      "created_at": "2026-10-24 14:40:21.286064+00:00",
+      "completed_at": "2026-10-24 14:40:22.305508+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_63817577dfece18f227c28b48a270611": {
+        "request_id": "live50-20261024-a-016",
+        "task": {
+          "id": "moutai_2024_annual_results",
+          "task_goal": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2024年年报口径的营业收入数值及单位",
+            "返回2024年年报口径的归母净利润数值及单位",
+            "注明数据来源（如公司2024年年度报告或权威财经数据平台）"
+          ],
+          "tool_search_query": "A股上市公司年度报告财务数据 营业收入 归母净利润 查询",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_63817577dfece18f227c28b48a270611",
+        "request_fingerprint": "68e6272d6a2c943e535deadf3ed38868338b2883c189b77f6e7fbec34f162253",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_eea2952df761c687b5e53c71600d8419",
+        "as_of": "2026-10-24T22:40:16+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.express",
+            "version": "mcp-http-v1",
+            "binding": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1"
+          },
+          {
+            "name": "mcp.tushare.express_vip",
+            "version": "mcp-http-v1",
+            "binding": "79ec71938f19b9f51508a6492a36ff2e3621b259e9c4ecd296e7b3b862ad5dc1"
+          },
+          {
+            "name": "mcp.tushare.hk_income",
+            "version": "mcp-http-v1",
+            "binding": "d347dd2ab6872e2861dbb13021e31248fb06eebecedd1f23033a605d7f86b34e"
+          },
+          {
+            "name": "mcp.tushare.fina_indicator",
+            "version": "mcp-http-v1",
+            "binding": "54e8a44bf05ff5d2842e1f6c78d0be98cb92670d2c89bdb1cac95029483f4146"
+          },
+          {
+            "name": "mcp.tushare.income",
+            "version": "mcp-http-v1",
+            "binding": "2e48c8f2f3dd00750221b4b038ef09a297b0ea33c5caab47c3d1c30664af4db1"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_eea2952df761c687b5e53c71600d8419": {
+        "dispatch_batch_id": "dispatch_eea2952df761c687b5e53c71600d8419",
+        "run_identity": "18b72aaf74cea4c100801503d8aeabef7ec983edac1b7f398f96a21f41a7e85f",
+        "plan_digest": "e96ce80d1f4eb5595c6694cdda1547351c48e1d99407d04483be3457dc7949a4",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "moutai_2024_annual_results"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "查询贵州茅台2024年年报的营业收入和归母净利润，保留单位并标注来源",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "已取得2024年年报口径数据：营业收入170,899,152,276.34元，归母净利润86,228,146,421.62元，来源为Tushare财务数据接口（600519.SH，报告期2024-12-31，公告日2025-04-03），满足保留单位与标注来源的要求。",
+      "unresolved_questions": [
+        "数据来自Tushare接口而非年报原文页面，未逐字核对年报PDF披露文本；如需可进一步以公司年报原文复核。"
+      ]
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "查询贵州茅台2024年年报的营业收入和归母净利润，保留原始单位并标注数据来源。",
+      "tasks": [
+        {
+          "id": "moutai_2024_annual_results",
+          "task_goal": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2024年年报口径的营业收入数值及单位",
+            "返回2024年年报口径的归母净利润数值及单位",
+            "注明数据来源（如公司2024年年度报告或权威财经数据平台）"
+          ],
+          "tool_search_query": "A股上市公司年度报告财务数据 营业收入 归母净利润 查询",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "moutai_2024_annual_results",
+        "status": "success",
+        "content": "[{\"ann_date\":\"20250403\",\"end_date\":\"20241231\",\"f_ann_date\":\"20250403\",\"n_income\":89334728025.9,\"n_income_attr_p\":86228146421.62,\"operate_profit\":119688579453.23,\"report_type\":\"1\",\"revenue\":170899152276.34,\"total_profit\":119638578194.46,\"total_revenue\":174144069958.25,\"ts_code\":\"600519.SH\"}]",
+        "error_code": null,
+        "tool_name": "mcp.tushare.income"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_63817577dfece18f227c28b48a270611' request=ToolCallRequest(call_id='call_63817577dfece18f227c28b48a270611', tool_name='mcp.tushare.income', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'period': '20241231', 'fields': ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'report_type', 'total_revenue', 'revenue', 'operate_profit', 'total_profit', 'n_income', 'n_income_attr_p']}, purpose='获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。', approval_required=False) result=ToolCallResult(tool_call_id='tool_264e7f8d3d1444b7afb6846b1c5407e0', tool_name='mcp.tushare.income', status='success', execution_state='completed', result=[{'ts_code': '600519.SH', 'ann_date': '20250403', 'f_ann_date': '20250403', 'end_date': '20241231', 'report_type': '1', 'total_revenue': 174144069958.25, 'revenue': 170899152276.34, 'operate_profit': 119688579453.23, 'total_profit': 119638578194.46, 'n_income': 89334728025.9, 'n_income_attr_p': 86228146421.62}], error=None, latency_ms=1047, trace_id='trace_5685b235ba584bf89d9437a7b2a70af2')"
+    ],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "## 贵州茅台（600519.SH）2024年年报核心数据\n\n根据已获取的2024年年度报告口径财务数据，贵州茅台2024年度主要经营指标如下：\n\n| 指标 | 金额（元） | 折合（亿元） |\n|---|---|---|\n| 营业收入 | 170,899,152,276.34 | 约 1,708.99 |\n| 归属于上市公司股东的净利润 | 86,228,146,421.62 | 约 862.28 |\n\n**数据来源说明：** 上述数据对应报告期为2024年12月31日、公告日为2025年4月3日的年报口径记录，取自 Tushare 财务数据接口（证券代码 600519.SH）。\n\n### 补充口径与解读\n\n- **营业收入与营业总收入的区分：** 同一记录中\"营业总收入\"为 174,144,069,958.25 元（约 1,741.44 亿元），高于\"营业收入\"约 324.49 亿元。两者差额主要来自利息收入、已赚保费、手续费及佣金收入等营业总收入项下的其他构成，引用时需明确采用哪一个口径，避免与市场常用的\"营业总收入\"口径混淆。\n- **盈利质量参考：** 同期营业利润为 119,688,579,453.23 元，利润总额为 119,638,578,194.46 元，归母净利润约相当于营业收入的 50.5%，反映其较高的盈利水平；该比例为基于上述数据的计算值，非年报直接披露。\n- **数据核验提示：** 上述数据来自财务数据接口的结构化记录，尚未逐字比对年报 PDF 原文。若用于正式披露引用或对外发布，建议以公司2024年年度报告原文中的合并利润表进行最终复核，尤其注意营业收入口径与年报表述是否完全一致。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_5685b235ba584bf89d9437a7b2a70af2",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    },
+    "errors": []
+  }
+}

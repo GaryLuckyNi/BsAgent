@@ -117,11 +117,14 @@ def test_llm_intent_router_returns_taxonomy_goal_and_source_constraint(
         "goal",
         "confidence",
         "source_constraint",
+        "available_information",
+        "route",
+        "answer",
     }
     payload = json.loads(llm.calls[0]["user_prompt"])
     assert payload["message"] == "海能达现在是否值得关注"
     assert llm.calls[0]["thinking"] is False
-    assert llm.calls[0]["max_tokens"] == 512
+    assert llm.calls[0]["max_tokens"] == 2048
     assert "available_skills" not in payload
     assert "available_tools" not in payload
     assert "task_brief" not in payload
@@ -317,7 +320,7 @@ def test_intent_router_node_does_not_stream_private_classifier_reasoning(
     )(state)
 
     assert llm.used_native_stream is False
-    assert llm.calls[0]["max_tokens"] == 512
+    assert llm.calls[0]["max_tokens"] == 2048
     assert llm.calls[0]["thinking"] is False
 
 

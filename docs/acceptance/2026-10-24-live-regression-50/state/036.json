@@ -1,0 +1,424 @@
+{
+  "case_id": "036",
+  "run": {
+    "run_id": "run_777f7992516e17ba15263e416bed8a651e223d237881468121b3307ffaa5",
+    "session_id": "live50-20261024-a-036",
+    "session_key": "sess_4b2970a2d526455a9b0e901ed97c2aa7",
+    "trace_id": "trace_aca0af4243da41c0be99a294623591e2",
+    "status": "completed",
+    "created_at": "2026-10-24 14:45:34.461325+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 22,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:45:34.476752+00:00",
+    "ended_at": "2026-10-24 14:45:50.227855+00:00",
+    "events": 22
+  },
+  "receipts": [
+    {
+      "receipt_id": "335d987132ab40589062cda953639f71",
+      "tool_name": "mcp.tushare.hk_daily",
+      "call_id": "call_430f3b358fc9fd4cc51294ecb2a32fc6",
+      "risk_level": "medium",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": [],
+        "status": "success",
+        "trace_id": "trace_aca0af4243da41c0be99a294623591e2",
+        "tool_name": "mcp.tushare.hk_daily",
+        "latency_ms": 1163,
+        "tool_call_id": "tool_f99bd1a483b448ddbc991b922747d353",
+        "execution_state": "completed",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.hk_daily",
+            "request_id": "live50-20261024-a-036",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "aa42547d7d8cd4df1d5a49113d7169098fbeaad1357105aadce0484fad17bb7c",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "36359df5a2a780bdd2eccca343859d5bb2e6c7876e86fd2329d5e1f51af63571"
+        }
+      },
+      "created_at": "2026-10-24 14:45:39.403795+00:00",
+      "completed_at": "2026-10-24 14:45:40.492391+00:00"
+    },
+    {
+      "receipt_id": "f158b7be1b854a0ea1d5cadd4f362a24",
+      "tool_name": "mcp.tushare.hk_daily",
+      "call_id": "call_4871dc4136c1ca805ed45c0e15853c87",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_aca0af4243da41c0be99a294623591e2",
+        "tool_name": "mcp.tushare.hk_daily",
+        "latency_ms": 848,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.hk_daily",
+          "latency_ms": 810,
+          "tool_call_id": "tool_1d1d7af00999497aa4df1bd41901fe39",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_6a3fa5757ba04d53b7c2ffcb9fe9cc52",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.hk_daily",
+            "request_id": "live50-20261024-a-036",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "aa42547d7d8cd4df1d5a49113d7169098fbeaad1357105aadce0484fad17bb7c",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "36359df5a2a780bdd2eccca343859d5bb2e6c7876e86fd2329d5e1f51af63571"
+        }
+      },
+      "created_at": "2026-10-24 14:45:44.329462+00:00",
+      "completed_at": "2026-10-24 14:45:45.554893+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_430f3b358fc9fd4cc51294ecb2a32fc6": {
+        "request_id": "live50-20261024-a-036",
+        "task": {
+          "id": "tushare_moutai_daily_20250901",
+          "task_goal": "使用TuShare日线行情接口查询贵州茅台（600519.SH）在2025年9月1日的日线数据（开高低收、成交量、成交额等），并明确报告查询结果：若接口无权限、调用失败或该日无数据，需如实说明原因，不得用网页或搜索数据替代。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "确认使用的是TuShare接口而非网页或搜索来源",
+            "返回或明确说明贵州茅台600519.SH在2025-09-01的日线记录（含开高低收、成交量等字段）",
+            "若无权限、调用失败或无数据，明确给出对应结论及原因"
+          ],
+          "tool_search_query": "TuShare A股日线行情接口 按股票代码和交易日期查询",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_430f3b358fc9fd4cc51294ecb2a32fc6",
+        "request_fingerprint": "36359df5a2a780bdd2eccca343859d5bb2e6c7876e86fd2329d5e1f51af63571",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_085fa21e268bb47af4ead0e7b65548fe",
+        "as_of": "2026-10-24T22:45:34+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.hk_daily",
+            "version": "mcp-http-v1",
+            "binding": "aa42547d7d8cd4df1d5a49113d7169098fbeaad1357105aadce0484fad17bb7c"
+          },
+          {
+            "name": "mcp.tushare.rt_k",
+            "version": "mcp-http-v1",
+            "binding": "3d66012f916e29c61b3ec47d2556d087d10853912f0cf23a97d36a8bfc233979"
+          },
+          {
+            "name": "mcp.tushare.rt_hk_k",
+            "version": "mcp-http-v1",
+            "binding": "6260571c28013f9677720d6a09bb793a2016cce3b99e42fd07e100953e8ba751"
+          },
+          {
+            "name": "mcp.tushare.us_daily",
+            "version": "mcp-http-v1",
+            "binding": "d773b32e6b9ff34006146d439022a3f8888aca2a275ea9c1cc66495d02a4fe7c"
+          },
+          {
+            "name": "mcp.tushare.dc_index",
+            "version": "mcp-http-v1",
+            "binding": "1f7abb2b6c726a5f1cef17b5f189336502dc6ebd933684fdb74aa6c72a0a3aef"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_4871dc4136c1ca805ed45c0e15853c87": {
+        "request_id": "live50-20261024-a-036",
+        "task": {
+          "id": "r1_tushare_a_daily_moutai_20250901",
+          "task_goal": "使用TuShare A股日线行情接口（daily，而非港股hk_daily）查询贵州茅台600519.SH在2025-09-01的日线数据（开高低收、成交量、成交额等），并明确报告结果：若接口无权限、调用失败或该日无数据，需如实说明原因，不得用网页或搜索数据替代。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "确认使用的是TuShare A股日线接口daily且参数为ts_code=600519.SH、trade_date=20250901",
+            "返回或明确说明贵州茅台600519.SH在2025-09-01的日线记录（含开高低收、成交量等字段）",
+            "若无权限、调用失败或无数据，明确给出对应结论及原因"
+          ],
+          "tool_search_query": "TuShare daily A股日线行情 按ts_code和trade_date查询",
+          "evidence_task_ids": [
+            "tushare_moutai_daily_20250901"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_4871dc4136c1ca805ed45c0e15853c87",
+        "request_fingerprint": "36359df5a2a780bdd2eccca343859d5bb2e6c7876e86fd2329d5e1f51af63571",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_f15b863045e0f5b65fe0976d839eed62",
+        "as_of": "2026-10-24T22:45:34+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.hk_daily",
+            "version": "mcp-http-v1",
+            "binding": "aa42547d7d8cd4df1d5a49113d7169098fbeaad1357105aadce0484fad17bb7c"
+          },
+          {
+            "name": "mcp.tushare.suspend_d",
+            "version": "mcp-http-v1",
+            "binding": "98cf06af1630fc9b438620b6f6330d17e749c9e7540f5dbef7e01bf6d7388c09"
+          },
+          {
+            "name": "mcp.tushare.us_daily",
+            "version": "mcp-http-v1",
+            "binding": "d773b32e6b9ff34006146d439022a3f8888aca2a275ea9c1cc66495d02a4fe7c"
+          },
+          {
+            "name": "mcp.tushare.yc_cb",
+            "version": "mcp-http-v1",
+            "binding": "a91b57787c72d162e2027c794a2ad2b5d66b947e25d44a4bf32f0d3596fc8993"
+          },
+          {
+            "name": "mcp.tushare.index_daily",
+            "version": "mcp-http-v1",
+            "binding": "813be237ef3dc933c71d16ec3b2908dd0a30da8fc0ef3c9f0fb37fd9ad781ec6"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_085fa21e268bb47af4ead0e7b65548fe": {
+        "dispatch_batch_id": "dispatch_085fa21e268bb47af4ead0e7b65548fe",
+        "run_identity": "de05abb2a39539747bb8c022cc257d3ed3658c17735101e0570f0cf8712042aa",
+        "plan_digest": "2388025e547175391a3f7171c802bc196c605f6e38cd49580db19ea9983edd27",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "tushare_moutai_daily_20250901"
+        ]
+      },
+      "dispatch_f15b863045e0f5b65fe0976d839eed62": {
+        "dispatch_batch_id": "dispatch_f15b863045e0f5b65fe0976d839eed62",
+        "run_identity": "de05abb2a39539747bb8c022cc257d3ed3658c17735101e0570f0cf8712042aa",
+        "plan_digest": "d5a3e2bcf6c07c4d57a88060fa1157a7152964712ab1b62968555387d10f957b",
+        "observations_digest": "713c14e3142d0eca9bab1ba69ae673d5150bfe49a4705c4763e88ee910609b00",
+        "members": [
+          "r1_tushare_a_daily_moutai_20250901"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "只使用TuShare查询贵州茅台2025年9月1日的日线数据，不允许使用web search或网页数据替代；若无权限或无数据则明确告知",
+      "confidence": 0.95,
+      "source_constraint": "original_only"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "唯一活动任务已终态失败：实际调用的是港股接口hk_daily而非A股daily，且执行失败；无剩余修订预算，无法再取证。",
+      "unresolved_questions": [
+        "未能通过TuShare A股daily接口取得贵州茅台600519.SH在2025-09-01的日线数据：调用失败且误用了hk_daily接口，无法确认是权限问题、接口错误还是当日无数据。"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "计划仅通过TuShare查询贵州茅台（600519.SH）2025年9月1日的日线行情，不使用网页或搜索数据；若接口无权限或当日无数据，将明确说明。",
+          "tasks": [
+            {
+              "id": "tushare_moutai_daily_20250901",
+              "task_goal": "使用TuShare日线行情接口查询贵州茅台（600519.SH）在2025年9月1日的日线数据（开高低收、成交量、成交额等），并明确报告查询结果：若接口无权限、调用失败或该日无数据，需如实说明原因，不得用网页或搜索数据替代。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "确认使用的是TuShare接口而非网页或搜索来源",
+                "返回或明确说明贵州茅台600519.SH在2025-09-01的日线记录（含开高低收、成交量等字段）",
+                "若无权限、调用失败或无数据，明确给出对应结论及原因"
+              ],
+              "tool_search_query": "TuShare A股日线行情接口 按股票代码和交易日期查询",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "仅通过TuShare A股日线行情接口查询贵州茅台（600519.SH）2025年9月1日的日线数据，不使用网页或搜索数据；若接口无权限、调用失败或当日无数据，将明确说明。",
+      "tasks": [
+        {
+          "id": "r1_tushare_a_daily_moutai_20250901",
+          "task_goal": "使用TuShare A股日线行情接口（daily，而非港股hk_daily）查询贵州茅台600519.SH在2025-09-01的日线数据（开高低收、成交量、成交额等），并明确报告结果：若接口无权限、调用失败或该日无数据，需如实说明原因，不得用网页或搜索数据替代。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "确认使用的是TuShare A股日线接口daily且参数为ts_code=600519.SH、trade_date=20250901",
+            "返回或明确说明贵州茅台600519.SH在2025-09-01的日线记录（含开高低收、成交量等字段）",
+            "若无权限、调用失败或无数据，明确给出对应结论及原因"
+          ],
+          "tool_search_query": "TuShare daily A股日线行情 按ts_code和trade_date查询",
+          "evidence_task_ids": [
+            "tushare_moutai_daily_20250901"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "tushare_moutai_daily_20250901",
+        "status": "success",
+        "content": "[]",
+        "error_code": null,
+        "tool_name": "mcp.tushare.hk_daily"
+      },
+      {
+        "task_id": "r1_tushare_a_daily_moutai_20250901",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.hk_daily"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_430f3b358fc9fd4cc51294ecb2a32fc6' request=ToolCallRequest(call_id='call_430f3b358fc9fd4cc51294ecb2a32fc6', tool_name='mcp.tushare.hk_daily', tool_version='mcp-http-v1', arguments={'trade_date': 20250901, 'ts_code': '600519.SH'}, purpose='使用TuShare日线行情接口查询贵州茅台（600519.SH）在2025年9月1日的日线数据（开高低收、成交量、成交额等），并明确报告查询结果：若接口无权限、调用失败或该日无数据，需如实说明原因，不得用网页或搜索数据替代。', approval_required=False) result=ToolCallResult(tool_call_id='tool_f99bd1a483b448ddbc991b922747d353', tool_name='mcp.tushare.hk_daily', status='success', execution_state='completed', result=[], error=None, latency_ms=1163, trace_id='trace_aca0af4243da41c0be99a294623591e2')",
+      "call_id='call_4871dc4136c1ca805ed45c0e15853c87' request=ToolCallRequest(call_id='call_4871dc4136c1ca805ed45c0e15853c87', tool_name='mcp.tushare.hk_daily', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'trade_date': 20250901}, purpose='使用TuShare A股日线行情接口（daily，而非港股hk_daily）查询贵州茅台600519.SH在2025-09-01的日线数据（开高低收、成交量、成交额等），并明确报告结果：若接口无权限、调用失败或该日无数据，需如实说明原因，不得用网页或搜索数据替代。', approval_required=False) result=ToolCallResult(tool_call_id='tool_6a3fa5757ba04d53b7c2ffcb9fe9cc52', tool_name='mcp.tushare.hk_daily', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=848, trace_id='trace_aca0af4243da41c0be99a294623591e2')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- MCP 工具执行失败。",
+      "trace_id": "trace_aca0af4243da41c0be99a294623591e2",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "mcp_tool_execution_failed"
+    },
+    "errors": []
+  }
+}

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 MAX_PLAN_TASKS = 12
 MAX_TASK_RESULT_CONTENT_CHARS = 8_000
@@ -14,6 +14,7 @@ class SubTaskModel(BaseModel):
     execution_type: Literal["tool", "analysis"] = "tool"
     completion_criteria: list[str] = Field(default_factory=list, max_length=8)
     tool_search_query: str | None = Field(default=None, min_length=1, max_length=500)
+    tool_candidate_refs: list[str] = Field(default_factory=list, max_length=8)
     evidence_task_ids: list[str] = Field(default_factory=list, max_length=24)
     depends_on: list[str] = Field(default_factory=list, max_length=16)
     skill_name: str | None = None
@@ -23,7 +24,18 @@ class SubTaskModel(BaseModel):
     def validate_execution_capability(self):
         if self.execution_type == "analysis" and self.skill_name is not None:
             raise ValueError("纯分析任务不能同时绑定 Skill。")
+        if self.tool_candidate_refs and (self.skill_name is not None or self.execution_type != "tool"):
+            raise ValueError("普通工具候选不能与 Skill 或纯分析任务混用。")
         return self
+
+    @field_validator("tool_candidate_refs")
+    @classmethod
+    def validate_candidate_refs(cls, value: list[str]) -> list[str]:
+        if any(not ref.strip() or ref != ref.strip() for ref in value):
+            raise ValueError("工具候选引用不能为空或包含首尾空白。")
+        if len(value) != len(set(value)):
+            raise ValueError("工具候选引用不能重复。")
+        return value
 
     @field_validator("task_goal", "tool_search_query", "skill_name", mode="before")
     @classmethod
@@ -39,6 +51,14 @@ class SubTaskModel(BaseModel):
         if len(value) != len(set(value)):
             raise ValueError("任务依赖不能重复。")
         return value
+
+
+def task_snapshot_matches(snapshot: object, task: object) -> bool:
+    """仅规范化默认字段作语义比较；不重写持久化快照或其签名。"""
+    try:
+        return SubTaskModel.model_validate(snapshot) == SubTaskModel.model_validate(task)
+    except ValidationError:
+        return False
 
 
 class PlanModel(BaseModel):

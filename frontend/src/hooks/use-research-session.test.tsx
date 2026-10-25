@@ -16,7 +16,7 @@ const sdk = vi.hoisted(() => ({
     onFinish?: () => void
     onError?: (error: Error) => void
   } | undefined,
-  submit: vi.fn(async (_input: unknown, _options: unknown) => undefined),
+  submit: vi.fn(async (_input: unknown, _options: unknown): Promise<void> => undefined),
   stop: vi.fn(async () => undefined)
 }))
 
@@ -533,6 +533,70 @@ describe('useResearchSession', () => {
         }
       }
     })
+  })
+
+  it.each(['web_search', 'use_existing'])('点击%s立即关闭确认框，不等待恢复请求结束', async (value) => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('查询资料') })
+    const id = result.current.messages.at(-1)!.id
+    act(() => sdk.options?.onCustomEvent?.({
+      type: 'input_required', interrupt_id: 'interrupt', interaction_id: 'interaction',
+      input_type: 'selection', question: '是否替代取证？', recovery_batch: recoveryBatch(),
+      options: [{ value: 'web_search', label: '搜索' }, { value: 'use_existing', label: '已有资料' }]
+    }))
+    let finish!: () => void
+    sdk.submit.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve }))
+    let pending!: Promise<void>
+    const submits = sdk.submit.mock.calls.length
+    act(() => {
+      pending = result.current.resumeUserInput(id, value)
+      void result.current.resumeUserInput(id, value)
+    })
+    expect(sdk.submit).toHaveBeenCalledTimes(submits + 1)
+    expect(result.current.messages.at(-1)?.userInput).toBeUndefined()
+    expect(result.current.messages.at(-1)?.status).toBe('streaming')
+    await act(async () => { finish(); await pending })
+    expect(result.current.messages.at(-1)?.userInput).toBeUndefined()
+  })
+
+  it.each(['callback', 'reject'])('确认请求失败恢复原选择框并允许重试：%s', async (failure) => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('查询资料') })
+    const id = result.current.messages.at(-1)!.id
+    act(() => sdk.options?.onCustomEvent?.({
+      type: 'input_required', interrupt_id: 'interrupt', interaction_id: 'interaction',
+      input_type: 'selection', question: '是否替代取证？', recovery_batch: recoveryBatch(),
+      options: [{ value: 'web_search', label: '搜索' }, { value: 'use_existing', label: '已有资料' }]
+    }))
+    sdk.submit.mockImplementationOnce(async () => {
+      if (failure === 'reject') throw new Error('提交失败')
+      sdk.options?.onError?.(new Error('提交失败'))
+    })
+    await act(async () => { await result.current.resumeUserInput(id, 'web_search') })
+    expect(result.current.error).toBe('提交失败')
+    expect(result.current.messages.at(-1)?.status).toBe('interrupted')
+    expect(result.current.messages.at(-1)?.userInput?.interactionId).toBe('interaction')
+    expect(result.current.messages.at(-1)?.userInput?.isSubmitting).not.toBe(true)
+    const submitted = sdk.submit.mock.calls.length
+    await act(async () => { await result.current.resumeUserInput(id, 'use_existing') })
+    expect(sdk.submit).toHaveBeenCalledTimes(submitted + 1)
+  })
+
+  it('恢复过程中新的中断不会被旧提交收尾关闭', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('查询资料') })
+    const id = result.current.messages.at(-1)!.id
+    const event = {
+      type: 'input_required', interrupt_id: 'interrupt', interaction_id: 'interaction',
+      input_type: 'selection', question: '是否替代取证？', recovery_batch: recoveryBatch(),
+      options: [{ value: 'web_search', label: '搜索' }, { value: 'use_existing', label: '已有资料' }]
+    }
+    act(() => sdk.options?.onCustomEvent?.(event))
+    sdk.submit.mockImplementationOnce(async () => {
+      sdk.options?.onCustomEvent?.({ ...event, interaction_id: 'next-interaction', interrupt_id: 'next-interrupt' })
+    })
+    await act(async () => { await result.current.resumeUserInput(id, 'web_search') })
+    expect(result.current.messages.at(-1)?.userInput?.interactionId).toBe('next-interaction')
   })
 
   it.each([

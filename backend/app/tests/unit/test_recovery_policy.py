@@ -117,6 +117,29 @@ def test_mismatched_result_cannot_authorize_recovery():
     assert eligible_recovery(**args) == (False, "original_call_mismatch")
 
 
+@pytest.mark.parametrize("proven", [False, True])
+def test_local_block_requires_separate_unstarted_proof_not_a_fake_settled_receipt(proven):
+    args = recovery_inputs()
+    args["receipt_settled"] = False
+    args["result"] = args["result"].model_copy(update={
+        "error": ToolError(code="tool_side_effects_unresolved", message="先前执行未核实"),
+    })
+    assert eligible_recovery(**args, local_unstarted=proven) == (
+        (True, "local_unstarted_recovery_eligible") if proven
+        else (False, "not_provider_permission_denial")
+    )
+
+
+def test_existing_permission_interrupt_presentation_remains_compatible():
+    from app.graph.recovery.batching import SOURCE_NOTICE, batch_request
+
+    batch = seal_batch(run_identity="old-run", dispatch_batch_id="old-dispatch", items=[item()])
+    request = batch_request(batch)
+    assert request.question == "以下任务的数据源账号权限不足，是否改用联网搜索补充公开资料？"
+    assert request.recovery_batch.items[0].reason == "数据源账号权限不足，原接口未执行。"
+    assert request.recovery_batch.items[0].source_notice == SOURCE_NOTICE
+
+
 def test_scheduler_waits_for_all_actual_dispatch_members_before_sealing():
     from app.graph.planning.contracts import SubTaskModel
     from app.graph.recovery.batching import dispatch_snapshot, pending_batch_update

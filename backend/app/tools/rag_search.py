@@ -61,7 +61,7 @@ class RagSearchTool(Tool[RagSearchInput]):
     name = "rag_search"
     version = "1.0.0"
     input_model = RagSearchInput
-    description = "检索企业知识库证据片段"
+    description = "检索当前用户所属企业的内部知识库，仅查询本企业已接入的内部文档、制度、流程及业务资料。适用于用户明确要求查询本企业内部资料、内部知识库，或上下文已明确资料来自内部知识库的请求。不用于查询外部公司的公开资料、公告、行情或研报。用户仅提到某家公司、“知识证据”或“分析依据”，不代表需要调用本工具。本工具不具备互联网搜索或任意公司信息查询能力。"
     permission_scope: ClassVar[list[str]] = ["rag:retrieve"]
     risk_level = "low"
     requires_explicit_execution_binding = True

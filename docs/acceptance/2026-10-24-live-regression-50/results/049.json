@@ -1,0 +1,336 @@
+{
+  "case_id": "049",
+  "category": "Skill边界",
+  "question": "请按yzj_reasearch技能分析银之杰管理层薪酬和持股，优先最新年度，缺失显示未披露，不允许自行补造。",
+  "session_id": "live50-20261024-a-049",
+  "request_id": "live50-20261024-a-049",
+  "started_at": "2026-10-24T14:48:38.340806+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "message_id": "msg_9aae335c140e42b996aec451686c7e0f",
+      "request_id": "live50-20261024-a-049"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "completed",
+      "message": "按 yzj_reasearch 技能流程，先查询银之杰股票代码，再获取管理层薪酬与持股数据，优先采用最新年度报告期，缺失项标注未披露，最后整理为表格。"
+    },
+    {
+      "id": "skill_agent:get_ts_code",
+      "kind": "activity",
+      "type": "progress",
+      "label": "执行研究流程",
+      "stage": "skill_agent",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "started",
+      "message": "正在执行研究流程：查询银之杰的股票基本信息，取得其 ts_code，用于后续薪酬持股数据查询。"
+    },
+    {
+      "id": "skill_agent:get_ts_code",
+      "kind": "activity",
+      "type": "progress",
+      "label": "执行研究流程",
+      "stage": "skill_agent",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "completed",
+      "message": "研究流程已完成：查询银之杰的股票基本信息，取得其 ts_code，用于后续薪酬持股数据查询。"
+    },
+    {
+      "id": "tool_agent:sw_7aa963ab9380593cccbf5960ea546dd5",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "started",
+      "message": "正在获取研究证据：调用 stock_basic 查询银之杰，只保留 ts_code。",
+      "task_id": "sw_7aa963ab9380593cccbf5960ea546dd5",
+      "group_id": "evidence:1",
+      "task_label": "调用 stock_basic 查询银之杰，只保留 ts_code。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:sw_7aa963ab9380593cccbf5960ea546dd5",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "failed",
+      "message": "获取研究证据未完成：调用 stock_basic 查询银之杰，只保留 ts_code。",
+      "task_id": "sw_7aa963ab9380593cccbf5960ea546dd5",
+      "group_id": "evidence:1",
+      "task_label": "调用 stock_basic 查询银之杰，只保留 ts_code。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "skill_agent:get_ts_code",
+      "kind": "activity",
+      "type": "progress",
+      "label": "执行研究流程",
+      "stage": "skill_agent",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "started",
+      "message": "正在执行研究流程：查询银之杰的股票基本信息，取得其 ts_code，用于后续薪酬持股数据查询。"
+    },
+    {
+      "id": "skill_agent:get_ts_code",
+      "kind": "activity",
+      "type": "progress",
+      "label": "执行研究流程",
+      "stage": "skill_agent",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "failed",
+      "message": "研究流程未完成：查询银之杰的股票基本信息，取得其 ts_code，用于后续薪酬持股数据查询。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "## 本次执行未完成\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "- Skill 在步骤失"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "败后停止：{\"error"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "_code\":\"mcp_"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "tool_timeout"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "\",\"message\":"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "\"MCP 工具执行超时。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "\",\"status\":\""
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "type": "ai",
+        "content": "timeout\"}"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "type": "final",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "response": {
+        "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+        "content": "## 本次执行未完成\n\n- Skill 在步骤失败后停止：{\"error_code\":\"mcp_tool_timeout\",\"message\":\"MCP 工具执行超时。\",\"status\":\"timeout\"}",
+        "trace_id": "trace_fd5044ada9b64399a679c082409cc0b0",
+        "message_id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "request_id": "live50-20261024-a-049",
+        "response_type": "execution_error_response",
+        "approval_status": "not_required",
+        "cited_evidence_ids": [],
+        "business_error_code": "mcp_tool_timeout"
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_bd096748b3254bd5910ffe1f5001027b",
+        "request_id": "live50-20261024-a-049",
+        "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+        "role": "user",
+        "status": "completed",
+        "content": "请按yzj_reasearch技能分析银之杰管理层薪酬和持股，优先最新年度，缺失显示未披露，不允许自行补造。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:48:38.385917Z",
+        "completed_at": "2026-10-24T14:48:38.384771Z"
+      },
+      {
+        "message_id": "msg_9aae335c140e42b996aec451686c7e0f",
+        "request_id": "live50-20261024-a-049",
+        "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 本次执行未完成\n\n- Skill 在步骤失败后停止：{\"error_code\":\"mcp_tool_timeout\",\"message\":\"MCP 工具执行超时。\",\"status\":\"timeout\"}",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "execution_error_response",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "按 yzj_reasearch 技能流程，先查询银之杰股票代码，再获取管理层薪酬与持股数据，优先采用最新年度报告期，缺失项标注未披露，最后整理为表格。",
+              "sequence": 0
+            },
+            {
+              "id": "skill_agent:get_ts_code",
+              "kind": "activity",
+              "label": "执行研究流程",
+              "status": "failed",
+              "message": "研究流程未完成：查询银之杰的股票基本信息，取得其 ts_code，用于后续薪酬持股数据查询。",
+              "sequence": 1
+            },
+            {
+              "id": "tool_agent:sw_7aa963ab9380593cccbf5960ea546dd5",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "failed",
+              "message": "获取研究证据未完成：调用 stock_basic 查询银之杰，只保留 ts_code。",
+              "task_id": "sw_7aa963ab9380593cccbf5960ea546dd5",
+              "group_id": "evidence:1",
+              "sequence": 2,
+              "task_label": "调用 stock_basic 查询银之杰，只保留 ts_code。",
+              "activity_type": "evidence"
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": "mcp_tool_timeout"
+        },
+        "created_at": "2026-10-24T14:48:38.385920Z",
+        "completed_at": "2026-10-24T14:48:55.067782Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:48:55.362632+00:00",
+  "elapsed_seconds": 17.017
+}

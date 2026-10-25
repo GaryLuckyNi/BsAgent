@@ -34,6 +34,7 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
   onUserInputSelect?: (messageId: string, value: string) => void
 }) {
   const userInput = message.userInput
+  const compactRecovery = !!userInput?.recoveryBatch && !userInput.presentationError
   const seenNarratives = new Set<string>()
   const processEntries: ResearchProgress[] = []
   for (const item of message.progress || []) {
@@ -128,7 +129,7 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
         )}
         {userInput?.inputType === 'selection' && (
           <section className="user-input-card" aria-label="需要你选择">
-            <h3>{userInput.question}</h3>
+            <h3>{compactRecovery ? '是否改用联网搜索补充公开资料？' : userInput.question}</h3>
             {userInput.recoveryBatch && <PermissionRecoveryItems items={userInput.recoveryBatch.items} />}
             {userInput.presentationError && <p role="alert">{userInput.presentationError}</p>}
             <div className="user-input-options">
@@ -141,8 +142,11 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
                   data-selected={userInput.selectedValue === option.value}
                   onClick={() => onUserInputSelect?.(message.id, option.value)}
                 >
-                  <span>{option.label}</span>
-                  {option.description && <small>{option.description}</small>}
+                  <span>{compactRecovery && option.value === 'web_search'
+                    ? '使用联网搜索'
+                    : compactRecovery && option.value === 'use_existing'
+                      ? '仅用已有资料' : option.label}</span>
+                  {!compactRecovery && option.description && <small>{option.description}</small>}
                 </button>
               ))}
             </div>

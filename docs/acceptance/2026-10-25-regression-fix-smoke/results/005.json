@@ -1,0 +1,175 @@
+{
+  "case_id": "005",
+  "category": "确认边界复测",
+  "question": "查询贵州茅台2025年9月1日至7日公告的公开信息，请先尝试TuShare anns_d。若账号权限不足，我允许补充公开资料，但必须先弹出确认，得到确认再搜索。",
+  "session_id": "fixsmoke-20261025-a-005",
+  "request_id": "fixsmoke-20261025-a-005",
+  "started_at": "2026-10-25T00:42:03.503142+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "message_id": "msg_413967395647410eb2406657c2a9a5f8",
+      "request_id": "fixsmoke-20261025-a-005"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "status": "completed",
+      "message": "先通过TuShare anns_d查询贵州茅台2025年9月1日至7日公告；若账号权限不足，将先向用户确认，确认后再补充公开资料检索。"
+    },
+    {
+      "id": "tool_agent:tushare_anns_query",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "status": "started",
+      "message": "正在获取研究证据：使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告，获取公告标题、日期、类型等结构化信息；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+      "task_id": "tushare_anns_query",
+      "group_id": "evidence:1",
+      "task_label": "使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告，获取公告标题、日期、类型等结构化信息；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:tushare_anns_query",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "status": "completed",
+      "message": "已取得研究证据：使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告，获取公告标题、日期、类型等结构化信息；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+      "task_id": "tushare_anns_query",
+      "group_id": "evidence:1",
+      "task_label": "使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告，获取公告标题、日期、类型等结构化信息；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+      "activity_type": "evidence"
+    },
+    {
+      "type": "input_required",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "options": [
+        {
+          "label": "对以上任务使用联网搜索",
+          "value": "web_search",
+          "description": "只对清单中的任务替代取证；公开来源不等价于原接口数据。"
+        },
+        {
+          "label": "仅使用已有资料",
+          "value": "use_existing",
+          "description": "不搜索，保留原接口数据缺口。"
+        }
+      ],
+      "question": "以下任务的数据源账号权限不足，是否改用联网搜索补充公开资料？",
+      "trace_id": "trace_662b84f8a572404db44e48e736669b34",
+      "input_type": "selection",
+      "message_id": "msg_413967395647410eb2406657c2a9a5f8",
+      "request_id": "fixsmoke-20261025-a-005",
+      "interrupt_id": "d9ff70de09f1ae9e3e3750785209d6f5",
+      "interaction_id": "interaction_8fe462ba5dfd63c16cd4bc87316a1ec4",
+      "interrupt_type": "user_input",
+      "recovery_batch": {
+        "items": [
+          {
+            "reason": "数据源账号权限不足，原接口未执行。",
+            "item_id": "call_104d44f453e76a4cefa5a29200b4c8ed",
+            "task_goal": "使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告，获取公告标题、日期、类型等结构化信息；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+            "original_tool": "mcp.tushare.anns_d",
+            "source_notice": "联网搜索为替代来源，未经原接口验证；原接口数据仍缺失。"
+          }
+        ],
+        "digest": "11e5c8912877ac5f62e7acf78c944cc2a4a646ed60a8c8324fcc9c3ab499c976",
+        "version": "permission-recovery-batch-v1",
+        "batch_id": "recovery_11e5c8912877ac5f62e7acf78c944cc2"
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+      "status": "interrupted"
+    }
+  ],
+  "status": "interrupted",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+  "business_trace_id": "trace_662b84f8a572404db44e48e736669b34",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_a8ca4be9f4d44e1399c13f45c533777e",
+        "request_id": "fixsmoke-20261025-a-005",
+        "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+        "role": "user",
+        "status": "completed",
+        "content": "查询贵州茅台2025年9月1日至7日公告的公开信息，请先尝试TuShare anns_d。若账号权限不足，我允许补充公开资料，但必须先弹出确认，得到确认再搜索。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-25T00:42:03.630264Z",
+        "completed_at": "2026-10-25T00:42:03.628529Z"
+      },
+      {
+        "message_id": "msg_413967395647410eb2406657c2a9a5f8",
+        "request_id": "fixsmoke-20261025-a-005",
+        "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+        "role": "assistant",
+        "status": "interrupted",
+        "content": "",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {},
+        "created_at": "2026-10-25T00:42:03.630270Z",
+        "completed_at": null
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-25T00:42:11.680981+00:00",
+  "elapsed_seconds": 8.177
+}

@@ -66,6 +66,9 @@ def test_intent_decision_keeps_scope_goal_and_restrictive_source_label():
         "goal",
         "confidence",
         "source_constraint",
+        "available_information",
+        "route",
+        "answer",
     }
     assert result.source_constraint == "unclear"
 

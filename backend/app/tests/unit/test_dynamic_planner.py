@@ -182,7 +182,7 @@ def test_llm_planner_only_discloses_skills_and_atomic_task_schema():
     assert prompt["observations"][0]["error_code"] == "entity_not_found"
     assert prompt["timezone"] == "Asia/Shanghai"
     assert prompt["current_datetime"].startswith("20")
-    assert "不得选择普通工具" in llm.calls[0]["system_prompt"]
+    assert "不得生成工具参数或强制绑定普通工具" in llm.calls[0]["system_prompt"]
     assert llm.calls[0]["thinking"] is False
     assert llm.calls[0]["max_tokens"] == 1024
 
@@ -261,7 +261,7 @@ def test_llm_planner_rejects_undisclosed_skill():
         )
 
 
-def test_planner_node_discovers_only_skills_and_stores_unbound_task_dag():
+def test_planner_node_discovers_skills_and_tools_without_binding_task():
     class Registry:
         def __init__(self) -> None:
             self.calls: list[dict] = []
@@ -271,8 +271,15 @@ def test_planner_node_discovers_only_skills_and_stores_unbound_task_dag():
             return [_skill("company_snapshot")]
 
     class ToolSearch:
+        catalog_digest = "digest"
+
         def search(self, request, *, context):
-            raise AssertionError("Planner 不应检索普通工具")
+            from app.tools.search import ToolSearchResponse
+            return ToolSearchResponse(catalog_digest="digest", mode="bm25", hits=[])
+
+        def resolve_specs(self, names):
+            assert names == []
+            return []
 
     registry = Registry()
     llm = RecordingLlmClient(
@@ -305,6 +312,7 @@ def test_planner_node_discovers_only_skills_and_stores_unbound_task_dag():
                     "id": "market",
                     "task_goal": "查询海能达近期行情",
                     "tool_search_query": None,
+                    "tool_candidate_refs": [],
                     "execution_type": "tool",
                     "completion_criteria": [],
                     "evidence_task_ids": [],

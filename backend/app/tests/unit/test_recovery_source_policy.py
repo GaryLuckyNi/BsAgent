@@ -47,12 +47,44 @@ def test_actual_selection_uses_frozen_deployment_contract_not_description(monkey
     assert state == before
 
 
+@pytest.mark.parametrize("requirement",["public_information","original_data"])
+def test_explicit_confirmation_constraint_allows_only_the_confirmed_recovery_path(monkeypatch,requirement):
+    from app.intent.schemas import IntentDecisionModel
+
+    state,task=configured_state(monkeypatch)
+    intent=IntentDecisionModel(intent_type="financial_research",domain="a_share_equity_research",
+        subdomain="general_research",goal="允许公开补充但切换来源须确认",confidence=.95,
+        source_constraint="confirmation_required")
+    state["intent"]=intent.model_dump()
+    task=task.model_copy(update={"source_requirement":requirement})
+    assert selected_policy(state,task)=={
+        "public_alternative":"allowed",
+        "basis":["runtime-contract:public-supplement-v1","intent:confirmation_required",f"task:{requirement}"],
+    }
+
+
+def test_original_data_requirement_allows_confirmation_not_ordinary_search(monkeypatch):
+    from app.graph.recovery.source_policy import ordinary_search_blocked
+
+    state, task = configured_state(monkeypatch)
+    task = task.model_copy(update={"source_requirement": "original_data"})
+    original = task.model_dump()
+    assert selected_policy(state, task) == {
+        "public_alternative": "allowed",
+        "basis": ["runtime-contract:public-supplement-v1", "intent:unrestricted", "task:original_data"],
+    }
+    assert ordinary_search_blocked(state, task)
+    assert task.model_dump() == original
+
+
+@pytest.mark.parametrize("requirement", ["public_information", "original_data"])
 @pytest.mark.parametrize("change", [
     "default", "missing_snapshot", "changed_snapshot", "revoked", "intent_missing", "intent_unclear",
-    "intent_restricted", "intent_forged", "task_unclear", "task_original", "skill", "active_skill",
+    "intent_restricted", "intent_forged", "task_unclear", "skill", "active_skill",
 ])
-def test_source_constraints_cannot_be_relaxed_by_model_or_missing_fields(monkeypatch, change):
+def test_source_constraints_cannot_be_relaxed_by_model_or_missing_fields(monkeypatch, change, requirement):
     state, task = configured_state(monkeypatch)
+    task = task.model_copy(update={"source_requirement": requirement})
     if change in {"default", "revoked"}:
         monkeypatch.setattr(config, "settings", config.settings.model_copy(
             update={"permission_recovery_source_policy": "unknown"}
@@ -69,7 +101,7 @@ def test_source_constraints_cannot_be_relaxed_by_model_or_missing_fields(monkeyp
             "intent_unclear": "unclear", "intent_restricted": "original_only", "intent_forged": "allowed",
         }[change]}
     elif change.startswith("task_"):
-        task = task.model_copy(update={"source_requirement": "original_data" if change == "task_original" else "unclear"})
+        task = task.model_copy(update={"source_requirement": "unclear"})
     elif change == "skill":
         task = task.model_copy(update={"skill_name": "fixed_workflow"})
     else:

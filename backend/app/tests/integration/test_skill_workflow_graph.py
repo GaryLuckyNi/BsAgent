@@ -98,10 +98,12 @@ class Llm:
         return SimpleNamespace(invoke=invoke)
 
 
-def setup_graph(monkeypatch, *, missing=False, second_risk="low"):
+def setup_graph(monkeypatch, *, missing=False, second_risk="low", unavailable_first=False):
     calls, llm, skills = [], Llm(), Registry()
     tools = ToolRegistry()
     for name in ("first", "second", "third"):
+        if unavailable_first and name == "first":
+            continue
         tools.register(
             RecordingTool(
                 name,
@@ -228,3 +230,39 @@ def test_second_approval_does_not_reexecute_first_step(monkeypatch):
     assert [name for name, _ in calls] == ["first", "second", "third"]
     assert llm.bindings == ["first", "second", "third"]
     assert result["skill_workflows"]["workflow"]["status"] == "completed"
+
+
+def test_context_routing_executes_compiled_skill_steps_before_synthesis(monkeypatch):
+    graph, state, config, calls, llm, _skills, reviews = setup_graph(monkeypatch)
+    state["request_flow_version"] = "context-routing-v1"
+
+    paused = graph.invoke(state, config)
+    assert paused["__interrupt__"]
+    assert paused["skill_workflows"]["workflow"]["status"] == "running"
+    assert paused["draft_answer"] is None
+    assert calls == []
+
+    result = decide(graph, config)
+    assert [name for name, _ in calls] == ["first", "second", "third"]
+    assert llm.compiles == 1
+    assert result["skill_workflows"]["workflow"]["status"] == "completed"
+    assert result["draft_answer"] is not None
+    assert reviews == []
+
+
+def test_context_routing_missing_skill_tool_never_creates_executable_steps(monkeypatch):
+    graph, state, config, calls, llm, _skills, reviews = setup_graph(
+        monkeypatch, unavailable_first=True
+    )
+    state["request_flow_version"] = "context-routing-v1"
+
+    result = graph.invoke(state, config)
+
+    # 模型返回 steps 不代表编译成功：绑定失败不能发布部分工作流或偷偷换工具。
+    assert llm.compiles == 1
+    assert result["skill_workflows"] == {}
+    assert result["task_results"][0]["error_code"] == "skill_tool_not_found"
+    assert result["task_results"][0]["status"] == "terminal_failure"
+    assert result["draft_answer"] is not None
+    assert calls == []
+    assert reviews == []

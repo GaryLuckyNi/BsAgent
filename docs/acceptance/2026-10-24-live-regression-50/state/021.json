@@ -1,0 +1,476 @@
+{
+  "case_id": "021",
+  "run": {
+    "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+    "session_id": "live50-20261024-a-021",
+    "session_key": "sess_6c0c74699a874da6aacd1c04bc220818",
+    "trace_id": "trace_560f105119a4416db180276f7f7a7266",
+    "status": "completed",
+    "created_at": "2026-10-24 14:41:03.446804+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 85,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:41:03.478538+00:00",
+    "ended_at": "2026-10-24 14:41:26.808663+00:00",
+    "events": 85
+  },
+  "receipts": [
+    {
+      "receipt_id": "ea56172988cd4b1e9fb76e0efef0a0cd",
+      "tool_name": "mcp.tushare.anns_d",
+      "call_id": "call_22feace38d40db0ef947a9d908efc1f9",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_560f105119a4416db180276f7f7a7266",
+        "tool_name": "mcp.tushare.anns_d",
+        "latency_ms": 621,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.anns_d",
+          "latency_ms": 578,
+          "tool_call_id": "tool_98d2150eb5c345c1a24a1febd61e85d5",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_f6aeb22558914ab9bf6203446a99836b",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.anns_d",
+            "request_id": "live50-20261024-a-021",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "462b8218890809558218ddbf5ba36db4267a54f7d755b82df581d74547338f5c"
+        }
+      },
+      "created_at": "2026-10-24 14:41:10.302499+00:00",
+      "completed_at": "2026-10-24 14:41:10.890410+00:00"
+    },
+    {
+      "receipt_id": "9d96c997cd0c4e45a862ae3fafe84324",
+      "tool_name": "web_search",
+      "call_id": "call_2111d2bc845a614458e9d430a226269f",
+      "risk_level": "low",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": {
+          "query": "贵州茅台 600519 2025年9月 公告 上交所",
+          "answer": "实体关系：贵州茅台酒股份有限公司（股票代码600519，上交所主板上市）为公告主体；其控股股东为中国贵州茅台酒厂（集团）有限责任公司（“茅台集团”），二者不是同一实体，增持主体为控股股东而非上市公司。\n\n按2025-09-01至2025-09-07区间检索到的公告如下（均经第三方转载或报道，未直接取得上交所或巨潮资讯网原文页面，链接为转载或报道链接）：\n\n1) 《控股股东增持股份进展公告》（公告编号：临2025-034）。据上海证券报转载版本，公告落款日期为2025年9月2日；另有报道称公司于9月1日晚间发布该公告。内容：2025年9月1日茅台集团通过集中竞价增持67,821股，占总股本0.0054%，金额约1亿元。链接：https://paper.cnstock.com/html/2025-09/02/content_2115361.htm ；转载：https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308\n\n2) 《控股股东取得增持股份贷款承诺函》相关公告，报道日期2025年9月5日（多家媒体称“9月5日晚间公告”）：茅台集团获农业银行贵州省分行贷款承诺函，额度不高于27亿元、期限3年，用于股票增持。链接：https://stcn.com/article/detail/3324962.html ；https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml\n\n区间覆盖与不确定性：9月1日（临2025-034，日期存1日/2日两种表述）、9月5日两条公告有据。9月2日、3日、4日、6日、7日未检索到公告证据；由于未取得上交所公告列表页或巨潮资讯网原始页面进行逐日核对，无法确认这些日期绝对无公告，亦不能断言区间“全部公告”已列全。公告标题以媒体表述为准，正式标题、公告编号（贷款承诺函公告）及原文链接尚需以上交所网站核实。",
+          "results": [
+            {
+              "url": "https://paper.cnstock.com/html/2025-09/02/content_2115361.htm",
+              "title": "贵州茅台酒股份有限公司控股股东增持股份进展公告",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://stcn.com/article/detail/3324962.html",
+              "title": "贵州茅台：控股股东取得增持股份贷款承诺函",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308",
+              "title": "贵州茅台:贵州茅台控股股东增持股份进展公告",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://finance.ifeng.com/c/8mPFX7tYWkc",
+              "title": "贵州茅台：控股股东取得增持股份贷款承诺函",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.stcn.com/article/detail/3315949.html",
+              "title": "贵州茅台：控股股东9月1日增持67821股公司股票",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "http://stock.10jqka.com.cn/20250901/c670806755.shtml",
+              "title": "贵州茅台控股股东1亿元增持股份",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://finance.sina.com.cn/jjxw/2025-09-01/doc-infnyunh9703667.shtml?cref=cj#1",
+              "title": "贵州茅台：控股股东9月1日增持67821股公司股票 - 经济新闻滚动 > 正文",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "http://stock.stockstar.com/IG2025090500034267.shtml",
+              "title": "贵州茅台：控股股东取得增持股份贷款承诺函",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml",
+              "title": "贵州茅台(600519.SH)：控股股东取得增持股份贷款承诺函 贷款额度不高于27亿元-手机金融界",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.9fzt.com/detail/sh_000997_8_af95a62acccee62b37513158234a7442.html",
+              "title": "贵州茅台：控股股东茅台集团获得农业银行不超27亿元增持贷款承诺函_九方智投",
+              "snippet": "",
+              "published_at": null
+            }
+          ],
+          "coverage": {
+            "basis": "unknown",
+            "status": "unknown",
+            "covered_criteria": [],
+            "missing_criteria": []
+          }
+        },
+        "status": "success",
+        "trace_id": "trace_560f105119a4416db180276f7f7a7266",
+        "tool_name": "web_search",
+        "latency_ms": 4985,
+        "_invocation": {
+          "version": "search-invocation-v1",
+          "fingerprint": "5c56566f62e80791a7e226b78666a40b6f7977782a126b24c4402a249c5f78f5",
+          "result_digest": "aa098e0324e0206b1b8b508b19cbc9d335b1fe90fb244e1305f9c23aede5a78c",
+          "binding_digest": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+        },
+        "tool_call_id": "tool_b28de8199524480aa0df0d401b59089f",
+        "execution_state": "completed"
+      },
+      "created_at": "2026-10-24 14:41:14.500959+00:00",
+      "completed_at": "2026-10-24 14:41:19.468745+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "errors": [],
+    "tool_selection_contexts": {
+      "call_22feace38d40db0ef947a9d908efc1f9": {
+        "request_id": "live50-20261024-a-021",
+        "task": {
+          "id": "moutai_announcements_sep2025",
+          "task_goal": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "覆盖2025-09-01至2025-09-07完整日期区间",
+            "每条公告均给出标题、发布日期、原文链接",
+            "若区间内无公告，明确说明并指出核实来源"
+          ],
+          "tool_search_query": "上市公司公告查询 贵州茅台 600519 公告列表 原文链接",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_22feace38d40db0ef947a9d908efc1f9",
+        "request_fingerprint": "462b8218890809558218ddbf5ba36db4267a54f7d755b82df581d74547338f5c",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_67abd0abc027ffdd6e120fbae7efe162",
+        "as_of": "2026-10-24T22:41:03+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.anns_d",
+            "version": "mcp-http-v1",
+            "binding": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9"
+          },
+          {
+            "name": "mcp.tushare.stk_holdernumber",
+            "version": "mcp-http-v1",
+            "binding": "43dcc85b2f0ab4293f2fec3b96813d93a85e264bd7537e15c79bb2c37815a619"
+          },
+          {
+            "name": "mcp.tushare.repurchase",
+            "version": "mcp-http-v1",
+            "binding": "de053ddabcfdf60d2611ed067d66365525c84499c6aec1a7ea2236a67eea3afd"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_2111d2bc845a614458e9d430a226269f": {
+        "request_id": "live50-20261024-a-021",
+        "task": {
+          "id": "r1_moutai_ann_sep2025_public",
+          "task_goal": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "覆盖2025-09-01至2025-09-07完整日期区间",
+            "每条公告均给出标题、发布日期、原文链接",
+            "若区间内无公告，明确说明并指出核实来源"
+          ],
+          "tool_search_query": "贵州茅台 600519 公告 2025年9月 上交所 巨潮资讯 公告原文",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_2111d2bc845a614458e9d430a226269f",
+        "request_fingerprint": "5c56566f62e80791a7e226b78666a40b6f7977782a126b24c4402a249c5f78f5",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_71712e41547bfa72686ad41cfc536edc",
+        "as_of": "2026-10-24T22:41:03+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.irm_qa_sz",
+            "version": "mcp-http-v1",
+            "binding": "77247d61fe3dcf722e44159d6981099bbb91f5dfc962c01a9934596f19da0313"
+          },
+          {
+            "name": "mcp.tushare.stock_company",
+            "version": "mcp-http-v1",
+            "binding": "d226bb4b8c5ab98766acb3f0082b3570b7bebe06f9c5c3de62bb5b404fc10c4f"
+          },
+          {
+            "name": "mcp.tushare.stock_basic",
+            "version": "mcp-http-v1",
+            "binding": "521dcd2c9c3add6baa55cb3e2ffb50d2b7649fcee53afdfc959f289feb4d6ad7"
+          },
+          {
+            "name": "mcp.tushare.fund_share",
+            "version": "mcp-http-v1",
+            "binding": "6fadb531c0c366cb6570757c1bf3cc5710b7c2f698d564b37f6108c8883691f7"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_67abd0abc027ffdd6e120fbae7efe162": {
+        "dispatch_batch_id": "dispatch_67abd0abc027ffdd6e120fbae7efe162",
+        "run_identity": "d9433afe32d31ebc37feba75e23b9738d7a5733297c91a9ea96934c0e106bb94",
+        "plan_digest": "54d151dc967886fb9968a4a3abb2885fdd90c40e1e90bdec9857f291f7286e06",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "moutai_announcements_sep2025"
+        ]
+      },
+      "dispatch_71712e41547bfa72686ad41cfc536edc": {
+        "dispatch_batch_id": "dispatch_71712e41547bfa72686ad41cfc536edc",
+        "run_identity": "d9433afe32d31ebc37feba75e23b9738d7a5733297c91a9ea96934c0e106bb94",
+        "plan_digest": "298f4b68e760211937082b12ef855cf62e9ad5b6d58f0b6c4bb223df5f6eed0b",
+        "observations_digest": "7c5e2e8c4f86e60b21e4c6d7977d22036b1c36d7edb272def9a5addebff8689c",
+        "members": [
+          "r1_moutai_ann_sep2025_public"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "检索贵州茅台在2025年9月1日至9月7日发布的公告，列出标题、发布日期与原文链接，没有则说明。",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "已通过公开报道检索到区间内两条公告线索，但未取得上交所/巨潮资讯网原始公告页面，无法逐日确认区间完整性；剩余修订次数为0，且无活动任务可继续，故如实结束并说明证据限制。",
+      "unresolved_questions": [
+        "未能取得上交所或巨潮资讯网原始公告列表页，无法逐日确认2025年9月2日、3日、4日、6日、7日是否确无公告",
+        "《控股股东增持股份进展公告》的正式发布日期存在9月1日与9月2日两种表述，需以上交所原文核实",
+        "《控股股东取得增持股份贷款承诺函》公告的正式标题、公告编号及原文链接尚未核实",
+        "现有链接均为媒体转载或报道，非公告原文页面"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "检索贵州茅台在2025年9月1日至9月7日期间发布的公告，核实标题、发布日期与原文链接；若无公告则明确说明。",
+          "tasks": [
+            {
+              "id": "moutai_announcements_sep2025",
+              "task_goal": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "覆盖2025-09-01至2025-09-07完整日期区间",
+                "每条公告均给出标题、发布日期、原文链接",
+                "若区间内无公告，明确说明并指出核实来源"
+              ],
+              "tool_search_query": "上市公司公告查询 贵州茅台 600519 公告列表 原文链接",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "public_information"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "通过公开信息渠道检索贵州茅台（600519.SH）在2025年9月1日至9月7日期间发布的公告，核实标题、发布日期与原文链接；若无公告则明确说明并给出核实依据。",
+      "tasks": [
+        {
+          "id": "r1_moutai_ann_sep2025_public",
+          "task_goal": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "覆盖2025-09-01至2025-09-07完整日期区间",
+            "每条公告均给出标题、发布日期、原文链接",
+            "若区间内无公告，明确说明并指出核实来源"
+          ],
+          "tool_search_query": "贵州茅台 600519 公告 2025年9月 上交所 巨潮资讯 公告原文",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "moutai_announcements_sep2025",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.anns_d"
+      },
+      {
+        "task_id": "r1_moutai_ann_sep2025_public",
+        "status": "success",
+        "content": "{\"answer\":\"实体关系：贵州茅台酒股份有限公司（股票代码600519，上交所主板上市）为公告主体；其控股股东为中国贵州茅台酒厂（集团）有限责任公司（“茅台集团”），二者不是同一实体，增持主体为控股股东而非上市公司。\\n\\n按2025-09-01至2025-09-07区间检索到的公告如下（均经第三方转载或报道，未直接取得上交所或巨潮资讯网原文页面，链接为转载或报道链接）：\\n\\n1) 《控股股东增持股份进展公告》（公告编号：临2025-034）。据上海证券报转载版本，公告落款日期为2025年9月2日；另有报道称公司于9月1日晚间发布该公告。内容：2025年9月1日茅台集团通过集中竞价增持67,821股，占总股本0.0054%，金额约1亿元。链接：https://paper.cnstock.com/html/2025-09/02/content_2115361.htm ；转载：https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308\\n\\n2) 《控股股东取得增持股份贷款承诺函》相关公告，报道日期2025年9月5日（多家媒体称“9月5日晚间公告”）：茅台集团获农业银行贵州省分行贷款承诺函，额度不高于27亿元、期限3年，用于股票增持。链接：https://stcn.com/article/detail/3324962.html ；https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml\\n\\n区间覆盖与不确定性：9月1日（临2025-034，日期存1日/2日两种表述）、9月5日两条公告有据。9月2日、3日、4日、6日、7日未检索到公告证据；由于未取得上交所公告列表页或巨潮资讯网原始页面进行逐日核对，无法确认这些日期绝对无公告，亦不能断言区间“全部公告”已列全。公告标题以媒体表述为准，正式标题、公告编号（贷款承诺函公告）及原文链接尚需以上交所网站核实。\",\"coverage\":{\"basis\":\"unknown\",\"covered_criteria\":[],\"missing_criteria\":[],\"status\":\"unknown\"},\"query\":\"贵州茅台 600519 2025年9月 公告 上交所\",\"results\":[{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台酒股份有限公司控股股东增持股份进展公告\",\"url\":\"https://paper.cnstock.com/html/2025-09/02/content_2115361.htm\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台：控股股东取得增持股份贷款承诺函\",\"url\":\"https://stcn.com/article/detail/3324962.html\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台:贵州茅台控股股东增持股份进展公告\",\"url\":\"https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台：控股股东取得增持股份贷款承诺函\",\"url\":\"https://finance.ifeng.com/c/8mPFX7tYWkc\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台：控股股东9月1日增持67821股公司股票\",\"url\":\"https://www.stcn.com/article/detail/3315949.html\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台控股股东1亿元增持股份\",\"url\":\"http://stock.10jqka.com.cn/20250901/c670806755.shtml\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台：控股股东9月1日增持67821股公司股票 - 经济新闻滚动 > 正文\",\"url\":\"https://finance.sina.com.cn/jjxw/2025-09-01/doc-infnyunh9703667.shtml?cref=cj#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台：控股股东取得增持股份贷款承诺函\",\"url\":\"http://stock.stockstar.com/IG2025090500034267.shtml\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台(600519.SH)：控股股东取得增持股份贷款承诺函 贷款额度不高于27亿元-手机金融界\",\"url\":\"https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台：控股股东茅台集团获得农业银行不超27亿元增持贷款承诺函_九方智投\",\"url\":\"https://www.9fzt.com/detail/sh_000997_8_af95a62acccee62b37513158234a7442.html\"}]}",
+        "error_code": null,
+        "tool_name": "web_search"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_22feace38d40db0ef947a9d908efc1f9' request=ToolCallRequest(call_id='call_22feace38d40db0ef947a9d908efc1f9', tool_name='mcp.tushare.anns_d', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'start_date': '20250901', 'end_date': '20250907', 'fields': ['ann_date', 'ts_code', 'name', 'title', 'url', 'rec_time'], 'limit': 6000}, purpose='检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。', approval_required=False) result=ToolCallResult(tool_call_id='tool_f6aeb22558914ab9bf6203446a99836b', tool_name='mcp.tushare.anns_d', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=621, trace_id='trace_560f105119a4416db180276f7f7a7266')",
+      "call_id='call_2111d2bc845a614458e9d430a226269f' request=ToolCallRequest(call_id='call_2111d2bc845a614458e9d430a226269f', tool_name='web_search', tool_version='1.0.0', arguments={'query': '贵州茅台 600519 2025年9月 公告 上交所', 'max_results': 10}, purpose='检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。', approval_required=False) result=ToolCallResult(tool_call_id='tool_b28de8199524480aa0df0d401b59089f', tool_name='web_search', status='success', execution_state='completed', result={'query': '贵州茅台 600519 2025年9月 公告 上交所', 'answer': '实体关系：贵州茅台酒股份有限公司（股票代码600519，上交所主板上市）为公告主体；其控股股东为中国贵州茅台酒厂（集团）有限责任公司（“茅台集团”），二者不是同一实体，增持主体为控股股东而非上市公司。\\n\\n按2025-09-01至2025-09-07区间检索到的公告如下（均经第三方转载或报道，未直接取得上交所或巨潮资讯网原文页面，链接为转载或报道链接）：\\n\\n1) 《控股股东增持股份进展公告》（公告编号：临2025-034）。据上海证券报转载版本，公告落款日期为2025年9月2日；另有报道称公司于9月1日晚间发布该公告。内容：2025年9月1日茅台集团通过集中竞价增持67,821股，占总股本0.0054%，金额约1亿元。链接：https://paper.cnstock.com/html/2025-09/02/content_2115361.htm ；转载：https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308\\n\\n2) 《控股股东取得增持股份贷款承诺函》相关公告，报道日期2025年9月5日（多家媒体称“9月5日晚间公告”）：茅台集团获农业银行贵州省分行贷款承诺函，额度不高于27亿元、期限3年，用于股票增持。链接：https://stcn.com/article/detail/3324962.html ；https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml\\n\\n区间覆盖与不确定性：9月1日（临2025-034，日期存1日/2日两种表述）、9月5日两条公告有据。9月2日、3日、4日、6日、7日未检索到公告证据；由于未取得上交所公告列表页或巨潮资讯网原始页面进行逐日核对，无法确认这些日期绝对无公告，亦不能断言区间“全部公告”已列全。公告标题以媒体表述为准，正式标题、公告编号（贷款承诺函公告）及原文链接尚需以上交所网站核实。', 'results': [{'title': '贵州茅台酒股份有限公司控股股东增持股份进展公告', 'url': 'https://paper.cnstock.com/html/2025-09/02/content_2115361.htm', 'snippet': '', 'published_at': None}, {'title': '贵州茅台：控股股东取得增持股份贷款承诺函', 'url': 'https://stcn.com/article/detail/3324962.html', 'snippet': '', 'published_at': None}, {'title': '贵州茅台:贵州茅台控股股东增持股份进展公告', 'url': 'https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308', 'snippet': '', 'published_at': None}, {'title': '贵州茅台：控股股东取得增持股份贷款承诺函', 'url': 'https://finance.ifeng.com/c/8mPFX7tYWkc', 'snippet': '', 'published_at': None}, {'title': '贵州茅台：控股股东9月1日增持67821股公司股票', 'url': 'https://www.stcn.com/article/detail/3315949.html', 'snippet': '', 'published_at': None}, {'title': '贵州茅台控股股东1亿元增持股份', 'url': 'http://stock.10jqka.com.cn/20250901/c670806755.shtml', 'snippet': '', 'published_at': None}, {'title': '贵州茅台：控股股东9月1日增持67821股公司股票 - 经济新闻滚动 > 正文', 'url': 'https://finance.sina.com.cn/jjxw/2025-09-01/doc-infnyunh9703667.shtml?cref=cj#1', 'snippet': '', 'published_at': None}, {'title': '贵州茅台：控股股东取得增持股份贷款承诺函', 'url': 'http://stock.stockstar.com/IG2025090500034267.shtml', 'snippet': '', 'published_at': None}, {'title': '贵州茅台(600519.SH)：控股股东取得增持股份贷款承诺函 贷款额度不高于27亿元-手机金融界', 'url': 'https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml', 'snippet': '', 'published_at': None}, {'title': '贵州茅台：控股股东茅台集团获得农业银行不超27亿元增持贷款承诺函_九方智投', 'url': 'https://www.9fzt.com/detail/sh_000997_8_af95a62acccee62b37513158234a7442.html', 'snippet': '', 'published_at': None}], 'coverage': {'status': 'unknown', 'covered_criteria': [], 'missing_criteria': [], 'basis': 'unknown'}}, error=None, latency_ms=4985, trace_id='trace_560f105119a4416db180276f7f7a7266')"
+    ],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "## 检索结论\n\n在2025年9月1日至9月7日区间内，检索到贵州茅台（600519.SH）**两条公告线索**，均与控股股东茅台集团的增持事项有关。但需先说明：现有材料全部来自媒体转载或报道，**未取得上交所或巨潮资讯网的公告原文页面**，因此以下标题、日期和链接的准确性属于“据媒体报道”层面，而非经交易所原文核实的结论。\n\n## 区间内检索到的公告\n\n### 1. 控股股东增持股份进展公告（临2025-034）\n\n- **发布日期**：存在两种表述——上海证券报转载版本的落款日期为2025年9月2日；另有报道称公司于9月1日晚间发布。正式日期需以上交所原文为准。\n- **内容要点**：2025年9月1日，控股股东茅台集团通过集中竞价方式增持67,821股，占总股本0.0054%，增持金额约1亿元。\n- **链接**：\n  - 上海证券报转载：https://paper.cnstock.com/html/2025-09/02/content_2115361.htm\n  - 另一转载：https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308\n\n需要区分主体：增持方是控股股东茅台集团，不是上市公司本身；该公告是上市公司就控股股东增持行为所做的信息披露。\n\n### 2. 控股股东取得增持股份贷款承诺函相关公告\n\n- **发布日期**：据多家媒体报道为2025年9月5日（“9月5日晚间公告”）。\n- **内容要点**：茅台集团获得农业银行贵州省分行贷款承诺函，额度不高于27亿元、期限3年，用于股票增持。\n- **链接**：\n  - 证券时报：https://stcn.com/article/detail/3324962.html\n  - 金融界：https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml\n\n该条的**正式公告标题、公告编号及原文链接尚未核实**，现有标题为媒体表述。\n\n## 区间覆盖情况与数据缺口\n\n- **有据可查的日期**：9月1日（或2日，见上）与9月5日。\n- **未检索到公告证据的日期**：9月2日、3日、4日、6日、7日。由于未取得交易所公告列表页逐日核对，**不能据此断言这些日期绝对无公告**，只能说明现有材料中未见相应记录。\n- **因此**，本区间“全部公告”是否已列全，无法确认；上述两条是当前可识别到的公告线索，而非经交易所原文验证的完整清单。\n\n## 建议的核实方式\n\n如需将上述信息用于正式用途，建议直接在上交所“上市公司公告”栏目或巨潮资讯网按600519、日期区间2025-09-01至2025-09-07检索，以确认：①临2025-034的正式发布日期；②贷款承诺函公告的正式标题与编号；③区间内是否还有其他公告（如例行披露、股东大会相关文件等）。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_560f105119a4416db180276f7f7a7266",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    }
+  }
+}

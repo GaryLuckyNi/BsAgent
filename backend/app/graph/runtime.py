@@ -36,6 +36,7 @@ from app.graph.planning.policy import (
     PLANNER_POLICY_VERSION,
     observation_signature,
 )
+from app.graph.planning.request_flow import pending_replan_valid, uses_request_flow
 from app.graph.planning.scheduler import ready_tasks
 from app.graph.planning.skill_workflow import dispatch_workflow, workflow_failed
 from app.graph.public_events import emit_public_progress
@@ -351,7 +352,20 @@ def _add_harnessed_node(
 
 def _route_after_intent(state: AgentState) -> str:
     intent = state.get("intent") or {}
-    return "planner_agent" if intent.get("intent_type") else "synthesizer"
+    if not intent.get("intent_type"):
+        return "synthesizer"
+    return {"direct_answer": "verifier", "synthesize": "synthesizer", "plan": "planner_agent"}[
+        intent.get("route", "plan")
+    ]
+
+
+def _route_after_synthesis(state: AgentState) -> str:
+    if uses_request_flow(state):
+        if pending_replan_valid(state):
+            return "planner_agent"
+        if state.get("draft_answer") is None and state.get("replan_stop_reason"):
+            return "synthesizer"
+    return "verifier"
 
 
 def task_scheduler_node(state: AgentState) -> dict[str, Any]:
@@ -376,6 +390,8 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
     if count != state.get("tool_search_count", 0):
         update["tool_search_count"] = count
     if (
+        not uses_request_flow(state)
+        and
         "planner_stop_reason" not in update
         and dispatch_workflow(state) is None
         and state.get("plan")
@@ -392,7 +408,11 @@ def task_scheduler_node(state: AgentState) -> dict[str, Any]:
 def build_task_scheduler_node(registry: ToolRegistry):
     def schedule(state):
         blocked = settle_blocked_deferred(state, registry) if state.get("recovery_policy_version") == RECOVERY_VERSION else {}
-        staged_state = {**state}
+        staged_state = {**state, **blocked}
+        if blocked.get("recovery_items"):
+            staged_state["recovery_items"] = {
+                **state.get("recovery_items", {}), **blocked["recovery_items"],
+            }
         if blocked.get("task_results"):
             from app.graph.state import merge_task_results
 
@@ -435,16 +455,20 @@ def _dispatch_after_scheduler_impl(state: AgentState, observation: Any) -> str |
         )
     if _has_pending_memory_approval(state) or _has_pending_tool_approval(state):
         return record_scheduler_dispatch(observation, "approval_gate", "approval_required")
-    if workflow_failed(state):
+    if workflow_failed(state) and not uses_request_flow(state):
         return record_scheduler_dispatch(observation, "synthesizer", "skill_workflow_failed")
     workflow_dispatch = dispatch_workflow(state)
     if workflow_dispatch is not None:
         return record_scheduler_dispatch(observation, workflow_dispatch, "skill_workflow_dispatch")
-    if state.get("planner_stop_reason"):
+    # 旧字段同时承载 Skill/恢复的局部失败；新链路以任务结果推进，
+    # 修订控制只使用 replan_stop_reason，不能让局部失败截断独立任务。
+    if state.get("planner_stop_reason") and not uses_request_flow(state):
         return record_scheduler_dispatch(
             observation, "synthesizer", "planner_stopped",
             planner_stop_reason=state["planner_stop_reason"],
         )
+    if uses_request_flow(state) and state.get("replan_stop_reason"):
+        return record_scheduler_dispatch(observation, "synthesizer", state["replan_stop_reason"])
     plan = PlanModel.model_validate(state.get("plan"))
     results = [TaskResultModel.model_validate(item) for item in state.get("task_results", [])]
     signature = observation_signature(plan, state.get("task_results", []))
@@ -453,7 +477,7 @@ def _dispatch_after_scheduler_impl(state: AgentState, observation: Any) -> str |
         return record_scheduler_dispatch(observation, "synthesizer", "planner_finished")
     active_ids = {task.id for task in plan.tasks}
     has_observations = any(result.task_id in active_ids for result in results)
-    if has_observations and not reviewed:
+    if has_observations and not reviewed and not uses_request_flow(state):
         if state.get("planner_feedback_count", 0) >= MAX_PLANNER_FEEDBACKS:
             return record_scheduler_dispatch(
                 observation, "synthesizer", "planner_feedback_budget_exhausted",
@@ -708,6 +732,7 @@ def build_question_answer_graph(
         {
             "planner_agent": "planner_agent",
             "synthesizer": "synthesizer",
+            "verifier": "verifier",
         },
     )
     graph.add_edge("planner_agent", "task_scheduler")
@@ -736,7 +761,9 @@ def build_question_answer_graph(
             "synthesizer": "synthesizer",
         },
     )
-    graph.add_edge("synthesizer", "verifier")
+    graph.add_conditional_edges("synthesizer", _route_after_synthesis, {
+        "verifier": "verifier", "planner_agent": "planner_agent", "synthesizer": "synthesizer",
+    })
     graph.add_edge("verifier", "approval_coordinator")
     graph.add_edge("approval_coordinator", "final_response")
     graph.add_edge("final_response", END)

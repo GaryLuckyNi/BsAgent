@@ -1,0 +1,422 @@
+{
+  "case_id": "043",
+  "run": {
+    "run_id": "run_5e2970aa39cf95968b6a1820792dbc5b35f3fa3d3684995439aa839b7db0",
+    "session_id": "live50-20261024-a-043",
+    "session_key": "sess_c0a8ab0ff6684fee9bfb38623ed56b52",
+    "trace_id": "trace_950dd84f506847cb876fdbda55065d96",
+    "status": "completed",
+    "created_at": "2026-10-24 14:47:04.292028+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 22,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:47:04.415204+00:00",
+    "ended_at": "2026-10-24 14:48:22.179996+00:00",
+    "events": 22
+  },
+  "receipts": [
+    {
+      "receipt_id": "186311aa9b6644eb8a3691b3b7672719",
+      "tool_name": "mcp.tushare.express",
+      "call_id": "call_4eb92d1141533258aa7ae9fcc802c403",
+      "risk_level": "medium",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": [],
+        "status": "success",
+        "trace_id": "trace_950dd84f506847cb876fdbda55065d96",
+        "tool_name": "mcp.tushare.express",
+        "latency_ms": 1264,
+        "tool_call_id": "tool_a0315b9b3b3640ee84ad577b29c149b8",
+        "execution_state": "completed",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.express",
+            "request_id": "live50-20261024-a-043",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "bc40cd21bcb7bc182ae6db1cf2818af2050308c61c0c4ca3743c96d4c8d9631c"
+        }
+      },
+      "created_at": "2026-10-24 14:47:13.029083+00:00",
+      "completed_at": "2026-10-24 14:47:14.265150+00:00"
+    },
+    {
+      "receipt_id": "3cd4c2487ca84f14a2e18ab4d8a72b09",
+      "tool_name": "mcp.tushare.fina_indicator_vip",
+      "call_id": "call_abbae2a2d68b04c3ce555ec94b8153d8",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_950dd84f506847cb876fdbda55065d96",
+        "tool_name": "mcp.tushare.fina_indicator_vip",
+        "latency_ms": 1005,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.fina_indicator_vip",
+          "latency_ms": 744,
+          "tool_call_id": "tool_f5b65420b8a54e4899e0f8e60102d0b5",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_00255aa3b6184c7fb69f73cdc872d87a",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.fina_indicator_vip",
+            "request_id": "live50-20261024-a-043",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "c784451b9be74cedef0aa89c2f9eb7400e6eb8cd1ee9dd264893d2f991a18ff7",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "632e05fd061fac8e5f14d122e418a9045274a26ad61f361f0fea4fd4fe465e23"
+        }
+      },
+      "created_at": "2026-10-24 14:48:18.233375+00:00",
+      "completed_at": "2026-10-24 14:48:19.060569+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_4eb92d1141533258aa7ae9fcc802c403": {
+        "request_id": "live50-20261024-a-043",
+        "task": {
+          "id": "fetch_2024_revenue",
+          "task_goal": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出三家公司2024年营业收入数值，注明原始单位并统一为亿元",
+            "每家公司标注年度（2024年）与来源（如2024年年度报告或权威数据平台）",
+            "三个数值均可追溯到公开披露信息，无编造或估算"
+          ],
+          "tool_search_query": "A股上市公司年度报告营业收入 财务数据查询 贵州茅台 五粮液 泸州老窖",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_4eb92d1141533258aa7ae9fcc802c403",
+        "request_fingerprint": "bc40cd21bcb7bc182ae6db1cf2818af2050308c61c0c4ca3743c96d4c8d9631c",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_e4537c2c1cd6568ebb88312ea800be3b",
+        "as_of": "2026-10-24T22:47:05+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.express",
+            "version": "mcp-http-v1",
+            "binding": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1"
+          },
+          {
+            "name": "mcp.tushare.hk_income",
+            "version": "mcp-http-v1",
+            "binding": "d347dd2ab6872e2861dbb13021e31248fb06eebecedd1f23033a605d7f86b34e"
+          },
+          {
+            "name": "mcp.tushare.express_vip",
+            "version": "mcp-http-v1",
+            "binding": "79ec71938f19b9f51508a6492a36ff2e3621b259e9c4ecd296e7b3b862ad5dc1"
+          },
+          {
+            "name": "mcp.tushare.fina_mainbz",
+            "version": "mcp-http-v1",
+            "binding": "d41c658ec88f18e43af92f18095aea4b0f8f8ded0e7d8fa329962a77e1ac2d53"
+          },
+          {
+            "name": "mcp.tushare.fina_audit",
+            "version": "mcp-http-v1",
+            "binding": "154770c531d0d35bea12271768c4228326fe1a49c0011c80d631a9716da02848"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_abbae2a2d68b04c3ce555ec94b8153d8": {
+        "request_id": "live50-20261024-a-043",
+        "task": {
+          "id": "r1_fetch_2024_revenue_retry",
+          "task_goal": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出三家公司2024年营业收入数值，注明原始单位并统一为亿元",
+            "每家公司标注年度（2024年）与来源（如2024年年度报告或权威数据平台）",
+            "三个数值均可追溯到公开披露信息，无编造或估算",
+            "不得仅返回空结果；若某公司数据缺失，需明确说明缺失原因"
+          ],
+          "tool_search_query": "贵州茅台 五粮液 泸州老窖 2024年年度报告 营业收入",
+          "evidence_task_ids": [
+            "fetch_2024_revenue"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_abbae2a2d68b04c3ce555ec94b8153d8",
+        "request_fingerprint": "632e05fd061fac8e5f14d122e418a9045274a26ad61f361f0fea4fd4fe465e23",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_7627f82d693f53f1fb636e11d7bca5c1",
+        "as_of": "2026-10-24T22:47:05+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.express_vip",
+            "version": "mcp-http-v1",
+            "binding": "79ec71938f19b9f51508a6492a36ff2e3621b259e9c4ecd296e7b3b862ad5dc1"
+          },
+          {
+            "name": "mcp.tushare.express",
+            "version": "mcp-http-v1",
+            "binding": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1"
+          },
+          {
+            "name": "mcp.tushare.fina_indicator_vip",
+            "version": "mcp-http-v1",
+            "binding": "c784451b9be74cedef0aa89c2f9eb7400e6eb8cd1ee9dd264893d2f991a18ff7"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_e4537c2c1cd6568ebb88312ea800be3b": {
+        "dispatch_batch_id": "dispatch_e4537c2c1cd6568ebb88312ea800be3b",
+        "run_identity": "322dec7d5bc2d74dfbb774b882e7241c3797a88e17284788f9e6756c05f30577",
+        "plan_digest": "87845ff06505e2810eddfba07913acac5ea9df5705747967d747856ca82b2ce5",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "fetch_2024_revenue"
+        ]
+      },
+      "dispatch_7627f82d693f53f1fb636e11d7bca5c1": {
+        "dispatch_batch_id": "dispatch_7627f82d693f53f1fb636e11d7bca5c1",
+        "run_identity": "322dec7d5bc2d74dfbb774b882e7241c3797a88e17284788f9e6756c05f30577",
+        "plan_digest": "bdf832238d236361348faabaf5bc29cc975a4e1b4cc189cdc54e3593fb21cd20",
+        "observations_digest": "390d79e3d9613c0d3a9f4d08e79e56ae29a1e78e8c2f179273fec33c5f8eb6fc",
+        "members": [
+          "r1_fetch_2024_revenue_retry"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "比较贵州茅台、五粮液、泸州老窖2024年营业收入，只需给出三个数值及单位、年度和来源",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "两次取证均未获得任何营业收入数据（一次空结果、一次工具失败），且修订次数已用尽，无法补齐三家公司的2024年营业收入数值。",
+      "unresolved_questions": [
+        "贵州茅台2024年营业收入数值及来源未获取",
+        "五粮液2024年营业收入数值及来源未获取",
+        "泸州老窖2024年营业收入数值及来源未获取"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "计划通过一次公开信息取证，核实贵州茅台、五粮液、泸州老窖2024年年报营业收入，并统一为同一单位后给出三个数值、年度及来源。",
+          "tasks": [
+            {
+              "id": "fetch_2024_revenue",
+              "task_goal": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "给出三家公司2024年营业收入数值，注明原始单位并统一为亿元",
+                "每家公司标注年度（2024年）与来源（如2024年年度报告或权威数据平台）",
+                "三个数值均可追溯到公开披露信息，无编造或估算"
+              ],
+              "tool_search_query": "A股上市公司年度报告营业收入 财务数据查询 贵州茅台 五粮液 泸州老窖",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "public_information"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "重新核实贵州茅台、五粮液、泸州老窖2024年年报营业收入，统一为亿元，并给出年度与来源。",
+      "tasks": [
+        {
+          "id": "r1_fetch_2024_revenue_retry",
+          "task_goal": "获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出三家公司2024年营业收入数值，注明原始单位并统一为亿元",
+            "每家公司标注年度（2024年）与来源（如2024年年度报告或权威数据平台）",
+            "三个数值均可追溯到公开披露信息，无编造或估算",
+            "不得仅返回空结果；若某公司数据缺失，需明确说明缺失原因"
+          ],
+          "tool_search_query": "贵州茅台 五粮液 泸州老窖 2024年年度报告 营业收入",
+          "evidence_task_ids": [
+            "fetch_2024_revenue"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "fetch_2024_revenue",
+        "status": "success",
+        "content": "[]",
+        "error_code": null,
+        "tool_name": "mcp.tushare.express"
+      },
+      {
+        "task_id": "r1_fetch_2024_revenue_retry",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.fina_indicator_vip"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_4eb92d1141533258aa7ae9fcc802c403' request=ToolCallRequest(call_id='call_4eb92d1141533258aa7ae9fcc802c403', tool_name='mcp.tushare.express', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'period': '20241231', 'fields': ['ts_code', 'ann_date', 'end_date', 'revenue', 'yoy_sales', 'perf_summary']}, purpose='获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认各自单位与来源（年报或权威财经数据平台），并统一换算为亿元以便比较。', approval_required=False) result=ToolCallResult(tool_call_id='tool_a0315b9b3b3640ee84ad577b29c149b8', tool_name='mcp.tushare.express', status='success', execution_state='completed', result=[], error=None, latency_ms=1264, trace_id='trace_950dd84f506847cb876fdbda55065d96')",
+      "call_id='call_abbae2a2d68b04c3ce555ec94b8153d8' request=ToolCallRequest(call_id='call_abbae2a2d68b04c3ce555ec94b8153d8', tool_name='mcp.tushare.fina_indicator_vip', tool_version='mcp-http-v1', arguments={'period': '20241231', 'ts_code': '600519.SH', 'fields': ['ts_code', 'ann_date', 'end_date', 'revenue_ps', 'total_revenue_ps', 'or_yoy']}, purpose='获取贵州茅台、五粮液、泸州老窖2024年度报告披露的营业收入数值，确认原始单位与来源（年报或权威财经数据平台），并统一换算为亿元。', approval_required=False) result=ToolCallResult(tool_call_id='tool_00255aa3b6184c7fb69f73cdc872d87a', tool_name='mcp.tushare.fina_indicator_vip', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=1005, trace_id='trace_950dd84f506847cb876fdbda55065d96')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- MCP 工具执行失败。",
+      "trace_id": "trace_950dd84f506847cb876fdbda55065d96",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "mcp_tool_execution_failed"
+    },
+    "errors": []
+  }
+}

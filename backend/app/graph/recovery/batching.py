@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Sequence
 
-from app.graph.planning.contracts import SubTaskModel
+from app.graph.planning.contracts import SubTaskModel, task_snapshot_matches
 from app.graph.recovery.policy import seal_batch
 from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.recovery import (
@@ -17,6 +17,10 @@ from app.schemas.recovery import (
 from app.schemas.user_input import UserInputOption, UserInputRequest, UserInputSource
 
 SOURCE_NOTICE = "联网搜索为替代来源，未经原接口验证；原接口数据仍缺失。"
+# 纳入冻结条目摘要的本地阻塞说明；保留既有权限批次的呈现，兼容已保存的中断。
+LOCAL_BLOCKED_SOURCE_CONSTRAINT = (
+    "历史工具执行仍未核实，本次原接口未派发；确认仅允许补充公开资料，不核销历史未决记录，原接口数据仍缺失。"
+)
 
 
 def run_identity(state) -> str:
@@ -66,8 +70,12 @@ def batch_view(batch: RecoveryBatch) -> RecoveryBatchView:
                 item_id=item.original_call_id,
                 task_goal=item.task_goal,
                 original_tool=item.original_tool,
-                reason="数据源账号权限不足，原接口未执行。",
-                source_notice=SOURCE_NOTICE,
+                reason=("历史工具执行尚未核实，本次原接口未派发。"
+                        if item.source_constraint == LOCAL_BLOCKED_SOURCE_CONSTRAINT
+                        else "数据源账号权限不足，原接口未执行。"),
+                source_notice=(f"{SOURCE_NOTICE}{item.source_constraint}"
+                               if item.source_constraint == LOCAL_BLOCKED_SOURCE_CONSTRAINT
+                               else SOURCE_NOTICE),
             )
             for item in batch.items
         ),
@@ -79,7 +87,9 @@ def batch_request(batch: RecoveryBatch) -> UserInputRequest:
         interaction_id="interaction_"
         + snapshot_digest([batch.version, batch.batch_id, batch.digest])[:32],
         input_type="selection",
-        question="以下任务的数据源账号权限不足，是否改用联网搜索补充公开资料？",
+        question=("以下任务因先前工具执行尚未核实等原因未取得原数据，是否改用联网搜索补充公开资料？"
+                  if any(item.source_constraint == LOCAL_BLOCKED_SOURCE_CONSTRAINT for item in batch.items)
+                  else "以下任务的数据源账号权限不足，是否改用联网搜索补充公开资料？"),
         options=(
             UserInputOption(
                 value="web_search",
@@ -186,7 +196,7 @@ def deferred_sends(state):
         record = records[call_id]
         if (
             context.get("request_id") != state["request_id"]
-            or context.get("task") != tasks.get(deferred["task_id"])
+            or not task_snapshot_matches(context.get("task"), tasks.get(deferred["task_id"]))
             or context.get("request_fingerprint") != tool_call_fingerprint(record.request)
             or has_remote_receipt(state, call_id)
         ):
@@ -211,13 +221,14 @@ def deferred_sends(state):
 
 def settle_blocked_deferred(state, registry):
     from app.conversations.execution import UnresolvedToolEffect
-    from app.graph.recovery.validation import require_control
+    from app.graph.recovery.validation import make_recovery_item, require_control
 
     if not state.get("deferred_tool_calls"):
         return {}
     control = require_control(state)
     completed = {row["task_id"] for row in state.get("task_results", [])}
     results = []
+    recovery_items = {}
     records = {row.request.call_id: row for row in state.get("tool_calls", [])}
     for call_id, deferred in sorted(state.get("deferred_tool_calls", {}).items()):
         if (deferred["task_id"] in completed or call_id in state.get("recovery_items", {})
@@ -230,6 +241,17 @@ def settle_blocked_deferred(state, registry):
                 risk_level=registry.get(record.request.tool_name).spec.risk_level, call_id=call_id
             )
         except UnresolvedToolEffect:
+            context = state.get("tool_selection_contexts", {}).get(call_id)
+            task_data = next((task for task in (state.get("plan") or {}).get("tasks", [])
+                              if task["id"] == deferred["task_id"]), None)
+            if context and task_data is not None and record.result is not None:
+                item, _ = make_recovery_item(
+                    state, SubTaskModel.model_validate(task_data), record.request,
+                    record.result, context, registry,
+                )
+                if item is not None:
+                    recovery_items[call_id] = item.model_dump(mode="json")
+                    continue
             results.append(
                 {
                     "task_id": deferred["task_id"],
@@ -239,4 +261,7 @@ def settle_blocked_deferred(state, registry):
                     "tool_name": record.request.tool_name,
                 }
             )
-    return {"task_results": results} if results else {}
+    return {
+        **({"task_results": results} if results else {}),
+        **({"recovery_items": recovery_items} if recovery_items else {}),
+    }

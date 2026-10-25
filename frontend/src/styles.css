@@ -187,6 +187,13 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 .message-actions button:hover { background: #f2f4f6; color: #536174; }
 .user-input-card { margin-top: 16px; padding: 16px; border: 1px solid #dfe5ec; border-radius: 10px; background: #f8fafc; }
 .user-input-card h3 { margin: 0 0 12px; color: #26354a; font-size: 14px; font-weight: 600; line-height: 1.6; }
+.permission-recovery-reason { margin: 0 0 6px; color: #5e6c80; font-size: 13px; line-height: 1.6; }
+.permission-recovery-details { margin: 8px 0 14px; color: #6f7d8e; font-size: 12px; line-height: 1.6; }
+.permission-recovery-details summary { width: fit-content; cursor: pointer; }
+.permission-recovery-details summary:hover { color: #314158; }
+.permission-recovery-items { margin: 10px 0 0; padding-left: 20px; color: #5e6c80; }
+.permission-recovery-items li + li { margin-top: 12px; }
+.permission-recovery-items p { margin: 3px 0; overflow-wrap: anywhere; }
 .user-input-options { display: grid; gap: 8px; }
 .user-input-option { width: 100%; padding: 11px 12px; border: 1px solid #d8e0e9; border-radius: 8px; background: #fff; color: #314158; text-align: left; transition: border-color .15s, background .15s; }
 .user-input-option:hover:not(:disabled) { border-color: #8da0b8; background: #f5f8fb; }

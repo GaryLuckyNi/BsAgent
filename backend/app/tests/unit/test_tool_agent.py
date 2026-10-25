@@ -204,7 +204,7 @@ def test_tool_selection_emits_public_skill_selection_observation(monkeypatch):
 
     monkeypatch.setattr(node_module, "langfuse_observation", observation)
     monkeypatch.setattr(node_module, "create_tool_call_message", lambda **_kwargs: selection)
-    resolution = SimpleNamespace(
+    resolution = node_module.ToolCandidateResolution(
         candidates=(spec,),
         hits=(SimpleNamespace(tool_name="echo", sources=("bm25",)),),
         tool_choice="auto",
@@ -228,6 +228,7 @@ def test_tool_selection_emits_public_skill_selection_observation(monkeypatch):
         "selected": "echo",
         "fallback": None,
         "candidate_source": [{"tool_name": "echo", "sources": ["bm25"]}],
+        "discovery_source": "task_search",
     }
     assert captured["output"]["metadata"]["selection_status"] == "selected"
     assert captured["output"]["metadata"]["content_policy_applied"] is True

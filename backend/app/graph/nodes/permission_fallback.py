@@ -14,6 +14,7 @@ from app.graph.planning.contracts import (
     MAX_TASK_RESULT_CONTENT_CHARS,
     SubTaskModel,
     TaskResultModel,
+    task_snapshot_matches,
 )
 from app.graph.planning.evidence_projection import bounded_search_coverage
 from app.graph.recovery.source_policy import resolve_source_policy
@@ -176,7 +177,7 @@ def consume_permission_response(
             and source.task_id == task.id
             and context.get("request_id") == state["request_id"]
             and context.get("call_id") == source.call_id
-            and context.get("task") == task.model_dump(mode="json")
+            and task_snapshot_matches(context.get("task"), task)
             and context.get("request_fingerprint") == tool_call_fingerprint(record.request)
         )
     )

@@ -1,0 +1,641 @@
+{
+  "case_id": "013",
+  "category": "历史行情",
+  "question": "查询汇金科技300561.SZ在2025年9月1日的A股日行情，空结果请明确说明。",
+  "session_id": "live50-20261024-a-013",
+  "request_id": "live50-20261024-a-013",
+  "started_at": "2026-10-24T14:40:00.709373+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "message_id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+      "request_id": "live50-20261024-a-013"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "completed",
+      "message": "查询汇金科技（300561.SZ）2025年9月1日的A股日行情（开高低收、成交量额等）；若当日无数据或结果为空，将明确说明。"
+    },
+    {
+      "id": "tool_agent:query_300561_daily_quote",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "started",
+      "message": "正在获取研究证据：获取汇金科技（300561.SZ）2025年9月1日的A股日行情数据，包括开盘价、最高价、最低价、收盘价、成交量、成交额等；若该日无行情记录或返回为空，需明确说明为空结果并给出查询条件。",
+      "task_id": "query_300561_daily_quote",
+      "group_id": "evidence:1",
+      "task_label": "获取汇金科技（300561.SZ）2025年9月1日的A股日行情数据，包括开盘价、最高价、最低价、收盘价、成交量、成交额等；若该日无行情记录或返回为空，需明确说明为空结果并给出查询条件。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:query_300561_daily_quote",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "completed",
+      "message": "已取得研究证据：获取汇金科技（300561.SZ）2025年9月1日的A股日行情数据，包括开盘价、最高价、最低价、收盘价、成交量、成交额等；若该日无行情记录或返回为空，需明确说明为空结果并给出查询条件。",
+      "task_id": "query_300561_daily_quote",
+      "group_id": "evidence:1",
+      "task_label": "获取汇金科技（300561.SZ）2025年9月1日的A股日行情数据，包括开盘价、最高价、最低价、收盘价、成交量、成交额等；若该日无行情记录或返回为空，需明确说明为空结果并给出查询条件。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "completed",
+      "message": "查询汇金科技（300561.SZ）2025年9月1日的A股日行情（开高低收、成交量额等）；若当日无数据或结果为空，将明确说明。"
+    },
+    {
+      "type": "progress",
+      "stage": "composing_answer",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "message": "正在生成最终投研报告"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "## 汇金科技（300561.SZ）2025年9"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "月1日行情\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "查询结果**非空**，已取得该交易日的完整日行情"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "记录。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "### 当日行情概览\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 项目 | 数值 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "|---|---|\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 交易日期 | 2025-09-01 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 开盘价 | 17.80 元 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 最高价 | 18.38 元 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 最低价 | 17.02 元 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 收盘价 | 18.23 元 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 昨收价 | 17.78 元 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 涨跌额 | +0.45 元 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 涨跌幅 | +2.53% |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 成交量 | 256,961.11 手 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "| 成交额 | 451,328.26 元（约 45"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": ".13 万元） |\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "### 数据解读\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "- **价格走势**：当日股价低开于 17.80"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": " 元（低于昨收 17.78 元附近），盘中最低下"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "探至 17.02 元，最高冲至 18.38 元，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "最终收于 18.23 元，较昨收上涨 0.45 "
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "元，涨幅 2.53%。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "收盘价接近当日最高价，显示尾盘买盘相对积极。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "- **振幅**：以最高价与最低价计，日内振幅约"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": " 7.65%（(18.38−17.02)/17."
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "78），波动幅度明显大于 2.53% 的收盘涨幅"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "，说明盘中经历了较大反复，属于先抑后扬的走势。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "- **量能**：成交量为 256,961.11"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": " 手，成交额约 45.13 万元。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "需注意，成交额与成交量、价格之间的量纲关系需结合"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "数据源单位口径理解，此处按原始记录呈现，未作换算"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "推断。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "### 数据说明\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "本次查询仅返回上述单日记录，未包含换手率、流通市值"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "、资金流向等衍生指标，也未提供前后交易日的对比数据"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "因此，上述对走势强弱的判断仅基于当日开高低收与涨"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "跌幅的内部关系，属于对数据的描述性解读，不构成对"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "type": "ai",
+        "content": "后续走势的判断。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "response": {
+        "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+        "content": "## 汇金科技（300561.SZ）2025年9月1日行情\n\n查询结果**非空**，已取得该交易日的完整日行情记录。\n\n### 当日行情概览\n\n| 项目 | 数值 |\n|---|---|\n| 交易日期 | 2025-09-01 |\n| 开盘价 | 17.80 元 |\n| 最高价 | 18.38 元 |\n| 最低价 | 17.02 元 |\n| 收盘价 | 18.23 元 |\n| 昨收价 | 17.78 元 |\n| 涨跌额 | +0.45 元 |\n| 涨跌幅 | +2.53% |\n| 成交量 | 256,961.11 手 |\n| 成交额 | 451,328.26 元（约 45.13 万元） |\n\n### 数据解读\n\n- **价格走势**：当日股价低开于 17.80 元（低于昨收 17.78 元附近），盘中最低下探至 17.02 元，最高冲至 18.38 元，最终收于 18.23 元，较昨收上涨 0.45 元，涨幅 2.53%。收盘价接近当日最高价，显示尾盘买盘相对积极。\n- **振幅**：以最高价与最低价计，日内振幅约 7.65%（(18.38−17.02)/17.78），波动幅度明显大于 2.53% 的收盘涨幅，说明盘中经历了较大反复，属于先抑后扬的走势。\n- **量能**：成交量为 256,961.11 手，成交额约 45.13 万元。需注意，成交额与成交量、价格之间的量纲关系需结合数据源单位口径理解，此处按原始记录呈现，未作换算推断。\n\n### 数据说明\n\n本次查询仅返回上述单日记录，未包含换手率、流通市值、资金流向等衍生指标，也未提供前后交易日的对比数据。因此，上述对走势强弱的判断仅基于当日开高低收与涨跌幅的内部关系，属于对数据的描述性解读，不构成对后续走势的判断。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_1fd1c5e02caa464e9e21d0fbaf843c55",
+        "message_id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "request_id": "live50-20261024-a-013",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_f28daed0870d468c8ee9def0dcdb9f7a",
+        "request_id": "live50-20261024-a-013",
+        "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+        "role": "user",
+        "status": "completed",
+        "content": "查询汇金科技300561.SZ在2025年9月1日的A股日行情，空结果请明确说明。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:40:00.765095Z",
+        "completed_at": "2026-10-24T14:40:00.763921Z"
+      },
+      {
+        "message_id": "msg_2e12ecd9aa6148009807ee5be3c2687b",
+        "request_id": "live50-20261024-a-013",
+        "run_id": "run_d5cea2ef22623948c798ee4a95e19e891ddf7023e95bd7ddd453ef94eae9",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 汇金科技（300561.SZ）2025年9月1日行情\n\n查询结果**非空**，已取得该交易日的完整日行情记录。\n\n### 当日行情概览\n\n| 项目 | 数值 |\n|---|---|\n| 交易日期 | 2025-09-01 |\n| 开盘价 | 17.80 元 |\n| 最高价 | 18.38 元 |\n| 最低价 | 17.02 元 |\n| 收盘价 | 18.23 元 |\n| 昨收价 | 17.78 元 |\n| 涨跌额 | +0.45 元 |\n| 涨跌幅 | +2.53% |\n| 成交量 | 256,961.11 手 |\n| 成交额 | 451,328.26 元（约 45.13 万元） |\n\n### 数据解读\n\n- **价格走势**：当日股价低开于 17.80 元（低于昨收 17.78 元附近），盘中最低下探至 17.02 元，最高冲至 18.38 元，最终收于 18.23 元，较昨收上涨 0.45 元，涨幅 2.53%。收盘价接近当日最高价，显示尾盘买盘相对积极。\n- **振幅**：以最高价与最低价计，日内振幅约 7.65%（(18.38−17.02)/17.78），波动幅度明显大于 2.53% 的收盘涨幅，说明盘中经历了较大反复，属于先抑后扬的走势。\n- **量能**：成交量为 256,961.11 手，成交额约 45.13 万元。需注意，成交额与成交量、价格之间的量纲关系需结合数据源单位口径理解，此处按原始记录呈现，未作换算推断。\n\n### 数据说明\n\n本次查询仅返回上述单日记录，未包含换手率、流通市值、资金流向等衍生指标，也未提供前后交易日的对比数据。因此，上述对走势强弱的判断仅基于当日开高低收与涨跌幅的内部关系，属于对数据的描述性解读，不构成对后续走势的判断。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "查询汇金科技（300561.SZ）2025年9月1日的A股日行情（开高低收、成交量额等）；若当日无数据或结果为空，将明确说明。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:query_300561_daily_quote",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取汇金科技（300561.SZ）2025年9月1日的A股日行情数据，包括开盘价、最高价、最低价、收盘价、成交量、成交额等；若该日无行情记录或返回为空，需明确说明为空结果并给出查询条件。",
+              "task_id": "query_300561_daily_quote",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "获取汇金科技（300561.SZ）2025年9月1日的A股日行情数据，包括开盘价、最高价、最低价、收盘价、成交量、成交额等；若该日无行情记录或返回为空，需明确说明为空结果并给出查询条件。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "查询汇金科技（300561.SZ）2025年9月1日的A股日行情（开高低收、成交量额等）；若当日无数据或结果为空，将明确说明。",
+              "sequence": 2
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:40:00.765100Z",
+        "completed_at": "2026-10-24T14:40:11.860569Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:40:11.998699+00:00",
+  "elapsed_seconds": 11.288
+}

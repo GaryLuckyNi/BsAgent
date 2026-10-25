@@ -1,0 +1,333 @@
+{
+  "case_id": "023",
+  "run": {
+    "run_id": "run_c9ff59e8e2f02a322ba9ef6fefe5b3620b16cd97cd9d6351843885a6334f",
+    "session_id": "live50-20261024-a-023",
+    "session_key": "sess_d4d44cdb18884de6b1f78263edf24c1c",
+    "trace_id": "trace_731ff3f0afae421f8e5abe7cc042b8d1",
+    "status": "completed",
+    "created_at": "2026-10-24 14:41:22.191976+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 71,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:41:22.204899+00:00",
+    "ended_at": "2026-10-24 14:41:39.804120+00:00",
+    "events": 71
+  },
+  "receipts": [
+    {
+      "receipt_id": "a2a939d9fe8f4e83a09256892427c740",
+      "tool_name": "web_search",
+      "call_id": "call_69edeb6f4e3b2a6a08797e22077e78ee",
+      "risk_level": "low",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": {
+          "query": "汇金科技 300561 2025年9月 公告",
+          "answer": "可核实的结论：汇金科技（300561.SZ）在2025年9月1日至9月7日窗口内确有公告，至少可确认两则。\n\n1) 2025-09-01：关于收购南京壹证通信息科技有限公司51%股权的进展公告（类型：收购/股权交易进展）。东方财富F10大事记在2025-09-01条目下记载“拟以自有资金2,907万元收购南京壹证通51%股权”；大智慧F10公告栏在09-01条目下显示该进展公告标题。以上两条只是二手汇总页面的摘要，并非深交所或巨潮资讯网的原始公告正文。\n\n2) 2025-09-03：《2025年第二次临时股东大会决议公告》，公告编号2025-071，类型为股东大会决议。会议于2025年9月3日15:00召开，审议通过《关于补选公司第五届董事会董事的议案》等；来源包括中财网（stock.cfi.cn/p20250903001557.html）、九方智投（标注来源深交所）及aijingu公告页，标题、编号、日期多处一致。\n\n辅助信息：东方财富F10显示，2025-09-02更新了截至2025-08-29的股东户数（33,972户），这是股东户数披露，不属于公司重大公告。\n\n实体关系：证券简称现为“*ST汇科”，公司全称珠海汇金科技股份有限公司，与证券代码300561对应；本次检索未涉及同行业或概念股主体混淆问题。\n\n限制与未确认事项：本次检索未直接访问巨潮资讯网或深交所公告列表原始页面，因此9月1日至9月7日窗口内是否还有其他公告（如更正、问询回复、风险警示进展等）无法完整穷举；上述09-01股权收购进展公告的公告编号与正式标题，也需以巨潮原文复核。此外，检索结果中出现2025-10-09“其他风险警示进展公告”和2025-10-30三季报，均在本轮时间窗口之外，不计入。",
+          "results": [
+            {
+              "url": "http://vipwt1.cfi.net.cn/p20250903001557.html#1",
+              "title": "*ST汇科(300561):2025年第二次临时股东大会决议 - *ST汇科(300561):2025年第二次临时股东大会决议",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.9fzt.com/detail/sz_300561_9_4ebc7a1d19ef2a3cee35af0b4f46ac9b.html#1",
+              "title": "*ST汇科:2025年第二次临时股东大会决议公告_九方智投 - 全球指数",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "http://emweb.securities.eastmoney.com/CompanyBigNews/index?pos=2&type=web&code=SZ300561&color=w#rzrq-0#2",
+              "title": "汇金科技(300561.SZ)公司大事-PC_HSF10资料 - - 2025-10-30 三季报披露 2025年三季报归属净利润151.9万元，同比增长137.25%，基本每股收益0.0046元",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "http://mnews.dzh.com.cn/wap/style/temp/f10/eventDetails.html?code=SZ300561&countId=20480&useCachePolicy=0&DZHSPECIAL=1#8",
+              "title": "汇金科技(SZ300561) - *ST汇科：关于公司股票交易被实施其他风险警示相关事项的进展公告",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.9fzt.com/detail/sz_300561_9_ab21e6339dad10d70e4a27720b256006.html#1",
+              "title": "*ST汇科:2025年第三季度报告（更正后）_九方智投 - 全球指数",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.aijingu.com/notices/300561/AN202509031738498184.html#1",
+              "title": "300561 深市 汇金科技 - 首页 公告 *ST汇科:2025年第二次临时股东大会决议公告",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://stock.cfi.cn/p20250903001557.html",
+              "title": "*ST汇科(300561):2025年第二次临时股东大会决议",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://m.tianyancha.com/pilu/announcement/9670c7d63387cb2b98cd996ccda8b3a4#1",
+              "title": "*ST汇科:2025年第二次临时股东大会决议公告 - *ST汇科:2025年第二次临时股东大会决议公告",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://data.eastmoney.com/notices/detail/300561/AN202604091821101763.html#1",
+              "title": "*ST汇科:2025年第三季度报告(更正后) _ 汇金科技(300561) _ 公告正文 - *ST汇科:2025年第三季度报告(更正后) 查看PDF原文",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.cnfin.com/announ/detail/index.html?id=829103654854&code=300561&dannoun=lcdetail&announ=lc#1",
+              "title": "*ST汇科:2025年第三季度报告的更正公告 - 首页 >",
+              "snippet": "",
+              "published_at": null
+            }
+          ],
+          "coverage": {
+            "basis": "search_model",
+            "status": "partial",
+            "covered_criteria": [
+              "明确该时间窗口内是否有重大公告",
+              "若有，列出至少公告日期、标题和来源"
+            ],
+            "missing_criteria": [
+              "若无，说明检索范围和依据，不臆测"
+            ]
+          }
+        },
+        "status": "success",
+        "trace_id": "trace_731ff3f0afae421f8e5abe7cc042b8d1",
+        "tool_name": "web_search",
+        "latency_ms": 5568,
+        "_invocation": {
+          "version": "search-invocation-v1",
+          "fingerprint": "52d73d5ceb1556a6ca59ef6a3244a34bf015a1e87e05f9a24043767e6d50403b",
+          "result_digest": "6b3ed761e246cd7068821795ca705ab72ae9780c66ec15edfca881ed485a970c",
+          "binding_digest": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+        },
+        "tool_call_id": "tool_08248b1e47e242d787a1c4d95a6dd715",
+        "execution_state": "completed"
+      },
+      "created_at": "2026-10-24 14:41:28.568596+00:00",
+      "completed_at": "2026-10-24 14:41:33.928721+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_69edeb6f4e3b2a6a08797e22077e78ee": {
+        "request_id": "live50-20261024-a-023",
+        "task": {
+          "id": "check_major_announcements",
+          "task_goal": "核查汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间是否发布重大公告，列出公告日期、标题、类型及可核实来源；若无公告，需给出可核实的检索依据。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "明确该时间窗口内是否有重大公告",
+            "若有，列出至少公告日期、标题和来源",
+            "若无，说明检索范围和依据，不臆测"
+          ],
+          "tool_search_query": "A股上市公司公告查询 巨潮资讯 交易所披露 汇金科技 300561 2025年9月",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_69edeb6f4e3b2a6a08797e22077e78ee",
+        "request_fingerprint": "52d73d5ceb1556a6ca59ef6a3244a34bf015a1e87e05f9a24043767e6d50403b",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_1f045bbd168acdce0cde75c2e0c50ae2",
+        "as_of": "2026-10-24T22:41:22+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.stk_rewards",
+            "version": "mcp-http-v1",
+            "binding": "c856a4239e765bb21cb54d1d39d3565a6dc0df0059356a058183759e8fc8bee6"
+          },
+          {
+            "name": "mcp.tushare.irm_qa_sz",
+            "version": "mcp-http-v1",
+            "binding": "77247d61fe3dcf722e44159d6981099bbb91f5dfc962c01a9934596f19da0313"
+          },
+          {
+            "name": "mcp.tushare.top10_floatholders",
+            "version": "mcp-http-v1",
+            "binding": "396e59a8ea8c7340a01bf536e95dc41badd03849fc1135cb9f15b7e7b5f7efb6"
+          },
+          {
+            "name": "mcp.tushare.fina_audit",
+            "version": "mcp-http-v1",
+            "binding": "154770c531d0d35bea12271768c4228326fe1a49c0011c80d631a9716da02848"
+          },
+          {
+            "name": "mcp.tushare.top10_holders",
+            "version": "mcp-http-v1",
+            "binding": "9ab830c15ab9a4225b48542fe71d061db9faaeda9f9e5d3ff59f23a9665f5704"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_1f045bbd168acdce0cde75c2e0c50ae2": {
+        "dispatch_batch_id": "dispatch_1f045bbd168acdce0cde75c2e0c50ae2",
+        "run_identity": "f8303089b51d9d6ad3c25250be936510cd664a7b1d2364c1b9f4b671ba7a56d3",
+        "plan_digest": "25a03b8b02b5edbc765145bcd02cf47fb5f4bde4ba041ee08ac9dfe00e764e54",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "check_major_announcements"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "查询汇金科技（300561.SZ）在2025年9月1日至9月7日期间是否有重大公告，并仅依据可核实证据回答",
+      "confidence": 0.95,
+      "source_constraint": "original_only"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "已确认窗口内至少两则公告（9月1日收购进展、9月3日临时股东大会决议），但均来自二手汇总页面，未直接核验巨潮/深交所原文，且无法穷举窗口内全部公告；证据足以给出带限制的回答。",
+      "unresolved_questions": [
+        "2025年9月1日至7日窗口内是否还有其他公告（如更正、问询回复、风险警示进展等）未能完整穷举",
+        "9月1日收购进展公告的正式标题与公告编号尚未以巨潮资讯网或深交所原文复核"
+      ]
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "计划核查汇金科技（300561.SZ）在2025年9月1日至7日期间是否披露重大公告，仅采用交易所公告或权威公开信息作为证据，并明确列出可核实结论。",
+      "tasks": [
+        {
+          "id": "check_major_announcements",
+          "task_goal": "核查汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间是否发布重大公告，列出公告日期、标题、类型及可核实来源；若无公告，需给出可核实的检索依据。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "明确该时间窗口内是否有重大公告",
+            "若有，列出至少公告日期、标题和来源",
+            "若无，说明检索范围和依据，不臆测"
+          ],
+          "tool_search_query": "A股上市公司公告查询 巨潮资讯 交易所披露 汇金科技 300561 2025年9月",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "check_major_announcements",
+        "status": "success",
+        "content": "{\"answer\":\"可核实的结论：汇金科技（300561.SZ）在2025年9月1日至9月7日窗口内确有公告，至少可确认两则。\\n\\n1) 2025-09-01：关于收购南京壹证通信息科技有限公司51%股权的进展公告（类型：收购/股权交易进展）。东方财富F10大事记在2025-09-01条目下记载“拟以自有资金2,907万元收购南京壹证通51%股权”；大智慧F10公告栏在09-01条目下显示该进展公告标题。以上两条只是二手汇总页面的摘要，并非深交所或巨潮资讯网的原始公告正文。\\n\\n2) 2025-09-03：《2025年第二次临时股东大会决议公告》，公告编号2025-071，类型为股东大会决议。会议于2025年9月3日15:00召开，审议通过《关于补选公司第五届董事会董事的议案》等；来源包括中财网（stock.cfi.cn/p20250903001557.html）、九方智投（标注来源深交所）及aijingu公告页，标题、编号、日期多处一致。\\n\\n辅助信息：东方财富F10显示，2025-09-02更新了截至2025-08-29的股东户数（33,972户），这是股东户数披露，不属于公司重大公告。\\n\\n实体关系：证券简称现为“*ST汇科”，公司全称珠海汇金科技股份有限公司，与证券代码300561对应；本次检索未涉及同行业或概念股主体混淆问题。\\n\\n限制与未确认事项：本次检索未直接访问巨潮资讯网或深交所公告列表原始页面，因此9月1日至9月7日窗口内是否还有其他公告（如更正、问询回复、风险警示进展等）无法完整穷举；上述09-01股权收购进展公告的公告编号与正式标题，也需以巨潮原文复核。此外，检索结果中出现2025-10-09“其他风险警示进展公告”和2025-10-30三季报，均在本轮时间窗口之外，不计入。\",\"coverage\":{\"basis\":\"search_model\",\"covered_criteria\":[\"明确该时间窗口内是否有重大公告\",\"若有，列出至少公告日期、标题和来源\"],\"missing_criteria\":[\"若无，说明检索范围和依据，不臆测\"],\"status\":\"partial\"},\"query\":\"汇金科技 300561 2025年9月 公告\",\"results\":[{\"published_at\":null,\"snippet\":\"\",\"title\":\"*ST汇科(300561):2025年第二次临时股东大会决议 - *ST汇科(300561):2025年第二次临时股东大会决议\",\"url\":\"http://vipwt1.cfi.net.cn/p20250903001557.html#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"*ST汇科:2025年第二次临时股东大会决议公告_九方智投 - 全球指数\",\"url\":\"https://www.9fzt.com/detail/sz_300561_9_4ebc7a1d19ef2a3cee35af0b4f46ac9b.html#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"汇金科技(300561.SZ)公司大事-PC_HSF10资料 - - 2025-10-30 三季报披露 2025年三季报归属净利润151.9万元，同比增长137.25%，基本每股收益0.0046元\",\"url\":\"http://emweb.securities.eastmoney.com/CompanyBigNews/index?pos=2&type=web&code=SZ300561&color=w#rzrq-0#2\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"汇金科技(SZ300561) - *ST汇科：关于公司股票交易被实施其他风险警示相关事项的进展公告\",\"url\":\"http://mnews.dzh.com.cn/wap/style/temp/f10/eventDetails.html?code=SZ300561&countId=20480&useCachePolicy=0&DZHSPECIAL=1#8\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"*ST汇科:2025年第三季度报告（更正后）_九方智投 - 全球指数\",\"url\":\"https://www.9fzt.com/detail/sz_300561_9_ab21e6339dad10d70e4a27720b256006.html#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"300561 深市 汇金科技 - 首页 公告 *ST汇科:2025年第二次临时股东大会决议公告\",\"url\":\"https://www.aijingu.com/notices/300561/AN202509031738498184.html#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"*ST汇科(300561):2025年第二次临时股东大会决议\",\"url\":\"https://stock.cfi.cn/p20250903001557.html\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"*ST汇科:2025年第二次临时股东大会决议公告 - *ST汇科:2025年第二次临时股东大会决议公告\",\"url\":\"https://m.tianyancha.com/pilu/announcement/9670c7d63387cb2b98cd996ccda8b3a4#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"*ST汇科:2025年第三季度报告(更正后) _ 汇金科技(300561) _ 公告正文 - *ST汇科:2025年第三季度报告(更正后) 查看PDF原文\",\"url\":\"https://data.eastmoney.com/notices/detail/300561/AN202604091821101763.html#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"*ST汇科:2025年第三季度报告的更正公告 - 首页 >\",\"url\":\"https://www.cnfin.com/announ/detail/index.html?id=829103654854&code=300561&dannoun=lcdetail&announ=lc#1\"}]}",
+        "error_code": null,
+        "tool_name": "web_search"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_69edeb6f4e3b2a6a08797e22077e78ee' request=ToolCallRequest(call_id='call_69edeb6f4e3b2a6a08797e22077e78ee', tool_name='web_search', tool_version='1.0.0', arguments={'query': '汇金科技 300561 2025年9月 公告', 'max_results': 10}, purpose='核查汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间是否发布重大公告，列出公告日期、标题、类型及可核实来源；若无公告，需给出可核实的检索依据。', approval_required=False) result=ToolCallResult(tool_call_id='tool_08248b1e47e242d787a1c4d95a6dd715', tool_name='web_search', status='success', execution_state='completed', result={'query': '汇金科技 300561 2025年9月 公告', 'answer': '可核实的结论：汇金科技（300561.SZ）在2025年9月1日至9月7日窗口内确有公告，至少可确认两则。\\n\\n1) 2025-09-01：关于收购南京壹证通信息科技有限公司51%股权的进展公告（类型：收购/股权交易进展）。东方财富F10大事记在2025-09-01条目下记载“拟以自有资金2,907万元收购南京壹证通51%股权”；大智慧F10公告栏在09-01条目下显示该进展公告标题。以上两条只是二手汇总页面的摘要，并非深交所或巨潮资讯网的原始公告正文。\\n\\n2) 2025-09-03：《2025年第二次临时股东大会决议公告》，公告编号2025-071，类型为股东大会决议。会议于2025年9月3日15:00召开，审议通过《关于补选公司第五届董事会董事的议案》等；来源包括中财网（stock.cfi.cn/p20250903001557.html）、九方智投（标注来源深交所）及aijingu公告页，标题、编号、日期多处一致。\\n\\n辅助信息：东方财富F10显示，2025-09-02更新了截至2025-08-29的股东户数（33,972户），这是股东户数披露，不属于公司重大公告。\\n\\n实体关系：证券简称现为“*ST汇科”，公司全称珠海汇金科技股份有限公司，与证券代码300561对应；本次检索未涉及同行业或概念股主体混淆问题。\\n\\n限制与未确认事项：本次检索未直接访问巨潮资讯网或深交所公告列表原始页面，因此9月1日至9月7日窗口内是否还有其他公告（如更正、问询回复、风险警示进展等）无法完整穷举；上述09-01股权收购进展公告的公告编号与正式标题，也需以巨潮原文复核。此外，检索结果中出现2025-10-09“其他风险警示进展公告”和2025-10-30三季报，均在本轮时间窗口之外，不计入。', 'results': [{'title': '*ST汇科(300561):2025年第二次临时股东大会决议 - *ST汇科(300561):2025年第二次临时股东大会决议', 'url': 'http://vipwt1.cfi.net.cn/p20250903001557.html#1', 'snippet': '', 'published_at': None}, {'title': '*ST汇科:2025年第二次临时股东大会决议公告_九方智投 - 全球指数', 'url': 'https://www.9fzt.com/detail/sz_300561_9_4ebc7a1d19ef2a3cee35af0b4f46ac9b.html#1', 'snippet': '', 'published_at': None}, {'title': '汇金科技(300561.SZ)公司大事-PC_HSF10资料 - - 2025-10-30 三季报披露 2025年三季报归属净利润151.9万元，同比增长137.25%，基本每股收益0.0046元', 'url': 'http://emweb.securities.eastmoney.com/CompanyBigNews/index?pos=2&type=web&code=SZ300561&color=w#rzrq-0#2', 'snippet': '', 'published_at': None}, {'title': '汇金科技(SZ300561) - *ST汇科：关于公司股票交易被实施其他风险警示相关事项的进展公告', 'url': 'http://mnews.dzh.com.cn/wap/style/temp/f10/eventDetails.html?code=SZ300561&countId=20480&useCachePolicy=0&DZHSPECIAL=1#8', 'snippet': '', 'published_at': None}, {'title': '*ST汇科:2025年第三季度报告（更正后）_九方智投 - 全球指数', 'url': 'https://www.9fzt.com/detail/sz_300561_9_ab21e6339dad10d70e4a27720b256006.html#1', 'snippet': '', 'published_at': None}, {'title': '300561 深市 汇金科技 - 首页 公告 *ST汇科:2025年第二次临时股东大会决议公告', 'url': 'https://www.aijingu.com/notices/300561/AN202509031738498184.html#1', 'snippet': '', 'published_at': None}, {'title': '*ST汇科(300561):2025年第二次临时股东大会决议', 'url': 'https://stock.cfi.cn/p20250903001557.html', 'snippet': '', 'published_at': None}, {'title': '*ST汇科:2025年第二次临时股东大会决议公告 - *ST汇科:2025年第二次临时股东大会决议公告', 'url': 'https://m.tianyancha.com/pilu/announcement/9670c7d63387cb2b98cd996ccda8b3a4#1', 'snippet': '', 'published_at': None}, {'title': '*ST汇科:2025年第三季度报告(更正后) _ 汇金科技(300561) _ 公告正文 - *ST汇科:2025年第三季度报告(更正后) 查看PDF原文', 'url': 'https://data.eastmoney.com/notices/detail/300561/AN202604091821101763.html#1', 'snippet': '', 'published_at': None}, {'title': '*ST汇科:2025年第三季度报告的更正公告 - 首页 >', 'url': 'https://www.cnfin.com/announ/detail/index.html?id=829103654854&code=300561&dannoun=lcdetail&announ=lc#1', 'snippet': '', 'published_at': None}], 'coverage': {'status': 'partial', 'covered_criteria': ['明确该时间窗口内是否有重大公告', '若有，列出至少公告日期、标题和来源'], 'missing_criteria': ['若无，说明检索范围和依据，不臆测'], 'basis': 'search_model'}}, error=None, latency_ms=5568, trace_id='trace_731ff3f0afae421f8e5abe7cc042b8d1')"
+    ],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "## 结论\n\n**有。** 在2025年9月1日至9月7日窗口内，汇金科技（300561.SZ，现证券简称为“*ST汇科”）至少可确认两则公告：一则是9月1日的股权收购进展公告，另一则是9月3日的临时股东大会决议公告。不过，这两则公告目前均通过二手汇总页面核实，尚未直接比对巨潮资讯网或深交所的原始公告正文，因此“窗口内是否还有其他公告”无法完整穷举。\n\n## 已确认的公告\n\n**1）2025年9月1日：关于收购南京壹证通信息科技有限公司51%股权的进展公告**\n\n- 类型：收购/股权交易进展。\n- 内容要点：东方财富F10大事记在2025-09-01条目下记载“拟以自有资金2,907万元收购南京壹证通51%股权”；大智慧F10公告栏在09-01条目下显示该进展公告标题。\n- 证据强度：**中等偏弱**。两条来源均为二手汇总页面的摘要，并非公告原文，正式标题与公告编号尚未经巨潮或深交所页面复核。\n\n**2）2025年9月3日：《2025年第二次临时股东大会决议公告》（公告编号2025-071）**\n\n- 类型：股东大会决议。\n- 内容要点：会议于2025年9月3日15:00召开，审议通过《关于补选公司第五届董事会董事的议案》等。\n- 证据强度：**较强**。中财网、九方智投（标注来源深交所）、aijingu公告页等多处来源在标题、编号、日期上相互一致，属于可交叉验证的公告信息。\n\n## 需要区分的信息\n\n- 东方财富F10显示2025-09-02更新了截至2025-08-29的股东户数（33,972户）。这属于股东户数披露，**不属于公司重大公告**，不应计入本窗口的公告清单。\n- 检索中出现的2025-10-09“其他风险警示进展公告”和2025-10-30三季报，均**在窗口之外**，与本次问题无关。\n\n## 数据缺口与不确定性\n\n1. **无法穷举**：本次未直接访问巨潮资讯网或深交所公告列表原始页面，因此9月1日至7日之间是否还存在更正、问询回复、风险警示进展等其他公告，无法排除。\n2. **9月1日公告待复核**：该收购进展公告的正式标题与公告编号，需以巨潮原文为准；现有信息仅能支持“当日存在一则与收购南京壹证通51%股权相关的进展公告”这一判断。\n3. **主体对应关系**：证券简称现为“*ST汇科”，公司全称为珠海汇金科技股份有限公司，与代码300561对应，本次检索未发现主体混淆问题。\n\n综上，可以确定该窗口内**存在重大公告**，其中9月3日股东大会决议公告的证据较为扎实；9月1日收购进展公告方向明确但细节待原文核验；窗口内公告的完整性受限于未直接核验交易所原始披露列表。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_731ff3f0afae421f8e5abe7cc042b8d1",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    },
+    "errors": []
+  }
+}

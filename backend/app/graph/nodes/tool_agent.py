@@ -1,9 +1,10 @@
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 from hashlib import sha256
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -15,7 +16,7 @@ from app.graph.nodes.permission_fallback import (
     permission_request,
     selection_context,
 )
-from app.graph.planning.context import task_evidence, user_materials
+from app.graph.planning.context import request_context, task_evidence, user_materials
 from app.graph.planning.contracts import (
     MAX_TASK_RESULT_CONTENT_CHARS,
     SubTaskModel,
@@ -23,6 +24,7 @@ from app.graph.planning.contracts import (
 )
 from app.graph.planning.evidence_projection import bounded_search_coverage
 from app.graph.planning.policy import MAX_WEB_SEARCH_TASKS
+from app.graph.planning.request_flow import uses_request_flow
 from app.graph.planning.skill_workflow import active_step
 from app.graph.state import AgentState
 from app.llm.factory import ToolCallingLlmClient
@@ -53,6 +55,7 @@ from app.tools.native_calls import (
     create_tool_call_message,
     create_tool_result_message,
 )
+from app.tools.planning_candidates import PlanningToolSnapshot
 from app.tools.redaction import (
     redact_sensitive_data,
     reject_inline_credentials,
@@ -203,7 +206,10 @@ def build_tool_agent_node(
                 return {
                     **discovery_update,
                     **selection_update,
-                    "messages": [selection.message],
+                    "messages": [selection.message.model_copy(update={"additional_kwargs": {
+                        **selection.message.additional_kwargs,
+                        "task_id": task.id, "task_role": "tool_analysis",
+                    }})],
                     "task_results": [result.model_dump(mode="python")],
                 }
 
@@ -229,6 +235,15 @@ def build_tool_agent_node(
                     state, task, request, resolution.candidates, registry
                 )
             }
+
+        if request.tool_name == "web_search":
+            from app.graph.recovery.source_policy import ordinary_search_blocked
+
+            if ordinary_search_blocked(state, task):
+                return {**discovery_update, **selection_update, **_local_failure_update(
+                    task=task, code="source_switch_not_authorized",
+                    content="替代搜索未获得本任务的来源授权，未执行；原始数据缺口仍保留。",
+                )}
 
         record = ToolCallRecord(call_id=request.call_id, request=request)
         if _requires_approval(tool_spec) and not _is_approved(state, request):
@@ -501,7 +516,7 @@ def _resolve_candidates(
         )
         if spec.version != step.tool_version:
             raise ToolCatalogChangedError()
-        return ToolCandidateResolution((spec,), (), "required", "skill_named_tool")
+        return ToolCandidateResolution((spec,), (), "required", "skill_named_tool", source="skill_named_tool")
     if candidate_resolver is None:
         if not legacy_tool_name:
             return ToolCandidateResolution((), (), "auto", "tool_candidate_resolver_required")
@@ -530,6 +545,9 @@ def _resolve_candidates(
         web_search_allowed=bool(state.get("web_search_allowed", True)),
         request_id=state["request_id"],
         capability_observations=read_observations(state.get("capability_observations", {}).values()),
+        planning_snapshot=(PlanningToolSnapshot.model_validate(state["planning_tool_candidates"])
+                           if state.get("planning_tool_candidates") else None),
+        candidate_refs=tuple(task.tool_candidate_refs),
     )
 
 
@@ -552,6 +570,7 @@ def _discovery_update(
                 "candidates": names,
                 "hits": [hit.tool_name for hit in resolution.hits],
                 "reason": resolution.fallback_reason,
+                "source": resolution.source,
                 **({"availability_skips": list(resolution.availability_skips)} if resolution.availability_skips else {}),
             }
         },
@@ -606,6 +625,7 @@ def _generate_tool_selection(
                         {"tool_name": hit.tool_name, "sources": list(hit.sources)}
                         for hit in resolution.hits
                     ],
+                    "discovery_source": resolution.source,
                 },
                 metadata={
                     "selection_status": "selected" if selected is not None else "fallback",
@@ -708,6 +728,7 @@ def _repair_arguments_once(
 ) -> NativeToolSelection | dict[str, Any]:
     tool_spec = selection.selected_tool
     assert tool_spec is not None
+    selection = _canonical_date_selection(selection)
     arguments = dict(selection.message.tool_calls[0].get("args") or {})
     validation = validate_tool_arguments(tool_spec=tool_spec, arguments=arguments)
     if validation.valid:
@@ -735,11 +756,43 @@ def _repair_arguments_once(
         )
     except (ToolCallCountError, UnexpectedToolCallError):
         return _argument_failure(task, tool_spec, validation.errors)
+    repaired = _canonical_date_selection(repaired)
     repaired_args = dict(repaired.message.tool_calls[0].get("args") or {})
     repaired_validation = validate_tool_arguments(tool_spec=tool_spec, arguments=repaired_args)
     if not repaired_validation.valid:
         return _argument_failure(task, tool_spec, repaired_validation.errors)
     return repaired
+
+
+def _canonical_date_selection(selection: NativeToolSelection) -> NativeToolSelection:
+    """在请求身份/审批指纹绑定前，按已披露 schema 做无歧义日期格式规范化。"""
+    spec = selection.selected_tool
+    if spec is None:
+        return selection
+    properties = spec.input_schema.get("properties", {})
+    if not isinstance(properties, dict):
+        return selection
+    inherited = any("YYYYMMDD" in str(value.get("description", "")) and "下同" in str(value.get("description", ""))
+                    for value in properties.values() if isinstance(value, dict))
+    args = dict(selection.message.tool_calls[0].get("args") or {})
+    normalized = dict(args)
+    for name, prop in properties.items():
+        if not isinstance(prop, dict):
+            continue
+        description = str(prop.get("description", ""))
+        if "YYYYMMDD" not in description and not (inherited and "日期" in description):
+            continue
+        value = args.get(name)
+        if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            try:
+                normalized[name] = date.fromisoformat(value).strftime("%Y%m%d")
+            except ValueError:
+                continue  # 不猜测非法日期，保留给参数校验/修复。
+    if normalized == args:
+        return selection
+    message = selection.message.model_copy(deep=True)
+    message.tool_calls[0]["args"] = normalized
+    return NativeToolSelection(message=message, selected_tool=spec)
 
 
 def _argument_failure(task, tool_spec, errors):
@@ -767,7 +820,8 @@ def _tool_call_messages(state: AgentState, task: SubTaskModel) -> list[AnyMessag
                     timespec="seconds"
                 ),
                 "timezone": "Asia/Shanghai",
-                "user_materials": user_materials(state),
+                **({"user_message": state["user_message"], "request_context": request_context(state)}
+                   if uses_request_flow(state) else {"user_materials": user_materials(state)}),
                 "dependencies": _dependency_results(state, task),
             },
             ensure_ascii=False,

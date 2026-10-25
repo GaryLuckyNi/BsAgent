@@ -1,0 +1,25 @@
+{
+  "repaired": [
+    "company_snapshot",
+    "financial_report_analysis",
+    "risk_scan"
+  ],
+  "classification": {
+    "supported_intents": [
+      "financial_research"
+    ],
+    "supported_domains": [
+      "a_share_equity_research"
+    ],
+    "supported_sub_intents": [
+      "general_research"
+    ]
+  },
+  "planner_context_skills": [
+    "company_snapshot",
+    "financial_report_analysis",
+    "risk_scan",
+    "yzj_reasearch"
+  ],
+  "workflow_summaries_unchanged": true
+}

@@ -24,6 +24,32 @@ vi.mock('@/components/ai-elements/reasoning', () => ({
 }))
 
 describe('ResearchMessageItem', () => {
+  it('恢复卡片使用简短问题和选项，点击仍传原始授权值', () => {
+    const onUserInputSelect = vi.fn()
+    render(<ResearchMessageItem message={{
+      id: 'compact-recovery', role: 'assistant', content: '', createdAt: '', status: 'interrupted',
+      userInput: {
+        interruptId: 'existing-interrupt', interactionId: 'existing-interaction', inputType: 'selection',
+        question: '以下任务因先前工具执行尚未核实等原因未取得原数据，是否改用联网搜索补充公开资料？',
+        options: [
+          { value: 'web_search', label: '对以上任务使用联网搜索', description: '只对清单中的任务替代取证；公开来源不等价于原接口数据。' },
+          { value: 'use_existing', label: '仅使用已有资料', description: '不搜索，保留原接口数据缺口。' }
+        ],
+        recoveryBatch: {
+          version: 'permission-recovery-batch-v1', batch_id: 'existing-batch', digest: 'a'.repeat(64),
+          items: [{ item_id: 'existing-call', task_goal: '完整研究任务', original_tool: 'mcp.tushare.limit_list_d',
+            reason: '历史工具执行尚未核实，本次原接口未派发。', source_notice: '历史记录与来源限制' }]
+        }
+      }
+    }} onCitation={vi.fn()} onUserInputSelect={onUserInputSelect} />)
+    expect(screen.getByRole('heading', { name: '是否改用联网搜索补充公开资料？' })).toBeTruthy()
+    expect(screen.queryByText('不搜索，保留原接口数据缺口。')).toBeNull()
+    screen.getByRole('button', { name: '使用联网搜索' }).click()
+    expect(onUserInputSelect).toHaveBeenLastCalledWith('compact-recovery', 'web_search')
+    screen.getByRole('button', { name: '仅用已有资料' }).click()
+    expect(onUserInputSelect).toHaveBeenLastCalledWith('compact-recovery', 'use_existing')
+  })
+
   it('批次展示不兼容时显示提示且禁止两个选项', () => {
     render(<ResearchMessageItem message={{
       id: 'batch', role: 'assistant', content: '', createdAt: '', status: 'interrupted',

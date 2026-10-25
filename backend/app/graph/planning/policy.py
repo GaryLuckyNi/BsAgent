@@ -38,8 +38,13 @@ def observation_signature(plan: PlanModel, results: list[dict]) -> str:
     observations = sorted(
         (item for item in results if item.get("task_id") in ids), key=lambda item: item["task_id"]
     )
+    plan_payload = plan.model_dump()
+    # 新增的可选空字段不改变旧 checkpoint 的评审签名。
+    for task in plan_payload["tasks"]:
+        if not task.get("tool_candidate_refs"):
+            task.pop("tool_candidate_refs", None)
     return sha256(
         json.dumps(
-            {"plan": plan.model_dump(), "results": observations}, sort_keys=True, ensure_ascii=False
+            {"plan": plan_payload, "results": observations}, sort_keys=True, ensure_ascii=False
         ).encode()
     ).hexdigest()

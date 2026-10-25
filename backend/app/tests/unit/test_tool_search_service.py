@@ -1,6 +1,4 @@
 import pytest
-from pydantic import ValidationError
-
 from app.schemas.tools import ToolCallResult
 from app.tools.base import Tool
 from app.tools.registry import ToolRegistry
@@ -12,6 +10,7 @@ from app.tools.search.contracts import (
 )
 from app.tools.search.index import ToolSearchIndex
 from app.tools.search.service import ToolSearchService
+from pydantic import ValidationError
 
 
 class _Input(ToolSearchInput):
@@ -59,6 +58,25 @@ def _search_service():
         catalog_digest=snapshot.catalog_digest,
     )
     return ToolSearchService(registry=snapshot, index=index, candidate_k=20)
+
+
+@pytest.mark.parametrize("incompatible_description",[
+    "/数据接口/港股数据/港股日线行情-查询日线收盘价",
+    "/数据接口/美股数据/美股财务指标-查询财务指标",
+    "/数据接口/指数专题/国际主要指数-查询历史日线",
+    "/数据接口/指数专题/指数实时日线-查询实时行情",
+])
+@pytest.mark.parametrize("negative_suffix",["","，不得使用美股数据，不查询海外指数"])
+def test_explicit_market_and_history_constraints_apply_before_top_k(incompatible_description,negative_suffix):
+    registry=ToolRegistry()
+    registry.register(_CatalogTool(name="mcp.provider.arbitrary_wrong",description=incompatible_description))
+    registry.register(_CatalogTool(name="mcp.provider.arbitrary_right",description="A股指数历史日线收盘价查询"))
+    snapshot=registry.snapshot()
+    service=ToolSearchService(registry=snapshot,index=ToolSearchIndex.build(
+        specs=snapshot.specs(),catalog_digest=snapshot.catalog_digest),candidate_k=20)
+    result=service.search(ToolSearchInput(query="mcp.provider.arbitrary_wrong 查询日线行情",top_k=1),context=ToolSearchContext(
+        tenant_id="t",user_id="u",task_goal="查询A股上证指数000001.SH在2025年9月1日的历史收盘价"+negative_suffix))
+    assert [h.tool_name for h in result.hits]==["mcp.provider.arbitrary_right"]
 
 
 def test_tool_search_input_normalizes_whitespace():

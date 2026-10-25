@@ -110,6 +110,14 @@ def test_planner_can_explicitly_handoff_ready_terminal_analysis_to_synthesis():
     assert len(client.calls) == 1
 
 
+def test_finished_plan_drops_redundant_completed_handoff_without_another_model_call():
+    current=PlanModel(tasks=[{"id":"concept","task_goal":"解释PE","execution_type":"analysis"}])
+    client=Decisions({"action":"finish","reason":"已完成概念解释","synthesis_task_id":"concept"})
+    decision=review(client,current=current,results=[TaskResultModel(task_id="concept",status="success",content="PE定义")])
+    assert decision.action=="finish" and decision.synthesis_task_id is None
+    assert len(client.calls)==1
+
+
 @pytest.mark.parametrize("case", ["unknown", "tool", "consumer", "failed_dependency", "other_pending"])
 def test_synthesis_handoff_cannot_skip_real_work_or_failed_dependencies(case):
     current = plan()
@@ -372,6 +380,18 @@ def test_revision_rejects_new_id_that_repeats_completed_research_goal():
     assert "重复" in repair["validation_error"]
     assert "a_share_tech_positioning" in repair["validation_error"]
 
+
+@pytest.mark.parametrize("content",["[]","{}","null"])
+def test_empty_execution_success_does_not_block_a_new_evidence_attempt(content):
+    current=PlanModel(tasks=[{"id":"original","task_goal":"查询三个A股指数的历史收盘点位"}])
+    client=Decisions({"action":"revise","reason":"原接口返回空，需选择能提供收盘点位的数据能力",
+        "plan":{"tasks":[{"id":"alternative","task_goal":current.tasks[0].task_goal,
+            "tool_search_query":"指数历史日线 收盘点位 YYYYMMDD"}]}})
+    decision=review(client,current=current,results=[TaskResultModel(
+        task_id="original",status="success",tool_name="mcp.data.wrong_interface",content=content,
+    )])
+    assert decision.action=="revise"
+    assert len(client.calls)==1
 
 def test_revision_allows_task_with_materially_new_evidence_gap():
     current = PlanModel(

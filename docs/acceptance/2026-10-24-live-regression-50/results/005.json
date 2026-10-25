@@ -1,0 +1,1439 @@
+{
+  "case_id": "005",
+  "category": "概念",
+  "question": "ROE 的杜邦分解是什么？用一个假设例子解释，不需要外部信息。",
+  "session_id": "live50-20261024-a-005",
+  "request_id": "live50-20261024-a-005",
+  "started_at": "2026-10-24T14:38:53.256770+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "message_id": "msg_b961b948adb147b5a779428b936ebd8b",
+      "request_id": "live50-20261024-a-005"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "completed",
+      "message": "无需外部信息，直接解释 ROE 杜邦分解（三因子/五因子），并用一个假设公司数据完整演示计算与含义。"
+    },
+    {
+      "id": "analysis_agent:dupont_explanation",
+      "kind": "status",
+      "type": "progress",
+      "label": "分析证据",
+      "stage": "analysis_agent",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "started",
+      "message": "正在分析：解释 ROE 杜邦分解的原理：三因子（净利率×总资产周转率×权益乘数）与可选五因子（税负、利息负担、营业利润率等）的公式、各因子经济含义、相互制约关系及分析用途，并说明分解中平均资产/平均权益的口径选择。"
+    },
+    {
+      "id": "analysis_agent:dupont_explanation",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究发现",
+      "stage": "analysis_agent",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "completed",
+      "message": "一、三因子杜邦分解 **公式** ROE = 净利润 / 平均所有者权益 = (净利润 / 营业收入) × (营业收入 / 平均总资产) × (平均总资产 / 平均所有者权益) = **净利率 × 总资产周转率 × 权益乘数** | 因子 | 定义 | 经济含义 | 主要驱动 | |---|---|---|---| | 净利率 | 净利润/营业收入 | 每 1 元收入最终留下多少利润，反映**盈利能力与成本费用控制** | 定价权、毛利率、期间费用率、税率 | | 总资产周…"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "completed",
+      "message": "无需外部信息，直接解释 ROE 杜邦分解（三因子/五因子），并用一个假设公司数据完整演示计算与含义。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "# ROE 的杜邦分解：把“赚钱能力”拆成三个来源"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "## 一、核心思路\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "净资产收益率（ROE）= 净利润 / 平均所有者"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "权益，衡量股东每投入 1 元权益能赚回多少利润。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "但它只是一个结果数字，无法说明利润来自哪里。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "杜邦分解的做法是把 ROE 拆成几个相乘的比率，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "让“赚得多、转得快、借得多”三条路径各自显形。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "**三因子分解**（数学上恒等，不是近似）：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "```\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "ROE = 净利润/营业收入 × 营业收入/平均"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "总资产 × 平均总资产/平均所有者权益\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "    = 净利率 × 总资产周转率 × 权益乘"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "数\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "```\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "| 因子 | 公式 | 经济含义 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "|---|---|---|\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "| 净利率 | 净利润 / 营业收入 | 每 1"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " 元收入留下多少利润，反映定价权与成本费用控制 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "| 总资产周转率 | 营业收入 / 平均总资产 |"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " 每 1 元资产产出多少收入，反映资产运营效率 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "| 权益乘数 | 平均总资产 / 平均所有者权益"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " | 每 1 元权益撬动多少资产，反映财务杠杆 |\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "三者相乘必然还原为 ROE，因此可以把 ROE "
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "理解为“盈利能力 × 运营效率 × 财务杠杆”的"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "乘积。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "**五因子扩展**则把净利率再拆开，将经营、融资"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "、税务三层分开：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "```\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "ROE = 税负因子 × 利息负担因子 × 营业"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "利润率 × 总资产周转率 × 权益乘数\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "    = (净利润/税前利润) × (税前利润"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "/EBIT) × (EBIT/营业收入) × ("
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "收入/平均总资产) × (平均总资产/平均权益)\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "```\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "这样做的价值在于：三因子里的净利率同时混入了利息"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "和税，看不出公司是“经营强”还是“杠杆高、税负低"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "”。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "五因子把利息负担单列，可与权益乘数对照，判断杠杆"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "究竟放大了经营回报，还是被利息侵蚀掉了。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "## 二、假设示例（数字均为虚构）\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "设某公司：营业收入 1,000，EBIT 140"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "，利息 20，税前利润 120，所得税 20，净利润"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " 100；平均总资产 800，平均所有者权益 400"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "**三因子逐步计算**\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 净利率 = 100 / 1,000 = **"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "10%**\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 总资产周转率 = 1,000 / 800 ="
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " **1.25**\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 权益乘数 = 800 / 400 = **2"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": ".0**\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- ROE = 10% × 1.25 × 2.0"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " = **25%**\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "验证：直接计算 100 / 400 = 25%，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "与乘积一致，恒等式闭合。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "**五因子对照**\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 税负因子 = 100 / 120 ≈ **83"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": ".3%**\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 利息负担因子 = 120 / 140 ≈ **"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "85.7%**\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 营业利润率 = 140 / 1,000 = **"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "14%**\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 周转率 1.25、权益乘数 2.0 不变\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- ROE = 0.833 × 0.857 × "
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "0.14 × 1.25 × 2.0 ≈ **25"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "%**\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "五因子把 10% 的净利率还原为“14% 的经营"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "利润率，被利息侵蚀约 14.3%、被税侵蚀约 16"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": ".7% 后剩下 10%”，杠杆的成本面因此可见。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "**对比情景：不同路径对 ROE 的影响**\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "| 情景 | 净利率 | 周转率 | 权益乘数 |"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " ROE |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "|---|---|---|---|---|\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "| 基准 | 10% | 1.25 | 2.0 |"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " 25% |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "| 加杠杆（乘数升至 2.5，其余不变） | 10"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "% | 1.25 | 2.5 | 31.25% |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "| 薄利多销（净利率 8%、周转 1.5） | "
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "8% | 1.5 | 2.0 | 24% |\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "两点值得注意：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "1. **加杠杆的 31.25% 是上限估计**"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "现实中负债上升会推高利息，利息负担因子随之下降，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "实际 ROE 增幅小于此，同时偿债压力与破产风险"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "上升。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "ROE 是未做风险调整的指标，数值高不等于质量好"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "2. **薄利多销情景 ROE 略降至 24%**"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "，但风险结构完全不同——它靠运营效率而非负债驱动"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "，可持续性与风险剖面和加杠杆路径不可类比。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "同等 ROE 可能对应完全不同的风险。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "## 三、口径问题：为什么用“平均”而非“期末”\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "净利润是全年流量，分母若用期末余额，会把“年末时"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "点状态”与“全年利润”错配。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "年内增发、回购、大额分红或季节性资产波动都会让期末"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "数失真。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "以示例说明：若年末回购使期末权益降至 350，误"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "用期末口径得 100 / 350 ≈ **28."
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "6%**，既高估 ROE，又因分子分母口径不一致"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "导致分解不闭合。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "因此：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 分母宜用平均余额（期初、期末均值或月度均值），"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "与流量口径匹配；\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 三（五）个因子必须同用平均或同用期末，否则乘积"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "无法还原 ROE；\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "- 同业比较时应统一口径；年内有重大股权融资的公司"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "，简单平均仍可能失真，需按增发时点加权。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "## 四、分析用途与局限\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "**用途**：横向识别同业 ROE 差异究竟来自"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "经营效率还是杠杆；纵向追踪驱动因子迁移，判断高 RO"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "E 是否可持续；借五因子区分“真实经营改善”与“"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "加杠杆、降税负”带来的账面提升。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "**局限**：会计口径会扭曲分解结果——表外负债"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "、经营租赁、商誉、回购都会影响权益乘数与利润率，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "需辅以现金流与风险指标交叉验证。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "此外，净利率与周转率常此消彼长（高毛利低周转 vs"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": " 薄利多销），二者乘积近似 ROA，杠杆再在 RO"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "A 之上放大波动，因此单看 ROE 数值不足以判断"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "公司质量。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "> 说明：以上公式与示例均为通用财务分析框架下的"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "type": "ai",
+        "content": "虚构数字，不涉及任何真实公司或外部数据。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "response": {
+        "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+        "content": "# ROE 的杜邦分解：把“赚钱能力”拆成三个来源\n\n## 一、核心思路\n\n净资产收益率（ROE）= 净利润 / 平均所有者权益，衡量股东每投入 1 元权益能赚回多少利润。但它只是一个结果数字，无法说明利润来自哪里。杜邦分解的做法是把 ROE 拆成几个相乘的比率，让“赚得多、转得快、借得多”三条路径各自显形。\n\n**三因子分解**（数学上恒等，不是近似）：\n\n```\nROE = 净利润/营业收入 × 营业收入/平均总资产 × 平均总资产/平均所有者权益\n    = 净利率 × 总资产周转率 × 权益乘数\n```\n\n| 因子 | 公式 | 经济含义 |\n|---|---|---|\n| 净利率 | 净利润 / 营业收入 | 每 1 元收入留下多少利润，反映定价权与成本费用控制 |\n| 总资产周转率 | 营业收入 / 平均总资产 | 每 1 元资产产出多少收入，反映资产运营效率 |\n| 权益乘数 | 平均总资产 / 平均所有者权益 | 每 1 元权益撬动多少资产，反映财务杠杆 |\n\n三者相乘必然还原为 ROE，因此可以把 ROE 理解为“盈利能力 × 运营效率 × 财务杠杆”的乘积。\n\n**五因子扩展**则把净利率再拆开，将经营、融资、税务三层分开：\n\n```\nROE = 税负因子 × 利息负担因子 × 营业利润率 × 总资产周转率 × 权益乘数\n    = (净利润/税前利润) × (税前利润/EBIT) × (EBIT/营业收入) × (收入/平均总资产) × (平均总资产/平均权益)\n```\n\n这样做的价值在于：三因子里的净利率同时混入了利息和税，看不出公司是“经营强”还是“杠杆高、税负低”。五因子把利息负担单列，可与权益乘数对照，判断杠杆究竟放大了经营回报，还是被利息侵蚀掉了。\n\n## 二、假设示例（数字均为虚构）\n\n设某公司：营业收入 1,000，EBIT 140，利息 20，税前利润 120，所得税 20，净利润 100；平均总资产 800，平均所有者权益 400。\n\n**三因子逐步计算**\n\n- 净利率 = 100 / 1,000 = **10%**\n- 总资产周转率 = 1,000 / 800 = **1.25**\n- 权益乘数 = 800 / 400 = **2.0**\n- ROE = 10% × 1.25 × 2.0 = **25%**\n\n验证：直接计算 100 / 400 = 25%，与乘积一致，恒等式闭合。\n\n**五因子对照**\n\n- 税负因子 = 100 / 120 ≈ **83.3%**\n- 利息负担因子 = 120 / 140 ≈ **85.7%**\n- 营业利润率 = 140 / 1,000 = **14%**\n- 周转率 1.25、权益乘数 2.0 不变\n- ROE = 0.833 × 0.857 × 0.14 × 1.25 × 2.0 ≈ **25%**\n\n五因子把 10% 的净利率还原为“14% 的经营利润率，被利息侵蚀约 14.3%、被税侵蚀约 16.7% 后剩下 10%”，杠杆的成本面因此可见。\n\n**对比情景：不同路径对 ROE 的影响**\n\n| 情景 | 净利率 | 周转率 | 权益乘数 | ROE |\n|---|---|---|---|---|\n| 基准 | 10% | 1.25 | 2.0 | 25% |\n| 加杠杆（乘数升至 2.5，其余不变） | 10% | 1.25 | 2.5 | 31.25% |\n| 薄利多销（净利率 8%、周转 1.5） | 8% | 1.5 | 2.0 | 24% |\n\n两点值得注意：\n\n1. **加杠杆的 31.25% 是上限估计**。现实中负债上升会推高利息，利息负担因子随之下降，实际 ROE 增幅小于此，同时偿债压力与破产风险上升。ROE 是未做风险调整的指标，数值高不等于质量好。\n2. **薄利多销情景 ROE 略降至 24%**，但风险结构完全不同——它靠运营效率而非负债驱动，可持续性与风险剖面和加杠杆路径不可类比。同等 ROE 可能对应完全不同的风险。\n\n## 三、口径问题：为什么用“平均”而非“期末”\n\n净利润是全年流量，分母若用期末余额，会把“年末时点状态”与“全年利润”错配。年内增发、回购、大额分红或季节性资产波动都会让期末数失真。\n\n以示例说明：若年末回购使期末权益降至 350，误用期末口径得 100 / 350 ≈ **28.6%**，既高估 ROE，又因分子分母口径不一致导致分解不闭合。因此：\n\n- 分母宜用平均余额（期初、期末均值或月度均值），与流量口径匹配；\n- 三（五）个因子必须同用平均或同用期末，否则乘积无法还原 ROE；\n- 同业比较时应统一口径；年内有重大股权融资的公司，简单平均仍可能失真，需按增发时点加权。\n\n## 四、分析用途与局限\n\n**用途**：横向识别同业 ROE 差异究竟来自经营效率还是杠杆；纵向追踪驱动因子迁移，判断高 ROE 是否可持续；借五因子区分“真实经营改善”与“加杠杆、降税负”带来的账面提升。\n\n**局限**：会计口径会扭曲分解结果——表外负债、经营租赁、商誉、回购都会影响权益乘数与利润率，需辅以现金流与风险指标交叉验证。此外，净利率与周转率常此消彼长（高毛利低周转 vs 薄利多销），二者乘积近似 ROA，杠杆再在 ROA 之上放大波动，因此单看 ROE 数值不足以判断公司质量。\n\n> 说明：以上公式与示例均为通用财务分析框架下的虚构数字，不涉及任何真实公司或外部数据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_5b300599d04447abad07bf57ea624b71",
+        "message_id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "request_id": "live50-20261024-a-005",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_5adc1a5d14c54013a45bc2b42211d789",
+        "request_id": "live50-20261024-a-005",
+        "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+        "role": "user",
+        "status": "completed",
+        "content": "ROE 的杜邦分解是什么？用一个假设例子解释，不需要外部信息。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:38:53.402668Z",
+        "completed_at": "2026-10-24T14:38:53.389811Z"
+      },
+      {
+        "message_id": "msg_b961b948adb147b5a779428b936ebd8b",
+        "request_id": "live50-20261024-a-005",
+        "run_id": "run_b7cc1610659e9f0984ae1ff65692dbde310cb22afc78935248f4b7fe99b5",
+        "role": "assistant",
+        "status": "completed",
+        "content": "# ROE 的杜邦分解：把“赚钱能力”拆成三个来源\n\n## 一、核心思路\n\n净资产收益率（ROE）= 净利润 / 平均所有者权益，衡量股东每投入 1 元权益能赚回多少利润。但它只是一个结果数字，无法说明利润来自哪里。杜邦分解的做法是把 ROE 拆成几个相乘的比率，让“赚得多、转得快、借得多”三条路径各自显形。\n\n**三因子分解**（数学上恒等，不是近似）：\n\n```\nROE = 净利润/营业收入 × 营业收入/平均总资产 × 平均总资产/平均所有者权益\n    = 净利率 × 总资产周转率 × 权益乘数\n```\n\n| 因子 | 公式 | 经济含义 |\n|---|---|---|\n| 净利率 | 净利润 / 营业收入 | 每 1 元收入留下多少利润，反映定价权与成本费用控制 |\n| 总资产周转率 | 营业收入 / 平均总资产 | 每 1 元资产产出多少收入，反映资产运营效率 |\n| 权益乘数 | 平均总资产 / 平均所有者权益 | 每 1 元权益撬动多少资产，反映财务杠杆 |\n\n三者相乘必然还原为 ROE，因此可以把 ROE 理解为“盈利能力 × 运营效率 × 财务杠杆”的乘积。\n\n**五因子扩展**则把净利率再拆开，将经营、融资、税务三层分开：\n\n```\nROE = 税负因子 × 利息负担因子 × 营业利润率 × 总资产周转率 × 权益乘数\n    = (净利润/税前利润) × (税前利润/EBIT) × (EBIT/营业收入) × (收入/平均总资产) × (平均总资产/平均权益)\n```\n\n这样做的价值在于：三因子里的净利率同时混入了利息和税，看不出公司是“经营强”还是“杠杆高、税负低”。五因子把利息负担单列，可与权益乘数对照，判断杠杆究竟放大了经营回报，还是被利息侵蚀掉了。\n\n## 二、假设示例（数字均为虚构）\n\n设某公司：营业收入 1,000，EBIT 140，利息 20，税前利润 120，所得税 20，净利润 100；平均总资产 800，平均所有者权益 400。\n\n**三因子逐步计算**\n\n- 净利率 = 100 / 1,000 = **10%**\n- 总资产周转率 = 1,000 / 800 = **1.25**\n- 权益乘数 = 800 / 400 = **2.0**\n- ROE = 10% × 1.25 × 2.0 = **25%**\n\n验证：直接计算 100 / 400 = 25%，与乘积一致，恒等式闭合。\n\n**五因子对照**\n\n- 税负因子 = 100 / 120 ≈ **83.3%**\n- 利息负担因子 = 120 / 140 ≈ **85.7%**\n- 营业利润率 = 140 / 1,000 = **14%**\n- 周转率 1.25、权益乘数 2.0 不变\n- ROE = 0.833 × 0.857 × 0.14 × 1.25 × 2.0 ≈ **25%**\n\n五因子把 10% 的净利率还原为“14% 的经营利润率，被利息侵蚀约 14.3%、被税侵蚀约 16.7% 后剩下 10%”，杠杆的成本面因此可见。\n\n**对比情景：不同路径对 ROE 的影响**\n\n| 情景 | 净利率 | 周转率 | 权益乘数 | ROE |\n|---|---|---|---|---|\n| 基准 | 10% | 1.25 | 2.0 | 25% |\n| 加杠杆（乘数升至 2.5，其余不变） | 10% | 1.25 | 2.5 | 31.25% |\n| 薄利多销（净利率 8%、周转 1.5） | 8% | 1.5 | 2.0 | 24% |\n\n两点值得注意：\n\n1. **加杠杆的 31.25% 是上限估计**。现实中负债上升会推高利息，利息负担因子随之下降，实际 ROE 增幅小于此，同时偿债压力与破产风险上升。ROE 是未做风险调整的指标，数值高不等于质量好。\n2. **薄利多销情景 ROE 略降至 24%**，但风险结构完全不同——它靠运营效率而非负债驱动，可持续性与风险剖面和加杠杆路径不可类比。同等 ROE 可能对应完全不同的风险。\n\n## 三、口径问题：为什么用“平均”而非“期末”\n\n净利润是全年流量，分母若用期末余额，会把“年末时点状态”与“全年利润”错配。年内增发、回购、大额分红或季节性资产波动都会让期末数失真。\n\n以示例说明：若年末回购使期末权益降至 350，误用期末口径得 100 / 350 ≈ **28.6%**，既高估 ROE，又因分子分母口径不一致导致分解不闭合。因此：\n\n- 分母宜用平均余额（期初、期末均值或月度均值），与流量口径匹配；\n- 三（五）个因子必须同用平均或同用期末，否则乘积无法还原 ROE；\n- 同业比较时应统一口径；年内有重大股权融资的公司，简单平均仍可能失真，需按增发时点加权。\n\n## 四、分析用途与局限\n\n**用途**：横向识别同业 ROE 差异究竟来自经营效率还是杠杆；纵向追踪驱动因子迁移，判断高 ROE 是否可持续；借五因子区分“真实经营改善”与“加杠杆、降税负”带来的账面提升。\n\n**局限**：会计口径会扭曲分解结果——表外负债、经营租赁、商誉、回购都会影响权益乘数与利润率，需辅以现金流与风险指标交叉验证。此外，净利率与周转率常此消彼长（高毛利低周转 vs 薄利多销），二者乘积近似 ROA，杠杆再在 ROA 之上放大波动，因此单看 ROE 数值不足以判断公司质量。\n\n> 说明：以上公式与示例均为通用财务分析框架下的虚构数字，不涉及任何真实公司或外部数据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "无需外部信息，直接解释 ROE 杜邦分解（三因子/五因子），并用一个假设公司数据完整演示计算与含义。",
+              "sequence": 0
+            },
+            {
+              "id": "analysis_agent:dupont_explanation",
+              "kind": "summary",
+              "label": "研究发现",
+              "status": "completed",
+              "message": "一、三因子杜邦分解 **公式** ROE = 净利润 / 平均所有者权益 = (净利润 / 营业收入) × (营业收入 / 平均总资产) × (平均总资产 / 平均所有者权益) = **净利率 × 总资产周转率 × 权益乘数** | 因子 | 定义 | 经济含义 | 主要驱动 | |---|---|---|---| | 净利率 | 净利润/营业收入 | 每 1 元收入最终留下多少利润，反映**盈利能力与成本费用控制** | 定价权、毛利率、期间费用率、税率 | | 总资产周…",
+              "sequence": 1
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "无需外部信息，直接解释 ROE 杜邦分解（三因子/五因子），并用一个假设公司数据完整演示计算与含义。",
+              "sequence": 2
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:38:53.402672Z",
+        "completed_at": "2026-10-24T14:39:25.761983Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:39:25.984499+00:00",
+  "elapsed_seconds": 32.727
+}

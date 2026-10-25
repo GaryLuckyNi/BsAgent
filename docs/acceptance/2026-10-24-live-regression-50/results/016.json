@@ -1,0 +1,581 @@
+{
+  "case_id": "016",
+  "category": "财务",
+  "question": "查询贵州茅台2024年年报的营业收入和归母净利润，保留单位并标注来源。",
+  "session_id": "live50-20261024-a-016",
+  "request_id": "live50-20261024-a-016",
+  "started_at": "2026-10-24T14:40:16.225248+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "message_id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+      "request_id": "live50-20261024-a-016"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "completed",
+      "message": "查询贵州茅台2024年年报的营业收入和归母净利润，保留原始单位并标注数据来源。"
+    },
+    {
+      "id": "tool_agent:moutai_2024_annual_results",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "started",
+      "message": "正在获取研究证据：获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。",
+      "task_id": "moutai_2024_annual_results",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:moutai_2024_annual_results",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "completed",
+      "message": "已取得研究证据：获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。",
+      "task_id": "moutai_2024_annual_results",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "completed",
+      "message": "查询贵州茅台2024年年报的营业收入和归母净利润，保留原始单位并标注数据来源。"
+    },
+    {
+      "type": "progress",
+      "stage": "composing_answer",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "message": "正在生成最终投研报告"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "## 贵州茅台（600519.SH）2024年年"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "报核心数据\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "根据已获取的2024年年度报告口径财务数据，贵州"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "茅台2024年度主要经营指标如下：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "| 指标 | 金额（元） | 折合（亿元） |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "|---|---|---|\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "| 营业收入 | 170,899,152,276"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": ".34 | 约 1,708.99 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "| 归属于上市公司股东的净利润 | 86,228"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": ",146,421.62 | 约 862.28 |\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "**数据来源说明：** 上述数据对应报告期为202"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "4年12月31日、公告日为2025年4月3日的年报"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "口径记录，取自 Tushare 财务数据接口（证券"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "代码 600519.SH）。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "### 补充口径与解读\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "- **营业收入与营业总收入的区分：** 同一记录"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "中\"营业总收入\"为 174,144,069,958"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": ".25 元（约 1,741.44 亿元），高于\""
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "营业收入\"约 324.49 亿元。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "两者差额主要来自利息收入、已赚保费、手续费及佣金"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "收入等营业总收入项下的其他构成，引用时需明确采用"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "哪一个口径，避免与市场常用的\"营业总收入\"口径混淆"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "- **盈利质量参考：** 同期营业利润为 119"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": ",688,579,453.23 元，利润总额为 "
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "119,638,578,194.46 元，归母净利润"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "约相当于营业收入的 50.5%，反映其较高的盈利"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "水平；该比例为基于上述数据的计算值，非年报直接披露"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "- **数据核验提示：** 上述数据来自财务数据"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "接口的结构化记录，尚未逐字比对年报 PDF 原文"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "若用于正式披露引用或对外发布，建议以公司2024"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "年年度报告原文中的合并利润表进行最终复核，尤其注意"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "type": "ai",
+        "content": "营业收入口径与年报表述是否完全一致。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "response": {
+        "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+        "content": "## 贵州茅台（600519.SH）2024年年报核心数据\n\n根据已获取的2024年年度报告口径财务数据，贵州茅台2024年度主要经营指标如下：\n\n| 指标 | 金额（元） | 折合（亿元） |\n|---|---|---|\n| 营业收入 | 170,899,152,276.34 | 约 1,708.99 |\n| 归属于上市公司股东的净利润 | 86,228,146,421.62 | 约 862.28 |\n\n**数据来源说明：** 上述数据对应报告期为2024年12月31日、公告日为2025年4月3日的年报口径记录，取自 Tushare 财务数据接口（证券代码 600519.SH）。\n\n### 补充口径与解读\n\n- **营业收入与营业总收入的区分：** 同一记录中\"营业总收入\"为 174,144,069,958.25 元（约 1,741.44 亿元），高于\"营业收入\"约 324.49 亿元。两者差额主要来自利息收入、已赚保费、手续费及佣金收入等营业总收入项下的其他构成，引用时需明确采用哪一个口径，避免与市场常用的\"营业总收入\"口径混淆。\n- **盈利质量参考：** 同期营业利润为 119,688,579,453.23 元，利润总额为 119,638,578,194.46 元，归母净利润约相当于营业收入的 50.5%，反映其较高的盈利水平；该比例为基于上述数据的计算值，非年报直接披露。\n- **数据核验提示：** 上述数据来自财务数据接口的结构化记录，尚未逐字比对年报 PDF 原文。若用于正式披露引用或对外发布，建议以公司2024年年度报告原文中的合并利润表进行最终复核，尤其注意营业收入口径与年报表述是否完全一致。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_5685b235ba584bf89d9437a7b2a70af2",
+        "message_id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "request_id": "live50-20261024-a-016",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_54e9be6dbdfe437da88391ec00a969eb",
+        "request_id": "live50-20261024-a-016",
+        "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+        "role": "user",
+        "status": "completed",
+        "content": "查询贵州茅台2024年年报的营业收入和归母净利润，保留单位并标注来源。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:40:16.256873Z",
+        "completed_at": "2026-10-24T14:40:16.255624Z"
+      },
+      {
+        "message_id": "msg_9ab5eab0cfa94ed88399c2ac7fc45703",
+        "request_id": "live50-20261024-a-016",
+        "run_id": "run_a7e755fb3c5936a86edc942f25ae9fe42837887b6917ce65758ad3d93a0e",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 贵州茅台（600519.SH）2024年年报核心数据\n\n根据已获取的2024年年度报告口径财务数据，贵州茅台2024年度主要经营指标如下：\n\n| 指标 | 金额（元） | 折合（亿元） |\n|---|---|---|\n| 营业收入 | 170,899,152,276.34 | 约 1,708.99 |\n| 归属于上市公司股东的净利润 | 86,228,146,421.62 | 约 862.28 |\n\n**数据来源说明：** 上述数据对应报告期为2024年12月31日、公告日为2025年4月3日的年报口径记录，取自 Tushare 财务数据接口（证券代码 600519.SH）。\n\n### 补充口径与解读\n\n- **营业收入与营业总收入的区分：** 同一记录中\"营业总收入\"为 174,144,069,958.25 元（约 1,741.44 亿元），高于\"营业收入\"约 324.49 亿元。两者差额主要来自利息收入、已赚保费、手续费及佣金收入等营业总收入项下的其他构成，引用时需明确采用哪一个口径，避免与市场常用的\"营业总收入\"口径混淆。\n- **盈利质量参考：** 同期营业利润为 119,688,579,453.23 元，利润总额为 119,638,578,194.46 元，归母净利润约相当于营业收入的 50.5%，反映其较高的盈利水平；该比例为基于上述数据的计算值，非年报直接披露。\n- **数据核验提示：** 上述数据来自财务数据接口的结构化记录，尚未逐字比对年报 PDF 原文。若用于正式披露引用或对外发布，建议以公司2024年年度报告原文中的合并利润表进行最终复核，尤其注意营业收入口径与年报表述是否完全一致。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "查询贵州茅台2024年年报的营业收入和归母净利润，保留原始单位并标注数据来源。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:moutai_2024_annual_results",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。",
+              "task_id": "moutai_2024_annual_results",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入和归属于上市公司股东的净利润，保留原始金额单位（如元/亿元），并记录数据来源（年报或权威财经数据平台）。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "查询贵州茅台2024年年报的营业收入和归母净利润，保留原始单位并标注数据来源。",
+              "sequence": 2
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:40:16.256875Z",
+        "completed_at": "2026-10-24T14:40:27.364511Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:40:27.484637+00:00",
+  "elapsed_seconds": 11.259
+}

@@ -1,6 +1,8 @@
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from app.graph.image_context import summarize_image_analyses
+from app.graph.nodes.synthesizer import _draft
+from app.graph.planning.context import result_catalog
 from app.graph.state import (
     AgentState,
     context_compaction_payload,
@@ -33,9 +35,15 @@ def build_intent_router_node(
                 "context_summary": _context_summary(state),
                 "conversation_history": _recent_conversation_history(state),
                 "image_analyses": summarize_image_analyses(state["image_analyses"]),
+                "available_results": result_catalog(state),
             },
         )
         state["intent"] = result.model_dump()
+        # 旧提供方响应缺路由时保守保留旧语义；恢复中的旧运行不会重新经过入口。
+        if "route" in result.model_fields_set:
+            state["request_flow_version"] = "context-routing-v1"
+        if result.route == "direct_answer":
+            state["draft_answer"] = _draft(result.answer, response_type="research_answer")
         return state
 
     return node
@@ -64,7 +72,7 @@ def _recent_conversation_history(state: AgentState, *, limit: int = 8) -> list[d
         ):
             continue
         if isinstance(message, (HumanMessage, AIMessage)):
-            history.append({"role": message.type, "content": str(message.content)})
+            history.append({"ref": f"message:{message.id}", "role": message.type, "content": str(message.content)})
         if len(history) >= limit:
             break
     history.reverse()

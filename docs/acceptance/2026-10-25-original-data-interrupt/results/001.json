@@ -1,0 +1,175 @@
+{
+  "case_id": "001",
+  "category": "原句来源确认",
+  "question": "宁德时代2026年半年报的营业收入和归母净利润是多少？",
+  "session_id": "original-data-confirm-20261025-a-001",
+  "request_id": "original-data-confirm-20261025-a-001",
+  "started_at": "2026-10-25T13:37:51.813269+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "message_id": "msg_f39127fb6de24ae18c3ca3d0eab84472",
+      "request_id": "original-data-confirm-20261025-a-001"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "status": "completed",
+      "message": "查询宁德时代（300750.SZ）2026年半年报的营业收入与归母净利润，优先使用业绩快报或财务指标数据核实报告期数据。"
+    },
+    {
+      "id": "tool_agent:catl_2026h1_revenue_profit",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "status": "started",
+      "message": "正在获取研究证据：获取宁德时代（300750.SZ）2026年半年报（报告期2026-06-30）的营业收入和归属于母公司股东的净利润，并核对公告日期与报告期字段，确认数据是否已披露。",
+      "task_id": "catl_2026h1_revenue_profit",
+      "group_id": "evidence:1",
+      "task_label": "获取宁德时代（300750.SZ）2026年半年报（报告期2026-06-30）的营业收入和归属于母公司股东的净利润，并核对公告日期与报告期字段，确认数据是否已披露。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:catl_2026h1_revenue_profit",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "status": "completed",
+      "message": "已取得研究证据：获取宁德时代（300750.SZ）2026年半年报（报告期2026-06-30）的营业收入和归属于母公司股东的净利润，并核对公告日期与报告期字段，确认数据是否已披露。",
+      "task_id": "catl_2026h1_revenue_profit",
+      "group_id": "evidence:1",
+      "task_label": "获取宁德时代（300750.SZ）2026年半年报（报告期2026-06-30）的营业收入和归属于母公司股东的净利润，并核对公告日期与报告期字段，确认数据是否已披露。",
+      "activity_type": "evidence"
+    },
+    {
+      "type": "input_required",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "options": [
+        {
+          "label": "对以上任务使用联网搜索",
+          "value": "web_search",
+          "description": "只对清单中的任务替代取证；公开来源不等价于原接口数据。"
+        },
+        {
+          "label": "仅使用已有资料",
+          "value": "use_existing",
+          "description": "不搜索，保留原接口数据缺口。"
+        }
+      ],
+      "question": "以下任务的数据源账号权限不足，是否改用联网搜索补充公开资料？",
+      "trace_id": "trace_233091f5d3c74a8ab04d3b207782e56d",
+      "input_type": "selection",
+      "message_id": "msg_f39127fb6de24ae18c3ca3d0eab84472",
+      "request_id": "original-data-confirm-20261025-a-001",
+      "interrupt_id": "d534e7963a96138534923693fa8ee8be",
+      "interaction_id": "interaction_ba602a6672812a4202ddaf64a29c1fe8",
+      "interrupt_type": "user_input",
+      "recovery_batch": {
+        "items": [
+          {
+            "reason": "数据源账号权限不足，原接口未执行。",
+            "item_id": "call_eb233f548ba3c7c67ed1880ada7335b2",
+            "task_goal": "获取宁德时代（300750.SZ）2026年半年报（报告期2026-06-30）的营业收入和归属于母公司股东的净利润，并核对公告日期与报告期字段，确认数据是否已披露。",
+            "original_tool": "mcp.tushare.express_vip",
+            "source_notice": "联网搜索为替代来源，未经原接口验证；原接口数据仍缺失。"
+          }
+        ],
+        "digest": "e97b6835ef1876cc254104642e02e4ade7c38b14c109117001e7fc06d2f93ba8",
+        "version": "permission-recovery-batch-v1",
+        "batch_id": "recovery_e97b6835ef1876cc254104642e02e4ad"
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+      "status": "interrupted"
+    }
+  ],
+  "status": "interrupted",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+  "business_trace_id": "trace_233091f5d3c74a8ab04d3b207782e56d",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_86268f9e889641fbbe541864aadd6c99",
+        "request_id": "original-data-confirm-20261025-a-001",
+        "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+        "role": "user",
+        "status": "completed",
+        "content": "宁德时代2026年半年报的营业收入和归母净利润是多少？",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-25T13:37:52.461738Z",
+        "completed_at": "2026-10-25T13:37:52.444157Z"
+      },
+      {
+        "message_id": "msg_f39127fb6de24ae18c3ca3d0eab84472",
+        "request_id": "original-data-confirm-20261025-a-001",
+        "run_id": "run_00113946037465180c9ce7018bffc3c78f57b4ca0b25e5ea6e6e12fac19a",
+        "role": "assistant",
+        "status": "interrupted",
+        "content": "",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {},
+        "created_at": "2026-10-25T13:37:52.461745Z",
+        "completed_at": null
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-25T13:38:02.515272+00:00",
+  "elapsed_seconds": 10.7
+}

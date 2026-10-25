@@ -5,10 +5,22 @@ from typing import Any
 
 from langgraph.runtime import Runtime
 
-from app.graph.planning.context import user_materials
+from app.graph.planning.context import request_context, user_materials
 from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
 from app.graph.planning.evidence_projection import EvidenceProjection
+from app.graph.planning.numeric_evidence import (
+    numeric_conflict,
+    numeric_fallback,
+    numeric_references,
+    project_numeric_materials,
+)
+from app.graph.planning.request_flow import accept_replan, replan_block_reason, uses_request_flow
 from app.graph.planning.scheduler import synthesis_handoff_task
+from app.graph.planning.synthesis_decision import (
+    REPLAN_PROMPT,
+    decision_schema,
+    parse_synthesis_decision,
+)
 from app.graph.public_events import build_public_llm_stream_handler
 from app.graph.state import AgentState, merge_task_results
 from app.llm.factory import LlmClient, invoke_llm_completion
@@ -34,6 +46,8 @@ def build_synthesizer_node(
     on_memory_recall_failure: Callable[[AgentState], None] | None = None,
 ):
     def node(state: AgentState, runtime: Runtime | None = None) -> AgentState:
+        if uses_request_flow(state):
+            state["synthesis_decision"] = None
         handled_error = next(
             (error for error in reversed(state["errors"]) if error.get("handled")),
             None,
@@ -59,7 +73,7 @@ def build_synthesizer_node(
             for result in results
             if result.status == "success" and result.tool_name != "search_tool"
         ]
-        if failures and not successful_results:
+        if failures and not successful_results and not uses_request_flow(state):
             content = _failure_response(failures)
             state["draft_answer"] = _draft(
                 content,
@@ -83,6 +97,10 @@ def build_synthesizer_node(
             llm_client=llm_client,
             handoff=handoff,
         )
+        if content is None:
+            state["draft_answer"] = None
+            accept_replan(state, state["synthesis_decision"]["replan_request"])
+            return state
         state["draft_answer"] = _draft(
             _ensure_financial_disclaimer(_strip_model_brand(content)),
             response_type="research_answer",
@@ -132,14 +150,27 @@ def _current_results(
     *, handoff: SubTaskModel | None = None,
 ) -> list[TaskResultModel]:
     task_ids = {task.id for task in plan.tasks} if plan else set()
+    historical_ids = set(_research_task_goals(state)) - task_ids
     referenced = set(handoff.evidence_task_ids) if handoff else set()
     return [
         result
         for item in state.get("task_results", [])
         for result in [TaskResultModel.model_validate(item)]
         if not task_ids or result.task_id in task_ids
-        or (result.task_id in referenced and result.status == "success")
+        or (result.task_id in (referenced | historical_ids) and result.status == "success")
     ]
+
+
+def _research_task_goals(state: AgentState) -> dict[str, str]:
+    """只复用本轮已声明计划的成果，修订不意味着此前证据失效。"""
+    plans = [entry["plan"] for entry in state.get("plan_history", [])]
+    if state.get("plan"):
+        plans.append(state["plan"])
+    return {
+        task.id: task.task_goal
+        for raw_plan in plans
+        for task in PlanModel.model_validate(raw_plan).tasks
+    }
 
 
 def _render_answer(
@@ -150,7 +181,7 @@ def _render_answer(
     preferences: dict[str, Any],
     llm_client: LlmClient | None,
     handoff: SubTaskModel | None = None,
-) -> str:
+) -> str | None:
     research_materials, data_limitations = _public_research_context(state, results)
     if llm_client is None:
         if handoff is not None:
@@ -168,11 +199,37 @@ def _render_answer(
         "不得冒充模型厂商，不得给出确定性收益承诺或直接买卖指令。"
     )
     projection = EvidenceProjection()
+    references = numeric_references(results)
+    numeric_materials = project_numeric_materials(research_materials, references)
     materials = [
         {**material, "content": projection.content(material["content"])}
-        for material in research_materials
+        for material in numeric_materials
     ]
     payload = {"goal": goal, "research_materials": materials, "data_limitations": data_limitations}
+    new_flow = uses_request_flow(state)
+    allow_replan = new_flow and replan_block_reason(state) is None
+    if new_flow:
+        payload.update(
+            user_message=state["user_message"], request_context=request_context(state),
+            current_plan=state.get("plan"),
+            task_statuses=[{
+                "task_id": item.task_id, "status": item.status, "error_code": item.error_code,
+            } for item in results],
+            historical_execution_limits=_historical_execution_limits(state, results),
+            recovery={
+                "outcomes": [{"call_id": key, "status": value.get("status"),
+                              "error_code": value.get("error_code")}
+                             for key, value in state.get("recovery_outcomes", {}).items()],
+                "has_pending_input": state.get("pending_user_input") is not None,
+            },
+            allow_replan=allow_replan,
+            replan_stop_reason=state.get("replan_stop_reason"),
+            required_schema=decision_schema(allow_replan),
+        )
+        system_prompt += (
+            "可依据 request_context 中用户提供的材料分析，区分用户前提与已核实外部证据。\n"
+            + REPLAN_PROMPT
+        )
     assessment = (state.get("planner_decision") or {}).get("reason")
     if assessment:
         payload["research_assessment"] = {"reason": assessment}
@@ -206,7 +263,8 @@ def _render_answer(
     stream_handler = build_public_llm_stream_handler(
         "synthesizer",
         state,
-        stream_content=True,
+        # 可确定核验的金融数值在校验完成前不向客户端流式发布。
+        stream_content=not references and not new_flow,
     )
     try:
         completion = invoke_llm_completion(
@@ -223,11 +281,48 @@ def _render_answer(
         )
     finally:
         stream_handler.flush()
-    return completion.content.strip() or _fallback_answer(
+    content = completion.content
+    if new_flow:
+        for attempt in range(2):
+            try:
+                decision = parse_synthesis_decision(content)
+                if decision.action == "request_replan" and not allow_replan:
+                    raise ValueError("本次只能输出 answer，不允许申请重新规划")
+                state["synthesis_decision"] = decision.model_dump(mode="json", exclude_none=True)
+                if decision.action == "request_replan":
+                    return None
+                content = decision.answer
+                break
+            except ValueError:
+                if attempt:
+                    state["replan_stop_reason"] = "synthesis_decision_invalid"
+                    return _fallback_answer(goal, research_materials, data_limitations)
+                content = invoke_llm_completion(
+                    llm_client, system_prompt=system_prompt,
+                    user_prompt=json.dumps({**payload, "format_repair": (
+                        "上次输出不符合互斥 JSON 协议，请重新按 required_schema 输出；不补造事实。"
+                    )}, ensure_ascii=False),
+                    temperature=0.0, max_tokens=6144, thinking=False,
+                ).content
+    if references and numeric_conflict(content, references):
+        return numeric_fallback(research_materials, data_limitations, references)
+    return content.strip() or _fallback_answer(
         goal,
         research_materials,
         data_limitations,
     )
+
+
+def _historical_execution_limits(state: AgentState, results: list[TaskResultModel]) -> list[dict]:
+    """旧失败仅作为执行限制，不提升为业务证据，也不因计划改名丢失。"""
+    included = {result.task_id for result in results}
+    goals = _research_task_goals(state)
+    return [{
+        "task_id": item["task_id"], "task_goal": goals[item["task_id"]],
+        "status": item["status"], "error_code": item.get("error_code"),
+    } for item in state.get("task_results", [])
+        if item["task_id"] not in included and item["task_id"] in goals
+        and item["status"] != "success"][-24:]
 
 
 def _public_research_context(
@@ -235,7 +330,7 @@ def _public_research_context(
     results: list[TaskResultModel],
 ) -> tuple[list[dict[str, str]], list[str]]:
     plan = _validated_plan(state)
-    task_goals = {task.id: task.task_goal for task in plan.tasks} if plan else {}
+    task_goals = _research_task_goals(state)
     research_materials: list[dict[str, str]] = []
     data_limitations: list[str] = list(
         (state.get("planner_decision") or {}).get("unresolved_questions") or []
@@ -271,6 +366,8 @@ def _public_research_context(
         data_limitations.append("权限不足的替代路径未继续，基于已有资料回答；原接口数据仍缺失。")
     elif stop_reason == "planner_feedback_invalid":
         data_limitations.append("后续研究步骤未能确定，部分研究目标尚未核实。")
+    elif stop_reason and uses_request_flow(state):
+        data_limitations.append("部分执行步骤未完成，保留已有可用材料与数据限制。")
     elif state.get("planner_stop_reason"):
         data_limitations.append("执行预算已用尽，部分研究目标尚未核实。")
     return research_materials, list(dict.fromkeys(data_limitations))

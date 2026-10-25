@@ -1,0 +1,82 @@
+[
+  {
+    "case": "001",
+    "run": {
+      "status": "completed",
+      "producer_done": true
+    },
+    "receipts": [
+      {
+        "tool_name": "mcp.tushare.anns_d",
+        "status": "settled",
+        "execution_state": "not_started"
+      }
+    ]
+  },
+  {
+    "case": "002",
+    "run": {
+      "status": "completed",
+      "producer_done": true
+    },
+    "receipts": [
+      {
+        "tool_name": "mcp.tushare.income_vip",
+        "status": "settled",
+        "execution_state": "not_started"
+      }
+    ]
+  },
+  {
+    "case": "003",
+    "run": {
+      "status": "completed",
+      "producer_done": true
+    },
+    "receipts": [
+      {
+        "tool_name": "mcp.tushare.daily",
+        "status": "settled",
+        "execution_state": "completed"
+      }
+    ]
+  },
+  {
+    "case": "004",
+    "run": {
+      "status": "completed",
+      "producer_done": true
+    },
+    "receipts": [
+      {
+        "tool_name": "mcp.tushare.daily",
+        "status": "settled",
+        "execution_state": "completed"
+      },
+      {
+        "tool_name": "mcp.tushare.daily",
+        "status": "settled",
+        "execution_state": "completed"
+      },
+      {
+        "tool_name": "mcp.tushare.daily",
+        "status": "settled",
+        "execution_state": "completed"
+      }
+    ]
+  },
+  {
+    "case": "005",
+    "run": {
+      "status": "interrupted",
+      "producer_done": true
+    },
+    "receipts": [
+      {
+        "tool_name": "mcp.tushare.anns_d",
+        "status": "settled",
+        "execution_state": "not_started"
+      }
+    ]
+  }
+]

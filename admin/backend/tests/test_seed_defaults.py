@@ -7,7 +7,7 @@ from app.models import SkillProfileRecord
 from app.seed_defaults import seed_default_skills
 
 
-def test_default_research_skills_are_summary_only_and_seeded_idempotently():
+def test_disabled_default_skills_are_not_created():
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -20,29 +20,37 @@ def test_default_research_skills_are_summary_only_and_seeded_idempotently():
     assert "evidence_contract" not in columns
 
     with Session(engine) as session:
-        assert seed_default_skills(session) == 3
-        company_snapshot = session.get(SkillProfileRecord, "company_snapshot")
-        assert company_snapshot is not None
-        assert company_snapshot.supported_intents == ["task_workflow"]
-        assert company_snapshot.supported_sub_intents == ["company_snapshot"]
-        assert "第 1 步：调用工具 `mcp.local.stock.resolve_company`" in company_snapshot.summary
-        assert "必须返回字段：symbol、name" in company_snapshot.summary
-        assert "调用工具 `rag_search`" in company_snapshot.summary
+        assert seed_default_skills(session) == 0
+        assert seed_default_skills(session, mcp_server_name="tushare") == 0
+        assert list(session.scalars(select(SkillProfileRecord))) == []
 
-        financial_analysis = session.get(SkillProfileRecord, "financial_report_analysis")
-        assert financial_analysis is not None
-        assert "mcp.local.stock.financial_metrics" in financial_analysis.summary
-        assert "revenue、net_profit_parent" in financial_analysis.summary
 
-        risk_scan = session.get(SkillProfileRecord, "risk_scan")
-        assert risk_scan is not None
-        assert "mcp.local.stock.risk_events" not in risk_scan.summary
-        assert "mcp.local.stock.announcement_search" in risk_scan.summary
+def test_disabled_default_seeding_preserves_existing_admin_skills():
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
 
-        company_snapshot.summary = "管理员自定义说明"
+    with Session(engine) as session:
+        company_snapshot = SkillProfileRecord(
+            name="company_snapshot",
+            version="2.0.0",
+            summary="管理员自定义说明",
+            supported_intents=["financial_research"],
+            supported_domains=["a_share_equity_research"],
+            supported_sub_intents=["general_research"],
+            enabled=False,
+        )
+        session.add(company_snapshot)
         session.commit()
         assert seed_default_skills(session) == 0
+        assert seed_default_skills(session) == 0
+        session.expire_all()
 
         records = list(session.scalars(select(SkillProfileRecord)))
-        assert len(records) == 3
-        assert session.get(SkillProfileRecord, "company_snapshot").summary == ("管理员自定义说明")
+        assert len(records) == 1
+        assert records[0].name == "company_snapshot"
+        assert records[0].version == "2.0.0"
+        assert records[0].summary == "管理员自定义说明"
+        assert records[0].supported_intents == ["financial_research"]
+        assert records[0].supported_domains == ["a_share_equity_research"]
+        assert records[0].supported_sub_intents == ["general_research"]
+        assert records[0].enabled is False

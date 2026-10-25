@@ -8,7 +8,9 @@
     <el-table class="skills-table" v-loading="loading" :data="items" border height="calc(100vh - 220px)">
       <el-table-column prop="name" label="Name" min-width="180" show-overflow-tooltip />
       <el-table-column prop="version" label="Version" width="120" show-overflow-tooltip />
-      <el-table-column prop="summary" label="Summary" min-width="260" show-overflow-tooltip :tooltip-options="{ popperClass: 'skill-summary-tooltip' }" />
+      <el-table-column prop="summary" label="Summary" min-width="260"
+        :show-overflow-tooltip="{ popperClass: 'skill-summary-tooltip' }"
+        :tooltip-formatter="formatSkillSummary" />
       <el-table-column prop="risk_level" label="Risk" width="100" />
       <el-table-column label="Enabled" width="110">
         <template #default="{ row }">
@@ -77,7 +79,7 @@
         <el-form-item label="Allowed Domain">
           <el-select v-model="form.supported_domains" multiple filterable clearable
             aria-label="Allowed Domain" placeholder="先选择意图，再选择关联领域"
-            :disabled="catalogLoading || Boolean(catalogError) || !form.supported_intents.length"
+            :disabled="catalogLoading || Boolean(catalogError) || (!form.supported_intents.length && !form.supported_domains.length)"
             @change="onDomainsChange">
             <el-option v-for="option in domainOptions" :key="option.value" v-bind="option" />
           </el-select>
@@ -85,7 +87,7 @@
         <el-form-item label="Allowed Subdomain">
           <el-select v-model="form.supported_sub_intents" multiple filterable clearable
             aria-label="Allowed Subdomain" placeholder="先选择领域，再选择关联子领域"
-            :disabled="catalogLoading || Boolean(catalogError) || !form.supported_domains.length">
+            :disabled="catalogLoading || Boolean(catalogError) || (!form.supported_domains.length && !form.supported_sub_intents.length)">
             <el-option v-for="option in subdomainOptions" :key="option.value" v-bind="option" />
           </el-select>
         </el-form-item>
@@ -110,7 +112,7 @@
 
 <script setup lang="ts">
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, h, onMounted, reactive, ref, watch } from 'vue'
 import { apiErrorMessage } from '../api/client'
 import { listBusinessIntents } from '../api/businessIntents'
 import { createSkill, deleteSkill, listSkills, updateSkill } from '../api/skills'
@@ -150,6 +152,13 @@ const intentOptions = computed(() => selectionOptions(intentValues.value, form.s
 const domainOptions = computed(() => selectionOptions(domainValues.value, form.supported_domains))
 const subdomainOptions = computed(() => selectionOptions(subdomainValues.value, form.supported_sub_intents))
 
+function formatSkillSummary({ row }: { row: SkillProfile }) {
+  return h('div', [
+    h('div', { class: 'skill-summary-tooltip__body' }, row.summary.replace(/\n\s*\n/g, '\n')),
+    h('div', { class: 'skill-summary-tooltip__hint' }, '完整流程请点击“编辑”查看')
+  ])
+}
+
 function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))]
 }
@@ -158,8 +167,8 @@ function unique(values: string[]): string[] {
 function selectionOptions(values: string[], selected: string[]) {
   return unique([...values, ...selected]).map((value) => ({
     value,
-    label: values.includes(value) ? value : `${value}（不在当前关联目录中）`,
-    disabled: !values.includes(value)
+    // 失效值只因“已选中”才临时出现：允许移除，移除后自动消失，不能重新添加。
+    label: values.includes(value) ? value : `${value}（已失效，请移除或重新选择）`
   }))
 }
 
@@ -325,16 +334,24 @@ function handleDialogClose(done: () => void) {
 </script>
 
 <style>
-.skill-summary-tooltip {
-  width: min(420px, calc(100vw - 32px));
-  max-width: min(420px, calc(100vw - 32px));
+.skill-summary-tooltip.el-popper {
+  width: min(360px, calc(100vw - 32px));
+  max-width: min(360px, calc(100vw - 32px));
+  box-sizing: border-box;
+  line-height: 1.55;
+}
+.skill-summary-tooltip__body {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  line-height: 1.55;
+}
+.skill-summary-tooltip__hint {
+  margin-top: 6px;
+  color: #cbd5e1;
+  font-size: 11px;
 }
 </style>
 

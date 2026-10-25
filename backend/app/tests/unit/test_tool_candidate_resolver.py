@@ -1,3 +1,4 @@
+import pytest
 from app.schemas.tools import ToolSpec
 from app.tools.candidate_resolver import ToolCandidateResolver
 from app.tools.search import ToolSearchHit, ToolSearchResponse
@@ -196,3 +197,86 @@ def test_specialized_search_excludes_platform_tools_before_top_k():
     result = ToolCandidateResolver(search_service=service, top_k=1).resolve(
         task_goal="行情", tenant_id="t", user_id="u", permission_scopes=("mcp:tushare", "web:search"), has_successful_dependencies=False)
     assert [spec.name for spec in result.candidates] == ["mcp.tushare.daily", "web_search"]
+
+
+def _planning_resolution(*, scopes=("mcp:tushare",), description=None, **changes):
+    from app.tools.planning_candidates import PlanningToolSnapshot, project_card
+
+    service = FakeSearchService([_hit("mcp.tushare.stock_basic")])
+    if description:
+        service.specs["mcp.tushare.stock_basic"] = service.specs["mcp.tushare.stock_basic"].model_copy(
+            update={"description": description})
+    card = project_card(service.specs["mcp.tushare.stock_basic"])
+    snapshot = PlanningToolSnapshot(request_id="r", catalog_digest="digest", query_fingerprint="q", candidates=[card])
+    kwargs = {"task_goal": "取得基础信息", "tenant_id": "t", "user_id": "u", "request_id": "r",
+              "permission_scopes": scopes, "has_successful_dependencies": False, "web_search_allowed": False,
+              "planning_snapshot": snapshot, "candidate_refs": (card.ref,)}
+    kwargs.update(changes)
+    return service, ToolCandidateResolver(search_service=service), kwargs
+
+
+def test_planning_candidates_are_reused_without_new_search():
+    service, resolver, kwargs = _planning_resolution()
+    result = resolver.resolve(**kwargs)
+    assert service.last_request is None
+    assert result.source == "planning_reuse"
+    assert [spec.name for spec in result.candidates] == ["mcp.tushare.stock_basic"]
+
+
+def test_planning_reuse_rechecks_declared_permissions_without_searching():
+    service, resolver, kwargs = _planning_resolution(scopes=())
+    result = resolver.resolve(**kwargs)
+    assert not result.candidates and service.last_request is None
+
+
+@pytest.mark.parametrize("changes", [
+    {"request_id": "other"}, {"candidate_refs": ("tool:unknown@1",)},
+    {"planning_snapshot": None},
+])
+def test_planning_reuse_rejects_unbound_references(changes):
+    _service, resolver, kwargs = _planning_resolution(**changes)
+    with pytest.raises(ValueError, match="候选"):
+        resolver.resolve(**kwargs)
+
+
+def test_planning_reuse_rejects_changed_catalog_or_version():
+    from app.tools.registry import ToolCatalogChangedError
+
+    service, resolver, kwargs = _planning_resolution()
+    service.specs["mcp.tushare.stock_basic"] = service.specs["mcp.tushare.stock_basic"].model_copy(update={"version": "2"})
+    with pytest.raises(ToolCatalogChangedError):
+        resolver.resolve(**kwargs)
+    service.catalog_digest = "changed"
+    with pytest.raises(ToolCatalogChangedError):
+        resolver.resolve(**kwargs)
+
+
+def test_incompatible_planning_candidates_allow_one_task_search():
+    service, resolver, kwargs = _planning_resolution(description="美股公司基础信息", task_goal="查询A股公司基础信息")
+    result = resolver.resolve(**kwargs)
+    assert service.last_request is not None
+    assert result.source == "task_search"
+    assert not result.candidates
+
+
+def test_planning_reuse_respects_runtime_denial_without_rediscovery():
+    from app.tools.runtime_capabilities import CapabilityObservation, CapabilityScope
+
+    service, resolver, kwargs = _planning_resolution(web_search_allowed=True, scopes=("mcp:tushare", "web:search"))
+    scope = CapabilityScope("t", "u", "r", "mcp.tushare.stock_basic", "1.0.0", "binding-1", None)
+    result = resolver.resolve(**kwargs, capability_observations=(CapabilityObservation("old", scope, "tool", "fp", None),))
+    assert service.last_request is None
+    assert [spec.name for spec in result.candidates] == ["web_search"]
+    assert result.availability_skips[0]["observation_call_id"] == "old"
+
+
+def test_planning_reuse_preserves_retrieval_provenance_for_observability():
+    from app.graph.nodes.tool_agent import _selection_confidence
+
+    _service, resolver, kwargs = _planning_resolution()
+    snapshot = kwargs["planning_snapshot"]
+    kwargs["planning_snapshot"] = snapshot.model_copy(update={"candidates": [
+        snapshot.candidates[0].model_copy(update={"sources": ["bm25"]})
+    ]})
+    result = resolver.resolve(**kwargs)
+    assert _selection_confidence("mcp.tushare.stock_basic", result) == 0.75

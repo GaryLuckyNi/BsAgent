@@ -1,0 +1,62 @@
+{
+  "case": "real_skill",
+  "trace_id": "1b4790626b38d9535d23d9983fd6b95c",
+  "route": "plan",
+  "query": "分析银之杰管理层薪酬和持股，按已配置的业务流程展示人员、报告期、薪酬和持股数量。",
+  "candidates": [
+    {
+      "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+      "tool_name": "mcp.tushare.stk_rewards",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    }
+  ],
+  "plan": {
+    "public_summary": "先解析银之杰股票代码，再调用管理层薪酬持股数据，优先取最新年度报告期，按姓名、职务、报告期、薪酬、持股数量整理，空值标注未披露。",
+    "tasks": [
+      {
+        "id": "resolve_yzj_company",
+        "task_goal": "解析银之杰的 A 股股票代码（ts_code），作为后续管理层薪酬持股查询的输入。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回银之杰对应的 ts_code 与名称",
+          "若无法解析出唯一 ts_code，明确说明缺失原因"
+        ],
+        "tool_search_query": "A股公司名称解析为股票代码 ts_code",
+        "tool_candidate_refs": [],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      },
+      {
+        "id": "fetch_yzj_rewards",
+        "task_goal": "使用银之杰的 ts_code 查询管理层薪酬和持股数据，获取报告期、姓名、职务、薪酬、持股数量，优先采用最新年度报告期，同一人员同一报告期去重。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回包含 end_date、name、title、reward、hold_vol 的记录",
+          "优先保留最新年度报告期数据，并说明所选报告期",
+          "reward 或 hold_vol 为空时保留空值并标注未披露，不自行补全",
+          "同一人员同一报告期仅保留一条"
+        ],
+        "tool_search_query": "管理层薪酬和持股 报告期 姓名 职务 薪酬 持股数量",
+        "tool_candidate_refs": [
+          "tool:mcp.tushare.stk_rewards@mcp-http-v1"
+        ],
+        "evidence_task_ids": [],
+        "depends_on": [
+          "resolve_yzj_company"
+        ],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      }
+    ]
+  },
+  "remote_execution": "not_run",
+  "seconds": 3.384
+}

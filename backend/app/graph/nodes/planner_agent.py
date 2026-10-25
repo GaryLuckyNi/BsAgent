@@ -1,9 +1,10 @@
 from collections.abc import Callable
+from time import perf_counter
 
 from langgraph.runtime import Runtime
 
 from app.core.config import settings
-from app.graph.planning.context import user_materials
+from app.graph.planning.context import request_context, user_materials
 from app.graph.planning.contracts import PlanModel, SubTaskModel, TaskResultModel
 from app.graph.planning.planner import LlmTaskPlanner, PlannerCapabilities, PlannerOutputError
 from app.graph.planning.policy import (
@@ -12,11 +13,14 @@ from app.graph.planning.policy import (
     planner_mode,
     remaining_planner_iterations,
 )
+from app.graph.planning.request_flow import pending_replan_valid, uses_request_flow
 from app.graph.state import AgentState
 from app.llm.factory import LlmClient
 from app.memory.candidates import propose_explicit_preference_candidates
 from app.memory.preferences import planning_preference_constraints, recall_user_preferences
+from app.operations.langfuse_observability import langfuse_observation, update_langfuse_observation
 from app.skills.registry import SkillRegistry
+from app.tools.planning_candidates import recall_candidates
 from app.tools.search import ToolSearchService
 
 
@@ -28,6 +32,11 @@ def build_planner_agent_node(
     on_memory_recall_failure: Callable[[AgentState], None] | None = None,
 ):
     def node(state: AgentState, runtime: Runtime | None = None) -> AgentState:
+        new_flow = uses_request_flow(state)
+        if new_flow and state.get("plan") is not None and not pending_replan_valid(state):
+            state["pending_replan"] = None
+            state["replan_stop_reason"] = "replan_request_unbound"
+            return state
         if llm_client is None:
             raise RuntimeError("Planner requires an LLM client.")
         intent = state.get("intent") or {}
@@ -59,6 +68,9 @@ def build_planner_agent_node(
         materials = user_materials(state, include_current_message=False)
         if materials:
             constraints = {**constraints, "user_materials": materials}
+        if new_flow or (state.get("intent") or {}).get("available_information"):
+            constraints = {**constraints, "request_context": request_context(state)}
+            constraints.pop("user_materials", None)
         current_iteration = state["planner_iteration"]
         if state.get("plan") is not None:
             current_plan = PlanModel.model_validate(state["plan"])
@@ -78,8 +90,12 @@ def build_planner_agent_node(
                         - current_iteration,
                     ),
                     planning_constraints=constraints,
+                    **({"replan_request": state["pending_replan"]["request"]} if new_flow else {}),
                 )
             except PlannerOutputError:
+                if new_flow:
+                    state["pending_replan"] = None
+                    state["replan_stop_reason"] = "replan_output_invalid"
                 state["planner_stop_reason"] = "planner_feedback_invalid"
                 state["planner_decision"] = None
                 state["planner_feedback_count"] = state.get("planner_feedback_count", 0) + 1
@@ -114,6 +130,11 @@ def build_planner_agent_node(
             state["planner_reviewed_signature"] = observation_signature(
                 plan, state.get("task_results", [])
             )
+            if new_flow:
+                state["pending_replan"] = None
+                state["synthesis_decision"] = None
+                if decision.plan is None:
+                    state["replan_stop_reason"] = "replan_no_effective_change"
             return state
         mode = planner_mode(current_iteration)
         plan = LlmTaskPlanner(llm_client=llm_client).plan(
@@ -194,7 +215,6 @@ def _discover_capabilities(
     skill_registry: SkillRegistry | None,
     tool_search_service: ToolSearchService | None,
 ) -> PlannerCapabilities:
-    del state, tool_search_service
     skill_cards = ()
     if skill_registry is not None:
         eligible_cards = skill_registry.discover(
@@ -202,7 +222,20 @@ def _discover_capabilities(
             subdomain=subdomain,
         )
         skill_cards = tuple(sorted(eligible_cards, key=lambda card: card.name))
-    return PlannerCapabilities(skills=skill_cards)
+    started = perf_counter()
+    with langfuse_observation(as_type="span", name="planning_tool_recall") as observation:
+        snapshot = recall_candidates(state=state, search_service=tool_search_service,
+                                     top_k=settings.tool_search_top_k)
+        update_langfuse_observation(observation, bounded_content=True, output={
+            "catalog_digest": snapshot.catalog_digest,
+            "query_fingerprint": snapshot.query_fingerprint,
+            "duration_ms": round((perf_counter() - started) * 1000, 3),
+            "candidate_count": len(snapshot.candidates),
+            "candidates": [{"ref": card.ref, "sources": card.sources} for card in snapshot.candidates],
+            "truncated": snapshot.truncated, "reason": snapshot.reason,
+        })
+    state["planning_tool_candidates"] = snapshot.model_dump(mode="json")
+    return PlannerCapabilities(skills=skill_cards, tools=tuple(snapshot.candidates))
 
 
 def planner_agent_node(state: AgentState, runtime: Runtime | None = None) -> AgentState:

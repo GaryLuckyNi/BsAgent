@@ -1,0 +1,396 @@
+{
+  "case_id": "014",
+  "run": {
+    "run_id": "run_ab0568f0290f215f5530a7016465090ade0b80fd5206d282a9c90b592580",
+    "session_id": "live50-20261024-a-014",
+    "session_key": "sess_b7366182fd314f2993bd36b284250956",
+    "trace_id": "trace_0cd79b84e0bc4b498424c7e97f64ca64",
+    "status": "completed",
+    "created_at": "2026-10-24 14:40:04.211581+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 23,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:40:04.245365+00:00",
+    "ended_at": "2026-10-24 14:40:16.125731+00:00",
+    "events": 23
+  },
+  "receipts": [
+    {
+      "receipt_id": "7ce2fb161df34e7cb5c7cc41e513b78f",
+      "tool_name": "mcp.tushare.rt_idx_k",
+      "call_id": "call_fc27eb729f3e5de8d1d146cbfdb05650",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_0cd79b84e0bc4b498424c7e97f64ca64",
+        "tool_name": "mcp.tushare.rt_idx_k",
+        "latency_ms": 674,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.rt_idx_k",
+          "latency_ms": 611,
+          "tool_call_id": "tool_e1ec1a7bd9c546978b48fc32ccb0a057",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_8f8a1d9521494bdcbb874a98ccf9dfd1",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.rt_idx_k",
+            "request_id": "live50-20261024-a-014",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "a7278a8af871cad07d13f5df7f9cbdb4370a41108eca7eee92f62ccb5e9428b1",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "841b8bdfb61b482250d0ce62da73b43a046a89f0d2ea73a6734ae3711c6fbdc2"
+        }
+      },
+      "created_at": "2026-10-24 14:40:09.765092+00:00",
+      "completed_at": "2026-10-24 14:40:10.410353+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "recovery_batches": {},
+    "recovery_items": {},
+    "tool_selection_contexts": {
+      "call_fc27eb729f3e5de8d1d146cbfdb05650": {
+        "request_id": "live50-20261024-a-014",
+        "task": {
+          "id": "fetch_sse_index_daily",
+          "task_goal": "获取上证指数（000001.SH）2025年9月1日至2025年9月5日的日线行情数据，包括每个交易日的收盘点位、涨跌额与涨跌幅，并确认返回标的为上证指数（000001.SH）而非平安银行（000001.SZ）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回数据明确标注标的为上证指数 000001.SH",
+            "覆盖2025-09-01至2025-09-05区间内的全部交易日",
+            "每个交易日包含收盘点位与涨跌幅（或可据此计算涨跌额）"
+          ],
+          "tool_search_query": "上证指数 000001.SH 日线行情 历史收盘价 涨跌幅",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_fc27eb729f3e5de8d1d146cbfdb05650",
+        "request_fingerprint": "841b8bdfb61b482250d0ce62da73b43a046a89f0d2ea73a6734ae3711c6fbdc2",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_2e573c07ee080fa183dcf7ab3d5803d8",
+        "as_of": "2026-10-24T22:40:04+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.daily_basic",
+            "version": "mcp-http-v1",
+            "binding": "3a1462c0108d6b265fa4365b81b44838464ff521777ce7ec8aa3094b8692d9fb"
+          },
+          {
+            "name": "mcp.tushare.stk_limit",
+            "version": "mcp-http-v1",
+            "binding": "d8edcefa624f6a054e3754420b03f94457a4a6aabc2d15a213b32de6470c3918"
+          },
+          {
+            "name": "mcp.tushare.us_daily",
+            "version": "mcp-http-v1",
+            "binding": "d773b32e6b9ff34006146d439022a3f8888aca2a275ea9c1cc66495d02a4fe7c"
+          },
+          {
+            "name": "mcp.tushare.fund_daily",
+            "version": "mcp-http-v1",
+            "binding": "1af9cbadb584ca820f2701e4ae1f339ab652977a6d670bd5a90598b2177681c5"
+          },
+          {
+            "name": "mcp.tushare.rt_idx_k",
+            "version": "mcp-http-v1",
+            "binding": "a7278a8af871cad07d13f5df7f9cbdb4370a41108eca7eee92f62ccb5e9428b1"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_3db2e32f0b16f484f6260a5eef66af72": {
+        "request_id": "live50-20261024-a-014",
+        "task": {
+          "id": "r1_fetch_sse_index_daily_alt",
+          "task_goal": "通过其他可用数据源获取上证指数（000001.SH）2025年9月1日至2025年9月5日的日线行情，包括每个交易日收盘点位、涨跌额与涨跌幅，并确认标的为上证指数（000001.SH）而非平安银行（000001.SZ）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回数据明确标注标的为上证指数 000001.SH",
+            "覆盖2025-09-01至2025-09-05区间内的全部交易日",
+            "每个交易日包含收盘点位与涨跌幅（或可据此计算涨跌额）"
+          ],
+          "tool_search_query": "上证指数 000001.SH 历史日线行情 收盘点位 涨跌幅 2025年9月",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_3db2e32f0b16f484f6260a5eef66af72",
+        "request_fingerprint": "841b8bdfb61b482250d0ce62da73b43a046a89f0d2ea73a6734ae3711c6fbdc2",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_b65b56e10172c640fdac19b9c909da5d",
+        "as_of": "2026-10-24T22:40:04+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.daily_basic",
+            "version": "mcp-http-v1",
+            "binding": "3a1462c0108d6b265fa4365b81b44838464ff521777ce7ec8aa3094b8692d9fb"
+          },
+          {
+            "name": "mcp.tushare.fund_daily",
+            "version": "mcp-http-v1",
+            "binding": "1af9cbadb584ca820f2701e4ae1f339ab652977a6d670bd5a90598b2177681c5"
+          },
+          {
+            "name": "mcp.tushare.us_daily",
+            "version": "mcp-http-v1",
+            "binding": "d773b32e6b9ff34006146d439022a3f8888aca2a275ea9c1cc66495d02a4fe7c"
+          },
+          {
+            "name": "mcp.tushare.rt_idx_k",
+            "version": "mcp-http-v1",
+            "binding": "a7278a8af871cad07d13f5df7f9cbdb4370a41108eca7eee92f62ccb5e9428b1"
+          },
+          {
+            "name": "mcp.tushare.stk_limit",
+            "version": "mcp-http-v1",
+            "binding": "d8edcefa624f6a054e3754420b03f94457a4a6aabc2d15a213b32de6470c3918"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_2e573c07ee080fa183dcf7ab3d5803d8": {
+        "dispatch_batch_id": "dispatch_2e573c07ee080fa183dcf7ab3d5803d8",
+        "run_identity": "dc732b3cd0e07f46b8a5abfb11860d73f3b4d1612c0f1a374e788585f854c35b",
+        "plan_digest": "d606a604899f9154cf3581b490dfae3df0bbecd22bda3c2afb31d06038db6449",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "fetch_sse_index_daily"
+        ]
+      },
+      "dispatch_b65b56e10172c640fdac19b9c909da5d": {
+        "dispatch_batch_id": "dispatch_b65b56e10172c640fdac19b9c909da5d",
+        "run_identity": "dc732b3cd0e07f46b8a5abfb11860d73f3b4d1612c0f1a374e788585f854c35b",
+        "plan_digest": "847983fc621f919149fddade1081682ae2ae7e46924bf67aa3171d76c1e03289",
+        "observations_digest": "de6d45769810049fb3326debb946887f81a992204be0ef955179888544fb1b6c",
+        "members": [
+          "r1_fetch_sse_index_daily_alt"
+        ]
+      }
+    },
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {
+      "call_3db2e32f0b16f484f6260a5eef66af72": {
+        "task_id": "r1_fetch_sse_index_daily_alt",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_b65b56e10172c640fdac19b9c909da5d"
+      }
+    },
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "查询上证指数（000001.SH，注意是指数而非平安银行）在2025年9月1日至5日的涨跌情况",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "两次取数均失败（MCP 工具执行失败、备用任务因未核实副作用未派发），无任何成功行情数据，且修订次数已用尽，无法补齐关键证据。",
+      "unresolved_questions": [
+        "上证指数（000001.SH）2025年9月1日至5日各交易日收盘点位与涨跌幅未能获取",
+        "无法确认数据源是否将000001.SH与平安银行000001.SZ正确区分"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "计划获取上证指数（000001.SH）在2025年9月1日至5日的日线行情数据，核实该区间每日收盘点位与涨跌幅，并确认标的为上证指数而非平安银行。",
+          "tasks": [
+            {
+              "id": "fetch_sse_index_daily",
+              "task_goal": "获取上证指数（000001.SH）2025年9月1日至2025年9月5日的日线行情数据，包括每个交易日的收盘点位、涨跌额与涨跌幅，并确认返回标的为上证指数（000001.SH）而非平安银行（000001.SZ）。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回数据明确标注标的为上证指数 000001.SH",
+                "覆盖2025-09-01至2025-09-05区间内的全部交易日",
+                "每个交易日包含收盘点位与涨跌幅（或可据此计算涨跌额）"
+              ],
+              "tool_search_query": "上证指数 000001.SH 日线行情 历史收盘价 涨跌幅",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "重新获取上证指数（000001.SH）2025年9月1日至5日的日线行情，核实每日收盘点位与涨跌幅，并确认标的为上证指数而非平安银行。",
+      "tasks": [
+        {
+          "id": "r1_fetch_sse_index_daily_alt",
+          "task_goal": "通过其他可用数据源获取上证指数（000001.SH）2025年9月1日至2025年9月5日的日线行情，包括每个交易日收盘点位、涨跌额与涨跌幅，并确认标的为上证指数（000001.SH）而非平安银行（000001.SZ）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回数据明确标注标的为上证指数 000001.SH",
+            "覆盖2025-09-01至2025-09-05区间内的全部交易日",
+            "每个交易日包含收盘点位与涨跌幅（或可据此计算涨跌额）"
+          ],
+          "tool_search_query": "上证指数 000001.SH 历史日线行情 收盘点位 涨跌幅 2025年9月",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "fetch_sse_index_daily",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.rt_idx_k"
+      },
+      {
+        "task_id": "r1_fetch_sse_index_daily_alt",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.rt_idx_k"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_fc27eb729f3e5de8d1d146cbfdb05650' request=ToolCallRequest(call_id='call_fc27eb729f3e5de8d1d146cbfdb05650', tool_name='mcp.tushare.rt_idx_k', tool_version='mcp-http-v1', arguments={'ts_code': '000001.SH'}, purpose='获取上证指数（000001.SH）2025年9月1日至2025年9月5日的日线行情数据，包括每个交易日的收盘点位、涨跌额与涨跌幅，并确认返回标的为上证指数（000001.SH）而非平安银行（000001.SZ）。', approval_required=False) result=ToolCallResult(tool_call_id='tool_8f8a1d9521494bdcbb874a98ccf9dfd1', tool_name='mcp.tushare.rt_idx_k', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=674, trace_id='trace_0cd79b84e0bc4b498424c7e97f64ca64')",
+      "call_id='call_3db2e32f0b16f484f6260a5eef66af72' request=ToolCallRequest(call_id='call_3db2e32f0b16f484f6260a5eef66af72', tool_name='mcp.tushare.rt_idx_k', tool_version='mcp-http-v1', arguments={'ts_code': '000001.SH'}, purpose='通过其他可用数据源获取上证指数（000001.SH）2025年9月1日至2025年9月5日的日线行情，包括每个交易日收盘点位、涨跌额与涨跌幅，并确认标的为上证指数（000001.SH）而非平安银行（000001.SZ）。', approval_required=False) result=ToolCallResult(tool_call_id='tool_eeb554244abe432ab4516a10fde42c08', tool_name='mcp.tushare.rt_idx_k', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=43, trace_id='trace_0cd79b84e0bc4b498424c7e97f64ca64')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+      "trace_id": "trace_0cd79b84e0bc4b498424c7e97f64ca64",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "tool_side_effects_unresolved"
+    },
+    "errors": []
+  }
+}

@@ -1,0 +1,283 @@
+{
+  "case_id": "001",
+  "category": "权限确认",
+  "question": "查询贵州茅台2025年9月1日至7日公告的公开信息，请先尝试TuShare anns_d。若账号权限不足，我允许补充公开资料，但必须先弹出确认，得到确认再搜索。",
+  "session_id": "fixsmoke-20261025-a-001",
+  "request_id": "fixsmoke-20261025-a-001",
+  "started_at": "2026-10-25T00:38:59.219022+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "message_id": "msg_4967404564ed4b348ae6ad8889584c68",
+      "request_id": "fixsmoke-20261025-a-001"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "completed",
+      "message": "先通过TuShare anns_d查询贵州茅台2025年9月1日至7日公告；若账号权限不足，将先向您确认，确认后再补充公开资料检索。"
+    },
+    {
+      "id": "tool_agent:fetch_anns_d",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "started",
+      "message": "正在获取研究证据：使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告列表，获取公告标题、披露日期、公告类型等字段；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+      "task_id": "fetch_anns_d",
+      "group_id": "evidence:1",
+      "task_label": "使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告列表，获取公告标题、披露日期、公告类型等字段；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:fetch_anns_d",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "failed",
+      "message": "获取研究证据未完成：使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告列表，获取公告标题、披露日期、公告类型等字段；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+      "task_id": "fetch_anns_d",
+      "group_id": "evidence:1",
+      "task_label": "使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告列表，获取公告标题、披露日期、公告类型等字段；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "completed",
+      "message": "先通过TuShare anns_d查询贵州茅台2025年9月1日至7日公告；若账号权限不足，将先向您确认，确认后再补充公开资料检索。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    [
+      {
+        "id": "msg_4967404564ed4b348ae6ad8889584c68",
+        "type": "ai",
+        "content": "## 本次执行未完成\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_4967404564ed4b348ae6ad8889584c68",
+        "type": "ai",
+        "content": "- 原数据源权限不足；不"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_4967404564ed4b348ae6ad8889584c68",
+        "type": "ai",
+        "content": "满足已验证的替代来源约束"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_4967404564ed4b348ae6ad8889584c68",
+        "type": "ai",
+        "content": "，未搜索，原接口数据仍缺"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_4967404564ed4b348ae6ad8889584c68",
+        "type": "ai",
+        "content": "失。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "type": "final",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "response": {
+        "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+        "content": "## 本次执行未完成\n\n- 原数据源权限不足；不满足已验证的替代来源约束，未搜索，原接口数据仍缺失。",
+        "trace_id": "trace_29204e3e86614b228f17ccd92e1f7b05",
+        "message_id": "msg_4967404564ed4b348ae6ad8889584c68",
+        "request_id": "fixsmoke-20261025-a-001",
+        "response_type": "execution_error_response",
+        "approval_status": "not_required",
+        "cited_evidence_ids": [],
+        "business_error_code": "source_policy_unavailable"
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+  "business_trace_id": "trace_29204e3e86614b228f17ccd92e1f7b05",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_553e3fc6eae648b0be22e5197838347e",
+        "request_id": "fixsmoke-20261025-a-001",
+        "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+        "role": "user",
+        "status": "completed",
+        "content": "查询贵州茅台2025年9月1日至7日公告的公开信息，请先尝试TuShare anns_d。若账号权限不足，我允许补充公开资料，但必须先弹出确认，得到确认再搜索。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-25T00:38:59.659894Z",
+        "completed_at": "2026-10-25T00:38:59.658114Z"
+      },
+      {
+        "message_id": "msg_4967404564ed4b348ae6ad8889584c68",
+        "request_id": "fixsmoke-20261025-a-001",
+        "run_id": "run_2e24327b51a2f198e4ab9833d94f9a1e32dbf52abf20f4309ed9958cf3a9",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 本次执行未完成\n\n- 原数据源权限不足；不满足已验证的替代来源约束，未搜索，原接口数据仍缺失。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "execution_error_response",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "先通过TuShare anns_d查询贵州茅台2025年9月1日至7日公告；若账号权限不足，将先向您确认，确认后再补充公开资料检索。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:fetch_anns_d",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "failed",
+              "message": "获取研究证据未完成：使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告列表，获取公告标题、披露日期、公告类型等字段；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+              "task_id": "fetch_anns_d",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告列表，获取公告标题、披露日期、公告类型等字段；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "先通过TuShare anns_d查询贵州茅台2025年9月1日至7日公告；若账号权限不足，将先向您确认，确认后再补充公开资料检索。",
+              "sequence": 2
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": "source_policy_unavailable"
+        },
+        "created_at": "2026-10-25T00:38:59.659898Z",
+        "completed_at": "2026-10-25T00:39:10.036429Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-25T00:39:10.464735+00:00",
+  "elapsed_seconds": 11.245
+}

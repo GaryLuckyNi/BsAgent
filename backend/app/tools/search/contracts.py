@@ -2,7 +2,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 SearchSource = Literal["exact", "bm25"]
 SearchMode = Literal["exact", "bm25"]
 
@@ -48,3 +47,4 @@ class ToolSearchContext(BaseModel):
     permission_scopes: tuple[str, ...] = Field(default_factory=tuple)
     skill_allowed_tools: tuple[str, ...] | None = None
     excluded_tools: tuple[str, ...] = ()
+    task_goal: str | None = Field(default=None, max_length=500)

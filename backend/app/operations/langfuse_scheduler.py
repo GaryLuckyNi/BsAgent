@@ -11,6 +11,7 @@ from langgraph.types import Send
 
 from app.graph.planning.contracts import PlanModel, TaskResultModel
 from app.graph.planning.policy import MAX_PLANNER_FEEDBACKS, observation_signature
+from app.graph.planning.request_flow import uses_request_flow
 from app.graph.planning.scheduler import ready_tasks
 
 logger = logging.getLogger("bs_agent.langfuse")
@@ -30,6 +31,9 @@ _ROUTE_EXPLANATIONS = {
     "no_ready_tasks": "当前没有可继续执行的就绪任务，转入回答汇总。",
     "skill_task_ready": "存在就绪 Skill 任务，按现有策略串行启动。",
     "ready_tasks": "按依赖派发就绪任务。",
+    "replan_request_unbound": "没有绑定当前计划的修订申请，结束规划。",
+    "replan_output_invalid": "修订输出无效，保留有效证据并结束取证。",
+    "replan_no_effective_change": "申请未产生可执行的实质修订。",
 }
 
 _RECOVERY_EVENTS = frozenset(
@@ -155,6 +159,7 @@ def scheduler_trace_input(state: Mapping[str, Any]) -> dict[str, Any]:
                     "execution_type": task.execution_type,
                     "skill_name": task.skill_name,
                     "depends_on": list(task.depends_on),
+                    **({"tool_candidate_refs": list(task.tool_candidate_refs)} if task.tool_candidate_refs else {}),
                 }
                 for task in plan.tasks
             ],
@@ -180,11 +185,18 @@ def scheduler_trace_input(state: Mapping[str, Any]) -> dict[str, Any]:
         if plan
         else [],
         "has_observations": bool(completed_ids),
-        "reviewed": bool(signature and state.get("planner_reviewed_signature") == signature),
         "planner_iteration": state.get("planner_iteration", 0),
-        "planner_feedback_count": feedback_count,
-        "planner_feedback_limit": MAX_PLANNER_FEEDBACKS,
-        "planner_feedback_remaining": max(0, MAX_PLANNER_FEEDBACKS - feedback_count),
+        **({"request_flow": {
+            "version": state.get("request_flow_version"),
+            "replan_request_count": state.get("replan_request_count", 0),
+            "pending_replan": state.get("pending_replan") is not None,
+            "stop_reason": state.get("replan_stop_reason"),
+        }} if uses_request_flow(state) else {
+            "reviewed": bool(signature and state.get("planner_reviewed_signature") == signature),
+            "planner_feedback_count": feedback_count,
+            "planner_feedback_limit": MAX_PLANNER_FEEDBACKS,
+            "planner_feedback_remaining": max(0, MAX_PLANNER_FEEDBACKS - feedback_count),
+        }),
         "planner_decision": {
             key: value
             for key, value in (state.get("planner_decision") or {}).items()

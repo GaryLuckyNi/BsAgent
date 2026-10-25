@@ -34,7 +34,10 @@ class IntentDecision(TypedDict, total=False):
     subdomain: str | None
     goal: str | None
     confidence: float
-    source_constraint: Literal["unrestricted", "original_only", "unclear"]
+    source_constraint: Literal["unrestricted", "original_only", "confirmation_required", "unclear"]
+    available_information: dict[str, Any]
+    route: Literal["direct_answer", "synthesize", "plan"]
+    answer: str | None
 
 
 class EvidenceChannels(TypedDict):
@@ -279,6 +282,12 @@ class AgentState(TypedDict):
     attachment_refs: list[AttachmentRef]
     image_analyses: list[ImageAnalysisSummary]
     intent: IntentDecision | None
+    planning_tool_candidates: NotRequired[dict[str, Any] | None]
+    request_flow_version: NotRequired[str | None]
+    synthesis_decision: NotRequired[dict[str, Any] | None]
+    pending_replan: NotRequired[dict[str, Any] | None]
+    replan_request_count: NotRequired[int]
+    replan_stop_reason: NotRequired[str | None]
     planner_iteration: int
     planner_policy_version: NotRequired[str]
     planner_stop_reason: NotRequired[str]
@@ -378,6 +387,13 @@ def create_initial_state(
         "attachment_refs": [{"asset_id": asset_id} for asset_id in attachment_ids or []],
         "image_analyses": [],
         "intent": None,
+        "planning_tool_candidates": None,
+        # Router 成功输出新协议后启用；旧 checkpoint/旧响应不推测升级。
+        "request_flow_version": None,
+        "synthesis_decision": None,
+        "pending_replan": None,
+        "replan_request_count": 0,
+        "replan_stop_reason": None,
         "planner_iteration": 0,
         "planner_policy_version": "model-feedback-v1",
         "planner_feedback_count": 0,

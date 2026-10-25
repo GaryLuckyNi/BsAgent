@@ -1,0 +1,45 @@
+{
+  "case": "skill_paraphrase_1",
+  "trace_id": "bb8983ccb2e30bfd61ecce1908330499",
+  "route": "plan",
+  "query": "查看银之杰管理层的薪酬和持股情况",
+  "candidates": [
+    {
+      "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+      "tool_name": "mcp.tushare.stk_rewards",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    }
+  ],
+  "plan": {
+    "public_summary": "使用银之杰管理层薪酬与持股专用流程，先确认公司代码，再获取最新年度报告期的高管薪酬和持股数据，整理成表格并标注未披露项。",
+    "tasks": [
+      {
+        "id": "yzj_management_rewards",
+        "task_goal": "查询银之杰（300085.SZ）管理层薪酬和持股数据：先确认公司 ts_code，再获取管理层薪酬与持股记录，优先采用最新年度报告期，按人员去重，输出姓名、职务、报告期、薪酬、持股数量；空值标注“未披露”。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "取得银之杰的 ts_code 并确认公司主体",
+          "返回管理层薪酬与持股记录，包含 end_date、name、title、reward、hold_vol 字段",
+          "明确所选报告期（优先最新年度报告期），并说明是否因半年报 reward 为空而改用年报",
+          "同一人员同一报告期仅保留一条记录",
+          "reward 或 hold_vol 为空时标注“未披露”，不补造数据",
+          "以表格形式呈现姓名、职务、报告期、薪酬、持股数量"
+        ],
+        "tool_search_query": null,
+        "tool_candidate_refs": [],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": "yzj_reasearch",
+        "source_requirement": "original_data"
+      }
+    ]
+  },
+  "remote_execution": "not_run",
+  "seconds": 3.486
+}

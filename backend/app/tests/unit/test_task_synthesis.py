@@ -30,6 +30,139 @@ class FakeLlmClient:
         return LlmCompletionResult(content=self.content, model="fake", provider="fake")
 
 
+def test_replanning_retains_successful_original_objectives_for_synthesis():
+    llm = FakeLlmClient("茅台归母净利润862.28亿元，宁德时代收盘304元；公告存在缺口。")
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="查询利润、行情和公告")
+    state["intent"] = {"intent_type":"financial_research", "goal":state["user_message"]}
+    state["plan_history"] = [{"revision":0,"plan":{"tasks":[
+        {"id":"income","task_goal":"查询茅台2024年归母净利润"},
+        {"id":"quote","task_goal":"查询宁德时代2025年9月1日收盘价"},
+        {"id":"announcements","task_goal":"查询比亚迪公告"},
+    ]}}]
+    state["plan"] = {"tasks":[{"id":"retry_news","task_goal":"补充比亚迪公告线索"}]}
+    state["task_results"] = [
+        {"task_id":"income","status":"success","tool_name":"mcp.data.income","content":'{"n_income_attr_p":86228146421.62}'},
+        {"task_id":"quote","status":"success","tool_name":"mcp.data.daily","content":'{"close":304}'},
+        {"task_id":"retry_news","status":"success","tool_name":"web_search","content":"仅取得媒体公告线索"},
+        {"task_id":"unrelated","status":"success","content":"不得混入的无关旧结果"},
+    ]
+
+    build_synthesizer_node(llm_client=llm)(state)
+
+    payload=json.loads(llm.calls[0]["user_prompt"])
+    materials=payload["research_materials"]
+    assert {m["research_goal"] for m in materials} == {
+        "查询茅台2024年归母净利润","查询宁德时代2025年9月1日收盘价","补充比亚迪公告线索",
+    }
+    assert "86228146421.62" in llm.calls[0]["user_prompt"]
+    assert '304' in llm.calls[0]["user_prompt"]
+    assert "不得混入" not in llm.calls[0]["user_prompt"]
+
+
+@pytest.mark.parametrize("answer",[
+    "成交额为451,328.26元（约45.13万元）。",
+    "当日低开于17.80元。",
+])
+def test_known_daily_unit_and_open_direction_errors_are_not_published(answer):
+    llm=FakeLlmClient(answer)
+    state=create_initial_state(session_id="s",tenant_id="t",user_id="u",user_message="查询当日日行情")
+    state["intent"]={"intent_type":"financial_research","goal":state["user_message"]}
+    state["plan"]={"tasks":[{"id":"quote","task_goal":"查询当日日行情"}]}
+    state["task_results"]=[{"task_id":"quote","status":"success","tool_name":"mcp.tushare.daily","content":json.dumps([
+        {"ts_code":"300561.SZ","trade_date":20250901,"open":17.8,"pre_close":17.78,"close":18.23,"vol":256961.11,"amount":451328.26}
+    ])}]
+    result=build_synthesizer_node(llm_client=llm)(state)
+    assert answer not in result["draft_answer"]["content"]
+    assert "4.5132826" in result["draft_answer"]["content"]
+    assert "亿元" in result["draft_answer"]["content"]
+    assert len(llm.calls)==1
+
+
+def test_business_income_sum_is_computed_not_left_to_generated_arithmetic():
+    llm=FakeLlmClient("合计销售收入约1.897亿元。")
+    state=create_initial_state(session_id="s",tenant_id="t",user_id="u",user_message="查询主营收入")
+    state["intent"]={"intent_type":"financial_research","goal":state["user_message"]}
+    state["plan"]={"tasks":[{"id":"business","task_goal":"查询主营收入"}]}
+    rows=[{"ts_code":"300561.SZ","bz_item":str(i),"bz_sales":value,"curr_type":"CNY","end_date":20241231}
+        for i,value in enumerate([89833754.57,2270823.6,41743564.4,7090105.72,38729260.85])]
+    state["task_results"]=[{"task_id":"business","status":"success","tool_name":"mcp.tushare.fina_mainbz","content":json.dumps(rows)}]
+    result=build_synthesizer_node(llm_client=llm)(state)
+    assert "1.897" not in result["draft_answer"]["content"]
+    assert "179667509.14" in result["draft_answer"]["content"]
+    assert "重叠" in result["draft_answer"]["content"]
+    assert len(llm.calls)==1
+
+
+def test_numeric_guard_accepts_rounded_amount_and_does_not_duplicate_raw_data():
+    llm=FakeLlmClient("收盘价18.23元，成交额约4.51亿元。")
+    state=create_initial_state(session_id="s",tenant_id="t",user_id="u",user_message="查询行情")
+    state["intent"]={"intent_type":"financial_research","goal":state["user_message"]}
+    state["plan"]={"tasks":[{"id":"quote","task_goal":"查询行情"}]}
+    state["task_results"]=[{"task_id":"quote","status":"success","tool_name":"mcp.tushare.daily","content":json.dumps([
+        {"ts_code":"300561.SZ","trade_date":20250901,"open":17.8,"pre_close":17.78,"close":18.23,"vol":256961.11,"amount":451328.26,
+         "high":18.38,"low":17.02,"change":.45,"pct_chg":2.531,"ah_vol":123.4}
+    ])}]
+    result=build_synthesizer_node(llm_client=llm)(state)
+    assert llm.content in result["draft_answer"]["content"]
+    payload=json.loads(llm.calls[0]["user_prompt"])
+    material=payload["research_materials"][0]["content"]
+    assert "成交额（亿元）" in material and "4.5132826" in material
+    assert '"amount"' not in material
+    assert "18.38" in material and "17.02" in material and "123.4" in material
+
+
+def test_numeric_reference_rejects_unbounded_decimal_exponents():
+    from app.graph.planning.numeric_evidence import numeric_references
+    result=TaskResultModel(task_id="quote",status="success",tool_name="mcp.tushare.daily",content=json.dumps([
+        {"ts_code":"300561.SZ","trade_date":20250901,"amount":"1e999999999"}
+    ]))
+    assert numeric_references([result])==[]
+
+
+@pytest.mark.parametrize("missing",["ts_code","end_date"])
+def test_numeric_reference_does_not_aggregate_when_group_identity_is_missing(missing):
+    from app.graph.planning.numeric_evidence import numeric_references
+    row={"ts_code":"300561.SZ","end_date":20241231,"curr_type":"CNY","bz_sales":100}
+    row.pop(missing)
+    assert numeric_references([TaskResultModel(task_id="business",status="success",
+        tool_name="mcp.tushare.fina_mainbz",content=json.dumps([row]))])==[]
+
+
+@pytest.mark.parametrize("tool_name,rows",[
+    ("mcp.other.daily",[{"amount":451328.26}]),
+    ("mcp.tushare.fina_mainbz",[{"bz_sales":100,"curr_type":"USD"}]),
+    ("mcp.tushare.fina_mainbz",[{"bz_sales":100,"curr_type":"CNY","end_date":20241231},
+        {"bz_sales":200,"curr_type":"CNY","end_date":20231231}]),
+])
+def test_numeric_reference_does_not_guess_other_contracts_or_mix_periods(tool_name,rows):
+    from app.graph.planning.numeric_evidence import numeric_references
+    assert numeric_references([TaskResultModel(task_id="data",status="success",tool_name=tool_name,
+        content=json.dumps(rows))])==[]
+
+
+@pytest.mark.parametrize("error_code",["provider_permission_denied","tool_side_effects_unresolved","mcp_tool_timeout"])
+def test_failed_revised_task_does_not_discard_completed_analysis(error_code):
+    llm = FakeLlmClient("假设PE为20倍；实际公司净利润尚未取得。")
+    state = create_initial_state(session_id="s",tenant_id="t",user_id="u",user_message="算假设PE再查询净利润")
+    state["intent"] = {"intent_type":"financial_research","goal":state["user_message"]}
+    state["plan_history"] = [{"revision":0,"plan":{"tasks":[
+        {"id":"calculate","task_goal":"仅依据用户给定100亿市值和5亿利润计算PE","execution_type":"analysis"},
+        {"id":"income","task_goal":"查询真实公司净利润"},
+    ]}}]
+    state["plan"]={"tasks":[{"id":"retry_income","task_goal":"补充真实公司净利润"}]}
+    state["task_results"]= [
+        {"task_id":"calculate","status":"success","content":"仅基于假设数据：100÷5=20倍"},
+        {"task_id":"retry_income","status":"business_failure","error_code":error_code,"content":"真实数据未取得"},
+    ]
+
+    result=build_synthesizer_node(llm_client=llm)(state)
+
+    assert result["draft_answer"]["response_type"]=="research_answer"
+    payload=json.loads(llm.calls[0]["user_prompt"])
+    assert any("100÷5=20" in str(m["content"]) for m in payload["research_materials"])
+    assert any("真实公司净利润" in value for value in payload["data_limitations"])
+
+
 def test_explicit_synthesis_handoff_performs_final_reasoning_once_and_marks_task_complete():
     llm = FakeLlmClient("## 结论\n\n现有证据不足以确认探底，需保留估值缺口。")
     state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="是否探底")

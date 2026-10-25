@@ -1,0 +1,685 @@
+{
+  "case_id": "018",
+  "category": "财务",
+  "question": "查询比亚迪2024年年报营业收入和归母净利润，并核实报告期。",
+  "session_id": "live50-20261024-a-018",
+  "request_id": "live50-20261024-a-018",
+  "started_at": "2026-10-24T14:40:27.489249+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "message_id": "msg_5ea5d255329b4277a22598aa911c4e22",
+      "request_id": "live50-20261024-a-018"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "completed",
+      "message": "查询比亚迪2024年年报的营业收入与归母净利润，并核实该数据对应的报告期，形成可引用的初步结论。"
+    },
+    {
+      "id": "tool_agent:byd_2024_annual_revenue_profit",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "started",
+      "message": "正在获取研究证据：获取比亚迪（A股）2024年年报的营业收入和归属于母公司股东的净利润，并核实数据对应的报告期（年报报告期应为2024-12-31，需确认非三季报或业绩快报口径）。",
+      "task_id": "byd_2024_annual_revenue_profit",
+      "group_id": "evidence:1",
+      "task_label": "获取比亚迪（A股）2024年年报的营业收入和归属于母公司股东的净利润，并核实数据对应的报告期（年报报告期应为2024-12-31，需确认非三季报或业绩快报口径）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:byd_2024_annual_revenue_profit",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "completed",
+      "message": "已取得研究证据：获取比亚迪（A股）2024年年报的营业收入和归属于母公司股东的净利润，并核实数据对应的报告期（年报报告期应为2024-12-31，需确认非三季报或业绩快报口径）。",
+      "task_id": "byd_2024_annual_revenue_profit",
+      "group_id": "evidence:1",
+      "task_label": "获取比亚迪（A股）2024年年报的营业收入和归属于母公司股东的净利润，并核实数据对应的报告期（年报报告期应为2024-12-31，需确认非三季报或业绩快报口径）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "completed",
+      "message": "补充获取比亚迪2024年年报利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并核实报告期为2024-12-31年度报告。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "tool_agent:r1_byd_2024_income_statement_amounts",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "started",
+      "message": "正在获取研究证据：获取比亚迪（002594.SZ）2024年年报（报告期2024-12-31）利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并确认数据来源为年度报告而非业绩快报或三季报。",
+      "task_id": "r1_byd_2024_income_statement_amounts",
+      "group_id": "evidence:2",
+      "task_label": "获取比亚迪（002594.SZ）2024年年报（报告期2024-12-31）利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并确认数据来源为年度报告而非业绩快报或三季报。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:r1_byd_2024_income_statement_amounts",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "completed",
+      "message": "已取得研究证据：获取比亚迪（002594.SZ）2024年年报（报告期2024-12-31）利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并确认数据来源为年度报告而非业绩快报或三季报。",
+      "task_id": "r1_byd_2024_income_statement_amounts",
+      "group_id": "evidence:2",
+      "task_label": "获取比亚迪（002594.SZ）2024年年报（报告期2024-12-31）利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并确认数据来源为年度报告而非业绩快报或三季报。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:2",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:2",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "completed",
+      "message": "补充获取比亚迪2024年年报利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并核实报告期为2024-12-31年度报告。"
+    },
+    {
+      "type": "progress",
+      "stage": "composing_answer",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "message": "正在生成最终投研报告"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "## 比亚迪（002594.SZ）2024年年报"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "核心数据\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "### 一、营业收入与归母净利润\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "| 指标 | 金额（元） | 折合人民币 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "|---|---|---|\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "| 营业收入 | 777,102,455,000"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": " | 约 7,771.02 亿元 |\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "| 归属于母公司股东的净利润 | 40,254,"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "346,000 | 约 402.54 亿元 |\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "### 二、报告期核实\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "- **报告期（end_date）**：2024"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "-12-31，即 2024 年年度报告口径。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "- **公告日期（ann_date / f_ann"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "_date）**：2025-03-25。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "- **报表类型（report_type）**："
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "1，为合并报表口径的年度报告数据，而非业绩快报或"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "三季报。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "### 三、数据关系与解读\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "1. **利润表结构**：营业收入 7,771."
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "02 亿元，营业利润 504.86 亿元，利润总额"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": " 496.81 亿元，净利润（含少数股东损益）415"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": ".88 亿元，归母净利润 402.54 亿元。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "归母净利润占净利润约 96.8%，说明利润主要归属于"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "母公司股东，少数股东损益占比很小。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "2. **盈利水平**：归母净利润对应营业收入，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "净利率约 5.2%；营业利润对应营业收入，营业利润率"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "约 6.5%。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "这体现整车制造与电池业务规模大、利润率相对偏薄的特征"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "3. **每股收益**：基本每股收益 13.84"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": " 元，与归母净利润、股本规模相互印证。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "### 四、数据边界说明\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "以上金额均为利润表口径的绝对数值，来源为 202"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "4 年年度报告。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "本次材料未包含分业务收入拆分、毛利率、同比增速及"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "现金流等明细，因此无法就收入结构变化或增长质量作"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "进一步判断；如需同比对比，需补充 2023 年年"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "type": "ai",
+        "content": "报对应数据。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "response": {
+        "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+        "content": "## 比亚迪（002594.SZ）2024年年报核心数据\n\n### 一、营业收入与归母净利润\n\n| 指标 | 金额（元） | 折合人民币 |\n|---|---|---|\n| 营业收入 | 777,102,455,000 | 约 7,771.02 亿元 |\n| 归属于母公司股东的净利润 | 40,254,346,000 | 约 402.54 亿元 |\n\n### 二、报告期核实\n\n- **报告期（end_date）**：2024-12-31，即 2024 年年度报告口径。\n- **公告日期（ann_date / f_ann_date）**：2025-03-25。\n- **报表类型（report_type）**：1，为合并报表口径的年度报告数据，而非业绩快报或三季报。\n\n### 三、数据关系与解读\n\n1. **利润表结构**：营业收入 7,771.02 亿元，营业利润 504.86 亿元，利润总额 496.81 亿元，净利润（含少数股东损益）415.88 亿元，归母净利润 402.54 亿元。归母净利润占净利润约 96.8%，说明利润主要归属于母公司股东，少数股东损益占比很小。\n2. **盈利水平**：归母净利润对应营业收入，净利率约 5.2%；营业利润对应营业收入，营业利润率约 6.5%。这体现整车制造与电池业务规模大、利润率相对偏薄的特征。\n3. **每股收益**：基本每股收益 13.84 元，与归母净利润、股本规模相互印证。\n\n### 四、数据边界说明\n\n以上金额均为利润表口径的绝对数值，来源为 2024 年年度报告。本次材料未包含分业务收入拆分、毛利率、同比增速及现金流等明细，因此无法就收入结构变化或增长质量作进一步判断；如需同比对比，需补充 2023 年年报对应数据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_25048aac81514c498bba5058647c719c",
+        "message_id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "request_id": "live50-20261024-a-018",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_9ee4c77e004a43878a17d89b39c3b035",
+        "request_id": "live50-20261024-a-018",
+        "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+        "role": "user",
+        "status": "completed",
+        "content": "查询比亚迪2024年年报营业收入和归母净利润，并核实报告期。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:40:27.517422Z",
+        "completed_at": "2026-10-24T14:40:27.516476Z"
+      },
+      {
+        "message_id": "msg_5ea5d255329b4277a22598aa911c4e22",
+        "request_id": "live50-20261024-a-018",
+        "run_id": "run_4da136e8342840c0eba7c3dea83c07e502e33430ef8f85cb24d306ab0982",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 比亚迪（002594.SZ）2024年年报核心数据\n\n### 一、营业收入与归母净利润\n\n| 指标 | 金额（元） | 折合人民币 |\n|---|---|---|\n| 营业收入 | 777,102,455,000 | 约 7,771.02 亿元 |\n| 归属于母公司股东的净利润 | 40,254,346,000 | 约 402.54 亿元 |\n\n### 二、报告期核实\n\n- **报告期（end_date）**：2024-12-31，即 2024 年年度报告口径。\n- **公告日期（ann_date / f_ann_date）**：2025-03-25。\n- **报表类型（report_type）**：1，为合并报表口径的年度报告数据，而非业绩快报或三季报。\n\n### 三、数据关系与解读\n\n1. **利润表结构**：营业收入 7,771.02 亿元，营业利润 504.86 亿元，利润总额 496.81 亿元，净利润（含少数股东损益）415.88 亿元，归母净利润 402.54 亿元。归母净利润占净利润约 96.8%，说明利润主要归属于母公司股东，少数股东损益占比很小。\n2. **盈利水平**：归母净利润对应营业收入，净利率约 5.2%；营业利润对应营业收入，营业利润率约 6.5%。这体现整车制造与电池业务规模大、利润率相对偏薄的特征。\n3. **每股收益**：基本每股收益 13.84 元，与归母净利润、股本规模相互印证。\n\n### 四、数据边界说明\n\n以上金额均为利润表口径的绝对数值，来源为 2024 年年度报告。本次材料未包含分业务收入拆分、毛利率、同比增速及现金流等明细，因此无法就收入结构变化或增长质量作进一步判断；如需同比对比，需补充 2023 年年报对应数据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "查询比亚迪2024年年报的营业收入与归母净利润，并核实该数据对应的报告期，形成可引用的初步结论。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:byd_2024_annual_revenue_profit",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取比亚迪（A股）2024年年报的营业收入和归属于母公司股东的净利润，并核实数据对应的报告期（年报报告期应为2024-12-31，需确认非三季报或业绩快报口径）。",
+              "task_id": "byd_2024_annual_revenue_profit",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "获取比亚迪（A股）2024年年报的营业收入和归属于母公司股东的净利润，并核实数据对应的报告期（年报报告期应为2024-12-31，需确认非三季报或业绩快报口径）。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "补充获取比亚迪2024年年报利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并核实报告期为2024-12-31年度报告。",
+              "sequence": 2
+            },
+            {
+              "id": "tool_agent:r1_byd_2024_income_statement_amounts",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取比亚迪（002594.SZ）2024年年报（报告期2024-12-31）利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并确认数据来源为年度报告而非业绩快报或三季报。",
+              "task_id": "r1_byd_2024_income_statement_amounts",
+              "group_id": "evidence:2",
+              "sequence": 3,
+              "task_label": "获取比亚迪（002594.SZ）2024年年报（报告期2024-12-31）利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并确认数据来源为年度报告而非业绩快报或三季报。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:2",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "补充获取比亚迪2024年年报利润表口径的营业收入与归属于母公司股东的净利润绝对金额，并核实报告期为2024-12-31年度报告。",
+              "sequence": 4
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:40:27.517429Z",
+        "completed_at": "2026-10-24T14:40:49.974283Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:40:50.789380+00:00",
+  "elapsed_seconds": 23.3
+}

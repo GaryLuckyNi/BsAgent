@@ -1,0 +1,320 @@
+{
+  "case_id": "019",
+  "run": {
+    "run_id": "run_0da111002de64aa53aa57a5b98dbe170d750a3a00fa10df8acd9eef2af60",
+    "session_id": "live50-20261024-a-019",
+    "session_key": "sess_f23a0604551744d2a127e2575280d39d",
+    "trace_id": "trace_af7606e69cc645ecab16d88fee04d8b8",
+    "status": "completed",
+    "created_at": "2026-10-24 14:40:43.865205+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 47,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:40:43.974893+00:00",
+    "ended_at": "2026-10-24 14:41:03.170481+00:00",
+    "events": 47
+  },
+  "receipts": [
+    {
+      "receipt_id": "a445ab6052234e69b1d487e1376c1917",
+      "tool_name": "web_search",
+      "call_id": "call_caa226acb91ffb2e15eb8032819341fe",
+      "risk_level": "low",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": {
+          "query": "招商银行 2024年年度报告 净息差 2.00% 年报原文",
+          "answer": "检索结果一致显示：招商银行（A股600036、H股03968）2024年年度报告披露的净息差（净利息收益率，集团口径）为1.98%，同比下降17个基点；该数值未达到用户 query 中提到的2.00%。用户 query 中的“2.00%”与检索到的多个来源不符，因此不能确认2.00%是招商银行2024年年报披露的净息差。\n\n数据来源与披露情况：\n- 招商银行于2025年3月25日晚间发布2024年年度报告，多家媒体据此报道：净利息收益率1.98%，同比下降17个基点，净利差1.86%。其中证券日报、央广网、界面新闻的报道均转述了年报数据；一篇财报解读文章引述年报数据，并转述了招行对净息差下降原因的解释，包括存量房贷利率下调、LPR下降、信贷需求不足、市场利率中枢下行和存款定期化。\n- 对于“年报原文表述”，本次检索没有取得年报PDF原文，也没有取得其中的具体章节或页码。检索到的内容均为媒体报道、券商研报和第三方数据页面的转述；因此，虽然这些内容明确指向“招商银行2024年年度报告”，但严格意义上的原文核对仍未完成。\n- 需要区分实体与口径：检索到的1.98%是招商银行集团口径的净息差（净利息收益率）。另有第三方港股数据页面列示的“净息差1.86%”，对应的是净利差口径，并非净利息收益率；不能将两者混同。\n\n不确定性：未能直接核验年报原文页码或原文表述；因此，1.98%出自招商银行2024年年报这一点，依据的是多家一致的媒体和研报转述，而尚未通过原文逐字确认。",
+          "results": [
+            {
+              "url": "http://mp.weixin.qq.com/s?__biz=MjM5MDIwNDEyMg==&mid=2651162338&idx=5&sn=bf648946596b94bf71d8cf1a186b5922",
+              "title": "优等生的困扰与压力——细读招行财报",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://stcn.com/article/detail/1609895.html",
+              "title": "招商银行资产规模突破12万亿元 2024年净利润实现同比增长",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://finance.cnr.cn/ycbd/20250325/t20250325_527112417.shtml",
+              "title": "招商银行2024年度归母净利润同比增长1.22% 营收下降0.48%",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://render.alipay.com/p/yuyan/180020010001268694/news.html?newsId=226594528",
+              "title": "蚂蚁理财社区",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "http://202.62.215.11/www/tc/stocks/realtime/quote_ci_ratio.php?code=3968",
+              "title": "03968.HK 招商銀行 | CM BANK | 公司資料 - 財務比率概覽",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://stock.finance.sina.com.cn/stock/view/paper.php?symbol=sh000001&reportid=796690221267&autocallup=no&isfromsina=no",
+              "title": "招商银行(600036)：资产规模、客户存款和零售客户AUM增速突破两位数",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://finance.eastmoney.com/a/202503273358300736.html",
+              "title": "直击业绩会｜招行回应净息差、零售信贷不良等市场关切问题",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "http://vip.stock.finance.sina.com.cn/q/go.php/vReport_Show/kind/lastest/rptid/796301469797/index.phtml",
+              "title": "招商银行(600036)：夯实经营底盘 负债成本优化",
+              "snippet": "",
+              "published_at": null
+            }
+          ],
+          "coverage": {
+            "basis": "search_model",
+            "status": "partial",
+            "covered_criteria": [
+              "给出招商银行2024年年报净息差的明确数值及单位（如百分比）",
+              "注明数据来源为招商银行2024年年度报告，并尽可能给出披露位置或原文表述"
+            ],
+            "missing_criteria": [
+              "若无法取得招商银行2024年年报原文数据，明确说明未获取到，不得用其他银行或其他年度数据替代"
+            ]
+          }
+        },
+        "status": "success",
+        "trace_id": "trace_af7606e69cc645ecab16d88fee04d8b8",
+        "tool_name": "web_search",
+        "latency_ms": 4952,
+        "_invocation": {
+          "version": "search-invocation-v1",
+          "fingerprint": "57aee858e676aa4ca7f00a577ed04782b31c35c01e140dccf5d26042d0e8e929",
+          "result_digest": "0dbb320856a9f9ec5500e30be87c1f932c2e6ca08004c26dded8e73680b2ff35",
+          "binding_digest": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+        },
+        "tool_call_id": "tool_701b6b8ad3d44fd7b751e4823d86000f",
+        "execution_state": "completed"
+      },
+      "created_at": "2026-10-24 14:40:51.410001+00:00",
+      "completed_at": "2026-10-24 14:40:56.038952+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_caa226acb91ffb2e15eb8032819341fe": {
+        "request_id": "live50-20261024-a-019",
+        "task": {
+          "id": "cmb_2024_nim",
+          "task_goal": "获取招商银行2024年年度报告中披露的净息差（NIM）数值，并确认该数值出自招商银行2024年年报原文，而非其他银行或其他年度数据。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出招商银行2024年年报净息差的明确数值及单位（如百分比）",
+            "注明数据来源为招商银行2024年年度报告，并尽可能给出披露位置或原文表述",
+            "若无法取得招商银行2024年年报原文数据，明确说明未获取到，不得用其他银行或其他年度数据替代"
+          ],
+          "tool_search_query": "招商银行2024年年度报告 净息差 披露数据",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_caa226acb91ffb2e15eb8032819341fe",
+        "request_fingerprint": "57aee858e676aa4ca7f00a577ed04782b31c35c01e140dccf5d26042d0e8e929",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_8f139bb5b516439c08fb147fce92d727",
+        "as_of": "2026-10-24T22:40:44+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.trade_cal",
+            "version": "mcp-http-v1",
+            "binding": "52858501cdc6c66bc82defd37e15a105f1cf719fb78b8bab48b8877567447b8a"
+          },
+          {
+            "name": "mcp.tushare.fina_mainbz",
+            "version": "mcp-http-v1",
+            "binding": "d41c658ec88f18e43af92f18095aea4b0f8f8ded0e7d8fa329962a77e1ac2d53"
+          },
+          {
+            "name": "mcp.tushare.top10_holders",
+            "version": "mcp-http-v1",
+            "binding": "9ab830c15ab9a4225b48542fe71d061db9faaeda9f9e5d3ff59f23a9665f5704"
+          },
+          {
+            "name": "mcp.tushare.stk_rewards",
+            "version": "mcp-http-v1",
+            "binding": "c856a4239e765bb21cb54d1d39d3565a6dc0df0059356a058183759e8fc8bee6"
+          },
+          {
+            "name": "mcp.tushare.top10_floatholders",
+            "version": "mcp-http-v1",
+            "binding": "396e59a8ea8c7340a01bf536e95dc41badd03849fc1135cb9f15b7e7b5f7efb6"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_8f139bb5b516439c08fb147fce92d727": {
+        "dispatch_batch_id": "dispatch_8f139bb5b516439c08fb147fce92d727",
+        "run_identity": "4587102e31ca6cd166740d32a92d9cb5041a2e35ca1a8b411de94527dd5c7819",
+        "plan_digest": "3f0e429560c8b0a7830751706b31879019d2b978783da7876e8f0fc1b2284538",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "cmb_2024_nim"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "查询招商银行2024年年报中的净息差，不得用其他银行或其他年度的数据代替",
+      "confidence": 0.95,
+      "source_constraint": "original_only"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "已取得招商银行2024年年报净息差1.98%的多来源一致转述，且明确区分了净利差1.86%；未取得年报PDF原文页码，但该限制不影响核心数值判断，可在回答中如实说明。",
+      "unresolved_questions": [
+        "未能直接核验招商银行2024年年报PDF原文的具体章节或页码，1.98%系依据多家媒体及研报对年报的一致转述。"
+      ]
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "计划核实招商银行2024年年报披露的净息差，严格限定为招商银行2024年度数据，不接受其他银行或其他年度替代。",
+      "tasks": [
+        {
+          "id": "cmb_2024_nim",
+          "task_goal": "获取招商银行2024年年度报告中披露的净息差（NIM）数值，并确认该数值出自招商银行2024年年报原文，而非其他银行或其他年度数据。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出招商银行2024年年报净息差的明确数值及单位（如百分比）",
+            "注明数据来源为招商银行2024年年度报告，并尽可能给出披露位置或原文表述",
+            "若无法取得招商银行2024年年报原文数据，明确说明未获取到，不得用其他银行或其他年度数据替代"
+          ],
+          "tool_search_query": "招商银行2024年年度报告 净息差 披露数据",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "cmb_2024_nim",
+        "status": "success",
+        "content": "{\"answer\":\"检索结果一致显示：招商银行（A股600036、H股03968）2024年年度报告披露的净息差（净利息收益率，集团口径）为1.98%，同比下降17个基点；该数值未达到用户 query 中提到的2.00%。用户 query 中的“2.00%”与检索到的多个来源不符，因此不能确认2.00%是招商银行2024年年报披露的净息差。\\n\\n数据来源与披露情况：\\n- 招商银行于2025年3月25日晚间发布2024年年度报告，多家媒体据此报道：净利息收益率1.98%，同比下降17个基点，净利差1.86%。其中证券日报、央广网、界面新闻的报道均转述了年报数据；一篇财报解读文章引述年报数据，并转述了招行对净息差下降原因的解释，包括存量房贷利率下调、LPR下降、信贷需求不足、市场利率中枢下行和存款定期化。\\n- 对于“年报原文表述”，本次检索没有取得年报PDF原文，也没有取得其中的具体章节或页码。检索到的内容均为媒体报道、券商研报和第三方数据页面的转述；因此，虽然这些内容明确指向“招商银行2024年年度报告”，但严格意义上的原文核对仍未完成。\\n- 需要区分实体与口径：检索到的1.98%是招商银行集团口径的净息差（净利息收益率）。另有第三方港股数据页面列示的“净息差1.86%”，对应的是净利差口径，并非净利息收益率；不能将两者混同。\\n\\n不确定性：未能直接核验年报原文页码或原文表述；因此，1.98%出自招商银行2024年年报这一点，依据的是多家一致的媒体和研报转述，而尚未通过原文逐字确认。\",\"coverage\":{\"basis\":\"search_model\",\"covered_criteria\":[\"给出招商银行2024年年报净息差的明确数值及单位（如百分比）\",\"注明数据来源为招商银行2024年年度报告，并尽可能给出披露位置或原文表述\"],\"missing_criteria\":[\"若无法取得招商银行2024年年报原文数据，明确说明未获取到，不得用其他银行或其他年度数据替代\"],\"status\":\"partial\"},\"query\":\"招商银行 2024年年度报告 净息差 2.00% 年报原文\",\"results\":[{\"published_at\":null,\"snippet\":\"\",\"title\":\"优等生的困扰与压力——细读招行财报\",\"url\":\"http://mp.weixin.qq.com/s?__biz=MjM5MDIwNDEyMg==&mid=2651162338&idx=5&sn=bf648946596b94bf71d8cf1a186b5922\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"招商银行资产规模突破12万亿元 2024年净利润实现同比增长\",\"url\":\"https://stcn.com/article/detail/1609895.html\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"招商银行2024年度归母净利润同比增长1.22% 营收下降0.48%\",\"url\":\"https://finance.cnr.cn/ycbd/20250325/t20250325_527112417.shtml\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"蚂蚁理财社区\",\"url\":\"https://render.alipay.com/p/yuyan/180020010001268694/news.html?newsId=226594528\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"03968.HK 招商銀行 | CM BANK | 公司資料 - 財務比率概覽\",\"url\":\"http://202.62.215.11/www/tc/stocks/realtime/quote_ci_ratio.php?code=3968\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"招商银行(600036)：资产规模、客户存款和零售客户AUM增速突破两位数\",\"url\":\"https://stock.finance.sina.com.cn/stock/view/paper.php?symbol=sh000001&reportid=796690221267&autocallup=no&isfromsina=no\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"直击业绩会｜招行回应净息差、零售信贷不良等市场关切问题\",\"url\":\"https://finance.eastmoney.com/a/202503273358300736.html\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"招商银行(600036)：夯实经营底盘 负债成本优化\",\"url\":\"http://vip.stock.finance.sina.com.cn/q/go.php/vReport_Show/kind/lastest/rptid/796301469797/index.phtml\"}]}",
+        "error_code": null,
+        "tool_name": "web_search"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_caa226acb91ffb2e15eb8032819341fe' request=ToolCallRequest(call_id='call_caa226acb91ffb2e15eb8032819341fe', tool_name='web_search', tool_version='1.0.0', arguments={'query': '招商银行 2024年年度报告 净息差 2.00% 年报原文', 'max_results': 8}, purpose='获取招商银行2024年年度报告中披露的净息差（NIM）数值，并确认该数值出自招商银行2024年年报原文，而非其他银行或其他年度数据。', approval_required=False) result=ToolCallResult(tool_call_id='tool_701b6b8ad3d44fd7b751e4823d86000f', tool_name='web_search', status='success', execution_state='completed', result={'query': '招商银行 2024年年度报告 净息差 2.00% 年报原文', 'answer': '检索结果一致显示：招商银行（A股600036、H股03968）2024年年度报告披露的净息差（净利息收益率，集团口径）为1.98%，同比下降17个基点；该数值未达到用户 query 中提到的2.00%。用户 query 中的“2.00%”与检索到的多个来源不符，因此不能确认2.00%是招商银行2024年年报披露的净息差。\\n\\n数据来源与披露情况：\\n- 招商银行于2025年3月25日晚间发布2024年年度报告，多家媒体据此报道：净利息收益率1.98%，同比下降17个基点，净利差1.86%。其中证券日报、央广网、界面新闻的报道均转述了年报数据；一篇财报解读文章引述年报数据，并转述了招行对净息差下降原因的解释，包括存量房贷利率下调、LPR下降、信贷需求不足、市场利率中枢下行和存款定期化。\\n- 对于“年报原文表述”，本次检索没有取得年报PDF原文，也没有取得其中的具体章节或页码。检索到的内容均为媒体报道、券商研报和第三方数据页面的转述；因此，虽然这些内容明确指向“招商银行2024年年度报告”，但严格意义上的原文核对仍未完成。\\n- 需要区分实体与口径：检索到的1.98%是招商银行集团口径的净息差（净利息收益率）。另有第三方港股数据页面列示的“净息差1.86%”，对应的是净利差口径，并非净利息收益率；不能将两者混同。\\n\\n不确定性：未能直接核验年报原文页码或原文表述；因此，1.98%出自招商银行2024年年报这一点，依据的是多家一致的媒体和研报转述，而尚未通过原文逐字确认。', 'results': [{'title': '优等生的困扰与压力——细读招行财报', 'url': 'http://mp.weixin.qq.com/s?__biz=MjM5MDIwNDEyMg==&mid=2651162338&idx=5&sn=bf648946596b94bf71d8cf1a186b5922', 'snippet': '', 'published_at': None}, {'title': '招商银行资产规模突破12万亿元 2024年净利润实现同比增长', 'url': 'https://stcn.com/article/detail/1609895.html', 'snippet': '', 'published_at': None}, {'title': '招商银行2024年度归母净利润同比增长1.22% 营收下降0.48%', 'url': 'https://finance.cnr.cn/ycbd/20250325/t20250325_527112417.shtml', 'snippet': '', 'published_at': None}, {'title': '蚂蚁理财社区', 'url': 'https://render.alipay.com/p/yuyan/180020010001268694/news.html?newsId=226594528', 'snippet': '', 'published_at': None}, {'title': '03968.HK 招商銀行 | CM BANK | 公司資料 - 財務比率概覽', 'url': 'http://202.62.215.11/www/tc/stocks/realtime/quote_ci_ratio.php?code=3968', 'snippet': '', 'published_at': None}, {'title': '招商银行(600036)：资产规模、客户存款和零售客户AUM增速突破两位数', 'url': 'https://stock.finance.sina.com.cn/stock/view/paper.php?symbol=sh000001&reportid=796690221267&autocallup=no&isfromsina=no', 'snippet': '', 'published_at': None}, {'title': '直击业绩会｜招行回应净息差、零售信贷不良等市场关切问题', 'url': 'https://finance.eastmoney.com/a/202503273358300736.html', 'snippet': '', 'published_at': None}, {'title': '招商银行(600036)：夯实经营底盘 负债成本优化', 'url': 'http://vip.stock.finance.sina.com.cn/q/go.php/vReport_Show/kind/lastest/rptid/796301469797/index.phtml', 'snippet': '', 'published_at': None}], 'coverage': {'status': 'partial', 'covered_criteria': ['给出招商银行2024年年报净息差的明确数值及单位（如百分比）', '注明数据来源为招商银行2024年年度报告，并尽可能给出披露位置或原文表述'], 'missing_criteria': ['若无法取得招商银行2024年年报原文数据，明确说明未获取到，不得用其他银行或其他年度数据替代'], 'basis': 'search_model'}}, error=None, latency_ms=4952, trace_id='trace_af7606e69cc645ecab16d88fee04d8b8')"
+    ],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "## 招商银行2024年净息差\n\n**招商银行2024年年报披露的净息差（净利息收益率，集团口径）为1.98%，同比下降17个基点。** 同期净利差为1.86%。\n\n### 需要区分的两个口径\n\n- **净利息收益率（净息差）1.98%**：这是通常所说的NIM，也是本次查询的目标指标。\n- **净利差1.86%**：部分第三方数据页面列示的1.86%对应的是净利差口径，与净息差不是同一概念，不能混用。\n\n### 关于\"2.00%\"这一数值\n\n现有材料中没有任何来源支持招商银行2024年净息差为2.00%。多个来源一致指向1.98%，因此2.00%与已检索到的披露数据不符，不宜采用。\n\n### 净息差下降的背景\n\n据财报解读类材料转述，招行对净息差收窄的解释包括：存量房贷利率下调、LPR下降、信贷需求不足、市场利率中枢下行以及存款定期化。这些因素共同压低了资产端收益率，而负债端成本下降相对滞后，形成息差收窄压力。\n\n### 数据可靠性说明\n\n上述1.98%来自证券日报、央广网、界面新闻等多家媒体对2024年年报的报道，以及券商研报的转述，来源之间数值一致。但本次未能取得年报PDF原文，未核对到具体章节或页码，因此该数值属于\"多来源一致转述\"而非\"原文逐字确认\"。若需用于正式引用，建议以年报原文（如\"主要财务指标\"或\"净利息收益率\"相关章节）为准。\n\n本回答仅涉及招商银行2024年度数据，未使用其他银行或其他年度的数据替代。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_af7606e69cc645ecab16d88fee04d8b8",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    },
+    "errors": []
+  }
+}
