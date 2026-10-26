@@ -80,6 +80,13 @@ _SAFE_METADATA_KEYS = frozenset(
         "langgraph_node",
         "langgraph_step",
         "content_policy_applied",
+        "search_provider",
+        "search_http_status",
+        "search_error_code",
+        "search_result_count",
+        "search_skipped_count",
+        "search_truncated",
+        "search_duration_ms",
     }
 )
 _SAFE_ERROR_STATUS = re.compile(

@@ -3,6 +3,20 @@ from app.core.config import Settings
 from pydantic import ValidationError
 
 
+def test_search_api_defaults_are_independent_of_model_configuration():
+    settings = Settings(_env_file=None, deepseek_base_url="https://model.example/v1")
+    assert settings.web_search_provider == "deepseek_search_api"
+    assert settings.web_search_base_url == "https://api.deepseek.com"
+    assert _production_settings().web_search_provider == "deepseek_search_api"
+
+
+@pytest.mark.parametrize("value", ["file:///tmp/search", "https://user:password@example.com",
+                                  "https://example.com?api_key=secret"])
+def test_search_api_rejects_invalid_or_secret_bearing_endpoint(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, web_search_base_url=value)
+
+
 def test_context_compaction_defaults_are_conservative_and_disabled():
     settings = Settings(_env_file=None)
 

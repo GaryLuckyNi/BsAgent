@@ -4,28 +4,13 @@ from typing import Any
 import httpx
 
 from app.operations.langfuse_observability import langfuse_generation, update_langfuse_observation
+from app.search.base import WebSearchProviderError
 from app.search.schemas import (
     EvidenceCoverage,
     SearchResearchContext,
     WebSearchResponse,
     WebSearchResult,
 )
-
-
-class WebSearchProviderError(RuntimeError):
-    def __init__(
-        self,
-        *,
-        code: str,
-        message: str,
-        retryable: bool,
-        status_code: int | None = None,
-    ) -> None:
-        self.code = code
-        self.message = message
-        self.retryable = retryable
-        self.status_code = status_code
-        super().__init__(message)
 
 
 class DeepSeekWebSearchClient:

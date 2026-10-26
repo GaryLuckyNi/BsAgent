@@ -1,7 +1,7 @@
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _LANGFUSE_LOCAL_ALLOWED_HOSTS = frozenset(
@@ -73,8 +73,20 @@ class Settings(BaseSettings):
         ge=256,
     )
     web_search_enabled: bool = True
-    web_search_provider: Literal["deepseek"] = "deepseek"
+    web_search_provider: Literal["deepseek", "deepseek_search_api"] = "deepseek_search_api"
+    web_search_base_url: str = "https://api.deepseek.com"
     web_search_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+
+    @field_validator("web_search_base_url")
+    @classmethod
+    def validate_web_search_base_url(cls, value: str) -> str:
+        value = value.strip().rstrip("/")
+        parsed = urlparse(value)
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.query or parsed.fragment):
+            raise ValueError("web_search_base_url 必须为不含凭证、查询参数或片段的 HTTP(S) 地址")
+        return value.removesuffix("/v1")
     rbac_backend: Literal["mock", "principal"] = "mock"
     mock_rbac_approver_user_ids: list[str] = ["approver_1"]
     mock_rbac_admin_user_ids: list[str] = ["admin_1"]
@@ -304,8 +316,6 @@ class Settings(BaseSettings):
             invalid.extend(["jwt_jwks_url", "jwt_public_key"])
         if not self.deepseek_api_key.strip():
             invalid.append("deepseek_api_key")
-        if self.web_search_enabled and self.web_search_provider != "deepseek":
-            invalid.append("web_search_provider")
         if self.image_analysis_dispatcher_backend != "celery":
             invalid.append("image_analysis_dispatcher_backend")
         if not self.celery_broker_url.strip():

@@ -320,6 +320,7 @@ def _execute_search(*, state, task, request, registry, budget) -> ToolCallResult
                     research_context=SearchResearchContext(
                         task_goal=task.task_goal, completion_criteria=tuple(task.completion_criteria),
                         as_of=datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+                        original_question=state.get("user_message"),
                     ),
                 ),
             )
@@ -363,6 +364,7 @@ def _search_content(result: ToolCallResult) -> str:
                 "title": str(item.get("title") or "")[:200],
                 "url": str(item.get("url") or ""),
                 "snippet": str(item.get("snippet") or "")[:300],
+                "published_at": item.get("published_at"),
             }
             rows = summary["search_result"]["results"]
             rows.append(ref)

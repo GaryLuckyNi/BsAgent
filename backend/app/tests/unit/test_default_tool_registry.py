@@ -1,6 +1,6 @@
-import pytest
 from types import SimpleNamespace
 
+import pytest
 from app.schemas.tools import ToolSpec
 from app.tools import default_registry
 from app.tools.mcp_gateway import McpServerConfig
@@ -63,6 +63,44 @@ def test_default_registry_registers_deepseek_web_search_as_platform_tool(monkeyp
     assert spec.permission_scope == ["web:search"]
     assert spec.risk_level == "low"
     assert registry.has("search_tool")
+
+
+def test_search_registration_freezes_actual_implementation_and_configuration(monkeypatch):
+    from app.search.deepseek import DeepSeekWebSearchClient
+    from app.search.deepseek_api import DeepSeekSearchApiClient
+
+    monkeypatch.setattr(default_registry.settings, "web_search_enabled", True)
+    monkeypatch.setattr(default_registry.settings, "deepseek_api_key", "test-key")
+    monkeypatch.setattr(default_registry.settings, "web_search_provider", "deepseek_search_api")
+    monkeypatch.setattr(default_registry.settings, "web_search_base_url", "https://search.example/v1")
+    monkeypatch.setattr(default_registry.settings, "web_search_timeout_seconds", 45.0)
+    monkeypatch.setattr(default_registry.McpGateway, "discover_tools", lambda self, config: [])
+
+    def entry():
+        default_registry.get_default_tool_registry.cache_clear()
+        return default_registry.get_default_tool_registry().get("web_search")
+
+    direct = entry()
+    assert isinstance(direct.executor._client, DeepSeekSearchApiClient)
+    assert direct.execution_binding.provider == "local"
+    assert "DeepSeekSearchApiClient" in direct.execution_binding.implementation_id
+    assert direct.spec.version == "2.0.0" and direct.spec.timeout_ms == 45_000
+    assert "test-key" not in direct.execution_binding.model_dump_json()
+    monkeypatch.setattr(default_registry.settings, "deepseek_api_key", "rotated-key")
+    assert entry().execution_binding_digest == direct.execution_binding_digest
+    monkeypatch.setattr(default_registry.settings, "web_search_base_url", "https://new.example")
+    assert entry().execution_binding_digest != direct.execution_binding_digest
+    monkeypatch.setattr(default_registry.settings, "web_search_provider", "deepseek")
+    legacy = entry()
+    assert isinstance(legacy.executor._client, DeepSeekWebSearchClient)
+    assert legacy.execution_binding_digest != direct.execution_binding_digest
+
+
+def test_default_registry_omits_search_when_key_missing(monkeypatch, caplog):
+    monkeypatch.setattr(default_registry.settings, "web_search_enabled", True)
+    monkeypatch.setattr(default_registry.settings, "deepseek_api_key", " ")
+    assert not default_registry.get_default_tool_registry().has("web_search")
+    assert "web_search_not_configured" in caplog.text
 
 
 def test_default_registry_keeps_platform_tools_when_mcp_discovery_fails(

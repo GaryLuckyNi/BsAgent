@@ -948,6 +948,7 @@ def _execution_context(state, task, request):
         research_context=SearchResearchContext(
             task_goal=task.task_goal, completion_criteria=tuple(task.completion_criteria),
             as_of=state.get("research_as_of") or datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
+            original_question=state.get("user_message"),
         ),
         search_budget_limit=(MAX_WEB_SEARCH_TASKS if state.get("recovery_policy_version") == RECOVERY_VERSION else None),
         existing_search_call_ids=tuple(

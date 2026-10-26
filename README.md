@@ -153,6 +153,12 @@ Tushare MCP URL 中包含 MCP Key。Admin 的公开列表和详情接口只返�
 
 `BS_AGENT_WEB_SEARCH_ENABLED=true` 会把 Web Search 注册到工具目录。Planner 根据用户 `goal` 和 Observation 安排事实获取任务；Tool Agent 模型在受权限约束的候选中自主决定是否调用 `web_search` 以及查询词，代码不使用公司名称失败的固定搜索分支。搜索结果仍属于外部证据，不能未经交叉验证就当作证券代码或公司事实。
 
+联网搜索默认使用 `BS_AGENT_WEB_SEARCH_PROVIDER=deepseek_search_api`，直接请求 DeepSeek 独立 Search API，不增加搜索内部的模型生成。搜索地址由 `BS_AGENT_WEB_SEARCH_BASE_URL` 单独配置，默认 `https://api.deepseek.com`（也接受末尾 `/v1`），复用 `BS_AGENT_DEEPSEEK_API_KEY`；配置模型代理地址不会自动改变搜索地址。查询最多 128 个字符、默认返回 5 条来源，超长查询明确失败，不静默截断。`BS_AGENT_WEB_SEARCH_TIMEOUT_SECONDS` 同时进入客户端和工具超时契约。
+
+直连搜索以每条来源的长摘要作为 `snippet`，`answer` 为空、`coverage` 为 `unknown`；现有 Planner 和合成链路根据摘要及来源继续判断目标是否满足，不把有结果等同于取得指定数据。普通执行和权限恢复均保留有界来源摘要及日期。本阶段不自动抓取正文，Fetch 工具留待单独接入。
+
+如需手动回滚，设置 `BS_AGENT_WEB_SEARCH_PROVIDER=deepseek` 并重启后端，旧模式使用 `BS_AGENT_DEEPSEEK_BASE_URL` 与模型配置。接口失败不会自动切换实现。模式或执行配置变化会改变工具目录与绑定身份，正在执行的历史快照可能被一致性检查拒绝；不要通过修改历史回执绕过保护。
+
 前端单独启动命令：
 
 ```bash

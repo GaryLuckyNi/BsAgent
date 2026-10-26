@@ -3,7 +3,6 @@ import re
 
 from app.core.config import settings
 from app.schemas.tools import ToolSpec
-from app.search.factory import build_web_search_client
 from app.tools.catalog_runtime import ToolCatalogRuntime
 from app.tools.market_data_config import AdminMarketDataConfigClient
 from app.tools.mcp_gateway import McpGateway, McpServerConfig
@@ -14,7 +13,7 @@ from app.tools.search import (
     ToolSearchIndex,
     ToolSearchService,
 )
-from app.tools.web_search import WebSearchTool
+from app.tools.web_search import build_default_web_search_registration
 
 logger = logging.getLogger(__name__)
 _HTTP_STATUS_PATTERN = re.compile(r"\b([45][0-9]{2})\b")
@@ -49,7 +48,10 @@ def _discover_default_tool_registry() -> ToolRegistry:
                 execution_binding=gateway.execution_binding(server_config, tool=tool),
             )
     if settings.web_search_enabled and settings.deepseek_api_key.strip():
-        registry.register(WebSearchTool(client=build_web_search_client()))
+        search_tool, search_binding = build_default_web_search_registration()
+        registry.register(search_tool, execution_binding=search_binding)
+    elif settings.web_search_enabled:
+        logger.warning("web_search_not_configured provider=%s", settings.web_search_provider)
     return registry
 
 

@@ -1,6 +1,8 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+
+from app.tools.redaction import contains_inline_credentials, sanitize_untrusted_details
 
 
 class SearchResearchContext(BaseModel):
@@ -9,6 +11,18 @@ class SearchResearchContext(BaseModel):
     task_goal: str = Field(min_length=1, max_length=500)
     completion_criteria: tuple[str, ...] = Field(default_factory=tuple, max_length=8)
     as_of: str = Field(min_length=1, max_length=64)
+    original_question: str | None = Field(default=None, max_length=128)
+
+    @field_validator("original_question", mode="before")
+    @classmethod
+    def short_original_question(cls, value):
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip()
+        if not 1 <= len(normalized) <= 128 or contains_inline_credentials(normalized):
+            return None
+        safe = sanitize_untrusted_details({"question": normalized})
+        return normalized if safe.get("question") == normalized else None
 
 
 class EvidenceCoverage(BaseModel):

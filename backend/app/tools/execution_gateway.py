@@ -17,6 +17,7 @@ from app.operations.langfuse_observability import (
 from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.approvals import ApprovedToolCall
 from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError, ToolSpec
+from app.search.base import WEB_SEARCH_ERROR_MESSAGES
 from app.search.schemas import SearchResearchContext
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.redaction import redact_sensitive_data, sanitize_untrusted_details
@@ -69,11 +70,7 @@ SAFE_TOOL_ERROR_MESSAGES = {
     "rag_no_evidence": "未检索到相关证据。",
     "rag_service_timeout": "检索服务响应超时。",
     "rag_service_unreachable": "检索服务不可达。",
-    "web_search_timeout": "联网搜索服务响应超时。",
-    "web_search_http_error": "联网搜索服务请求失败。",
-    "web_search_unavailable": "联网搜索服务暂不可用。",
-    "web_search_response_invalid": "联网搜索服务返回了无效响应。",
-    "web_search_no_results": "联网搜索未返回可验证来源。",
+    **WEB_SEARCH_ERROR_MESSAGES,
     "tool_search_unavailable": "工具检索暂不可用。",
     "tool_side_effects_unresolved": "此前写入的结果尚未核实，请先核实后再执行写操作。",
     "tool_call_already_executed": "此调用此前已执行成功，请核实已有结果，避免重复写入。",

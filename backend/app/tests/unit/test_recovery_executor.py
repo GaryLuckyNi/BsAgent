@@ -17,6 +17,62 @@ def test_search_query_uses_only_frozen_goal_and_criteria_and_has_stable_call_id(
     assert first.tool_name == "web_search" and first.tool_version == original.fallback_version
 
 
+def test_recovery_query_is_not_silently_truncated():
+    original = item(task_goal="目标" * 200, completion_criteria=("必要条件" * 100,))
+    batch = seal_batch(run_identity="run", dispatch_batch_id="dispatch", items=(original,))
+    request = executor.recovery_search_request(batch=batch, item=original)
+    assert request.arguments["query"] == original.task_goal + "\n" + original.completion_criteria[0]
+
+
+def test_recovery_retains_source_summary_and_date_without_generated_answer():
+    result = ToolCallResult(tool_call_id="search", tool_name="web_search", status="success",
+                            trace_id="trace", result={"answer": "", "results": [{
+                                "title": "公告", "url": "https://example.com/a",
+                                "snippet": "PE 为 10", "published_at": "2026-10-25T01:00:00Z",
+                            }], "coverage": {"status": "unknown"}})
+    content = json.loads(executor._content(item(), None, result))
+    ref = content["search_result"]["results"][0]
+    assert ref["snippet"] == "PE 为 10"
+    assert ref["published_at"] == "2026-10-25T01:00:00Z"
+    assert content["coverage"]["status"] == "unknown"
+
+
+def test_recovery_marks_shortened_source_snippet_as_truncated():
+    result = ToolCallResult(tool_call_id="search", tool_name="web_search", status="success",
+                            trace_id="trace", result={"answer": "", "results": [{
+                                "title": "公告", "url": "https://example.com/a",
+                                "snippet": "字" * 4000, "published_at": None,
+                            }]})
+    content = json.loads(executor._content(item(), None, result))
+    assert content["search_result"]["results"][0]["snippet"]
+    assert content["truncated"] is True
+
+
+def test_overlong_recovery_query_fails_before_remote_dispatch():
+    import asyncio
+
+    from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
+    from app.tools.registry import ToolRegistry
+    from app.tools.web_search import WebSearchTool
+
+    class NeverCalled:
+        async def search(self, **kwargs):
+            raise AssertionError("非法查询不应触发远端请求")
+
+    original = item(task_goal="目标" * 80, fallback_version="2.0.0")
+    batch = seal_batch(run_identity="run", dispatch_batch_id="dispatch", items=(original,))
+    request = executor.recovery_search_request(batch=batch, item=original)
+    registry = ToolRegistry()
+    registry.register(WebSearchTool(client=NeverCalled()))
+    result = asyncio.run(ToolExecutionGateway(registry).execute(request, trace_id="trace", context=(
+        ToolExecutionContext(tenant_id="t", user_id="u", session_id="s",
+                             permission_scopes=("web:search",), allowed_tools=("web_search",))
+    )))
+    assert result.status == "failed"
+    assert result.error.code == "tool_argument_validation_failed"
+    assert result.execution_state == "not_started"
+
+
 def test_query_redaction_failure_never_falls_back_to_original_text(monkeypatch):
     def fail(_value):
         raise RuntimeError("controlled redaction failure")

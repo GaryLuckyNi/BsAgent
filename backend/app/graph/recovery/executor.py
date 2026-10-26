@@ -56,7 +56,7 @@ def recovery_search_request(*, batch, item):
     )
     if not isinstance(safe.get("goal"), str) or not isinstance(safe.get("criteria"), list):
         raise TypeError("recovery_query_redaction_failed")
-    query = "\n".join([safe["goal"], *safe["criteria"]])[:500]
+    query = "\n".join([safe["goal"], *safe["criteria"]])
     return ToolCallRequest(
         call_id=search_invocation_id(
             batch_id=batch.batch_id, original_call_id=item.original_call_id
@@ -111,11 +111,20 @@ def _content(item, request, result=None, *, code=None):
         for row in raw.get("results", [])[:8] if isinstance(raw.get("results"), list) else []:
             if not isinstance(row, dict):
                 continue
-            ref = {"title": str(row.get("title") or "")[:160], "url": str(row.get("url") or "")}
+            title = str(row.get("title") or "")
+            snippet = str(row.get("snippet") or "")
+            ref = {
+                "title": title[:160], "url": str(row.get("url") or ""),
+                "snippet": snippet[:1200], "published_at": row.get("published_at"),
+            }
+            if len(title) > 160 or len(snippet) > 1200:
+                payload["truncated"] = True
             payload["search_result"]["results"].append(ref)
             if len(json.dumps(payload, ensure_ascii=False)) > MAX_TASK_RESULT_CONTENT_CHARS:
                 payload["search_result"]["results"].pop()
                 payload["truncated"] = True
+        if len(raw.get("results") or []) > 8 or len(str(raw.get("answer") or "")) > 1000:
+            payload["truncated"] = True
     payload = sanitize_untrusted_details(payload, max_string_length=8000, max_nodes=512)
     text = json.dumps(payload, ensure_ascii=False)
     if len(text) > MAX_TASK_RESULT_CONTENT_CHARS:
@@ -205,6 +214,7 @@ def build_recovery_node(registry):
                                     task_goal=item.task_goal,
                                     completion_criteria=item.completion_criteria,
                                     as_of=selection["as_of"],
+                                    original_question=state.get("user_message"),
                                 ),
                             ),
                         )

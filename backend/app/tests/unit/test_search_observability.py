@@ -8,9 +8,63 @@ import httpx
 import pytest
 from app.operations.langfuse_observability import langfuse_agent_run
 from app.search.deepseek import DeepSeekWebSearchClient
+from app.search.deepseek_api import DeepSeekSearchApiClient
 from app.tests.unit.test_langfuse_scheduler import telemetry as scheduler_telemetry
 
 telemetry = scheduler_telemetry
+
+
+@pytest.mark.parametrize("mode", ["local_content", "metadata_only"])
+@pytest.mark.parametrize("status", [200, 429])
+def test_direct_search_is_one_api_span_without_generation_or_token_usage(telemetry, mode, status):
+    from app.search.base import WebSearchProviderError
+
+    runtime, exporter = telemetry
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(status, json={"results": [{
+            "title": "公告", "url": "https://example.com/source",
+            "summary": "synthetic-source-summary", "snippet": "短摘要", "date": None,
+        }]})
+
+    async def search():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+            return await DeepSeekSearchApiClient(
+                api_key="synthetic-direct-secret", http_client=http,
+            ).search(query="synthetic-search-query", max_results=3)
+
+    with langfuse_agent_run(business_trace_id=f"direct-search-{uuid4().hex}", session_key="s",
+                            tenant_id="t", execution_segment="initial"):
+        if status == 200:
+            assert asyncio.run(search()).coverage.status == "unknown"
+        else:
+            with pytest.raises(WebSearchProviderError):
+                asyncio.run(search())
+    runtime.client.flush()
+    runtime.provider.force_flush()
+    spans = exporter.get_finished_spans()
+    assert not [span for span in spans
+                if span.attributes.get("langfuse.observation.type") == "generation"]
+    api = [span for span in spans if span.name == "deepseek.search.api"]
+    assert len(requests) == len(api) == 1
+    span = api[0]
+    root = next(row for row in spans if row.name == "bs-agent.run")
+    assert span.parent.span_id == root.context.span_id
+    assert "langfuse.observation.usage_details" not in span.attributes
+    prefix = "langfuse.observation.metadata."
+    metadata = {key[len(prefix):]: value for key, value in span.attributes.items()
+                if key.startswith(prefix)}
+    assert metadata["search_http_status"] == status
+    if status == 200:
+        assert metadata["search_result_count"] == 1
+    else:
+        assert metadata["search_error_code"] == "web_search_rate_limited"
+    serialized = json.dumps(dict(span.attributes))
+    assert "synthetic-direct-secret" not in serialized
+    assert ("synthetic-search-query" in serialized) == (mode == "local_content")
+    assert ("synthetic-source-summary" in serialized) == (mode == "local_content" and status == 200)
 
 
 @pytest.mark.parametrize("mode", ["local_content", "metadata_only"])
