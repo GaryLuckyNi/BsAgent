@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.operations.langfuse_content import LangfuseContentPolicy
 from app.schemas.tools import ToolSpec
+from app.tools.input_schema import planning_input_schema
 from app.tools.registry import ToolCatalogChangedError
 from app.tools.search import ToolSearchContext, ToolSearchInput, ToolSearchService
 from app.tools.search.contracts import SearchSource
@@ -14,6 +15,8 @@ from app.tools.search.index import ToolSearchUnavailableError
 
 MAX_CARD_CHARS = 1200
 MAX_CARDS_CHARS = 8000
+MAX_INPUT_SCHEMA_CHARS = 4000
+MAX_INPUT_SCHEMAS_CHARS = 12000
 
 
 class PlanningToolCard(BaseModel):
@@ -24,6 +27,7 @@ class PlanningToolCard(BaseModel):
     description: str
     schema_excerpt: str
     truncated: bool = False
+    input_schema: dict | None = None
     sources: list[SearchSource] = Field(default_factory=list, max_length=2)
 
     @model_validator(mode="after")
@@ -32,6 +36,8 @@ class PlanningToolCard(BaseModel):
             raise ValueError("候选引用与工具身份不一致。")
         if len(self.description) + len(self.schema_excerpt) > MAX_CARD_CHARS:
             raise ValueError("能力卡片超过字符预算。")
+        if self.input_schema is not None and _schema_size(self.input_schema) > MAX_INPUT_SCHEMA_CHARS:
+            raise ValueError("完整输入契约超过字符预算。")
         return self
 
 
@@ -50,6 +56,8 @@ class PlanningToolSnapshot(BaseModel):
             raise ValueError("候选引用不能重复。")
         if sum(len(card.description) + len(card.schema_excerpt) for card in self.candidates) > MAX_CARDS_CHARS:
             raise ValueError("能力卡片总预算超限。")
+        if sum(_schema_size(card.input_schema) for card in self.candidates) > MAX_INPUT_SCHEMAS_CHARS:
+            raise ValueError("完整输入契约总预算超限。")
         return self
 
 
@@ -57,7 +65,12 @@ def _clean(text: str) -> str:
     return LangfuseContentPolicy(max_chars=max(1, len(text))).sanitize_text(text)
 
 
-def project_card(spec: ToolSpec, *, max_chars: int = MAX_CARD_CHARS) -> PlanningToolCard:
+def _schema_size(schema: dict | None) -> int:
+    return len(json.dumps(schema, ensure_ascii=False)) if schema is not None else 0
+
+
+def project_card(spec: ToolSpec, *, max_chars: int = MAX_CARD_CHARS,
+                 max_schema_chars: int = MAX_INPUT_SCHEMA_CHARS) -> PlanningToolCard:
     max_chars = max(1, min(max_chars, MAX_CARD_CHARS))
     required = set(spec.input_schema.get("required", []))
     properties = spec.input_schema.get("properties", {})
@@ -76,10 +89,16 @@ def project_card(spec: ToolSpec, *, max_chars: int = MAX_CARD_CHARS) -> Planning
     description_budget = min(len(description), max_chars // 2) if excerpt else max_chars
     kept_description = description[:description_budget]
     kept_excerpt = excerpt[: max_chars - len(kept_description)]
+    input_schema = planning_input_schema(spec) if spec.risk_level == "low" else None
+    if input_schema is not None:
+        serialized = json.dumps(input_schema, ensure_ascii=False)
+        if len(serialized) > min(max_schema_chars, MAX_INPUT_SCHEMA_CHARS) or _clean(serialized) != serialized:
+            input_schema = None  # 不裁剪或改写会用于生成参数的契约。
     return PlanningToolCard(
         ref=f"tool:{spec.name}@{spec.version}", tool_name=spec.name, tool_version=spec.version,
         description=kept_description, schema_excerpt=kept_excerpt,
         truncated=len(kept_description) < len(description) or len(kept_excerpt) < len(excerpt),
+        input_schema=input_schema,
     )
 
 
@@ -127,7 +146,10 @@ def recall_candidates(*, state: dict, search_service: ToolSearchService | None,
                 if hit.tool_version != spec.version:
                     raise ToolCatalogChangedError()
                 if spec.name not in cards and len(cards) < top_k:
-                    card = project_card(spec, max_chars=min(MAX_CARD_CHARS, MAX_CARDS_CHARS // top_k))
+                    remaining = MAX_INPUT_SCHEMAS_CHARS - sum(
+                        _schema_size(card.input_schema) for card in cards.values())
+                    card = project_card(spec, max_chars=min(MAX_CARD_CHARS, MAX_CARDS_CHARS // top_k),
+                                        max_schema_chars=remaining)
                     cards[spec.name] = card.model_copy(update={"sources": list(hit.sources)})
     except ToolSearchUnavailableError:
         return PlanningToolSnapshot(**base, candidates=list(cards.values()), reason="tool_search_unavailable")

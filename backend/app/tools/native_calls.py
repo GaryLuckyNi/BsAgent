@@ -1,6 +1,5 @@
 import re
 from collections.abc import Sequence
-from copy import deepcopy
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Literal
@@ -9,7 +8,8 @@ from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMe
 
 from app.llm.factory import ToolCallingLlmClient, invoke_llm_completion
 from app.schemas.tools import ToolSpec
-from app.tools.redaction import contains_inline_credentials, redact_sensitive_data
+from app.tools.input_schema import model_input_schema
+from app.tools.redaction import redact_sensitive_data
 
 _VALID_TOOL_NAME = re.compile(r"[^a-zA-Z0-9_-]+")
 
@@ -106,25 +106,12 @@ def create_tool_result_message(
 
 
 def _openai_tool_schema(tool_spec: ToolSpec, *, api_name: str) -> dict[str, Any]:
-    input_schema = deepcopy(tool_spec.input_schema)
-    properties = input_schema.get("properties")
-    if isinstance(properties, dict):
-        blocked = set(tool_spec.server_injected_fields)
-        blocked.update(
-            name for name in properties if contains_inline_credentials({name: "placeholder-value"})
-        )
-        input_schema["properties"] = {
-            name: schema for name, schema in properties.items() if name not in blocked
-        }
-        required = input_schema.get("required")
-        if isinstance(required, list):
-            input_schema["required"] = [name for name in required if name not in blocked]
     return {
         "type": "function",
         "function": {
             "name": api_name,
             "description": tool_spec.description,
-            "parameters": input_schema,
+            "parameters": model_input_schema(tool_spec),
         },
     }
 

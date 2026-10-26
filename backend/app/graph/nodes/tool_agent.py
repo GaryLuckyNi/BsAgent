@@ -26,6 +26,7 @@ from app.graph.planning.evidence_projection import bounded_search_coverage
 from app.graph.planning.policy import MAX_WEB_SEARCH_TASKS
 from app.graph.planning.request_flow import uses_request_flow
 from app.graph.planning.skill_workflow import active_step
+from app.graph.planning.tool_call_proposal import adopt_tool_call_proposal
 from app.graph.state import AgentState
 from app.llm.factory import ToolCallingLlmClient
 from app.operations.langfuse_observability import (
@@ -168,7 +169,12 @@ def build_tool_agent_node(
             except WorkflowError as exc:
                 return _failure_update(task=task, code=exc.code, content=str(exc))
             discovery_update = _discovery_update(state, resolution)
-            if llm_client is None:
+            selection, proposal_status = adopt_tool_call_proposal(
+                state=state, task=task, resolution=resolution, canonicalize=_canonical_date_selection,
+            )
+            for event in discovery_update["tool_discovery_events"].values():
+                event["proposal_status"] = proposal_status
+            if selection is None and llm_client is None:
                 return {
                     **discovery_update,
                     **_failure_update(
@@ -177,7 +183,7 @@ def build_tool_agent_node(
                         content="当前未配置可选择工具并生成参数的 LLM。",
                     ),
                 }
-            else:
+            elif selection is None:
                 generated = _generate_tool_selection(
                     llm_client=llm_client,
                     messages=_tool_call_messages(state, task),

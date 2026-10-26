@@ -38,13 +38,14 @@ class StockTool(Tool):
 
 
 class Model(Answers):
-    def __init__(self, route="plan"):
+    def __init__(self, route="plan", proposal=None):
         ref = "tool:mcp.tushare.stock_basic@1.0.0"
         initial = intent(goal=QUERY, route=route)
         if route == "direct_answer":
             initial["answer"] = "根据已有材料可解释公司基础资料。"
         super().__init__(initial, *([
-            {"tasks": [{"id": "basic_info", "task_goal": QUERY, "tool_candidate_refs": [ref]}]},
+            {"tasks": [{"id": "basic_info", "task_goal": QUERY, "tool_candidate_refs": [ref],
+                        **({"proposed_tool_call": proposal} if proposal is not None else {})}]},
         ] if route == "plan" else []), {"action": "answer", "answer": "已取得公司基础资料，退市日期需结合上市状态解释。"})
         self.bindings = []
 
@@ -99,6 +100,39 @@ def test_one_task_reuses_candidates_and_executes_actual_tool_agent(monkeypatch, 
     assert len(llm.bindings) == 1
     assert any(event.get("source") == "planning_reuse" for event in result["tool_discovery_events"].values())
     assert result["final_response"]["content"]
+
+
+def test_planner_proposal_saves_execution_model_call(monkeypatch, business_intent_catalog):
+    calls, searches, kwargs = graph_setup(monkeypatch)
+    llm = Model(proposal={"candidate_ref": "tool:mcp.tushare.stock_basic@1.0.0",
+                         "arguments": {"name": "银之杰", "fields": [
+                             "ts_code", "name", "list_date", "delist_date", "list_status"]}})
+    result = runtime.run_question_answer_graph(**kwargs, business_intent_catalog=business_intent_catalog,
+        llm_client=llm, session_id="s", tenant_id="t", user_id="u", user_message=QUERY)
+    assert searches == [QUERY]
+    assert calls == [("mcp.tushare.stock_basic", {"name": "银之杰", "fields": [
+        "ts_code", "name", "list_date", "delist_date", "list_status"]})]
+    assert len(llm.calls) == 3 and llm.bindings == []
+    assert any(event.get("proposal_status") == "accepted"
+               for event in result["tool_discovery_events"].values())
+    record = result["tool_calls"][0]
+    assert record.request.call_id.startswith("call_") and record.result.status == "success"
+
+
+def test_independent_tasks_can_each_supply_a_proposal(monkeypatch, business_intent_catalog):
+    calls, searches, kwargs = graph_setup(monkeypatch)
+    llm = Model()
+    tasks = [{"id": task_id, "task_goal": QUERY.replace("银之杰", name),
+              "tool_candidate_refs": ["tool:mcp.tushare.stock_basic@1.0.0"],
+              "proposed_tool_call": {"candidate_ref": "tool:mcp.tushare.stock_basic@1.0.0",
+                                     "arguments": {"name": name, "fields": ["name"]}}}
+             for task_id, name in (("first", "银之杰"), ("second", "寒武纪"))]
+    llm.answers = (llm.answers[0], {"tasks": tasks}, llm.answers[-1])
+    result = runtime.run_question_answer_graph(**kwargs, business_intent_catalog=business_intent_catalog,
+        llm_client=llm, session_id="s", tenant_id="t", user_id="u", user_message=QUERY + "，以及寒武纪的基础信息")
+    assert len(calls) == 2 and {args["name"] for _, args in calls} == {"银之杰", "寒武纪"}
+    assert len(searches) == 1 and llm.bindings == []
+    assert len({record.request.call_id for record in result["tool_calls"]}) == 2
 
 
 @pytest.mark.parametrize("route", ["direct_answer", "synthesize"])

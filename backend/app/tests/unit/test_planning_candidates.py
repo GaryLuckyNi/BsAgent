@@ -66,14 +66,15 @@ def test_initial_state_has_no_planning_candidates():
     assert value["planning_tool_candidates"] is None
 
 
-def test_card_projects_field_hints_without_full_schema_or_injected_fields():
+def test_card_shares_complete_input_contract_without_injected_fields():
     from app.tools.planning_candidates import project_card
 
     card = project_card(stock_spec())
     assert card.ref == "tool:mcp.tushare.stock_basic@1.0.0"
     assert "delist_date" in card.schema_excerpt and "名称" in card.schema_excerpt
     assert "private_config" not in card.schema_excerpt
-    assert "input_schema" not in card.model_dump()
+    assert card.input_schema["properties"]["fields"]["type"] == "array"
+    assert "private_config" not in card.input_schema["properties"]
     assert "output_schema" not in card.model_dump()
 
 
@@ -86,6 +87,41 @@ def test_projection_budgets_preserve_field_hints_and_redact_credentials():
     assert len(card.description) + len(card.schema_excerpt) <= 1200
     assert "delist_date" in card.schema_excerpt
     assert "abcdefghijklmnopqrstuvwxyz" not in json.dumps(card.model_dump())
+
+
+@pytest.mark.parametrize("changes", [
+    {"risk_level": "medium"}, {"risk_level": "high"},
+    {"input_schema": {"description": "大契约" * 3000}},
+    {"input_schema": {"description": "Bearer abcdefghijklmnopqrstuvwxyz"}},
+])
+def test_unavailable_complete_contract_keeps_summary_only(changes):
+    from app.tools.planning_candidates import project_card
+
+    card = project_card(stock_spec(**changes))
+    assert card.input_schema is None
+
+
+def test_legacy_card_without_input_schema_remains_readable():
+    from app.tools.planning_candidates import PlanningToolCard, project_card
+
+    legacy = project_card(stock_spec()).model_dump()
+    legacy.pop("input_schema", None)
+    assert PlanningToolCard.model_validate(legacy).input_schema is None
+
+
+@pytest.mark.parametrize("schema", [
+    {"properties": {"options": {"properties": {"private_config": {"default": "synthetic-internal-value"}}}}},
+    {"$defs": {"Options": {"properties": {"private_config": {"default": "synthetic-internal-value"}}}}},
+    {"allOf": [{"properties": {"private_config": {"default": "synthetic-internal-value"}}}]},
+    {"properties": {"options": {"properties": {"internal": {"writeOnly": True, "default": "synthetic-internal-value"}}}}},
+    {"properties": {"internal": {"x-sensitive": True, "default": "synthetic-internal-value"}}},
+])
+def test_nested_or_sensitive_server_contract_is_not_disclosed(schema):
+    from app.tools.planning_candidates import project_card
+
+    card = project_card(stock_spec(input_schema=schema))
+    assert card.input_schema is None
+    assert "synthetic-internal-value" not in json.dumps(card.model_dump())
 
 
 def test_snapshot_rejects_duplicate_refs():
@@ -182,7 +218,7 @@ def test_planner_receives_tool_cards_and_refs_in_one_model_call():
     payload = json.loads(llm.calls[0]["user_prompt"])
     assert len(llm.calls) == 1
     assert payload["tool_candidates"][0]["ref"] == ref
-    assert "input_schema" not in json.dumps(payload)
+    assert payload["tool_candidates"][0]["input_schema"] is not None
     assert result["plan"]["tasks"][0]["tool_candidate_refs"] == [ref]
     assert result["planning_tool_candidates"]["catalog_digest"] == service.catalog_digest
     assert payload["planning_constraints"]["request_context"]["available_information"] == {"已知": "银之杰"}
@@ -309,6 +345,7 @@ def test_empty_candidate_refs_preserve_legacy_observation_signature():
     plan = PlanModel.model_validate({"tasks": [{"id": "facts", "task_goal": "取数"}]})
     legacy = plan.model_dump()
     legacy["tasks"][0].pop("tool_candidate_refs")
+    legacy["tasks"][0].pop("proposed_tool_call")
     expected = sha256(json.dumps({"plan": legacy, "results": []}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     assert observation_signature(plan, []) == expected
 

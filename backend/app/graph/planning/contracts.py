@@ -1,9 +1,32 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+
+from app.tools.redaction import reject_inline_credentials
 
 MAX_PLAN_TASKS = 12
 MAX_TASK_RESULT_CONTENT_CHARS = 8_000
+
+
+class ProposedToolCall(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_ref: str = Field(min_length=1, max_length=300)
+    arguments: dict[str, JsonValue]
+
+    @field_validator("arguments")
+    @classmethod
+    def reject_credentials(cls, value):
+        reject_inline_credentials(value)
+        return value
 
 
 class SubTaskModel(BaseModel):
@@ -15,6 +38,7 @@ class SubTaskModel(BaseModel):
     completion_criteria: list[str] = Field(default_factory=list, max_length=8)
     tool_search_query: str | None = Field(default=None, min_length=1, max_length=500)
     tool_candidate_refs: list[str] = Field(default_factory=list, max_length=8)
+    proposed_tool_call: ProposedToolCall | None = None
     evidence_task_ids: list[str] = Field(default_factory=list, max_length=24)
     depends_on: list[str] = Field(default_factory=list, max_length=16)
     skill_name: str | None = None

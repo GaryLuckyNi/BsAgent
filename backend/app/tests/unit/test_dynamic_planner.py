@@ -182,7 +182,8 @@ def test_llm_planner_only_discloses_skills_and_atomic_task_schema():
     assert prompt["observations"][0]["error_code"] == "entity_not_found"
     assert prompt["timezone"] == "Asia/Shanghai"
     assert prompt["current_datetime"].startswith("20")
-    assert "不得生成工具参数或强制绑定普通工具" in llm.calls[0]["system_prompt"]
+    assert "草案只是执行建议，不授予权限" in llm.calls[0]["system_prompt"]
+    assert "proposed_tool_call" in prompt["required_schema"]["tasks"][0]
     assert llm.calls[0]["thinking"] is False
     assert llm.calls[0]["max_tokens"] == 1024
 
@@ -313,6 +314,7 @@ def test_planner_node_discovers_skills_and_tools_without_binding_task():
                     "task_goal": "查询海能达近期行情",
                     "tool_search_query": None,
                     "tool_candidate_refs": [],
+                    "proposed_tool_call": None,
                     "execution_type": "tool",
                     "completion_criteria": [],
                     "evidence_task_ids": [],

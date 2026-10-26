@@ -43,6 +43,8 @@ def observation_signature(plan: PlanModel, results: list[dict]) -> str:
     for task in plan_payload["tasks"]:
         if not task.get("tool_candidate_refs"):
             task.pop("tool_candidate_refs", None)
+        if task.get("proposed_tool_call") is None:
+            task.pop("proposed_tool_call", None)
     return sha256(
         json.dumps(
             {"plan": plan_payload, "results": observations}, sort_keys=True, ensure_ascii=False
