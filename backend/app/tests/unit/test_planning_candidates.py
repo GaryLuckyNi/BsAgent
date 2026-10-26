@@ -90,7 +90,7 @@ def test_projection_budgets_preserve_field_hints_and_redact_credentials():
 
 
 @pytest.mark.parametrize("changes", [
-    {"risk_level": "medium"}, {"risk_level": "high"},
+    {"risk_level": "high"},
     {"input_schema": {"description": "大契约" * 3000}},
     {"input_schema": {"description": "Bearer abcdefghijklmnopqrstuvwxyz"}},
 ])
@@ -99,6 +99,14 @@ def test_unavailable_complete_contract_keeps_summary_only(changes):
 
     card = project_card(stock_spec(**changes))
     assert card.input_schema is None
+
+
+def test_medium_candidate_can_disclose_complete_input_contract():
+    from app.tools.planning_candidates import project_card
+
+    card = project_card(stock_spec(risk_level="medium"))
+    assert card.input_schema["properties"]["fields"]["type"] == "array"
+    assert "private_config" not in card.input_schema["properties"]
 
 
 def test_legacy_card_without_input_schema_remains_readable():

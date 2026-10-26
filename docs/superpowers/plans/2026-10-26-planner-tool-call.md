@@ -31,7 +31,7 @@
 文件：新增 `graph/planning/tool_call_proposal.py`，修改 `graph/nodes/tool_agent.py`；测试新增单元用例及 `tests/integration/test_planning_candidates_graph.py`。
 
 - [x] 用图测试先复现独立任务有草案仍调用 bind_tools 一次，作为优化前基线。
-- [x] 新模块返回 `NativeToolSelection | None` 和固定原因，检查普通任务、无依赖、引用、快照、当前候选、low 风险、日期规范化、参数及凭证；不执行工具。
+- [x] 新模块返回 `NativeToolSelection | None` 和固定原因，检查普通任务、无依赖、引用、快照、当前候选、low/medium 风险、日期规范化、参数及凭证；不执行工具。
 - [x] 复用现有候选解析，成功采用草案时跳过 `_generate_tool_selection`；日期规范化与 `_trusted_request` 继续共用，不绕过 Gateway。
 - [x] discovery 记录 `proposal_status`，不记录参数。回退时正常调用原模型，保持原有次数上限。
 - [x] 对同输入比较检索一次、实际工具一次、优化路径执行模型零次；验证非法参数、依赖任务、未知引用、无完整契约、目录/权限/风险变化不直接派发。

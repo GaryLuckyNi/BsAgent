@@ -10,7 +10,9 @@ from app.graph.planning.contracts import PlanModel, SubTaskModel
 from app.graph.planning.planner import LlmTaskPlanner, PlannerCapabilities
 from app.graph.planning.policy import observation_signature
 from app.tests.integration.test_planning_candidates_graph import StockTool
+from app.tests.unit.test_durable_turns import database  # noqa: F401
 from app.tests.unit.test_planning_candidates import QUERY, candidate_state
+from app.tests.unit.test_recovery_durability import control as durable_control  # noqa: F401
 from app.tests.unit.test_request_flow import Answers
 from app.tools.candidate_resolver import ToolCandidateResolver
 from app.tools.planning_candidates import recall_candidates
@@ -60,8 +62,9 @@ def setup(*, task_changes=None, tool_risk="low", permission_scopes=()):
     return node, state, calls, selections
 
 
-def test_valid_proposal_executes_without_selection_model():
-    node, state, calls, selections = setup()
+@pytest.mark.parametrize("risk", ["low", "medium"])
+def test_valid_proposal_executes_without_selection_model(risk):
+    node, state, calls, selections = setup(tool_risk=risk)
     result = node(state)
     assert calls == [("mcp.tushare.stock_basic", ARGS)] and selections == []
     assert result["task_results"][0]["status"] == "success"
@@ -116,15 +119,36 @@ def test_task_snapshot_does_not_ignore_changed_proposal_arguments():
     assert not task_snapshot_matches(changed, task)
 
 
-@pytest.mark.parametrize("risk", ["medium", "high"])
-def test_nonlow_tool_never_uses_proposal(risk):
-    node, state, calls, selections = setup(tool_risk=risk)
+def test_high_risk_tool_keeps_existing_selection_and_approval():
+    node, state, calls, selections = setup(tool_risk="high")
     result = node(state)
     assert len(selections) == 1
-    if risk == "high":
-        assert calls == [] and result["pending_tool_approval"] is not None
-    else:
-        assert len(calls) == 1
+    assert calls == [] and result["pending_tool_approval"] is not None
+
+
+@pytest.mark.parametrize("phase", ["running", "unknown"])
+def test_medium_proposal_still_obeys_unresolved_effect_guard(request, phase):
+    from app.conversations.execution import execution_control
+    from app.schemas.tools import ToolCallRequest
+    from app.storage.models import AgentRunToolReceipt
+    from sqlalchemy import select
+
+    control = request.getfixturevalue("durable_control")
+    node, state, calls, selections = setup(tool_risk="medium")
+    previous = control.tool_started(ToolCallRequest(call_id="previous", tool_name="other",
+        arguments={}, purpose="前序操作"), risk_level="medium")
+    if phase == "unknown":
+        control.tool_finished(previous, {"status": "unknown"}, uncertain=True)
+    with execution_control(control):
+        result = node(state)
+    assert calls == selections == []
+    assert next(iter(result["tool_discovery_events"].values()))["proposal_status"] == "accepted"
+    assert result["tool_calls"][0].result.error.code == "tool_side_effects_unresolved"
+    assert result["tool_calls"][0].result.execution_state == "not_started"
+    with control.session_factory() as db:
+        receipts = list(db.scalars(select(AgentRunToolReceipt).where(
+            AgentRunToolReceipt.run_id == control.run_id)))
+        assert len(receipts) == 1 and receipts[0].status == phase
 
 
 def test_absent_proposal_preserves_legacy_signature_and_task_snapshot():

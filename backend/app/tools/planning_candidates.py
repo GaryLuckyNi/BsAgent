@@ -89,7 +89,7 @@ def project_card(spec: ToolSpec, *, max_chars: int = MAX_CARD_CHARS,
     description_budget = min(len(description), max_chars // 2) if excerpt else max_chars
     kept_description = description[:description_budget]
     kept_excerpt = excerpt[: max_chars - len(kept_description)]
-    input_schema = planning_input_schema(spec) if spec.risk_level == "low" else None
+    input_schema = planning_input_schema(spec) if spec.risk_level in {"low", "medium"} else None
     if input_schema is not None:
         serialized = json.dumps(input_schema, ensure_ascii=False)
         if len(serialized) > min(max_schema_chars, MAX_INPUT_SCHEMA_CHARS) or _clean(serialized) != serialized:

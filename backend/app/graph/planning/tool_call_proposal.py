@@ -35,7 +35,7 @@ def adopt_tool_call_proposal(*, state: dict, task: SubTaskModel,
         return None, "schema_not_disclosed"
     spec = next((spec for spec in resolution.candidates
                  if (spec.name, spec.version) == (card.tool_name, card.tool_version)), None)
-    if spec is None or spec.risk_level != "low":
+    if spec is None or spec.risk_level not in {"low", "medium"}:
         return None, "candidate_unavailable"
     if card.input_schema != model_input_schema(spec):
         return None, "schema_not_disclosed"
