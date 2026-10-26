@@ -6,6 +6,7 @@ from urllib.parse import urldefrag, urlsplit
 
 from langgraph.config import get_stream_writer
 
+from app.graph.recovery.search import recovery_failure_message
 from app.llm.schemas import LlmStreamDelta
 
 _STAGE_LABELS = {
@@ -155,6 +156,21 @@ def _progress_message(
     active_task = state.get("active_task") or {}
     task_goal = _safe_task_goal(active_task.get("task_goal"))
     if node_name == "tool_agent":
+        if status == "completed":
+            task_result = _matching_task_result(state)
+            if task_result and task_result.get("status") != "success":
+                detail = recovery_failure_message(error_code=task_result.get("error_code"),
+                                                  content=task_result.get("content", ""))
+                if detail:
+                    return detail
+            tool_result = (_matching_tool_result(state)
+                           if task_result is None or task_result.get("status") != "success" else None)
+            if tool_result and (tool_result.get("error") or {}).get("code") == "provider_permission_denied":
+                waiting = any(item.get("task_id") == active_task.get("id")
+                              and call_id not in state.get("recovery_outcomes", {})
+                              for call_id, item in (state.get("recovery_items") or {}).items())
+                return ("数据源权限不足，等待选择来源。" if waiting else
+                        "数据源账号权限不足，原接口数据未获取。")
         tool_name = str(active_task.get("tool_name") or "").lower()
         if tool_name.rsplit(".", 1)[-1] == "web_search":
             action = _activity_action("联网检索", state, status=status)
@@ -229,7 +245,25 @@ def _public_status(node_name: str, state: dict[str, Any], *, status: str) -> str
     if status != "completed" or node_name not in {"tool_agent", "skill_agent"}:
         return status
     result = _matching_task_result(state)
+    if result is None and node_name == "tool_agent":
+        result = _matching_tool_result(state)
     return "failed" if result and result.get("status") != "success" else status
+
+
+def _matching_tool_result(state: dict[str, Any]) -> dict[str, Any] | None:
+    """待来源确认时没有 TaskResult，只读取同任务真实调用的结果。"""
+    task_id = (state.get("active_task") or {}).get("id")
+    if not task_id:
+        return None
+    for record in reversed(state.get("tool_calls") or []):
+        if not isinstance(record, dict):
+            record = record.model_dump(mode="json")
+        call_id = (record.get("request") or {}).get("call_id")
+        context = (state.get("tool_selection_contexts") or {}).get(call_id, {})
+        item = (state.get("recovery_items") or {}).get(call_id, {})
+        if (context.get("task") or {}).get("id") == task_id or item.get("task_id") == task_id:
+            return record.get("result")
+    return None
 
 
 def _activity_action(action: str, state: dict[str, Any], *, status: str) -> str:

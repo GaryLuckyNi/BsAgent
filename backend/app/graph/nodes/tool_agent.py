@@ -315,6 +315,7 @@ def build_tool_agent_node(
                     "deferred_tool_calls": {request.call_id: {"task_id": task.id, "status": "waiting",
                         "dispatch_batch_id": context["dispatch_batch_id"]}}}
         if batch_recovery and result.error is not None and result.error.code == "provider_permission_denied":
+            from app.graph.recovery.search import recovery_failure_message
             from app.graph.recovery.validation import make_recovery_item
 
             item, reason = make_recovery_item(state, task, request, result, context, registry)
@@ -330,7 +331,8 @@ def build_tool_agent_node(
             else:
                 update["task_results"] = [TaskResultModel(
                     task_id=task.id, status="business_failure", error_code=reason, tool_name=request.tool_name,
-                    content="原数据源权限不足；不满足已验证的替代来源约束，未搜索，原接口数据仍缺失。",
+                    content=(recovery_failure_message(error_code=reason, content="") or
+                             "原数据源权限不足；不满足已验证的替代来源约束，未搜索，原接口数据仍缺失。"),
                 ).model_dump(mode="python")]
             return update
         permission_input = None if batch_recovery else permission_request(state, task, request, result, context)

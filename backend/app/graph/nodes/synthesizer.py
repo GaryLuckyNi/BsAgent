@@ -22,6 +22,7 @@ from app.graph.planning.synthesis_decision import (
     parse_synthesis_decision,
 )
 from app.graph.public_events import build_public_llm_stream_handler
+from app.graph.recovery.search import recovery_failure_message
 from app.graph.state import AgentState, merge_task_results
 from app.llm.factory import LlmClient, invoke_llm_completion
 from app.memory.preferences import (
@@ -346,7 +347,10 @@ def _public_research_context(
             )
         elif result.status != "success":
             limitation = research_goal
-            if result.error_code in {
+            recovery_message = recovery_failure_message(error_code=result.error_code, content=result.content)
+            if recovery_message:
+                limitation += "：" + recovery_message
+            elif result.error_code in {
                 "provider_permission_denied", "required_api_permission_missing", "tool_permission_denied",
             }:
                 limitation += "：数据源账号权限不足，原接口数据未获取。"
@@ -410,6 +414,9 @@ def _failure_response(failures: list[TaskResultModel]) -> str:
 
 
 def _public_failure_message(result: TaskResultModel) -> str:
+    recovery_message = recovery_failure_message(error_code=result.error_code, content=result.content)
+    if recovery_message:
+        return recovery_message
     try:
         payload = json.loads(result.content)
     except (TypeError, json.JSONDecodeError):

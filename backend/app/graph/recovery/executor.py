@@ -49,21 +49,16 @@ def accept_confirmation(state, request, value, *, registry):
 
 
 def recovery_search_request(*, batch, item):
+    from app.graph.recovery.search import recovery_search_arguments
     from app.schemas.recovery import search_invocation_id
 
-    safe = sanitize_untrusted_details(
-        {"goal": item.task_goal, "criteria": list(item.completion_criteria)}
-    )
-    if not isinstance(safe.get("goal"), str) or not isinstance(safe.get("criteria"), list):
-        raise TypeError("recovery_query_redaction_failed")
-    query = "\n".join([safe["goal"], *safe["criteria"]])
     return ToolCallRequest(
         call_id=search_invocation_id(
             batch_id=batch.batch_id, original_call_id=item.original_call_id
         ),
         tool_name="web_search",
         tool_version=item.fallback_version,
-        arguments={"query": query},
+        arguments=recovery_search_arguments(item.task_goal),
         purpose="经确认的替代来源取证",
     )
 
@@ -97,6 +92,7 @@ def _content(item, request, result=None, *, code=None):
     raw = result.result if result and isinstance(result.result, dict) else {}
     payload = {
         "source_notice": SOURCE_NOTICE,
+        "source_constraint": item.source_constraint,
         "original_call_id": item.original_call_id,
         "replacement_call_id": request.call_id if request else None,
         "completion_criteria": list(item.completion_criteria),

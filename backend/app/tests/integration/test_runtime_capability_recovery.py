@@ -31,11 +31,14 @@ def telemetry(request):
     return request.getfixturevalue("telemetry_runtime")
 
 
-def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planner_node=None):
+def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planner_node=None,
+                search_tool=None):
     monkeypatch.setattr(app_config, "settings", app_config.settings.model_copy(
         update={"permission_recovery_source_policy": "public_supplement_only"}
     ))
-    worker, _, data, search, client, registry = setup_worker()
+    worker, _, data, search, client, registry = (
+        setup_worker() if search_tool is None else setup_worker(search_tool=search_tool)
+    )
     # 默认使用生产来源解析；只在非法/缺失快照用例注入错误，不再注入 allowed 替身。
     if policy is not None:
         original_context = tool_agent.selection_context
@@ -141,6 +144,102 @@ def test_legacy_batch_tasks_resume_without_rewriting_sealed_snapshots(control, m
     for call_id, context in contexts.items():
         assert resumed["tool_selection_contexts"][call_id]["task"] == context["task"]
         assert "tool_candidate_refs" not in context["task"]
+
+
+TRACE_RECOVERY_TASK = {
+    "id": "get_price_and_target",
+    "task_goal": "获取寒武纪（688256.SH）最新收盘价或最新成交价，以及最近一份覆盖该股的卖方研报所给出的目标价（含研报日期、机构名称）；若最近一份研报未给出目标价，则向前追溯至最近一份明确给出目标价的研报并说明。",
+    "completion_criteria": [
+        "返回寒武纪最新股价，并注明价格日期",
+        "返回最近一份研报的目标价、研报日期与机构名称；若最近研报无目标价，需说明并给出最近一份含目标价的研报信息",
+        "保留未披露或空值情况，不自行补全目标价",
+    ], "source_requirement": "public_information",
+}
+
+
+class RecordingSearchClient:
+    def __init__(self):
+        self.calls = []
+
+    async def search(self, **kwargs):
+        from app.search.schemas import EvidenceCoverage, WebSearchResponse, WebSearchResult
+
+        self.calls.append(kwargs)
+        return WebSearchResponse(query=kwargs["query"], results=[WebSearchResult(
+            title="公开资料", url="https://example.com/report", snippet="有界资料摘要",
+        )], coverage=EvidenceCoverage(status="unknown"))
+
+
+@pytest.mark.parametrize("choice", ["web_search", "use_existing"])
+def test_trace_recovery_uses_valid_goal_query_and_keeps_full_context(control, monkeypatch, choice):
+    import asyncio
+
+    from app.schemas.recovery import RecoveryBatch
+    from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
+    from app.tools.web_search import WebSearchTool
+
+    client = RecordingSearchClient()
+    graph, state, data, _, _, registry = batch_graph(
+        control, monkeypatch, search_tool=WebSearchTool(client=client),
+    )
+    state["plan"] = {"tasks": [TRACE_RECOVERY_TASK]}
+    config = {"configurable": {"thread_id": "trace-recovery-" + choice}}
+    assert len(TRACE_RECOVERY_TASK["task_goal"]) == 101
+    assert len("\n".join([TRACE_RECOVERY_TASK["task_goal"],
+                          *TRACE_RECOVERY_TASK["completion_criteria"]])) == 192
+    with execution_control(control):
+        paused = graph.invoke(state, config)
+        assert client.calls == [] and data.calls == 1
+        payload = paused["__interrupt__"][0].value
+        batch = RecoveryBatch.model_validate(next(iter(paused["recovery_batches"].values())))
+        assert batch.items[0].task_goal == TRACE_RECOVERY_TASK["task_goal"]
+        assert list(batch.items[0].completion_criteria) == TRACE_RECOVERY_TASK["completion_criteria"]
+        resumed = graph.invoke(Command(resume={
+            "interaction_id": payload["interaction_id"], "input_type": "selection", "value": choice,
+            "presentation_version": payload["recovery_batch"]["version"],
+            "batch_digest": payload["recovery_batch"]["digest"],
+        }), config)
+        assert "__interrupt__" not in resumed and data.calls == 1
+        assert len(client.calls) == (1 if choice == "web_search" else 0)
+        if choice == "web_search":
+            sent = client.calls[0]
+            assert sent["query"] == TRACE_RECOVERY_TASK["task_goal"]
+            assert list(sent["research_context"].completion_criteria) == TRACE_RECOVERY_TASK["completion_criteria"]
+            original = next(iter(paused["tool_selection_contexts"].values()))
+            assert sent["research_context"].as_of == original["as_of"]
+            record = next(row for row in resumed["tool_calls"] if row.request.tool_name == "web_search")
+            assert record.result.status == "success"
+            reused = asyncio.run(ToolExecutionGateway(registry).execute(record.request, trace_id="t",
+                context=ToolExecutionContext(tenant_id=state["tenant_id"], user_id=state["user_id"],
+                    session_id=state["session_id"], permission_scopes=("web:search",),
+                    allowed_tools=("web_search",), search_budget_limit=3)))
+            assert reused.status == "success" and len(client.calls) == 1
+
+
+@pytest.mark.parametrize("schema_limit", [128, 64])
+def test_illegal_recovery_goal_is_rejected_before_confirmation(control, monkeypatch, schema_limit):
+    from app.tools.web_search import WebSearchInput, WebSearchTool
+    from pydantic import Field
+
+    class ActualInput(WebSearchInput):
+        query: str = Field(min_length=1, max_length=schema_limit)
+
+    class ActualTool(WebSearchTool):
+        input_model = ActualInput
+
+    client = RecordingSearchClient()
+    graph, state, data, _, _, _ = batch_graph(
+        control, monkeypatch, search_tool=ActualTool(client=client),
+    )
+    state["plan"] = {"tasks": [{**TRACE_RECOVERY_TASK, "task_goal": "字" * (schema_limit + 1)}]}
+    with execution_control(control):
+        stopped = graph.invoke(state, {"configurable": {"thread_id": f"preflight-{schema_limit}"}})
+    assert "__interrupt__" not in stopped
+    assert not stopped.get("recovery_batches") and not stopped.get("recovery_items")
+    assert stopped["task_results"][0]["error_code"] == "recovery_query_too_long"
+    assert "长度" in stopped["task_results"][0]["content"]
+    assert "替代来源约束" not in stopped["task_results"][0]["content"]
+    assert client.calls == [] and data.calls == 1
 
 
 def test_legacy_deferred_task_compares_semantically_without_rewriting_context(control, monkeypatch):

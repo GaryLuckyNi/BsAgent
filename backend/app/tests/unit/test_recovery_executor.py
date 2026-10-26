@@ -8,12 +8,12 @@ from app.schemas.tools import ToolCallResult
 from app.tests.unit.test_recovery_policy import item
 
 
-def test_search_query_uses_only_frozen_goal_and_criteria_and_has_stable_call_id():
+def test_search_query_uses_only_frozen_goal_and_has_stable_call_id():
     original = item(task_goal="查询某公司2020年利润", completion_criteria=("保留2020年报告期间",))
     batch = seal_batch(run_identity="run", dispatch_batch_id="dispatch", items=(original,))
     first = executor.recovery_search_request(batch=batch, item=original)
     assert first == executor.recovery_search_request(batch=batch, item=original)
-    assert first.arguments == {"query": "查询某公司2020年利润\n保留2020年报告期间"}
+    assert first.arguments == {"query": "查询某公司2020年利润"}
     assert first.tool_name == "web_search" and first.tool_version == original.fallback_version
 
 
@@ -21,7 +21,7 @@ def test_recovery_query_is_not_silently_truncated():
     original = item(task_goal="目标" * 200, completion_criteria=("必要条件" * 100,))
     batch = seal_batch(run_identity="run", dispatch_batch_id="dispatch", items=(original,))
     request = executor.recovery_search_request(batch=batch, item=original)
-    assert request.arguments["query"] == original.task_goal + "\n" + original.completion_criteria[0]
+    assert request.arguments["query"] == original.task_goal
 
 
 def test_recovery_retains_source_summary_and_date_without_generated_answer():
@@ -74,10 +74,12 @@ def test_overlong_recovery_query_fails_before_remote_dispatch():
 
 
 def test_query_redaction_failure_never_falls_back_to_original_text(monkeypatch):
+    from app.graph.recovery import search
+
     def fail(_value):
         raise RuntimeError("controlled redaction failure")
 
-    monkeypatch.setattr(executor, "sanitize_untrusted_details", fail)
+    monkeypatch.setattr(search, "sanitize_untrusted_details", fail)
     original = item()
     batch = seal_batch(run_identity="run", dispatch_batch_id="dispatch", items=(original,))
     with pytest.raises(RuntimeError):

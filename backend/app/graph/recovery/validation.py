@@ -7,12 +7,13 @@ from app.graph.nodes.user_input_gate import UserInputResumeError
 from app.graph.planning.contracts import SubTaskModel, task_snapshot_matches
 from app.graph.recovery.batching import LOCAL_BLOCKED_SOURCE_CONSTRAINT, batch_request, run_identity
 from app.graph.recovery.policy import eligible_recovery, seal_batch
+from app.graph.recovery.search import recovery_search_arguments
 from app.graph.recovery.source_policy import resolve_source_policy
 from app.operations.langfuse_scheduler import record_recovery_event
 from app.schemas.recovery import RECOVERY_VERSION, RecoveryBatch, RecoveryItem, snapshot_digest
 from app.schemas.tools import ToolCallResult
 from app.storage.models import AgentMessage, AgentRun, AgentRunToolReceipt
-from app.tools.execution_gateway import has_required_scopes
+from app.tools.execution_gateway import has_required_scopes, validate_tool_arguments
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.runtime_capabilities import arguments_fingerprint
 
@@ -157,6 +158,17 @@ def make_recovery_item(state, task, request, result, selection, registry):
     if not selection.get("dispatch_batch_id") or not selection.get("as_of"):
         return None, "recovery_dispatch_unavailable"
     fallback = next(item for item in selection["candidates"] if item["name"] == "web_search")
+    try:
+        arguments = recovery_search_arguments(task.task_goal)
+    except Exception:  # noqa: BLE001 - 脱敏失败只拒绝恢复，不回退明文或发布确认项
+        return None, "recovery_query_redaction_failed"
+    check = validate_tool_arguments(
+        tool_spec=registry.get("web_search", fallback["version"]).spec, arguments=arguments,
+    )
+    if not check.valid:
+        too_long = any(error["field"] == "query" and error["type"] == "maxLength"
+                       for error in check.errors)
+        return None, "recovery_query_too_long" if too_long else "recovery_query_invalid"
     try:
         item = RecoveryItem(
             task_id=task.id,

@@ -108,8 +108,8 @@ class Resolver:
         return ToolCandidateResolution(tuple(self.candidates), (), "required", None)
 
 
-def setup_worker(*, candidates=True, budget=None):
-    data, search, client = DeniedTool(), SearchTool(), SelectionClient()
+def setup_worker(*, candidates=True, budget=None, search_tool=None):
+    data, search, client = DeniedTool(), search_tool or SearchTool(), SelectionClient()
     registry = ToolRegistry()
     registry.register(data)
     registry.register(search)
