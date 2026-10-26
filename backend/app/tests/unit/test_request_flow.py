@@ -150,6 +150,7 @@ def test_synthesis_answers_and_assesses_in_one_call():
     assert "用户提供的收入为12" in result["draft_answer"]["content"]
     assert '"action"' not in result["draft_answer"]["content"]
     assert len(llm.calls) == 1
+    assert llm.calls[0]["thinking"] is True
     payload = json.loads(llm.calls[0]["user_prompt"])
     assert payload["request_context"]["available_information"] == value["intent"]["available_information"]
     assert payload["allow_replan"] is False
