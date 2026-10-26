@@ -1,0 +1,794 @@
+{
+  "source_trace_id": "16cb5fb14f11b1ce8a01e82b4e0f9a79",
+  "baseline_commit": "8d487cee",
+  "scope": "仅验证 Planner 颗粒度与候选分配，不调用 MCP 或 Search，不重放 Run；不证明期货指标回答或全链路执行正确。",
+  "cases": [
+    {
+      "case": "trace",
+      "input": {
+        "goal": "查询螺纹钢主力合约当前价格以及近月基差是多少",
+        "current_datetime": "2026-10-26T12:45:01+08:00",
+        "timezone": "Asia/Shanghai",
+        "intent_type": "financial_research",
+        "domain": "cross_asset_research",
+        "subdomain": "general_research",
+        "remaining_iterations": 2,
+        "planning_constraints": {
+          "request_context": {
+            "available_information": {},
+            "materials": []
+          },
+          "user_message": "螺纹钢主力合约当前价格和近月基差是多少？"
+        },
+        "skills": [],
+        "tool_candidates": [
+          {
+            "ref": "tool:mcp.tushare.fut_daily_adj@mcp-http-v1",
+            "tool_name": "mcp.tushare.fut_daily_adj",
+            "tool_version": "mcp-http-v1",
+            "description": "/数据接口/期货数据/期货复权行情-获取主力合约的复权日线行情。单次最多返回 3000 条。更新：每天22点更新",
+            "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, trade_date, pre_close, pre_settle, open, high, low, close, settle, change1, change2, vol, amount, oi, oi_chg, exchange\n额外可选字段:\n  delv_settle: 交割结算价\nend_date: 结束日期\nexchange: 交易所代码\nstart_date: 开始日期\ntrade_date: 交易日期\nts_code: 合约代码",
+            "truncated": false,
+            "input_schema": {
+              "properties": {
+                "end_date": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "结束日期"
+                },
+                "exchange": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "交易所代码"
+                },
+                "fields": {
+                  "description": "指定返回字段，不传则返回默认字段。\n默认字段: ts_code, trade_date, pre_close, pre_settle, open, high, low, close, settle, change1, change2, vol, amount, oi, oi_chg, exchange\n额外可选字段:\n  delv_settle: 交割结算价",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "start_date": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "开始日期"
+                },
+                "trade_date": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "交易日期"
+                },
+                "ts_code": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "合约代码"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "sources": [
+              "bm25"
+            ]
+          },
+          {
+            "ref": "tool:mcp.tushare.fut_adjfactor@mcp-http-v1",
+            "tool_name": "mcp.tushare.fut_adjfactor",
+            "tool_version": "mcp-http-v1",
+            "description": "/数据接口/期货数据/期货复权因子-获取主力合约的复权因子。单次最多返回 3000 条。更新：每天22点更新",
+            "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, exchange, trade_date, adj_factor\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nend_date: 结束日期\nexchange: 交易所代码\nstart_date: 开始日期\ntrade_date: 交易日期\nts_code: 合约代码",
+            "truncated": false,
+            "input_schema": {
+              "properties": {
+                "end_date": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "结束日期"
+                },
+                "exchange": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "交易所代码"
+                },
+                "fields": {
+                  "description": "指定返回字段，不传则返回默认字段。\n默认字段: ts_code, exchange, trade_date, adj_factor\n额外可选字段:\n  （所有字段均为默认返回，无需指定）",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "start_date": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "开始日期"
+                },
+                "trade_date": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "交易日期"
+                },
+                "ts_code": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "description": "合约代码"
+                }
+              },
+              "required": [],
+              "type": "object"
+            },
+            "sources": [
+              "bm25"
+            ]
+          }
+        ],
+        "observations": [],
+        "required_schema": {
+          "public_summary": "面向用户的中文研究计划摘要，最多 120 字",
+          "tasks": [
+            {
+              "id": "lower_snake_case string",
+              "task_goal": "string",
+              "execution_type": "tool：允许模型选择工具或直接回答；analysis：仅依据已有材料分析",
+              "completion_criteria": [
+                "可用证据核实的完成条件"
+              ],
+              "source_requirement": "public_information|original_data|unclear",
+              "tool_search_query": "仅事实获取任务填写：用于检索工具能力的中文短句，使用可区分工具的业务名词和同义表达，不包含具体工具名|null",
+              "tool_candidate_refs": [
+                "已披露候选的 ref；未覆盖的子问题可留空"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "已披露完整 input_schema 的 ref",
+                "arguments": {
+                  "字段": "已明确的参数值"
+                }
+              },
+              "depends_on": [
+                "task_id"
+              ],
+              "evidence_task_ids": [
+                "仅引用 observations 中已成功完成的历史任务 ID"
+              ],
+              "skill_name": "disclosed skill name|null"
+            }
+          ]
+        }
+      },
+      "max_candidate_uses": {
+        "tool:mcp.tushare.fut_daily_adj@mcp-http-v1": 1
+      },
+      "required_plan_text": [
+        "现货"
+      ]
+    },
+    {
+      "case": "one_entity",
+      "input": {
+        "goal": "获取银之杰的股票代码、名称、上市日期和退市日期",
+        "current_datetime": "2026-10-26T12:45:01+08:00",
+        "timezone": "Asia/Shanghai",
+        "intent_type": "financial_research",
+        "domain": "cross_asset_research",
+        "subdomain": "general_research",
+        "remaining_iterations": 2,
+        "planning_constraints": {
+          "request_context": {
+            "available_information": {},
+            "materials": []
+          },
+          "user_message": "获取银之杰的股票代码、名称、上市日期和退市日期"
+        },
+        "skills": [],
+        "tool_candidates": [
+          {
+            "ref": "tool:mcp.tushare.stock_basic@1.0.0",
+            "tool_name": "mcp.tushare.stock_basic",
+            "tool_version": "1.0.0",
+            "description": "获取基础信息数据，包括股票代码、名称、上市日期、退市日期等。",
+            "schema_excerpt": "fields: 可选字段：ts_code,name,list_date,delist_date,list_status\nname: 名称",
+            "truncated": false,
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "名称"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "可选字段：ts_code,name,list_date,delist_date,list_status"
+                }
+              }
+            },
+            "sources": []
+          }
+        ],
+        "observations": [],
+        "required_schema": {
+          "public_summary": "面向用户的中文研究计划摘要，最多 120 字",
+          "tasks": [
+            {
+              "id": "lower_snake_case string",
+              "task_goal": "string",
+              "execution_type": "tool：允许模型选择工具或直接回答；analysis：仅依据已有材料分析",
+              "completion_criteria": [
+                "可用证据核实的完成条件"
+              ],
+              "source_requirement": "public_information|original_data|unclear",
+              "tool_search_query": "仅事实获取任务填写：用于检索工具能力的中文短句，使用可区分工具的业务名词和同义表达，不包含具体工具名|null",
+              "tool_candidate_refs": [
+                "已披露候选的 ref；未覆盖的子问题可留空"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "已披露完整 input_schema 的 ref",
+                "arguments": {
+                  "字段": "已明确的参数值"
+                }
+              },
+              "depends_on": [
+                "task_id"
+              ],
+              "evidence_task_ids": [
+                "仅引用 observations 中已成功完成的历史任务 ID"
+              ],
+              "skill_name": "disclosed skill name|null"
+            }
+          ]
+        }
+      },
+      "expected_tasks": 1
+    },
+    {
+      "case": "two_entities",
+      "input": {
+        "goal": "分别获取银之杰和寒武纪的股票代码、名称、上市日期和退市日期",
+        "current_datetime": "2026-10-26T12:45:01+08:00",
+        "timezone": "Asia/Shanghai",
+        "intent_type": "financial_research",
+        "domain": "cross_asset_research",
+        "subdomain": "general_research",
+        "remaining_iterations": 2,
+        "planning_constraints": {
+          "request_context": {
+            "available_information": {},
+            "materials": []
+          },
+          "user_message": "分别获取银之杰和寒武纪的股票代码、名称、上市日期和退市日期"
+        },
+        "skills": [],
+        "tool_candidates": [
+          {
+            "ref": "tool:mcp.tushare.stock_basic@1.0.0",
+            "tool_name": "mcp.tushare.stock_basic",
+            "tool_version": "1.0.0",
+            "description": "获取基础信息数据，包括股票代码、名称、上市日期、退市日期等。",
+            "schema_excerpt": "fields: 可选字段：ts_code,name,list_date,delist_date,list_status\nname: 名称",
+            "truncated": false,
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "名称"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "可选字段：ts_code,name,list_date,delist_date,list_status"
+                }
+              }
+            },
+            "sources": []
+          }
+        ],
+        "observations": [],
+        "required_schema": {
+          "public_summary": "面向用户的中文研究计划摘要，最多 120 字",
+          "tasks": [
+            {
+              "id": "lower_snake_case string",
+              "task_goal": "string",
+              "execution_type": "tool：允许模型选择工具或直接回答；analysis：仅依据已有材料分析",
+              "completion_criteria": [
+                "可用证据核实的完成条件"
+              ],
+              "source_requirement": "public_information|original_data|unclear",
+              "tool_search_query": "仅事实获取任务填写：用于检索工具能力的中文短句，使用可区分工具的业务名词和同义表达，不包含具体工具名|null",
+              "tool_candidate_refs": [
+                "已披露候选的 ref；未覆盖的子问题可留空"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "已披露完整 input_schema 的 ref",
+                "arguments": {
+                  "字段": "已明确的参数值"
+                }
+              },
+              "depends_on": [
+                "task_id"
+              ],
+              "evidence_task_ids": [
+                "仅引用 observations 中已成功完成的历史任务 ID"
+              ],
+              "skill_name": "disclosed skill name|null"
+            }
+          ]
+        }
+      },
+      "expected_tasks": 2
+    }
+  ],
+  "runs": {
+    "before": [
+      {
+        "case": "trace",
+        "model": "deepseek-flash",
+        "seconds": 3.392,
+        "usage": {
+          "prompt_tokens": 2486,
+          "completion_tokens": 508,
+          "total_tokens": 2994,
+          "prompt_tokens_details": {
+            "cached_tokens": 2304
+          },
+          "prompt_cache_hit_tokens": 2304,
+          "prompt_cache_miss_tokens": 182
+        },
+        "task_count": 2,
+        "plan": {
+          "public_summary": "先取螺纹钢主力合约最新日线行情（收盘价/结算价），再取近月合约行情以计算近月基差；两项数据可并行获取后合成。",
+          "tasks": [
+            {
+              "id": "rb_main_latest_quote",
+              "task_goal": "获取螺纹钢主力合约（上期所，代码前缀 RB）最新交易日的日线行情，取得收盘价、结算价与交易日，用于回答当前价格。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回螺纹钢主力合约最近可得的交易日行情记录",
+                "明确给出 trade_date、close、settle 字段值",
+                "若最新交易日无数据，保留空值并说明实际返回的最新日期"
+              ],
+              "tool_search_query": "期货主力合约日线行情 收盘价 结算价 上期所 螺纹钢",
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.fut_daily_adj@mcp-http-v1"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "tool:mcp.tushare.fut_daily_adj@mcp-http-v1",
+                "arguments": {
+                  "ts_code": "RB.SHF",
+                  "start_date": "20261019",
+                  "end_date": "20261026"
+                }
+              },
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            },
+            {
+              "id": "rb_near_month_quote",
+              "task_goal": "获取螺纹钢近月合约（当前最近交割月合约）同一交易日的日线行情，取得收盘价/结算价，用于计算近月基差（近月价格减主力价格）。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "识别并返回螺纹钢当前最近交割月合约代码及其最新交易日行情",
+                "给出该合约 trade_date、close、settle 字段值",
+                "若近月合约无法确定或无数据，保留空值并说明原因"
+              ],
+              "tool_search_query": "螺纹钢近月合约 期货日线行情 交割月 收盘价",
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.fut_daily_adj@mcp-http-v1"
+              ],
+              "proposed_tool_call": null,
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      },
+      {
+        "case": "one_entity",
+        "model": "deepseek-flash",
+        "seconds": 2.347,
+        "usage": {
+          "prompt_tokens": 1754,
+          "completion_tokens": 327,
+          "total_tokens": 2081,
+          "prompt_tokens_details": {
+            "cached_tokens": 1024
+          },
+          "prompt_cache_hit_tokens": 1024,
+          "prompt_cache_miss_tokens": 730
+        },
+        "task_count": 1,
+        "plan": {
+          "public_summary": "使用股票基础信息工具按名称“银之杰”查询其股票代码、名称、上市日期和退市日期，一次取证即可完成。",
+          "tasks": [
+            {
+              "id": "query_stock_basic",
+              "task_goal": "查询银之杰的基础信息，获取其股票代码（ts_code）、名称（name）、上市日期（list_date）和退市日期（delist_date），并保留空值及上市状态字段以便核对。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回结果中包含银之杰对应的 ts_code、name、list_date、delist_date 字段",
+                "若 delist_date 为空，需保留空值并同时记录 list_status 等状态字段，不据此推断退市事实",
+                "若返回多条记录，需列出全部记录并说明区分依据"
+              ],
+              "tool_search_query": "股票基础信息 股票代码 上市日期 退市日期 按名称查询",
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.stock_basic@1.0.0"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "tool:mcp.tushare.stock_basic@1.0.0",
+                "arguments": {
+                  "name": "银之杰",
+                  "fields": [
+                    "ts_code",
+                    "name",
+                    "list_date",
+                    "delist_date",
+                    "list_status"
+                  ]
+                }
+              },
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      },
+      {
+        "case": "two_entities",
+        "model": "deepseek-flash",
+        "seconds": 2.538,
+        "usage": {
+          "prompt_tokens": 1764,
+          "completion_tokens": 569,
+          "total_tokens": 2333,
+          "prompt_tokens_details": {
+            "cached_tokens": 1024
+          },
+          "prompt_cache_hit_tokens": 1024,
+          "prompt_cache_miss_tokens": 740
+        },
+        "task_count": 2,
+        "plan": {
+          "public_summary": "使用股票基础信息工具，按名称分别查询银之杰和寒武纪的股票代码、名称、上市日期和退市日期，两项查询可并行完成。",
+          "tasks": [
+            {
+              "id": "query_yinzhijie_basic",
+              "task_goal": "查询银之杰的股票基础信息，获取其股票代码、名称、上市日期和退市日期",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回结果中包含银之杰对应的 ts_code、name、list_date、delist_date 字段",
+                "若 delist_date 为空，保留空值并说明该字段为空，不推断退市状态",
+                "若返回多条记录，列出全部记录并标明各自上市状态字段"
+              ],
+              "tool_search_query": "股票基础信息 股票代码 名称 上市日期 退市日期 按名称查询",
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.stock_basic@1.0.0"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "tool:mcp.tushare.stock_basic@1.0.0",
+                "arguments": {
+                  "name": "银之杰",
+                  "fields": [
+                    "ts_code",
+                    "name",
+                    "list_date",
+                    "delist_date",
+                    "list_status"
+                  ]
+                }
+              },
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            },
+            {
+              "id": "query_cambricon_basic",
+              "task_goal": "查询寒武纪的股票基础信息，获取其股票代码、名称、上市日期和退市日期",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回结果中包含寒武纪对应的 ts_code、name、list_date、delist_date 字段",
+                "若 delist_date 为空，保留空值并说明该字段为空，不推断退市状态",
+                "若返回多条记录，列出全部记录并标明各自上市状态字段"
+              ],
+              "tool_search_query": "股票基础信息 股票代码 名称 上市日期 退市日期 按名称查询",
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.stock_basic@1.0.0"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "tool:mcp.tushare.stock_basic@1.0.0",
+                "arguments": {
+                  "name": "寒武纪",
+                  "fields": [
+                    "ts_code",
+                    "name",
+                    "list_date",
+                    "delist_date",
+                    "list_status"
+                  ]
+                }
+              },
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      }
+    ],
+    "final": [
+      {
+        "case": "trace",
+        "model": "deepseek-flash",
+        "seconds": 3.798,
+        "usage": {
+          "prompt_tokens": 2993,
+          "completion_tokens": 512,
+          "total_tokens": 3505,
+          "prompt_tokens_details": {
+            "cached_tokens": 1408
+          },
+          "prompt_cache_hit_tokens": 1408,
+          "prompt_cache_miss_tokens": 1585
+        },
+        "task_count": 2,
+        "plan": {
+          "public_summary": "先取螺纹钢主力合约最新日线行情（含收盘/结算价），再取近月合约行情与现货价格，用于计算近月基差；若现货数据缺失则说明缺口。",
+          "tasks": [
+            {
+              "id": "rb_main_quote",
+              "task_goal": "获取螺纹钢主力合约（上期所，RB）最新交易日的日线行情，包含收盘价、结算价、成交量和持仓量，确认最新可用交易日。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回螺纹钢主力合约最近交易日的 close、settle、trade_date 字段",
+                "明确最新可用交易日（若为2026-10-26当日尚未更新，则取前一交易日并注明）",
+                "保留空值并说明对应状态，不预设空值含义"
+              ],
+              "tool_search_query": "螺纹钢主力合约期货日线行情 收盘价 结算价 持仓量",
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.fut_daily_adj@mcp-http-v1"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "tool:mcp.tushare.fut_daily_adj@mcp-http-v1",
+                "arguments": {
+                  "ts_code": "RB.SHF",
+                  "start_date": "20261019",
+                  "end_date": "20261026",
+                  "fields": [
+                    "ts_code",
+                    "trade_date",
+                    "close",
+                    "settle",
+                    "vol",
+                    "oi"
+                  ]
+                }
+              },
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            },
+            {
+              "id": "rb_near_month_and_spot",
+              "task_goal": "获取螺纹钢近月合约（当前最近交割月，如RB2611）最新价格，以及螺纹钢现货价格（上海/全国主流口径），用于计算近月基差。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回近月合约最新交易日收盘价或结算价，并注明合约代码与交割月",
+                "返回螺纹钢现货价格及其口径（地区、规格、含税与否）与日期",
+                "若现货或近月合约数据不可得，明确记录缺口及已尝试来源，不臆造数值"
+              ],
+              "tool_search_query": "螺纹钢近月合约行情 螺纹钢现货价格 上海 HRB400 基差",
+              "tool_candidate_refs": [],
+              "proposed_tool_call": null,
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      },
+      {
+        "case": "one_entity",
+        "model": "deepseek-flash",
+        "seconds": 1.895,
+        "usage": {
+          "prompt_tokens": 2261,
+          "completion_tokens": 281,
+          "total_tokens": 2542,
+          "prompt_tokens_details": {
+            "cached_tokens": 1536
+          },
+          "prompt_cache_hit_tokens": 1536,
+          "prompt_cache_miss_tokens": 725
+        },
+        "task_count": 1,
+        "plan": {
+          "public_summary": "使用 Tushare 基础信息接口按名称“银之杰”查询，一次性获取股票代码、名称、上市日期和退市日期。",
+          "tasks": [
+            {
+              "id": "query_yzj_stock_basic",
+              "task_goal": "查询名称为“银之杰”的股票基础信息，返回股票代码、名称、上市日期和退市日期",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回结果包含银之杰对应的 ts_code、name、list_date、delist_date 字段",
+                "若 delist_date 为空，保留空值并说明该字段无数据，不推断退市状态",
+                "若返回多条记录，列出全部记录并说明差异"
+              ],
+              "tool_search_query": null,
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.stock_basic@1.0.0"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "tool:mcp.tushare.stock_basic@1.0.0",
+                "arguments": {
+                  "name": "银之杰",
+                  "fields": [
+                    "ts_code",
+                    "name",
+                    "list_date",
+                    "delist_date"
+                  ]
+                }
+              },
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      },
+      {
+        "case": "two_entities",
+        "model": "deepseek-flash",
+        "seconds": 2.535,
+        "usage": {
+          "prompt_tokens": 2271,
+          "completion_tokens": 530,
+          "total_tokens": 2801,
+          "prompt_tokens_details": {
+            "cached_tokens": 1536
+          },
+          "prompt_cache_hit_tokens": 1536,
+          "prompt_cache_miss_tokens": 735
+        },
+        "task_count": 2,
+        "plan": {
+          "public_summary": "使用 Tushare 基础信息接口，分别按名称查询银之杰和寒武纪的股票代码、名称、上市日期与退市日期，两个查询可并行执行。",
+          "tasks": [
+            {
+              "id": "query_yinzhijie_basic",
+              "task_goal": "查询银之杰的基础信息，获取其股票代码、名称、上市日期和退市日期",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回结果包含银之杰对应的 ts_code、name、list_date、delist_date 字段",
+                "若 delist_date 为空，保留空值并说明该字段为空，不推断为未退市或其他结论"
+              ],
+              "tool_search_query": "股票基础信息 股票代码 上市日期 退市日期 按名称查询",
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.stock_basic@1.0.0"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "tool:mcp.tushare.stock_basic@1.0.0",
+                "arguments": {
+                  "name": "银之杰",
+                  "fields": [
+                    "ts_code",
+                    "name",
+                    "list_date",
+                    "delist_date"
+                  ]
+                }
+              },
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            },
+            {
+              "id": "query_cambricon_basic",
+              "task_goal": "查询寒武纪的基础信息，获取其股票代码、名称、上市日期和退市日期",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回结果包含寒武纪对应的 ts_code、name、list_date、delist_date 字段",
+                "若 delist_date 为空，保留空值并说明该字段为空，不推断为未退市或其他结论"
+              ],
+              "tool_search_query": "股票基础信息 股票代码 上市日期 退市日期 按名称查询",
+              "tool_candidate_refs": [
+                "tool:mcp.tushare.stock_basic@1.0.0"
+              ],
+              "proposed_tool_call": {
+                "candidate_ref": "tool:mcp.tushare.stock_basic@1.0.0",
+                "arguments": {
+                  "name": "寒武纪",
+                  "fields": [
+                    "ts_code",
+                    "name",
+                    "list_date",
+                    "delist_date"
+                  ]
+                }
+              },
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
