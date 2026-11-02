@@ -2,9 +2,13 @@ import json
 from collections.abc import Callable, Iterable, Iterator
 
 from ag_ui.core import (
+    ActivityMessage,
     ActivitySnapshotEvent,
+    AssistantMessage,
     BaseEvent,
+    CustomEvent,
     Interrupt,
+    MessagesSnapshotEvent,
     ReasoningEndEvent,
     ReasoningMessageContentEvent,
     ReasoningMessageEndEvent,
@@ -67,10 +71,14 @@ def adapt_session_sse_to_ag_ui(
     thread_id: str,
     run_id: str,
     interrupt_provider: InterruptProvider | None = None,
+    messages: list | None = None,
 ) -> Iterator[BaseEvent]:
     yield RunStartedEvent(thread_id=thread_id, run_id=run_id)
     message_id = f"assistant_{run_id}"
     message_started = False
+    streamed_content = ""
+    known_messages = list(messages or [])
+    activities: dict[str, ActivityMessage] = {}
     reasoning_message_id = f"reasoning_{run_id}"
     reasoning_started = False
     open_steps: set[str] = set()
@@ -83,6 +91,9 @@ def adapt_session_sse_to_ag_ui(
                 accepted_message_id = data.get("message_id")
                 if isinstance(accepted_message_id, str) and accepted_message_id:
                     message_id = accepted_message_id
+                continue
+            if event_name == "answer_sources":
+                yield CustomEvent(name="answer_sources", value={"sources": data.get("sources", [])})
                 continue
             if event_name == "progress":
                 step_name = str(data.get("id") or data.get("stage") or "agent_progress")
@@ -107,6 +118,7 @@ def adapt_session_sse_to_ag_ui(
                     "query",
                     "result_count",
                     "result_urls",
+                    "answer",
                 ):
                     if key in data:
                         content[key] = data[key]
@@ -114,6 +126,9 @@ def adapt_session_sse_to_ag_ui(
                     message_id=f"activity:{step_name}",
                     activity_type="PROGRESS",
                     content=content,
+                )
+                activities[f"activity:{step_name}"] = ActivityMessage(
+                    id=f"activity:{step_name}", activity_type="PROGRESS", content=content,
                 )
                 continue
             if event_name == "thinking_delta":
@@ -150,6 +165,7 @@ def adapt_session_sse_to_ag_ui(
                     )
                     message_started = True
                 yield TextMessageContentEvent(message_id=message_id, delta=delta)
+                streamed_content += delta
                 continue
             if event_name == "approval_required":
                 if reasoning_started:
@@ -176,6 +192,11 @@ def adapt_session_sse_to_ag_ui(
                     yield from _end_reasoning(reasoning_message_id)
                     reasoning_started = False
                 content = str(data.get("content") or "")
+                replace_message = message_started and not content.startswith(streamed_content)
+                if message_started and not replace_message and content != streamed_content:
+                    yield TextMessageContentEvent(
+                        message_id=message_id, delta=content[len(streamed_content):],
+                    )
                 if content and not message_started:
                     yield TextMessageStartEvent(
                         message_id=message_id,
@@ -186,6 +207,13 @@ def adapt_session_sse_to_ag_ui(
                 if message_started:
                     yield TextMessageEndEvent(message_id=message_id)
                     message_started = False
+                if replace_message:
+                    # AG-UI 文本事件只能追加，修复或最终校验改写必须用标准快照覆盖。
+                    retained = [m for m in known_messages if m.id != message_id and m.id not in activities]
+                    yield MessagesSnapshotEvent(messages=[
+                        *retained, *activities.values(),
+                        AssistantMessage(id=message_id, content=content),
+                    ])
                 yield RunFinishedEvent(
                     thread_id=thread_id,
                     run_id=run_id,

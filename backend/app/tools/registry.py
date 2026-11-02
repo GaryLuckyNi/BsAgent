@@ -1,9 +1,9 @@
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from hashlib import sha256
 from importlib.metadata import PackageNotFoundError, version
 from types import MappingProxyType
-from typing import Mapping
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -133,7 +133,7 @@ class ToolRegistry:
         contracts = [
             {
                 "tool_spec": {
-                    **entry.spec.model_dump(mode="json"),
+                    **entry.spec.model_dump(mode="json", exclude={"documentation"}),
                     "name": entry.spec.name.strip().lower(),
                     "version": entry.spec.version.strip(),
                 },

@@ -76,6 +76,7 @@ def run_ag_ui_agent(
             source,
             thread_id=input_data.thread_id,
             run_id=input_data.run_id,
+            messages=input_data.messages,
             interrupt_provider=lambda approval_ids: _approval_interrupts(
                 db=db,
                 tenant_id=principal.tenant_id,

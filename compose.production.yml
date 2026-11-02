@@ -39,6 +39,8 @@ x-backend-environment: &backend-environment
   BS_AGENT_MCP_SERVER_NAME: ${BS_AGENT_MCP_SERVER_NAME:-agent-mcp}
   BS_AGENT_MCP_SERVER_REVISION: ${MCP_SERVER_REVISION:-local-dev}
   BS_AGENT_MCP_CONFIG_REVISION: ${MCP_CONFIG_REVISION:-default}
+  BS_AGENT_MCP_PUBLIC_DOCUMENTATION: ${BS_AGENT_MCP_PUBLIC_DOCUMENTATION:-false}
+  BS_AGENT_MCP_DOCUMENTATION_DOMAINS: ${BS_AGENT_MCP_DOCUMENTATION_DOMAINS:-[]}
   BS_AGENT_DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
   BS_AGENT_DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
   BS_AGENT_DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
@@ -275,6 +277,22 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
     networks: [backend]
+
+  tool-documentation-worker:
+    build: *backend-build
+    environment: *backend-environment
+    command: ["celery", "-A", "app.worker.celery_app:celery_app", "worker", "--loglevel=INFO", "--queues", "tool-documentation", "--concurrency", "2"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      release-gate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    networks: [backend, edge]
 
   maintenance-worker:
     build: *backend-build

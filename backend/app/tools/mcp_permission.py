@@ -1,8 +1,6 @@
-"""MCP 调用边界的保守权限分类；不从 tools/list 推断账号权限。"""
+"""依据错误码归一化 MCP 失败；不通过自然语言文案猜测权限。"""
 
 import json
-import re
-from typing import Any
 
 _ERROR_CODES = {
     **dict.fromkeys(("permission_denied", "provider_permission_denied", "forbidden",
@@ -16,80 +14,13 @@ _ERROR_CODES = {
     **dict.fromkeys(("invalid_params", "invalid_request", "provider_invalid_request"),
                    "provider_invalid_request"),
 }
-_PROVIDER_ERROR_PREFIX = re.compile(
-    r"^[A-Za-z][\w.-]{0,63}\s+API\s+(?:错误|error)\s*\[(-?\d{1,10})\]\s*[:：]\s*",
-    re.IGNORECASE,
-)
-_INTERFACE_NAME = r"(?:\([\w.:-]{1,128}\)|（[\w.:-]{1,128}）)?"
-_DENIAL_MESSAGE = re.compile(
-    r"^(?:error\s*[:：]\s*)?(?:抱歉[，,]?\s*)?"
-    rf"(?:(?:您|你)?没有(?:访问(?:该|此)?接口{_INTERFACE_NAME}的权限|(?:该|此)?接口{_INTERFACE_NAME}(?:的)?访问权限)"
-    r"|无权限访问(?:该|此)?接口|permission denied\b|insufficient permissions\b"
-    r"|access denied\b|forbidden\b)",
-    re.IGNORECASE,
-)
-_EXECUTION_HINT = re.compile(
-    r"已(?:经)?(?:执行|写入|保存|提交)|already (?:executed|written|saved|committed)"
-    r"|partial(?:ly)? (?:result|data|execution)", re.IGNORECASE,
-)
-_OTHER_ERROR_SUBJECTS = (
-    (re.compile(
-        rf"^(?:超过调用频次|请求过于频繁|rate limit exceeded|(?:抱歉[，,]?\s*)?(?:您|你)?访问接口{_INTERFACE_NAME}频率超限)",
-        re.IGNORECASE,
-    ), "provider_rate_limited"),
-    (re.compile(r"^(?:账户额度不足|额度不足|quota exceeded)", re.IGNORECASE), "provider_quota_exceeded"),
-    (re.compile(r"^(?:缺少必要参数|参数错误|invalid parameters)", re.IGNORECASE), "provider_invalid_request"),
-)
+# 官方 HTTP 文档明确 2002 为权限错误。实际 MCP 回包的 40203 同时用于权限/限频，
+# 只能保留“请求拒绝”类别，不能用文案正则把它细分或永久缓存成无权限。
+_TUSHARE_CODES = {2002: "provider_permission_denied", 40203: "provider_request_rejected"}
+_CODE_FIELDS = ("code", "errorcode", "error_code")
 
 
-def remote_permission_denied(value: Any) -> bool:
-    found = classify_mcp_failure(value, error_context=True, pre_execution_semantics=False)
-    return found is not None and found["code"] == "provider_permission_denied"
-
-
-def has_execution_result(value: Any, *, _depth: int = 0) -> bool:
-    """扫描超界时保守视为有结果，不能以扫描不完整证明未执行。"""
-    if _depth >= 12:
-        return True
-    value = _decoded(value)
-    if isinstance(value, str):
-        return len(value) > 100_000 or bool(_EXECUTION_HINT.search(value))
-    if isinstance(value, list):
-        return len(value) > 32 or any(has_execution_result(x, _depth=_depth + 1) for x in value)
-    if not isinstance(value, dict):
-        return False
-    if (value.get("status") in ("success", "complete", "completed", "partial")
-            or any(value.get(key) is not None for key in ("data", "result", "results", "output"))):
-        return True
-    return any(has_execution_result(value.get(key), _depth=_depth + 1)
-               for key in ("structured_content", "structuredContent", "text", "content", "error", "message", "msg"))
-
-
-def permission_failure_envelope(payload: Any) -> bool:
-    """按失败信封语义分类，不按接口名推断权限；正常/部分业务数据不改为拒绝。"""
-    payload = _decoded(payload)
-    if not isinstance(payload, dict) or has_execution_result(payload):
-        return False
-    if payload.get("code") in (None, 0, "0") and not isinstance(payload.get("error"), dict):
-        return False
-    return remote_permission_denied(payload)
-
-
-def standalone_permission_denied(text: str) -> bool:
-    """兼容未设置 isError 的纯文本拒绝；不扫描正常业务正文中的权限关键词。"""
-    return bool(_DENIAL_MESSAGE.match(_error_subject_text(text)[0]))
-
-
-def _error_subject_text(text: str) -> tuple[str, int | None]:
-    """只剥离错误主体的有界协议前缀，不在业务正文中搜索权限关键词。"""
-    text = text.strip()
-    prefix = _PROVIDER_ERROR_PREFIX.match(text)
-    if prefix is None:
-        return text, None
-    return text[prefix.end():], int(prefix.group(1))
-
-
-def _decoded(value: Any) -> Any:
+def _decoded(value):
     if isinstance(value, str) and len(value) <= 100_000:
         try:
             return json.loads(value)
@@ -98,61 +29,91 @@ def _decoded(value: Any) -> Any:
     return value
 
 
-def _error_subjects(value: Any, *, _depth: int = 0):
+def has_execution_result(value, *, _depth=0):
+    """仅检查结构化结果；扫描超界时不能证明未执行。"""
+    if _depth >= 12:
+        return True
+    value = _decoded(value)
+    if isinstance(value, str):
+        return len(value) > 100_000
+    if isinstance(value, list):
+        return len(value) > 32 or any(has_execution_result(x, _depth=_depth + 1) for x in value)
+    if not isinstance(value, dict):
+        return False
+    if (value.get("status") in ("success", "complete", "completed", "partial")
+            or any(value.get(key) is not None for key in ("data", "result", "results", "output"))):
+        return True
+    return any(has_execution_result(value.get(key), _depth=_depth + 1)
+               for key in ("structured_content", "structuredContent", "text", "content", "error"))
+
+
+def _tushare_text_code(text):
+    """兼容 MCP 将数值码序列化进固定错误前缀的格式，只提取码，不读取错误文案。"""
+    text = text.strip()
+    for prefix in ("tushare api 错误 [", "tushare api error ["):
+        if text.lower().startswith(prefix):
+            number, separator, tail = text[len(prefix):].partition("]")
+            if separator and tail.startswith(":") and number.isascii() and number.isdecimal():
+                return int(number) if len(number) <= 10 else None
+    return None
+
+
+def _error_codes(value, *, error_protocol, _depth=0):
     if _depth >= 12:
         return
     value = _decoded(value)
-    if isinstance(value, str):
-        yield None, value
-    elif isinstance(value, list):
-        for item in value[:32]:
-            yield from _error_subjects(item, _depth=_depth + 1)
-    elif isinstance(value, dict):
-        yield value.get("code"), value.get("message", value.get("msg", ""))
+    if isinstance(value, dict):
+        for key in _CODE_FIELDS:
+            if key in value:
+                yield value[key]
         for key in ("error", "structured_content", "structuredContent", "text", "content"):
             if key in value:
-                yield from _error_subjects(value[key], _depth=_depth + 1)
+                yield from _error_codes(value[key], error_protocol=error_protocol, _depth=_depth + 1)
+    elif isinstance(value, list):
+        for item in value[:32]:
+            yield from _error_codes(item, error_protocol=error_protocol, _depth=_depth + 1)
+    elif isinstance(value, str) and error_protocol == "tushare":
+        yield _tushare_text_code(value)
 
 
-def classify_mcp_failure(payload, *, error_context: bool, pre_execution_semantics: bool):
+def classify_mcp_failure(payload, *, error_context, pre_execution_semantics, error_protocol="generic"):
     if not error_context or has_execution_result(payload):
         return None
-    for provider_code, message in _error_subjects(payload):
-        if isinstance(message, str):
-            message, prefixed_code = _error_subject_text(message)
-            if provider_code is None:
-                provider_code = prefixed_code
-        code = _ERROR_CODES.get(provider_code.lower()) if isinstance(provider_code, str) else None
-        rule = "mcp-error-code-v1"
-        if code is None and isinstance(message, str) and standalone_permission_denied(message):
-            code, rule = "provider_permission_denied", "mcp-denial-subject-v1"
-        if code is None and isinstance(message, str):
-            for pattern, category in _OTHER_ERROR_SUBJECTS:
-                if pattern.match(message.strip()):
-                    code, rule = category, "mcp-error-subject-v1"
-                    break
+    for provider_code in _error_codes(payload, error_protocol=error_protocol):
+        if isinstance(provider_code, bool):
+            continue
+        if isinstance(provider_code, str):
+            provider_code = provider_code.lower()
+            if provider_code.isascii() and provider_code.isdecimal() and len(provider_code) <= 10:
+                provider_code = int(provider_code)
+        code = _ERROR_CODES.get(provider_code) if isinstance(provider_code, str) else None
+        if code is None and error_protocol == "tushare" and isinstance(provider_code, int):
+            code = _TUSHARE_CODES.get(provider_code)
         if code is None:
             continue
-        pre_execution = pre_execution_semantics and code == "provider_permission_denied"
-        safe_code = provider_code if isinstance(provider_code, int) and not isinstance(provider_code, bool) else None
-        if isinstance(provider_code, str) and provider_code.lower() in _ERROR_CODES:
-            safe_code = provider_code.lower()
+        pre_execution = pre_execution_semantics and code in {
+            "provider_permission_denied", "provider_request_rejected",
+        }
         return {
-            "code": code,
-            "execution_state": "not_started" if pre_execution else "uncertain",
-            "source": "mcp_adapter", "rule_id": rule, "provider_code": safe_code,
+            "code": code, "execution_state": "not_started" if pre_execution else "uncertain",
+            "source": "mcp_adapter", "rule_id": "mcp-error-code-v2", "provider_code": provider_code,
             "phase": "pre_execution" if pre_execution else "unknown",
             "has_partial_result": False, "denied_scope": "arguments",
         }
     return None
 
 
-def mcp_failure_envelope(payload) -> bool:
+def mcp_failure_envelope(payload, *, error_protocol="generic"):
     if not isinstance(payload, dict) or has_execution_result(payload):
         return False
-    code = payload.get("code")
+    codes = [payload[key] for key in _CODE_FIELDS if key in payload]
     return (
-        (isinstance(code, str) and code.lower() in _ERROR_CODES)
-        or (code not in (None, 0, "0") and "msg" in payload and "data" in payload)
+        (error_protocol == "tushare" and any(key in payload for key in ("msg", "message"))
+         and classify_mcp_failure(payload, error_context=True, pre_execution_semantics=False,
+                                  error_protocol=error_protocol) is not None)
+        or
+        any(isinstance(code, str) and code.lower() in _ERROR_CODES for code in codes)
+        or (any(code not in (None, 0, "0") for code in codes)
+            and any(key in payload for key in ("msg", "message")) and "data" in payload)
         or payload.get("status") == "failed" or isinstance(payload.get("error"), dict)
     )

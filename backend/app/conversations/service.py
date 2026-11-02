@@ -5,7 +5,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -72,6 +72,37 @@ class ConversationService:
     def __init__(self, session: Session) -> None:
         self._session = session
         self._repository = ConversationRepository(session)
+
+    def delete_session(self, *, tenant_id: str, user_id: str, session_id: str) -> None:
+        from app.conversations.durable import DurableRunService
+
+        for _ in range(3):
+            record = self._repository.get_owned_session(
+                tenant_id=tenant_id, user_id=user_id, session_id=session_id,
+                include_deleted=True,
+            )
+            if record is None:
+                raise ConversationNotFoundError("session_not_found")
+            if record.status == "deleted":
+                return
+            active_id = record.active_run_id
+            if active_id:
+                # 与现有完成路径一致：先锁 execution、run，再更新 session。
+                DurableRunService(self._session).request_stop(active_id)
+            expected_active = AgentSession.active_run_id.is_(None)
+            if active_id:
+                expected_active = or_(expected_active, AgentSession.active_run_id == active_id)
+            changed = self._session.execute(
+                update(AgentSession).where(
+                    AgentSession.session_key == record.session_key,
+                    AgentSession.status != "deleted", expected_active,
+                ).values(status="deleted")
+            )
+            if changed.rowcount:
+                return
+            # 删除前有新的任务抢先开始，回滚本轮停止请求，重新读取并停止正确任务。
+            self._session.rollback()
+        raise ConversationConflictError("session_changed_retry")
 
     def begin_turn(self, data: BeginTurn) -> TurnHandle:
         existing = self._repository.get_turn_by_request(
@@ -142,9 +173,21 @@ class ConversationService:
 
         try:
             with self._session.begin_nested():
+                claimed = self._session.execute(
+                    update(AgentSession).where(
+                        AgentSession.session_key == session_record.session_key,
+                        AgentSession.status != "deleted",
+                        AgentSession.active_run_id.is_(None),
+                        AgentSession.next_sequence_no == user_message.sequence_no,
+                    ).values(
+                        active_run_id=run_id,
+                        next_sequence_no=AgentSession.next_sequence_no + 2,
+                    ).execution_options(synchronize_session=False)
+                )
+                if claimed.rowcount != 1:
+                    raise ConversationConflictError("session_changed_retry")
+                self._session.expire(session_record, ["active_run_id", "next_sequence_no"])
                 self._session.add_all([run, user_message, assistant_message])
-                session_record.next_sequence_no += 2
-                session_record.active_run_id = run_id
                 self._session.flush()
         except IntegrityError:
             self._session.expire_all()
@@ -273,6 +316,8 @@ class ConversationService:
         )
         if session_record is None:
             raise ConversationIntegrityError("session_missing")
+        if session_record.status == "deleted":
+            raise ConversationConflictError("session_deleted")
         if session_record.active_run_id != run_id:
             raise ConversationIntegrityError("active_run_inconsistent")
         return self._handle_from_records(
@@ -298,6 +343,8 @@ class ConversationService:
         )
         if run is None or session_record is None:
             raise ConversationIntegrityError("turn_owner_missing")
+        if session_record.status == "deleted":
+            raise ConversationConflictError("session_deleted")
         if (
             user_message.user_id != data.user_id
             or user_message.content != data.user_content

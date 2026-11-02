@@ -28,6 +28,7 @@ from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.native_calls import create_tool_result_message
 from app.tools.redaction import redact_sensitive_data, sanitize_untrusted_details
 from app.tools.registry import ToolRegistry
+from app.tools.source_identity import source_identity
 
 PERMISSION_FALLBACK_KIND = "provider_permission_fallback"
 PERMISSION_CODES = frozenset(
@@ -67,6 +68,8 @@ def selection_context(
         "dispatch_batch_id": (state.get("active_dispatch_batch") or {}).get("dispatch_batch_id"),
         "as_of": state.get("research_as_of"),
         "fixed_skill": bool(state.get("active_skill_step") or task.skill_name),
+        "source_id": source_identity(request.tool_name, registry.get(request.tool_name).execution_binding),
+        "effect_type": registry.get(request.tool_name).spec.effect_type,
         "candidates": [
             {
                 "name": spec.name,
@@ -86,6 +89,8 @@ def permission_request(
     context: dict[str, Any] | None,
 ) -> UserInputRequest | None:
     if not is_provider_permission_failure(request, result):
+        return None
+    if context and context.get("source_plan"):
         return None
     if not context or not any(item["name"] == "web_search" for item in context["candidates"]):
         return None
@@ -149,6 +154,7 @@ def consume_permission_response(
     task: SubTaskModel,
     registry: ToolRegistry,
     budget: SearchCallBudget,
+    availability_registry_factory=None,
 ) -> dict[str, Any] | None:
     response = state.get("user_input_response")
     if response is None or response.source.kind != PERMISSION_FALLBACK_KIND:
@@ -241,7 +247,8 @@ def consume_permission_response(
         arguments={"query": query},
         purpose=f"替代来源：{task.task_goal}",
     )
-    result = _execute_search(state=state, task=task, request=request, registry=registry, budget=budget)
+    result = _execute_search(state=state, task=task, request=request, registry=registry, budget=budget,
+                             availability_registry_factory=availability_registry_factory)
     content = _search_content(result)
     update = _completed_update(
         task,
@@ -273,7 +280,7 @@ def consume_permission_response(
     return {**update, **completion}
 
 
-def _execute_search(*, state, task, request, registry, budget) -> ToolCallResult:
+def _execute_search(*, state, task, request, registry, budget, availability_registry_factory=None) -> ToolCallResult:
     call_id = request.call_id
     existing = next(
         (
@@ -306,7 +313,8 @@ def _execute_search(*, state, task, request, registry, budget) -> ToolCallResult
         )
     else:
         result = asyncio.run(
-            ToolExecutionGateway(registry).execute(
+            ToolExecutionGateway(registry,
+                availability_registry_factory=availability_registry_factory).execute(
                 request,
                 trace_id=state["trace_id"],
                 context=ToolExecutionContext(

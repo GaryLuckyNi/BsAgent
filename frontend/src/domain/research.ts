@@ -22,6 +22,9 @@ export type ResearchMessage = {
   reasoning?: ResearchReasoning[]
   progress?: ResearchProgress[]
   processStatus?: string
+  // 服务端首个公开进展到首段公开正文的用时，秒数只用于整数展示。
+  thinkingDurationSeconds?: number
+  thinkingDurationMs?: number
   attachments?: ResearchAttachmentSnapshot[]
   userInput?: ResearchUserInput
 }
@@ -85,14 +88,23 @@ export type ResearchReasoning = {
   content: string
 }
 
+// summary 仅兼容旧会话；新进度直接使用目标、计划及执行活动。
+export type ResearchProgressKind = 'goal' | 'plan' | 'activity' | 'summary'
+export type ResearchProgressStatus = 'started' | 'completed' | 'failed' | 'pending' | 'superseded'
+
+export function normalizeProgressStatus(value: unknown): ResearchProgressStatus {
+  return value === 'completed' || value === 'failed' || value === 'pending' || value === 'superseded'
+    ? value : 'started'
+}
+
 export type ResearchProgress = {
   sequence?: number
   id: string
-  kind?: 'activity' | 'summary'
+  kind?: ResearchProgressKind
   stage?: string
   label: string
   message: string
-  status: 'started' | 'completed' | 'failed'
+  status: ResearchProgressStatus
   activityType?: 'web_search' | 'market_data' | 'evidence'
   groupId?: string
   queryCount?: number
@@ -103,8 +115,9 @@ export type ResearchProgress = {
 export type ResearchSearchQuery = {
   taskId: string
   query: string
-  status: 'started' | 'completed' | 'failed'
+  status: ResearchProgressStatus
   resultUrls: string[]
+  answer?: string
 }
 
 export type ResearchAttachmentSnapshot = {

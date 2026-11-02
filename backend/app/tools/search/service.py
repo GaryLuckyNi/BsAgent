@@ -10,6 +10,7 @@ from app.tools.search.contracts import (
     ToolSearchResponse,
 )
 from app.tools.search.index import ToolSearchIndex
+from app.tools.source_identity import source_identity
 
 
 class ToolSearchService:
@@ -41,6 +42,7 @@ class ToolSearchService:
             for spec in self._registry.specs()
             if spec.name != "search_tool"
             and spec.name not in context.excluded_tools
+            and (not context.read_only_only or spec.effect_type == "read_only" or spec.name == "web_search")
             and has_required_scopes(
                 granted=context.permission_scopes,
                 required=spec.permission_scope,
@@ -50,6 +52,7 @@ class ToolSearchService:
                 skill_allowed_tools=context.skill_allowed_tools,
             )
             and _compatible_description(context.task_goal or request.query, spec.description)
+            and _compatible_description(request.query, spec.description)
         }
         return self._index.search(
             request.query,
@@ -63,6 +66,34 @@ class ToolSearchService:
 
     def execution_binding_digest(self, name: str, version: str) -> str:
         return self._registry.get(name, version).execution_binding_digest
+
+    def source_id(self, name: str) -> str:
+        return source_identity(name, self._registry.get(name).execution_binding)
+
+    def search_by_source(self, request, *, context, per_source=3):
+        """每个只读 MCP 来源独立召回，避免单一来源占满全局 Top-K。"""
+        grouped = {}
+        for spec in self._registry.specs():
+            if (not spec.name.startswith("mcp.") or spec.effect_type != "read_only"
+                    or spec.name in context.excluded_tools
+                    or not has_required_scopes(granted=context.permission_scopes, required=spec.permission_scope)
+                    or not self._allowed_by_skill(spec.name, skill_allowed_tools=context.skill_allowed_tools)
+                    or not _compatible_description(context.task_goal or request.query, spec.description)
+                    or not _compatible_description(request.query, spec.description)):
+                continue
+            grouped.setdefault(self.source_id(spec.name), set()).add(spec.name)
+        hits = []
+        for names in grouped.values():
+            response = self._index.search(request.query, top_k=max(1, min(per_source, 3)),
+                candidate_k=self._candidate_k, allowed_tool_names=names)
+            hits.extend(response.hits)
+        # 分源分数只作召回排序，不作为跨源置信度；最终顺序由模型按目标匹配选择。
+        hits.sort(key=lambda hit: (-hit.relevance_score, hit.tool_name))
+        retained = [hit.model_copy(update={"rank": index + 1}) for index, hit in enumerate(hits)]
+        return ToolSearchResponse(catalog_digest=self.catalog_digest, mode="bm25", hits=retained)
+
+    def tools_from_sources(self, sources: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(spec.name for spec in self._registry.specs() if self.source_id(spec.name) in sources)
 
     @staticmethod
     def _allowed_by_skill(

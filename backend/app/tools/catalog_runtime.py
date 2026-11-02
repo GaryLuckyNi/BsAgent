@@ -1,12 +1,11 @@
-from collections.abc import Callable
 import logging
+from collections.abc import Callable
 from threading import Lock, Thread
 from time import monotonic
 
 from app.tools.registry import ToolRegistry
 from app.tools.search.service import ToolSearchService
 from app.tools.search.tool import DeferredToolSearchService, SearchTool
-
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +33,9 @@ class ToolCatalogRuntime:
         self._refresh_schedule_lock = Lock()
         self._refresh_thread: Thread | None = None
         self._generation = 0
+        self._refresh_requested = False
+        self._run_snapshots: dict[str, tuple[ToolRegistry, ToolSearchService | None]] = {}
+        self._run_lock = Lock()
 
     def open(self) -> ToolRegistry:
         snapshot = self._snapshot
@@ -50,6 +52,7 @@ class ToolCatalogRuntime:
             if snapshot is not None and not self._is_expired():
                 return snapshot
             try:
+                self._refresh_requested = False
                 (
                     next_snapshot,
                     next_search_service,
@@ -99,6 +102,8 @@ class ToolCatalogRuntime:
         return snapshot, search_service, deferred_service
 
     def _is_expired(self) -> bool:
+        if self._refresh_requested:
+            return True
         if self._refresh_seconds is None:
             return False
         if self._last_refresh_at is None:
@@ -108,7 +113,14 @@ class ToolCatalogRuntime:
     def snapshot(self) -> ToolRegistry:
         return self.open()
 
-    def snapshot_pair_for_run(self) -> tuple[ToolRegistry, ToolSearchService | None]:
+    def snapshot_pair_for_run(self, *, run_key: str | None = None) -> tuple[ToolRegistry, ToolSearchService | None]:
+        if run_key is not None:
+            pinned = self.get_run_snapshot(run_key)
+            if pinned is not None:
+                # 刷新只发布新快照，不替换该 run 已固定的目录与搜索索引。
+                if self._is_expired():
+                    self._schedule_background_refresh()
+                return pinned
         bundle = self._snapshot_bundle
         if bundle is None:
             self.open()
@@ -117,7 +129,29 @@ class ToolCatalogRuntime:
             raise RuntimeError("tool_catalog_unavailable")
         if self._is_expired():
             self._schedule_background_refresh()
+        if run_key is not None:
+            with self._run_lock:
+                return self._run_snapshots.setdefault(run_key, bundle)
         return bundle
+
+    def retain_run_snapshot(self, run_key: str, bundle: tuple[ToolRegistry, ToolSearchService | None]) -> None:
+        with self._run_lock:
+            existing = self._run_snapshots.setdefault(run_key, bundle)
+            if existing[0].catalog_digest != bundle[0].catalog_digest:
+                raise RuntimeError("run_tool_catalog_mismatch")
+
+    def get_run_snapshot(self, run_key: str) -> tuple[ToolRegistry, ToolSearchService | None] | None:
+        with self._run_lock:
+            return self._run_snapshots.get(run_key)
+
+    def release_run_snapshot(self, run_key: str) -> None:
+        with self._run_lock:
+            self._run_snapshots.pop(run_key, None)
+
+    def request_refresh(self) -> None:
+        """配置变化或工具列表通知触发发现；进行中的 run 继续持有原快照。"""
+        self._refresh_requested = True
+        self._schedule_background_refresh()
 
     def _schedule_background_refresh(self) -> None:
         with self._refresh_schedule_lock:
@@ -138,7 +172,7 @@ class ToolCatalogRuntime:
             return
         try:
             self.open()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - 后台发现失败保留现有快照
             logger.warning("tool_catalog_background_refresh_failed type=%s", type(exc).__name__)
 
     def check_health(self) -> None:
@@ -180,3 +214,6 @@ class ToolCatalogRuntime:
             self._last_error = None
             self._last_refresh_at = None
             self._refresh_thread = None
+            self._refresh_requested = False
+            with self._run_lock:
+                self._run_snapshots.clear()

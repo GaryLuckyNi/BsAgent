@@ -30,10 +30,11 @@ def task_data(**extra):
             "proposed_tool_call": {"candidate_ref": REF, "arguments": ARGS}, **extra}
 
 
-def setup(*, task_changes=None, tool_risk="low", permission_scopes=()):
+def setup(*, task_changes=None, tool_risk="low", permission_scopes=(), effect_type="unknown"):
     calls, selections = [], []
     tool = StockTool(calls)
     tool.risk_level = tool_risk
+    tool.effect_type = effect_type
     tool.server_injected_fields = ["private_config"]
     tool.permission_scope = list(permission_scopes)
     registry = ToolRegistry()
@@ -102,12 +103,11 @@ def test_permission_revocation_cannot_be_bypassed_by_a_proposal():
 
 
 def test_catalog_change_stops_before_proposal_or_model_dispatch():
-    from app.tools.registry import ToolCatalogChangedError
-
     node, state, calls, selections = setup()
     state["tool_catalog_digest"] = "changed"
-    with pytest.raises(ToolCatalogChangedError):
-        node(state)
+    result = node(state)
+    assert result["task_results"][0]["status"] == "business_failure"
+    assert result["task_results"][0]["error_code"] == "tool_catalog_changed"
     assert calls == selections == []
 
 
@@ -134,9 +134,9 @@ def test_medium_proposal_still_obeys_unresolved_effect_guard(request, phase):
     from sqlalchemy import select
 
     control = request.getfixturevalue("durable_control")
-    node, state, calls, selections = setup(tool_risk="medium")
+    node, state, calls, selections = setup(tool_risk="medium", effect_type="write")
     previous = control.tool_started(ToolCallRequest(call_id="previous", tool_name="other",
-        arguments={}, purpose="前序操作"), risk_level="medium")
+        arguments={}, purpose="前序操作"), risk_level="medium", effect_type="write")
     if phase == "unknown":
         control.tool_finished(previous, {"status": "unknown"}, uncertain=True)
     with execution_control(control):

@@ -708,3 +708,16 @@ class TenantImagePolicyRecord(Base):
         default=_utc_now,
         onupdate=_utc_now,
     )
+
+
+class ToolDocumentationRecord(Base):
+    """仅保存公开接口元数据和文档，不包含 MCP URL 或业务调用参数。"""
+
+    __tablename__ = "tool_documentation"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    manifest: Mapped[dict] = mapped_column(JSON, nullable=False)
+    domains: Mapped[list] = mapped_column(JSON, nullable=False)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    lease: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    expires_at: Mapped[float] = mapped_column(Float, nullable=False)

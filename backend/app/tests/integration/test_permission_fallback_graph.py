@@ -37,7 +37,7 @@ def test_arbitrary_mcp_permission_response_interrupts_and_only_searches_after_co
 
     async def rejected(_value):
         remote_calls.append(True)
-        content = "抱歉，您没有访问该接口的权限"
+        content = json.dumps({"code": "permission_denied", "message": "任意语言的说明"})
         if response_format == "json":
             content = [{"type": "text", "text": json.dumps({
                 "code": "permission_denied", "message": "数据源账号权限不足",

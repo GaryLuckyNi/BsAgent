@@ -1,5 +1,4 @@
 import pytest
-
 from app.graph import public_events
 from app.llm.schemas import LlmStreamDelta
 
@@ -221,7 +220,7 @@ def test_completed_planning_progress_keeps_iteration_identity(monkeypatch):
     assert [event["id"] for event in emitted] == ["planner_agent:0", "planner_agent:0"]
 
 
-def test_planner_completion_publishes_structured_plan_summary(monkeypatch):
+def test_planner_completion_reuses_task_goals_without_summary(monkeypatch):
     emitted = []
     monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
 
@@ -231,7 +230,8 @@ def test_planner_completion_publishes_structured_plan_summary(monkeypatch):
             "planner_iteration": 0,
             "plan": {
                 "public_summary": "先核对公司公告与行业数据，再比较估值和风险。",
-                "tasks": [{"id": "news"}, {"id": "valuation"}],
+                "tasks": [{"id": "news", "task_goal": "核验近期公告"},
+                          {"id": "valuation", "task_goal": "核对估值区间"}],
             },
         },
         status="completed",
@@ -239,21 +239,22 @@ def test_planner_completion_publishes_structured_plan_summary(monkeypatch):
 
     assert emitted == [{
         "type": "progress",
-        "kind": "summary",
+        "kind": "plan",
         "id": "planner_agent:0",
         "stage": "planner_agent",
         "label": "研究计划",
         "status": "completed",
-        "message": "先核对公司公告与行业数据，再比较估值和风险。",
+        "message": "1. 核验近期公告\n2. 核对估值区间",
     }]
 
 
-def test_analysis_completion_uses_result_summary_without_internal_control_text(monkeypatch):
+@pytest.mark.parametrize("node", ["analysis_agent", "skill_agent"])
+def test_completed_task_displays_its_goal_not_result_findings(monkeypatch, node):
     emitted = []
     monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
 
     public_events.emit_public_progress(
-        "analysis_agent",
+        node,
         {
             "active_task": {"id": "compare", "task_goal": "比较估值"},
             "task_results": [{
@@ -265,8 +266,9 @@ def test_analysis_completion_uses_result_summary_without_internal_control_text(m
         status="completed",
     )
 
-    assert emitted[0]["kind"] == "summary"
-    assert emitted[0]["message"] == "现有证据显示估值分化明显。需要结合盈利增速判断。"
+    assert emitted[0]["kind"] == "activity"
+    assert "比较估值" in emitted[0]["message"]
+    assert "估值分化" not in emitted[0]["message"]
 
 
 def test_unsafe_summary_falls_back_to_public_status(monkeypatch):
@@ -286,11 +288,11 @@ def test_unsafe_summary_falls_back_to_public_status(monkeypatch):
         status="completed",
     )
 
-    assert emitted[0]["kind"] == "status"
+    assert emitted[0]["kind"] == "activity"
     assert "web_search" not in emitted[0]["message"]
 
 
-def test_public_summary_removes_markdown_headings_and_is_bounded(monkeypatch):
+def test_result_text_is_never_used_as_a_public_summary(monkeypatch):
     emitted = []
     monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
 
@@ -309,3 +311,91 @@ def test_public_summary_removes_markdown_headings_and_is_bounded(monkeypatch):
 
     assert not emitted[0]["message"].startswith("#")
     assert len(emitted[0]["message"]) <= 240
+    assert "利润增速" not in emitted[0]["message"]
+
+
+def test_intent_completion_publishes_the_existing_goal(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+    public_events.emit_public_progress("intent_router", {"intent": {"goal": "分析当日市场表现"}}, status="completed")
+    assert emitted[0]["kind"] == "goal"
+    assert emitted[0]["label"] == "研究目标"
+    assert emitted[0]["message"] == "分析当日市场表现"
+
+
+def test_goal_and_each_plan_item_keep_full_text_while_activity_labels_stay_short(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+    goal = "核实不同期间的原始数据并区分推演输入与核对值。" * 25 + "完整目标结尾。"
+    tasks = [{"id": f"facts_{index}", "task_goal": "取得必要披露数据。" * 25 + f"任务{index}结尾。"}
+             for index in range(1, 3)]
+    public_events.emit_public_progress("intent_router", {"intent": {"goal": goal}}, status="completed")
+    public_events.emit_public_progress("planner_agent", {"plan": {"tasks": tasks}}, status="completed")
+    public_events.emit_public_progress("tool_agent", {"active_task": tasks[0]}, status="started")
+
+    assert emitted[0]["message"] == goal
+    assert emitted[1]["message"] == "\n".join(
+        f"{index}. {task['task_goal']}" for index, task in enumerate(tasks, 1)
+    )
+    assert len(emitted[2]["message"]) <= 240
+
+
+def test_failed_analysis_is_not_displayed_as_completed(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+    public_events.emit_public_progress("analysis_agent", {
+        "active_task": {"id": "compare", "task_goal": "比较估值"},
+        "task_results": [{"task_id": "compare", "status": "terminal_failure", "content": "内部错误"}],
+    }, status="completed")
+    assert emitted[0]["status"] == "failed"
+    assert emitted[0]["message"] == "分析未完成：比较估值"
+
+
+def test_search_answer_uses_actual_tool_and_unwraps_recovery(monkeypatch):
+    import json
+
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+    for wrapped in (False, True):
+        payload = {"answer": "  搜索确认的摘要。  ", "results": [{"url": "https://a.example/x"}]}
+        public_events.emit_public_progress("tool_agent", {
+            "active_task": {"id": "search", "task_goal": "核验资料"},
+            "task_results": [{"task_id": "search", "status": "success", "tool_name": "web_search",
+                              "content": json.dumps({"search_result": payload} if wrapped else payload)}],
+        }, status="completed")
+        assert emitted[-1]["activity_type"] == "web_search"
+        assert emitted[-1]["answer"] == "搜索确认的摘要。"
+        assert emitted[-1]["result_count"] == 1
+
+
+def test_search_answer_is_only_published_for_success_and_is_bounded(monkeypatch):
+    import json
+
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+    for status, answer in (("success", " "), ("success", None), ("success", 17),
+                           ("business_failure", "不能展示"), ("success", "字" * 5000)):
+        state = {"active_task": {"id": "search", "tool_name": "web_search"},
+                 "task_results": [{"task_id": "search", "status": status,
+                                   "content": json.dumps({"answer": answer})}]}
+        public_events.emit_public_progress("tool_agent", state, status="completed")
+        if status == "success" and isinstance(answer, str) and answer.strip():
+            assert emitted[-1]["answer"] == "字" * 4000
+        else:
+            assert "answer" not in emitted[-1]
+    public_events.emit_public_progress("tool_agent", state, status="started")
+    assert "answer" not in emitted[-1]
+
+
+def test_search_progress_redacts_credentials_from_answer(monkeypatch):
+    import json
+
+    emitted = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: emitted.append)
+    public_events.emit_public_progress("tool_agent", {
+        "active_task": {"id": "search", "task_goal": "公开资料"},
+        "task_results": [{"task_id": "search", "status": "success", "tool_name": "web_search",
+                          "content": json.dumps({"answer": "摘要 api_key=synthetic-private-key"})}],
+    }, status="completed")
+    assert "synthetic-private-key" not in emitted[0]["answer"]
+    assert "摘要" in emitted[0]["answer"]

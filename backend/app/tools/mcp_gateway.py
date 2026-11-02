@@ -3,7 +3,7 @@ from collections.abc import Callable
 from hashlib import sha256
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.tools import ToolSpec
 from app.tools.base import Tool
@@ -22,6 +22,19 @@ class McpServerConfig(BaseModel):
     deployment_revision: str = "development"
     config_revision: str = "default"
     permission_denial_is_pre_execution: bool = False
+    effect_type: Literal["read_only", "write", "unknown"] = "unknown"
+    error_protocol: Literal["generic", "tushare"] = "generic"
+    public_documentation: bool = False
+    documentation_domains: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("documentation_domains")
+    @classmethod
+    def validate_documentation_domains(cls, domains):
+        import re
+        if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", value) or "." not in value
+               or ".." in value for value in domains):
+            raise ValueError("文档域名必须为明确的公开站点域名，不能包含 URL、路径或凭证。")
+        return sorted(set(domains))
 
 
 class McpToolManifest(BaseModel):
@@ -43,6 +56,10 @@ class McpGateway:
             {"permission_denial_is_pre_execution": True}
             if config.permission_denial_is_pre_execution else {}
         )
+        if config.effect_type != "unknown":
+            semantics["effect_type"] = config.effect_type
+        if config.error_protocol != "generic":
+            semantics["error_protocol"] = config.error_protocol
         tools = self._discoverer(
             url=config.url,
             server_name=config.name,
@@ -100,6 +117,8 @@ def _execution_config_revision(config: McpServerConfig) -> str:
             "enforce_local_rbac": config.enforce_local_rbac,
             "timeout_seconds": config.timeout_seconds,
             "permission_denial_is_pre_execution": config.permission_denial_is_pre_execution,
+            "effect_type": config.effect_type,
+            "error_protocol": config.error_protocol,
             "url_digest": sha256(config.url.encode()).hexdigest(),
         },
         ensure_ascii=True,

@@ -109,6 +109,46 @@ def test_medium_candidate_can_disclose_complete_input_contract():
     assert "private_config" not in card.input_schema["properties"]
 
 
+def test_card_prioritizes_relevant_output_meaning_over_long_input_field_list():
+    from app.tools.planning_candidates import project_card
+
+    meanings = {f"other_{i}": {"description": f"无关指标{i}"} for i in range(90)}
+    meanings["operating_amount"] = {"description": "经营活动产生的现金流量净额"}
+    value = stock_spec(documentation={"status": "partial", "output_fields": meanings})
+    value.input_schema["properties"]["fields"]["description"] = "默认字段：" + ",".join(meanings)
+    card = project_card(value, query="提取经营活动产生的现金流量净额")
+    assert "operating_amount: 经营活动产生的现金流量净额" in card.schema_excerpt
+    assert len(card.description) + len(card.schema_excerpt) <= 1200
+    assert card.truncated
+    assert "output_schema" not in card.model_dump()
+
+
+def test_card_includes_nested_server_output_descriptions():
+    from app.tools.planning_candidates import project_card
+
+    card = project_card(stock_spec(output_schema={"type": "array", "items": {
+        "type": "object", "properties": {"amount": {
+            "type": "number", "description": "归属于母公司股东的净利润"}}}}))
+    assert "归属于母公司股东的净利润" in card.schema_excerpt
+
+
+def test_first_stage_retrieves_documented_output_and_discloses_its_meaning():
+    from app.tools.planning_candidates import recall_candidates
+
+    registry = ToolRegistry()
+    tool = _CatalogTool(name="mcp.public.statement", description="公开报表查询")
+    tool.documentation = {"status": "partial", "output_fields": {
+        "operating_amount": {"description": "经营活动产生的现金流量净额"}}}
+    registry.register(tool)
+    snapshot = registry.snapshot()
+    service = ToolSearchService(registry=snapshot, index=ToolSearchIndex.build(
+        specs=snapshot.specs(), catalog_digest=snapshot.catalog_digest), candidate_k=20)
+    result = recall_candidates(state=candidate_state("提取经营活动产生的现金流量净额"),
+                               search_service=service, top_k=5)
+    assert [card.tool_name for card in result.candidates] == [tool.name]
+    assert "operating_amount: 经营活动产生的现金流量净额" in result.candidates[0].schema_excerpt
+
+
 def test_legacy_card_without_input_schema_remains_readable():
     from app.tools.planning_candidates import PlanningToolCard, project_card
 
@@ -303,7 +343,8 @@ def test_planning_prompt_does_not_equate_null_fields_with_business_status():
     llm = Answers({"tasks": [{"id": "facts", "task_goal": QUERY}]})
     build_planner_agent_node(llm_client=llm)(value)
     assert "字段空值不等于业务状态" in llm.calls[0]["system_prompt"]
-    assert "Skill 和 analysis 任务的 tool_candidate_refs 必须为空" in llm.calls[0]["system_prompt"]
+    assert "Skill 任务的 tool_candidate_refs 必须为空" in llm.calls[0]["system_prompt"]
+    assert "所有新任务的 execution_type 只能是 tool" in llm.calls[0]["system_prompt"]
     assert "不得把已有匹配 Skill 重新展开成普通工具任务" in llm.calls[0]["system_prompt"]
 
 

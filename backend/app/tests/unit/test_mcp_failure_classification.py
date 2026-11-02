@@ -10,14 +10,14 @@ from app.tools import mcp_permission
 ])
 def test_pre_execution_permission_variants(message):
     found = mcp_permission.classify_mcp_failure(
-        {"code": -2002, "msg": message, "data": None},
-        error_context=True, pre_execution_semantics=True,
+        {"code": 2002, "msg": message, "data": None},
+        error_context=True, pre_execution_semantics=True, error_protocol="tushare",
     )
     assert found["code"] == "provider_permission_denied"
     assert found["execution_state"] == "not_started"
     assert found["rule_id"]
     assert found["denied_scope"] == "arguments"
-    assert found["provider_code"] == -2002
+    assert found["provider_code"] == 2002
 
 
 @pytest.mark.parametrize("payload", [
@@ -53,8 +53,7 @@ def test_distinct_error_categories_are_not_permission_denial(code, expected):
 
 
 @pytest.mark.parametrize("payload", [
-    "permission denied", {"code": "permission_denied"},
-    {"code": -2002, "msg": "您没有接口访问权限", "data": None},
+    {"code": "permission_denied"}, {"error": {"code": "forbidden"}},
 ])
 def test_unknown_provider_cannot_prove_non_execution(payload):
     found = mcp_permission.classify_mcp_failure(
@@ -80,15 +79,12 @@ def test_no_error_context_means_no_classification():
     ) is None
 
 
-@pytest.mark.parametrize("message,expected", [
-    ("超过调用频次", "provider_rate_limited"),
-    ("账户额度不足", "provider_quota_exceeded"),
-    ("缺少必要参数", "provider_invalid_request"),
+@pytest.mark.parametrize("message", [
+    "超过调用频次", "账户额度不足", "缺少必要参数", "permission denied",
 ])
-def test_native_error_message_categories_remain_distinct(message, expected):
+def test_unrecognized_code_is_not_classified_from_error_words(message):
     found = mcp_permission.classify_mcp_failure(
         {"code": -2002, "msg": message, "data": None}, error_context=True,
         pre_execution_semantics=True,
     )
-    assert found["code"] == expected
-    assert found["execution_state"] == "uncertain"
+    assert found is None

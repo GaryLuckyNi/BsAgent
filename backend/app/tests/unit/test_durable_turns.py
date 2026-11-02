@@ -29,6 +29,194 @@ def prepare(database):
     return handle
 
 
+def test_initial_and_resumed_run_events_expose_persisted_message_ids(database):
+    from app.conversations.durable import DurableRunService
+    from app.storage.models import AgentRunExecution
+
+    handle = prepare(database)
+    with database() as db:
+        service = DurableRunService(db)
+        execution = db.get(AgentRunExecution, handle.run_id)
+        service.prepare_resume(handle=handle, execution=execution, payload={})
+        events = service.events(handle.run_id, after=0)
+        assert len(events) == 2
+        for event in events:
+            assert event.data["message_id"] == handle.assistant_message_id
+            assert event.data["user_message_id"] == handle.user_message_id
+
+
+@pytest.mark.parametrize("failure", ["permission", "timeout", "invalid", "exception", "cancelled"])
+def test_trusted_read_only_calls_ignore_old_effects_and_do_not_create_new_blockers(database, failure):
+    import asyncio
+
+    from app.conversations.durable import DurableRunService
+    from app.conversations.execution import (
+        ExecutionControl,
+        UnresolvedToolEffect,
+        execution_control,
+    )
+    from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError
+    from app.storage.models import AgentRunToolReceipt
+    from app.tests.unit.test_tool_agent import EchoTool, _context
+    from app.tools.execution_gateway import ToolExecutionGateway
+    from app.tools.registry import ToolRegistry
+    from sqlalchemy import select
+
+    class QueryTool(EchoTool):
+        risk_level = "medium"
+        effect_type = "read_only"
+
+        async def run(self, _):
+            if failure == "exception":
+                raise RuntimeError("upstream disconnected")
+            if failure == "cancelled":
+                raise asyncio.CancelledError()
+            if failure == "invalid":
+                return {"invalid": True}
+            return ToolCallResult(
+                tool_call_id="q", tool_name=self.name,
+                status="denied" if failure == "permission" else "timeout",
+                execution_state="not_started" if failure == "permission" else "uncertain",
+                error=ToolError(code="provider_permission_denied" if failure == "permission" else "mcp_tool_timeout",
+                                message="查询失败"), trace_id="",
+            )
+
+    handle = prepare(database)
+    with database() as db:
+        owner = DurableRunService(db).claim(handle.run_id)
+        db.add(AgentRunToolReceipt(
+            receipt_id="old-unknown", run_id=handle.run_id, owner_token=owner,
+            tool_name="legacy.write", risk_level="medium", status="unknown", result_summary={"_effect_type": "write"},
+        ))
+        db.commit()
+    registry = ToolRegistry()
+    registry.register(QueryTool())
+    control = ExecutionControl(database, handle.run_id, owner)
+    with execution_control(control):
+        invocation = ToolExecutionGateway(registry).execute(
+            ToolCallRequest(tool_name="echo", arguments={"text": "query"}, purpose="查询"),
+            trace_id=handle.trace_id, context=_context(),
+        )
+        if failure == "cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                asyncio.run(invocation)
+        else:
+            result = asyncio.run(invocation)
+            assert result.error.code != "tool_side_effects_unresolved"
+    with database() as db:
+        receipt = db.scalar(select(AgentRunToolReceipt).where(AgentRunToolReceipt.receipt_id != "old-unknown"))
+        assert receipt.status == "settled"
+        assert receipt.risk_level == "medium"
+        assert receipt.result_summary["_effect_type"] == "read_only"
+        # 保留旧回执事实，不能靠改成成功来解除门禁。
+        assert db.get(AgentRunToolReceipt, "old-unknown").status == "unknown"
+    with pytest.raises(UnresolvedToolEffect):
+        control.ensure_tool_effects_resolved(risk_level="medium", effect_type="write")
+
+
+def test_read_only_receipt_metadata_survives_untrusted_result_and_does_not_block_writes(database):
+    from app.conversations.durable import DurableRunService
+    from app.conversations.execution import ExecutionControl
+    from app.schemas.tools import ToolCallRequest
+    from app.storage.models import AgentRunToolReceipt
+
+    handle = prepare(database)
+    with database() as db:
+        owner = DurableRunService(db).claim(handle.run_id)
+        db.commit()
+    control = ExecutionControl(database, handle.run_id, owner)
+    request = ToolCallRequest(tool_name="query", arguments={}, purpose="查询")
+    receipt_id = control.tool_started(request, risk_level="medium", effect_type="read_only")
+    control.tool_finished(receipt_id, {"status": "failed", "_effect_type": "write"}, uncertain=True)
+    with database() as db:
+        assert db.get(AgentRunToolReceipt, receipt_id).result_summary["_effect_type"] == "read_only"
+    control.ensure_tool_effects_resolved(risk_level="medium", effect_type="write")
+
+
+@pytest.mark.parametrize("risk_level", ["low", "medium", "high"])
+def test_side_effect_guard_only_applies_to_explicit_business_writes(database, risk_level):
+    from app.conversations.durable import DurableRunService
+    from app.conversations.execution import ExecutionControl, UnresolvedToolEffect
+    from app.schemas.tools import ToolCallRequest
+    from app.storage.models import AgentRunToolReceipt
+
+    handle = prepare(database)
+    with database() as db:
+        owner = DurableRunService(db).claim(handle.run_id)
+        # 旧第三方回执缺乏业务写声明，不能因 medium 推定它是写入。
+        db.add(AgentRunToolReceipt(receipt_id="legacy", run_id=handle.run_id, owner_token=owner,
+            tool_name="mcp.tushare.share_float", risk_level="medium", status="unknown", result_summary={}))
+        db.commit()
+    control = ExecutionControl(database, handle.run_id, owner)
+    control.ensure_tool_effects_resolved(risk_level=risk_level, effect_type="write")
+    control.tool_started(ToolCallRequest(tool_name="business.place_order", arguments={}, purpose="下单"),
+                         risk_level=risk_level, effect_type="write")
+    # 即使业务写入未完成，其他工具也不能只因风险等级被写门禁拦截。
+    control.ensure_tool_effects_resolved(risk_level=risk_level, effect_type="unknown")
+    control.ensure_tool_effects_resolved(risk_level=risk_level, effect_type="read_only")
+    with pytest.raises(UnresolvedToolEffect):
+        control.ensure_tool_effects_resolved(risk_level=risk_level, effect_type="write")
+
+
+def test_answer_timing_counts_first_outgoing_progress_to_first_outgoing_body_only():
+    from datetime import UTC, datetime, timedelta
+
+    from app.conversations.execution import _PublicEventTiming
+
+    now = datetime(2026, 10, 29, tzinfo=UTC)
+    clock = [now]
+    timing = _PublicEventTiming(clock=lambda: clock[0])
+    assert timing.observe("custom", {"type": "run_started"}) is None
+    clock[0] = now + timedelta(seconds=10)
+    assert timing.observe("custom", {"type": "progress", "message": "正在理解问题"}) is None
+    clock[0] = now + timedelta(seconds=20)
+    assert timing.observe("custom", {"type": "progress", "message": "正在获取证据"}) is None
+    assert timing.observe("messages", [{"content": " "}, {}]) is None
+    clock[0] = now + timedelta(seconds=25.4)
+    assert timing.observe("messages", [{"content": "结论。"}, {}]) == {
+        "type": "answer_started", "elapsed_ms": 15400,
+    }
+    clock[0] = now + timedelta(seconds=90)
+    assert timing.observe("messages", [{"content": "后续正文。"}, {}]) is None
+
+
+def test_answer_timing_without_progress_does_not_invent_duration():
+    from app.conversations.execution import _PublicEventTiming
+
+    timing = _PublicEventTiming()
+    assert timing.observe("messages", [{"content": "直接回答。"}, {}]) is None
+    assert timing.observe("custom", {"type": "progress", "message": "迟到进展"}) is None
+    assert timing.observe("messages", [{"content": "后续正文。"}, {}]) is None
+
+
+def test_answer_timing_resume_keeps_first_progress_origin_and_does_not_repeat_after_body(database, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from app.conversations import execution
+    from app.conversations.durable import DurableRunService
+    from app.storage.models import AgentRunExecution, AgentRunProtocolEvent
+
+    handle = prepare(database)
+    origin = datetime(2026, 10, 29, tzinfo=UTC)
+    timer_class = execution._PublicEventTiming
+    monkeypatch.setattr(execution, "_PublicEventTiming", lambda **kwargs: timer_class(
+        **kwargs, clock=lambda: origin + timedelta(seconds=15),
+    ))
+    with database() as db:
+        service = DurableRunService(db)
+        owner = service.claim(handle.run_id)
+        service.append(handle.run_id, owner, "custom", {"type": "progress", "message": "原始研究进展"})
+        db.get(AgentRunProtocolEvent, (handle.run_id, 2)).created_at = origin
+        db.get(AgentRunExecution, handle.run_id).phase_start_sequence = 2
+        db.commit()
+        timing = execution._restore_public_event_timing(db, handle.run_id)
+        assert timing.observe("messages", [{"content": "恢复后的正文"}, {}])["elapsed_ms"] == 15000
+        service.append(handle.run_id, owner, "messages", [{"content": "已有正文"}, {}])
+        db.commit()
+        restored = execution._restore_public_event_timing(db, handle.run_id)
+        assert restored.observe("messages", [{"content": "后续正文"}, {}]) is None
+
+
 @pytest.mark.parametrize(
     ("server", "remote_name", "result_status", "receipt_status", "trusted_semantics"),
     [
@@ -65,7 +253,7 @@ def test_explicit_mcp_permission_denial_settles_without_per_interface_allowlist(
     async def rejected(_value):
         calls.append(True)
         return ToolMessage(
-            content="抱歉，您没有访问该接口的权限", tool_call_id="remote",
+            content='{"code":"permission_denied","message":"任意权限说明"}', tool_call_id="remote",
             status="error" if flagged else "success",
         )
 
@@ -74,6 +262,7 @@ def test_explicit_mcp_permission_denial_settles_without_per_interface_allowlist(
         langchain_tool=_langchain_tool(remote_name, {}), description="验证权限边界",
         input_schema={"type": "object", "properties": {}}, risk_level="medium",
         permission_denial_is_pre_execution=trusted_semantics,
+        effect_type="write",  # 用受控假工具验证“可能写入”与明确前置拒绝的区别。
     )
     monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: rejected(value))
     registry = ToolRegistry()
@@ -105,11 +294,11 @@ def test_explicit_mcp_permission_denial_settles_without_per_interface_allowlist(
             "not_started" if trusted_semantics else "uncertain"
         )
     if receipt_status == "settled":
-        control.ensure_tool_effects_resolved(risk_level="medium")
-        control.ensure_tool_effects_resolved(risk_level="high")
+        control.ensure_tool_effects_resolved(risk_level="medium", effect_type="write")
+        control.ensure_tool_effects_resolved(risk_level="high", effect_type="write")
     else:
         with pytest.raises(UnresolvedToolEffect):
-            control.ensure_tool_effects_resolved(risk_level="high")
+            control.ensure_tool_effects_resolved(risk_level="high", effect_type="write")
 
 
 def test_persisted_events_replay_in_order_and_keep_partial_answer(database):
@@ -237,7 +426,7 @@ def test_unknown_write_result_does_not_block_read_turn_but_blocks_new_writes(dat
     request = ToolCallRequest(
         tool_name="write_account", arguments={}, purpose="写入", call_id="write-1"
     )
-    receipt_id = control.tool_started(request, risk_level="high")
+    receipt_id = control.tool_started(request, risk_level="high", effect_type="write")
     control.tool_finished(
         receipt_id, {"status": "timeout", "error": {"code": "provider_timeout"}}, uncertain=True
     )
@@ -259,7 +448,7 @@ def test_unknown_write_result_does_not_block_read_turn_but_blocks_new_writes(dat
     next_control = ExecutionControl(database, next_handle.run_id, next_owner)
     next_control.ensure_tool_effects_resolved(risk_level="low")
     with pytest.raises(UnresolvedToolEffect):
-        next_control.ensure_tool_effects_resolved(risk_level="high")
+        next_control.ensure_tool_effects_resolved(risk_level="high", effect_type="write")
 
 
 def test_running_tool_cannot_be_cancelled_before_result_is_saved(database):
@@ -307,8 +496,9 @@ def test_restart_does_not_fail_live_durable_owner_even_with_stale_heartbeat(data
         assert db.get(AgentRun, handle.run_id).status == "running"
 
 
+@pytest.mark.parametrize("effect_type,expected_status", [("unknown", "unknown"), ("read_only", "settled")])
 def test_confirmed_dead_owner_is_fenced_and_unknown_write_does_not_keep_session_busy(
-    database, monkeypatch
+    database, monkeypatch, effect_type, expected_status,
 ):
     from app.conversations import recovery
     from app.conversations.durable import DurableRunService, RunOwnershipLost
@@ -321,7 +511,7 @@ def test_confirmed_dead_owner_is_fenced_and_unknown_write_does_not_keep_session_
         owner = DurableRunService(db).claim(handle.run_id)
         db.commit()
     receipt_id = ExecutionControl(database, handle.run_id, owner).tool_started(
-        ToolCallRequest(tool_name="write", arguments={}, purpose="写入"), risk_level="high"
+        ToolCallRequest(tool_name="write", arguments={}, purpose="调用"), risk_level="high", effect_type=effect_type,
     )
     with database() as db:
         DurableRunService(db).request_stop(handle.run_id)
@@ -335,7 +525,7 @@ def test_confirmed_dead_owner_is_fenced_and_unknown_write_does_not_keep_session_
     assert recovery.recover_orphaned_durable_runs(database.kw["bind"]) == 1
     assert recovery.recover_orphaned_durable_runs(database.kw["bind"]) == 0
     with database() as db:
-        assert db.get(AgentRunToolReceipt, receipt_id).status == "unknown"
+        assert db.get(AgentRunToolReceipt, receipt_id).status == expected_status
         assert db.get(AgentRun, handle.run_id).status == "cancelled"
         assert db.get(AgentSession, handle.session_key).active_run_id is None
         with pytest.raises(RunOwnershipLost):
@@ -532,6 +722,7 @@ def test_invalid_write_output_is_unknown_and_cannot_be_blindly_retried(database)
 
     class InvalidWriteTool(EchoTool):
         risk_level = "medium"
+        effect_type = "write"
         output_schema: ClassVar[dict] = {"type": "object", "required": ["confirmed"]}
 
         async def run(self, data):
@@ -694,6 +885,7 @@ def test_confirmed_write_call_id_is_not_executed_twice_on_approval_retry(databas
 
     class WriteTool(EchoTool):
         risk_level = "medium"
+        effect_type = "write"
 
         async def run(self, data):
             calls.append(data.text)
@@ -743,7 +935,7 @@ def test_parallel_write_dispatch_keeps_single_unsettled_call(database):
                     ToolCallRequest(
                         tool_name="write", call_id=call_id, arguments={}, purpose="写入"
                     ),
-                    risk_level="medium",
+                    risk_level="medium", effect_type="write",
                 )
             )
         except UnresolvedToolEffect as exc:

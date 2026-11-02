@@ -205,6 +205,29 @@ def test_generation_sanitizes_prompt_and_answer_and_strips_reasoning():
     runtime.shutdown()
 
 
+def test_generation_input_conversion_failure_keeps_model_and_usage_without_raw_input():
+    client = _Client()
+    runtime = configure_langfuse(
+        config=_config(), client_factory=lambda **_kwargs: client,
+        provider_factory=lambda **_kwargs: _Provider(),
+        handler_factory=lambda **_kwargs: object(),
+    )
+    try:
+        with langfuse_generation(
+            name="generation", model="deepseek", model_parameters={},
+            user_prompt='用户粘贴的不完整JSON：{"password":',
+        ) as generation:
+            assert generation is not None
+            update_langfuse_generation(generation, usage_details={"input": 100, "output": 20})
+        assert len(client.observations) == 1
+        observation = client.observations[0]
+        assert observation["model"] == "deepseek"
+        assert "input" not in observation
+        assert observation["updates"][0]["usage_details"] == {"input": 100, "output": 20}
+    finally:
+        runtime.shutdown()
+
+
 def test_local_debug_content_policy_can_capture_reasoning():
     client = _Client()
     runtime = configure_langfuse(

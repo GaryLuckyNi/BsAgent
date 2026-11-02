@@ -34,6 +34,7 @@ class IntentDecision(TypedDict, total=False):
     subdomain: str | None
     goal: str | None
     confidence: float
+    # 仅兼容旧 checkpoint／封存恢复上下文，新 Router 不再发布此字段。
     source_constraint: Literal["unrestricted", "original_only", "confirmation_required", "unclear"]
     available_information: dict[str, Any]
     route: Literal["direct_answer", "synthesize", "plan"]
@@ -126,6 +127,7 @@ class AnswerClaim(TypedDict):
 
 
 class DraftAnswer(TypedDict, total=False):
+    sources: list[dict]
     content: str
     claims: list[AnswerClaim]
     cited_evidence_ids: list[str]
@@ -156,6 +158,7 @@ class AgentError(TypedDict):
 
 
 class AgentResponse(TypedDict, total=False):
+    sources: list[dict]
     content: str
     trace_id: str
     cited_evidence_ids: list[str]
@@ -259,6 +262,8 @@ class AgentState(TypedDict):
     disclosed_tool_names: Annotated[list[str], merge_disclosed_tool_names]
     tool_discovery_events: Annotated[dict[str, Any], merge_discovery_events]
     tool_selection_contexts: Annotated[dict[str, Any], merge_discovery_events]
+    source_attempt_queues: Annotated[dict[str, Any], merge_discovery_events]
+    tool_documentation: Annotated[dict[str, Any], merge_discovery_events]
     capability_observations: Annotated[dict[str, Any], merge_discovery_events]
     recovery_policy_version: NotRequired[str | None]
     recovery_source_policy: NotRequired[dict[str, str]]
@@ -372,6 +377,8 @@ def create_initial_state(
         "disclosed_tool_names": [],
         "tool_discovery_events": {},
         "tool_selection_contexts": {},
+        "source_attempt_queues": {},
+        "tool_documentation": {},
         "capability_observations": {},
         "recovery_policy_version": RECOVERY_VERSION if settings.runtime_capability_recovery_enabled else None,
         "recovery_source_policy": configured_source_policy(),

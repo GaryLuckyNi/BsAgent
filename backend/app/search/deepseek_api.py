@@ -188,6 +188,10 @@ def _normalize(query: str, data: Any, max_results: int) -> tuple[WebSearchRespon
             break
     if not results:
         raise _error("web_search_response_invalid", status_code=200)
+    answer = data.get("answer")
     return WebSearchResponse(
-        query=query, results=results, coverage=EvidenceCoverage(status="unknown")
+        query=query,
+        answer=answer.strip()[:20_000] if isinstance(answer, str) else "",
+        results=results,
+        coverage=EvidenceCoverage(status="unknown"),
     ), skipped

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import sys
@@ -348,6 +349,14 @@ def langfuse_generation(
             "system_prompt": system_prompt,
             "user_prompt": user_prompt,
         }
+    safe_input = {}
+    if observation_input is not None and runtime.content_policy.mode != "metadata_only":
+        try:
+            safe_input["input"] = json.loads(sanitized_content_json(
+                observation_input, policy=runtime.content_policy,
+            ))
+        except Exception as exc:  # noqa: BLE001 - 转换失败只丢弃正文，保留模型与用量观测
+            _log_runtime_failure("langfuse_generation_input_failed", exc)
     try:
         manager = runtime.client.start_as_current_observation(
             as_type="generation",
@@ -355,11 +364,7 @@ def langfuse_generation(
             model=model,
             model_parameters=dict(model_parameters),
             metadata=_safe_metadata(runtime.content_policy, metadata),
-            **(
-                {"input": runtime.content_policy.sanitize(observation_input)}
-                if observation_input is not None and runtime.content_policy.mode != "metadata_only"
-                else {}
-            ),
+            **safe_input,
         )
         generation = manager.__enter__()
     except Exception as exc:  # noqa: BLE001 - 观测故障不能中断业务执行

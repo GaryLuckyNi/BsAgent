@@ -47,6 +47,7 @@ class DurableRunService:
                 "type": "run_started",
                 "run_id": handle.run_id,
                 "message_id": handle.assistant_message_id,
+                "user_message_id": handle.user_message_id,
                 "request_id": handle.request_id,
             },
         )
@@ -87,6 +88,7 @@ class DurableRunService:
                 "type": "run_started",
                 "run_id": handle.run_id,
                 "message_id": handle.assistant_message_id,
+                "user_message_id": handle.user_message_id,
                 "request_id": handle.request_id,
             },
         )

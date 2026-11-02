@@ -512,9 +512,9 @@ def test_parallel_dispatch_reports_nodes_and_task_ids_without_full_send_args(tel
     state = _state()
     state["plan"]["tasks"].append(
         {
-            "id": "explain",
-            "task_goal": "解释概念",
-            "execution_type": "analysis",
+            "id": "financial",
+            "task_goal": "取得财务数据",
+            "execution_type": "tool",
         }
     )
     with langfuse_agent_run(
@@ -524,13 +524,13 @@ def test_parallel_dispatch_reports_nodes_and_task_ids_without_full_send_args(tel
         execution_segment="initial",
     ):
         route = _dispatch_after_scheduler(state)
-    assert [send.node for send in route] == ["tool_agent", "analysis_agent"]
+    assert [send.node for send in route] == ["tool_agent", "tool_agent"]
     runtime.client.flush()
     span = next(
         span for span in exporter.get_finished_spans() if span.name == "dispatch_task_scheduler"
     )
     output = json.loads(span.attributes[OUTPUT])
-    assert output["next_node"] is None
-    assert output["next_nodes"] == ["tool_agent", "analysis_agent"]
-    assert [item["task_id"] for item in output["dispatched_tasks"]] == ["market", "explain"]
+    assert output["next_node"] == "tool_agent"
+    assert output["next_nodes"] == ["tool_agent"]
+    assert [item["task_id"] for item in output["dispatched_tasks"]] == ["market", "financial"]
     assert "private-" not in span.attributes[OUTPUT]

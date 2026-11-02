@@ -18,7 +18,7 @@ from app.core.config import settings
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
 from app.storage.database import get_db
-from app.storage.models import AgentRun, AgentRunExecution
+from app.storage.models import AgentRun, AgentRunExecution, AgentSession
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 ReadPrincipal = Annotated[Principal, Depends(require_permission("agent:read"))]
@@ -32,11 +32,12 @@ def _factory(db):
 
 def _owned_run(db, principal, session_id, run_id):
     run = db.scalar(
-        select(AgentRun).where(
+        select(AgentRun).join(AgentSession, AgentSession.session_key == AgentRun.session_key).where(
             AgentRun.run_id == run_id,
             AgentRun.session_id == session_id,
             AgentRun.tenant_id == principal.tenant_id,
             AgentRun.user_id == principal.user_id,
+            AgentSession.status != "deleted",
         )
     )
     if run is None:
@@ -79,7 +80,7 @@ def get_active_run(session_id: str, principal: ReadPrincipal, db: DatabaseSessio
     session = repository.get_owned_session(
         tenant_id=principal.tenant_id, user_id=principal.user_id, session_id=session_id
     )
-    if session.active_run_id is None:
+    if session is None or session.active_run_id is None:
         return {"run": None}
     run = _owned_run(db, principal, session_id, session.active_run_id)
     assistant = repository.get_assistant_by_run(tenant_id=principal.tenant_id, run_id=run.run_id)
@@ -130,6 +131,9 @@ def stop_run(session_id: str, run_id: str, principal: InvokePrincipal, db: Datab
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+    from app.conversations.execution import release_terminal_catalog_snapshot
+
+    release_terminal_catalog_snapshot(db, run_id)
     return {"run_id": run_id, "status": status}
 
 

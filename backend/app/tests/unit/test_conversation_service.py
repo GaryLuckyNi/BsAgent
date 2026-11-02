@@ -1,16 +1,42 @@
 import pytest
-from pydantic import ValidationError
-from sqlalchemy import create_engine, func, select
-from sqlalchemy.orm import Session
-
 from app.conversations.repository import (
     ConversationConflictError,
     ConversationNotFoundError,
+    ConversationRepository,
     SessionBusyError,
 )
 from app.conversations.service import BeginTurn, ConversationService
 from app.core.config import settings
 from app.storage.models import AgentMessage, AgentRun, AgentSession, Base
+from pydantic import ValidationError
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.orm import Session
+
+
+def test_sqlite_delete_between_session_read_and_turn_creation_blocks_new_run(tmp_path, monkeypatch):
+    engine = create_engine(f"sqlite:///{tmp_path / 'delete-race.db'}")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        db.add(AgentSession(session_key="race-key", session_id="session_1", tenant_id="tenant_1", user_id="user_1"))
+        db.commit()
+    original_lock = ConversationRepository.lock_session
+
+    def delete_after_read(repository, **kwargs):
+        record = original_lock(repository, **kwargs)
+        with Session(engine) as deleting_db:
+            ConversationService(deleting_db).delete_session(tenant_id="tenant_1", user_id="user_1", session_id="session_1")
+            deleting_db.commit()
+        return record
+
+    monkeypatch.setattr(ConversationRepository, "lock_session", delete_after_read)
+    with Session(engine) as db:
+        with pytest.raises(ConversationConflictError):
+            ConversationService(db).begin_turn(_begin())
+        db.rollback()
+    with Session(engine) as db:
+        assert db.get(AgentSession, "race-key").status == "deleted"
+        assert db.scalar(select(func.count()).select_from(AgentRun)) == 0
+    engine.dispose()
 
 
 @pytest.fixture()

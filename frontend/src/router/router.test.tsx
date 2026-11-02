@@ -21,7 +21,7 @@ describe('InvestWise routes', () => {
     render(<RouteHarness initialPath="/" />)
 
     expect(
-      await screen.findByRole('heading', { name: /A 股三季度风格展望/ })
+      await screen.findByRole('heading', { name: '新建投资研究' })
     ).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId('current-path').textContent).toBe('/ai-research'))
   })

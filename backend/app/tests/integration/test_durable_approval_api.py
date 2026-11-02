@@ -176,7 +176,7 @@ def test_durable_approval_does_not_bypass_unknown_write_barrier(monkeypatch):
                 tool_name="write",
                 risk_level="high",
                 status="unknown",
-                result_summary={},
+                result_summary={"_effect_type": "write"},
             )
         )
         db.commit()
@@ -185,7 +185,7 @@ def test_durable_approval_does_not_bypass_unknown_write_barrier(monkeypatch):
         control = current_execution.get()
         control.ensure_tool_effects_resolved(risk_level="low")
         with pytest.raises(UnresolvedToolEffect):
-            control.ensure_tool_effects_resolved(risk_level="high")
+            control.ensure_tool_effects_resolved(risk_level="high", effect_type="write")
         return _completed()
 
     monkeypatch.setattr(approvals, "resume_question_answer_graph", resume)

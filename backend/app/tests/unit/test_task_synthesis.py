@@ -30,6 +30,17 @@ class FakeLlmClient:
         return LlmCompletionResult(content=self.content, model="fake", provider="fake")
 
 
+def test_synthesis_allows_optional_sparse_emoji_section_anchors():
+    llm = FakeLlmClient("## 📌 结论\n\n经营表现改善。\n\n## 风险\n\n仍需关注需求变化。")
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="分析经营情况")
+    state["intent"] = {"intent_type": "financial_research", "goal": state["user_message"]}
+    result = build_synthesizer_node(llm_client=llm)(state)
+    prompt = llm.calls[0]["system_prompt"]
+    assert "少量 emoji" in prompt
+    assert "不要求每个回答或每个标题都使用" in prompt
+    assert llm.content in result["draft_answer"]["content"]
+
+
 def test_replanning_retains_successful_original_objectives_for_synthesis():
     llm = FakeLlmClient("茅台归母净利润862.28亿元，宁德时代收盘304元；公告存在缺口。")
     state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="查询利润、行情和公告")
@@ -163,7 +174,7 @@ def test_failed_revised_task_does_not_discard_completed_analysis(error_code):
     assert any("真实公司净利润" in value for value in payload["data_limitations"])
 
 
-def test_explicit_synthesis_handoff_performs_final_reasoning_once_and_marks_task_complete():
+def test_explicit_synthesis_handoff_answers_without_thinking_and_marks_task_complete():
     llm = FakeLlmClient("## 结论\n\n现有证据不足以确认探底，需保留估值缺口。")
     state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="是否探底")
     state["intent"] = {"intent_type": "financial_research", "goal": "是否探底"}
@@ -181,7 +192,7 @@ def test_explicit_synthesis_handoff_performs_final_reasoning_once_and_marks_task
     result = build_synthesizer_node(llm_client=llm)(state, Runtime(store=None))
 
     assert len(llm.calls) == 1
-    assert llm.calls[0]["thinking"] is True
+    assert llm.calls[0]["thinking"] is False
     assert llm.calls[0]["max_tokens"] == 6144
     payload = json.loads(llm.calls[0]["user_prompt"])
     assert payload["answer_requirements"]["completion_criteria"] == ["解释正反证据"]
@@ -438,3 +449,43 @@ def test_synthesizer_uses_successful_web_result_when_market_data_is_unavailable(
     assert result["draft_answer"]["response_type"] == "research_answer"
     assert "核心判断" in result["draft_answer"]["content"]
     assert "不构成投资建议" in result["draft_answer"]["content"]
+
+
+@pytest.mark.parametrize("request_flow", [False, True])
+def test_synthesis_always_receives_original_request_when_model_goal_adds_requirements(request_flow):
+    from app.graph.planning.request_flow import REQUEST_FLOW_VERSION
+
+    original = "查询这家公司的主营业务"
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message=original)
+    state["intent"] = {"intent_type": "financial_research", "goal": "查询主营业务、机构预测和详细估值"}
+    state["plan"] = {"tasks": [{"id": "facts", "task_goal": "查询主营业务"},
+                               {"id": "extra", "task_goal": "补充机构预测"}]}
+    state["task_results"] = [
+        {"task_id": "facts", "status": "success", "content": "主营业务为软件服务"},
+        {"task_id": "extra", "status": "business_failure", "content": "未取得预测", "error_code": "tool_execution_failed"},
+    ]
+    if request_flow:
+        state["request_flow_version"] = REQUEST_FLOW_VERSION
+    llm = FakeLlmClient('{"action":"answer"}\n主营业务为软件服务。' if request_flow else "主营业务为软件服务。")
+    build_synthesizer_node(llm_client=llm)(state)
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert payload["user_message"] == original
+    assert "机构预测" in payload["goal"]  # 保留工作理解，交给模型与原问对照，不按词删除条件。
+    assert payload["research_materials"][0]["content"] == "主营业务为软件服务"
+    assert any("机构预测" in item for item in payload["data_limitations"])
+    assert len(llm.calls) == 1
+    assert llm.calls[0]["thinking"] is False
+
+
+def test_unjudged_fallback_does_not_present_internal_task_gaps_as_business_defects():
+    from app.graph.nodes.synthesizer import _fallback_answer
+    from app.graph.planning.numeric_evidence import numeric_fallback
+
+    materials = [{"research_goal": "查询主营业务", "content": "主营业务为软件服务"}]
+    limits = ["补充用户未要求的机构预测", "补充历史估值分位"]
+    for answer in (_fallback_answer("查询主营业务", materials, limits), numeric_fallback(materials, limits, [])):
+        assert "主营业务为软件服务" in answer
+        assert "尚未形成完整" in answer
+        assert "数据缺口" not in answer
+        assert "数据局限" not in answer
+        assert not any(item in answer for item in limits)

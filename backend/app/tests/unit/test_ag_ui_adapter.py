@@ -1,5 +1,4 @@
-from ag_ui.core import EventType, Interrupt
-
+from ag_ui.core import EventType, Interrupt, UserMessage
 from app.protocols.ag_ui import (
     adapt_approval_resume_to_ag_ui,
     adapt_session_sse_to_ag_ui,
@@ -40,6 +39,44 @@ def test_ag_ui_adapter_closes_upstream_when_consumer_disconnects():
     stream.close()
 
     assert frames.closed is True
+
+
+def test_ag_ui_appends_final_suffix_after_streamed_body():
+    events = list(adapt_session_sse_to_ag_ui([
+        _sse('answer_delta', {'content': '正文。'}),
+        _sse('final', {'content': '正文。\n\n免责声明。'}),
+    ], thread_id='s', run_id='r'))
+    assert ''.join(e.delta for e in events if e.type == EventType.TEXT_MESSAGE_CONTENT) == (
+        '正文。\n\n免责声明。'
+    )
+
+
+def test_ag_ui_preserves_source_preview_metadata_as_custom_event():
+    sources = [{"source_id": "source_7", "index": 7, "url": "https://example.com/report"}]
+    events = list(adapt_session_sse_to_ag_ui([
+        _sse("answer_sources", {"sources": sources}),
+        _sse("answer_delta", {"content": "结论。"}),
+    ], thread_id="s", run_id="r"))
+    custom = next(event for event in events if event.type == EventType.CUSTOM)
+    assert custom.name == "answer_sources"
+    assert custom.value == {"sources": sources}
+
+
+def test_ag_ui_replaces_revised_answer_and_preserves_history():
+    history = [UserMessage(id='u1', content='问题')]
+    events = list(adapt_session_sse_to_ag_ui([
+        _sse('status', {'message_id': 'a1'}),
+        _sse('progress', {'id': 'stage1', 'message': '进度'}),
+        _sse('answer_delta', {'content': '先前片段'}),
+        _sse('final', {'content': '修复后的完整答案'}),
+    ], thread_id='s', run_id='r', messages=history))
+    snapshot = next(e for e in events if e.type == EventType.MESSAGES_SNAPSHOT)
+    assert snapshot.messages[0] == history[0]
+    assert any(m.id == 'activity:stage1' for m in snapshot.messages)
+    assert snapshot.messages[-1].id == 'a1'
+    assert snapshot.messages[-1].content == '修复后的完整答案'
+    assert len(history) == 1
+    assert events[-1].result['content'] == snapshot.messages[-1].content
 
 
 def test_ag_ui_adapter_emits_typed_run_step_and_text_lifecycle():
@@ -136,6 +173,7 @@ def test_ag_ui_adapter_preserves_search_activity_metadata():
                         "group_id": "web_search:1",
                         "task_id": "market",
                         "query": "搜索市场",
+                        "answer": "搜索服务摘要",
                         "result_count": 2,
                         "result_urls": [
                             "https://a.example/x",
@@ -154,6 +192,7 @@ def test_ag_ui_adapter_preserves_search_activity_metadata():
     assert activity.content["activity_type"] == "web_search"
     assert activity.content["group_id"] == "web_search:1"
     assert activity.content["task_id"] == "market"
+    assert activity.content["answer"] == "搜索服务摘要"
     assert activity.content["result_count"] == 2
     assert activity.content["result_urls"] == [
         "https://a.example/x",

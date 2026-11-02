@@ -8,6 +8,7 @@ from langgraph.config import get_stream_writer
 
 from app.graph.recovery.search import recovery_failure_message
 from app.llm.schemas import LlmStreamDelta
+from app.tools.redaction import sanitize_untrusted_details
 
 _STAGE_LABELS = {
     "intent_router": "理解问题",
@@ -17,23 +18,17 @@ _STAGE_LABELS = {
     "analysis_agent": "分析证据",
     "synthesizer": "生成回答",
 }
-_SUMMARY_LABELS = {
-    "planner_agent": "研究计划",
-    "analysis_agent": "研究发现",
-    "skill_agent": "研究发现",
-}
-_INTERNAL_MARKERS = (
-    "required_schema",
-    "system_prompt",
-    "user_prompt",
-    "tool_name",
-    "skill_name",
-    "reasoning_content",
-    "research_materials",
-    "data_limitations",
-)
-_PUBLIC_TEXT_LIMIT = 240
 _PUBLIC_CONTENT_BATCH_CHARS = 24
+
+
+def emit_answer_sources(sources: list[dict]) -> None:
+    if not sources:
+        return
+    try:
+        writer = get_stream_writer()
+    except RuntimeError:
+        return
+    writer({"type": "answer_sources", "sources": sources})
 
 
 def emit_public_progress(
@@ -49,6 +44,11 @@ def emit_public_progress(
         writer = get_stream_writer()
     except RuntimeError:
         return
+    if (node_name == "synthesizer" and status == "completed"
+            and state.get("draft_answer") and not state.get("pending_replan")):
+        for task in (state.get("plan") or {}).get("tasks", []):
+            for task_state in _failed_task_states(state, task):
+                emit_public_progress(_task_stage(task_state["active_task"]), task_state, status="failed")
     kind, message = _public_event_content(node_name, state, status=status)
     public_status = _public_status(node_name, state, status=status)
     event = {
@@ -56,12 +56,42 @@ def emit_public_progress(
         "kind": kind,
         "id": _progress_id(node_name, state),
         "stage": node_name,
-        "label": _SUMMARY_LABELS.get(node_name, label) if kind == "summary" else label,
+        "label": {"goal": "研究目标", "plan": "研究计划"}.get(kind, label),
         "status": public_status,
         "message": message,
     }
-    event.update(_tool_activity_metadata(node_name, state))
+    event.update(_tool_activity_metadata(node_name, state, status=public_status))
     writer(event)
+
+
+def _task_stage(task: dict) -> str:
+    return "skill_agent" if task.get("skill_name") else "tool_agent"
+
+
+def _failed_task_states(state: dict, task: dict):
+    task_state = {**state, "active_task": task}
+    result = _matching_task_result(task_state)
+    if not result or result.get("status") == "success":
+        return
+    yield task_state
+    if task.get("skill_name"):
+        workflow = (state.get("skill_workflows") or {}).get(task["id"], {})
+        for step in workflow.get("steps", []):
+            child = {"id": step["task_id"], "task_goal": task["task_goal"], "tool_name": step.get("tool_name")}
+            child_state = {**state, "active_task": child}
+            child_result = _matching_task_result(child_state)
+            if child_result and child_result.get("status") != "success":
+                yield child_state
+
+
+def emit_replanned_task_progress(state: dict, *, previous_plan: dict, previous_iteration: int) -> None:
+    """新计划确认替代失败路径后，覆盖原活动；不把旧执行结果改成成功。"""
+    active_ids = {task["id"] for task in (state.get("plan") or {}).get("tasks", [])}
+    for task in previous_plan.get("tasks", []):
+        if task["id"] in active_ids:
+            continue
+        for task_state in _failed_task_states({**state, "planner_iteration": previous_iteration}, task):
+            emit_public_progress(_task_stage(task_state["active_task"]), task_state, status="superseded")
 
 
 def build_public_llm_stream_handler(
@@ -81,6 +111,33 @@ def build_public_llm_stream_handler(
     )
 
 
+def build_public_field_stream(node_name: str, state: dict[str, Any], *, feedback: bool = False):
+    from app.graph.planning.progress_stream import ProgressFieldStream
+
+    try:
+        writer = get_stream_writer()
+    except RuntimeError:
+        return None
+    kind = "goal" if node_name == "intent_router" else "plan"
+    event_id = _progress_id(node_name, state)
+
+    def publish(text: str, *, status: str = "started") -> None:
+        if writer is not None:
+            writer({
+                "type": "progress", "kind": kind, "id": event_id, "stage": node_name,
+                "label": "研究目标" if kind == "goal" else "研究计划",
+                "status": status, "message": text,
+            })
+
+    return ProgressFieldStream(
+        kind=kind, on_text=publish, feedback=feedback,
+        clean=lambda text: _safe_task_goal(text, max_chars=None),
+        on_failed=lambda: publish(
+            "研究目标未能确定。" if kind == "goal" else "研究计划未能完成。", status="failed",
+        ),
+    )
+
+
 class PublicLlmStreamHandler:
     def __init__(
         self,
@@ -91,6 +148,7 @@ class PublicLlmStreamHandler:
         self._writer = writer
         self._stream_content = stream_content
         self._content_buffer = ""
+        self.content_started = False
 
     def __call__(self, event: LlmStreamDelta) -> None:
         if self._writer is None:
@@ -112,6 +170,7 @@ class PublicLlmStreamHandler:
         content = self._content_buffer
         self._content_buffer = ""
         self._writer({"type": "answer_delta", "content": content})
+        self.content_started = True
 
 def _progress_id(node_name: str, state: dict[str, Any]) -> str:
     active_task = state.get("active_task") or {}
@@ -128,15 +187,18 @@ def _public_event_content(
     *,
     status: str,
 ) -> tuple[str, str]:
+    if status == "completed" and node_name == "intent_router":
+        goal = (state.get("intent") or {}).get("goal")
+        if goal:
+            return "goal", _safe_task_goal(goal, max_chars=None)
     if status == "completed" and node_name == "planner_agent":
-        summary = _safe_public_text((state.get("plan") or {}).get("public_summary"))
-        if summary:
-            return "summary", summary
-    if status == "completed" and node_name in {"analysis_agent", "skill_agent"}:
-        summary = _task_result_summary(state)
-        if summary:
-            return "summary", summary
-    kind = "activity" if node_name in {"tool_agent", "skill_agent"} else "status"
+        tasks = (state.get("plan") or {}).get("tasks", [])
+        if tasks:
+            return "plan", "\n".join(
+                f"{index}. {_safe_task_goal(task.get('task_goal'), max_chars=None)}"
+                for index, task in enumerate(tasks, 1)
+            )
+    kind = "activity" if node_name in {"tool_agent", "skill_agent", "analysis_agent"} else "status"
     return kind, _progress_message(node_name, state, status=status)
 
 
@@ -147,15 +209,24 @@ def _progress_message(
     status: str,
 ) -> str:
     if node_name == "intent_router":
+        if status == "failed":
+            return "研究目标识别失败。"
         return "正在理解问题与研究范围。" if status == "started" else "已明确研究目标。"
     if node_name == "planner_agent":
+        if status == "failed":
+            return "研究计划生成失败。"
         if status == "started":
             return "正在制定研究计划。"
         tasks = (state.get("plan") or {}).get("tasks", [])
         return f"已形成 {len(tasks)} 个研究步骤。"
     active_task = state.get("active_task") or {}
     task_goal = _safe_task_goal(active_task.get("task_goal"))
+    if status == "superseded":
+        return f"已调整研究流程，按新研究计划继续：{task_goal}"
     if node_name == "tool_agent":
+        queue = (state.get("source_attempt_queues") or {}).get(active_task.get("id"))
+        if queue and queue.get("message"):
+            return str(queue["message"])
         if status == "completed":
             task_result = _matching_task_result(state)
             if task_result and task_result.get("status") != "success":
@@ -182,13 +253,15 @@ def _progress_message(
     if node_name == "skill_agent":
         if status == "started":
             return f"正在执行研究流程：{task_goal}"
+        if _public_status(node_name, state, status=status) == "pending":
+            return f"研究流程需要调整，正在评估后续方案：{task_goal}"
         if _public_status(node_name, state, status=status) == "failed":
             return f"研究流程未完成：{task_goal}"
         return f"研究流程已完成：{task_goal}"
     if node_name == "analysis_agent":
         if status == "started":
             return f"正在分析：{task_goal}"
-        if status == "failed":
+        if _public_status(node_name, state, status=status) == "failed":
             return f"分析未完成：{task_goal}"
         return f"分析任务已完成：{task_goal}"
     if status == "started":
@@ -198,31 +271,7 @@ def _progress_message(
     return "最终回答已生成。"
 
 
-def _task_result_summary(state: dict[str, Any]) -> str | None:
-    result = _matching_task_result(state)
-    if result and result.get("status") == "success":
-        return _safe_public_text(result.get("content"))
-    return None
-
-
-def _safe_public_text(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if not text or text.startswith(("{", "[")):
-        return None
-    lowered = text.lower()
-    if any(marker in lowered for marker in _INTERNAL_MARKERS):
-        return None
-    text = re.sub(r"(?m)^#{1,6}\s*", "", text)
-    text = re.sub(r"(?m)^[-*+]\s+", "", text)
-    text = re.sub(r"\s+", " ", text)
-    if len(text) > _PUBLIC_TEXT_LIMIT:
-        text = text[: _PUBLIC_TEXT_LIMIT - 1].rstrip("，,；;。 ") + "…"
-    return text
-
-
-def _safe_task_goal(value: object) -> str:
+def _safe_task_goal(value: object, *, max_chars: int | None = 200) -> str:
     text = str(value or "当前子任务")
     text = re.sub(
         r"(?i)\b(?:web_search|search_tool|required_schema|tool_name|skill_name|mcp\.[a-z0-9_.-]+)\b",
@@ -230,7 +279,7 @@ def _safe_task_goal(value: object) -> str:
         text,
     )
     text = re.sub(r"\s+", " ", text).strip(" ：:，,")
-    return text[:200] or "当前子任务"
+    return (text if max_chars is None else text[:max_chars]) or "当前子任务"
 
 
 def _matching_task_result(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -242,12 +291,18 @@ def _matching_task_result(state: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _public_status(node_name: str, state: dict[str, Any], *, status: str) -> str:
-    if status != "completed" or node_name not in {"tool_agent", "skill_agent"}:
+    if node_name == "tool_agent" and status == "completed":
+        queue = (state.get("source_attempt_queues") or {}).get((state.get("active_task") or {}).get("id"))
+        if queue and queue.get("status") in {"ready", "waiting"}:
+            return "started"
+    if status != "completed" or node_name not in {"tool_agent", "skill_agent", "analysis_agent"}:
         return status
     result = _matching_task_result(state)
     if result is None and node_name == "tool_agent":
         result = _matching_tool_result(state)
-    return "failed" if result and result.get("status") != "success" else status
+    if result and result.get("status") != "success":
+        return "pending" if node_name in {"skill_agent", "tool_agent"} else "failed"
+    return status
 
 
 def _matching_tool_result(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -269,6 +324,8 @@ def _matching_tool_result(state: dict[str, Any]) -> dict[str, Any] | None:
 def _activity_action(action: str, state: dict[str, Any], *, status: str) -> str:
     if status == "started":
         return f"正在{action}"
+    if _public_status("tool_agent", state, status=status) == "pending":
+        return f"{action}需要调整，正在评估后续方案"
     if status == "failed" or _public_status("tool_agent", state, status=status) == "failed":
         return f"{action}未完成"
     if action == "查询市场数据":
@@ -281,11 +338,18 @@ def _activity_action(action: str, state: dict[str, Any], *, status: str) -> str:
 def _tool_activity_metadata(
     node_name: str,
     state: dict[str, Any],
+    *,
+    status: str,
 ) -> dict[str, Any]:
     if node_name != "tool_agent":
         return {}
     active_task = state.get("active_task") or {}
-    tool_name = str(active_task.get("tool_name") or "").lower()
+    result = _matching_task_result(state)
+    tool_name = str((result or {}).get("tool_name") or active_task.get("tool_name") or "").lower()
+    queue = (state.get("source_attempt_queues") or {}).get(active_task.get("id"))
+    if queue and queue.get("calls") and not result:
+        index = min(queue.get("index", 0), len(queue["calls"]) - 1)
+        tool_name = queue["calls"][index]["request"]["tool_name"].lower()
     if tool_name.rsplit(".", 1)[-1] == "web_search":
         activity_type = "web_search"
     elif tool_name.startswith("mcp."):
@@ -304,13 +368,19 @@ def _tool_activity_metadata(
 
     query = task_label
     urls: list[str] = []
-    result = _matching_task_result(state)
-    if result and result.get("status") == "success":
+    if status == "completed" and result and result.get("status") == "success":
         try:
             payload = json.loads(str(result.get("content") or ""))
         except (TypeError, json.JSONDecodeError):
             payload = {}
+        if isinstance(payload, dict) and isinstance(payload.get("search_result"), dict):
+            payload = payload["search_result"]
         if isinstance(payload, dict):
+            answer = payload.get("answer")
+            if isinstance(answer, str) and answer.strip():
+                metadata["answer"] = sanitize_untrusted_details(
+                    {"answer": answer.strip()[:4000]}, max_string_length=4000,
+                )["answer"][:4000]
             raw_query = payload.get("query")
             if isinstance(raw_query, str) and raw_query.strip():
                 query = raw_query.strip()[:500]

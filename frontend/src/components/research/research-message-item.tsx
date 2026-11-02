@@ -27,6 +27,8 @@ import {
 import type { ResearchMessage, ResearchProgress } from '@/domain/research'
 
 import { PermissionRecoveryItems } from './permission-recovery-items'
+import { ResearchMarkdown } from './research-markdown'
+import { ResearchSources } from './research-sources'
 
 export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: {
   message: ResearchMessage
@@ -38,7 +40,9 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
   const seenNarratives = new Set<string>()
   const processEntries: ResearchProgress[] = []
   for (const item of message.progress || []) {
-    const isProcessEntry = item.kind === 'summary'
+    const isProcessEntry = item.kind === 'goal'
+      || item.kind === 'plan'
+      || item.kind === 'summary'
       || item.kind === 'activity'
       || (!item.kind && (item.stage === 'tool_agent' || item.stage === 'skill_agent'))
     if (!isProcessEntry) continue
@@ -50,6 +54,10 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
     processEntries.push(item)
   }
   processEntries.sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+  const searchAnswers = processEntries.filter((item) => item.activityType === 'web_search')
+    .flatMap((item) => (item.queries || [])
+      .filter((query) => query.status === 'completed' && query.answer?.trim())
+      .map((query) => ({ ...query, id: `${item.id}:${query.taskId}` })))
   const hasResearchProcess = processEntries.length > 0
   const isResearching = message.status === 'streaming' && !message.content
   const showStreamLoader = message.role === 'assistant'
@@ -76,15 +84,19 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
         {hasResearchProcess && (
           <Reasoning className="reasoning" isStreaming={isResearching} autoClose={false}>
             {!isResearching && (
-              <ReasoningTrigger className="reasoning-trigger" />
+              <ReasoningTrigger className="reasoning-trigger" getThinkingMessage={() => (<>
+                <span>研究进展</span>
+                {message.thinkingDurationSeconds !== undefined && <span>· 思考用时 {message.thinkingDurationSeconds} 秒</span>}
+              </>)} />
             )}
             {hasResearchProcess && (
               <ReasoningContent>
                 <div className="reasoning-stream">
                   {processEntries.map((item) => (
-                    item.kind === 'summary'
+                    item.kind === 'goal' || item.kind === 'plan' || item.kind === 'summary'
                   ) ? (
                     <div className="reasoning-narrative" key={`reasoning:${item.id}`}>
+                      {item.kind !== 'summary' && <strong>{item.label}</strong>}
                       <ReasoningText>{item.message}</ReasoningText>
                     </div>
                   ) : (
@@ -101,20 +113,20 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
                       />
                       <div className="reasoning-activity__content">
                         <span>{activityMessage(item)}</span>
-                        {item.activityType && item.queries?.length ? (
-                          <details className="reasoning-activity__details">
-                            <summary>{item.activityType === 'web_search' ? '查看搜索范围' : '查看任务明细'}</summary>
-                            <ul>
-                              {item.queries.map((query) => (
-                                <li key={query.taskId}>{query.query}</li>
-                              ))}
-                            </ul>
-                          </details>
-                        ) : null}
                       </div>
                     </div>
                   ))}
                 </div>
+                {searchAnswers.length > 0 && (
+                  <section className="research-search-answers" aria-label="搜索摘要">
+                    <h4>搜索摘要</h4>
+                    {searchAnswers.map((query) => (
+                      <MessageResponse className="research-search-answer" key={query.id}>
+                        {query.answer!}
+                      </MessageResponse>
+                    ))}
+                  </section>
+                )}
               </ReasoningContent>
             )}
           </Reasoning>
@@ -125,7 +137,7 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
           </span>
         )}
         {message.content && (
-          <MessageResponse className="message-content" isAnimating={message.status === 'streaming'}>{message.content}</MessageResponse>
+          <ResearchMarkdown className="message-content" sources={message.evidence} isAnimating={message.status === 'streaming'}>{message.content}</ResearchMarkdown>
         )}
         {userInput?.inputType === 'selection' && (
           <section className="user-input-card" aria-label="需要你选择">
@@ -161,6 +173,9 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
             {message.citations.map((index) => <button key={index} type="button" onClick={() => onCitation(message, index)} aria-label={`打开第 ${index} 条证据`}>{index}</button>)}
           </div>
         )}
+        {message.role === 'assistant' && message.status === 'complete' && !!message.content.trim() && !!message.evidence?.length && (
+          <ResearchSources sources={message.evidence} content={message.content} />
+        )}
         {message.role === 'assistant' && message.status === 'complete' && (
           <MessageActions className="message-actions">
             <MessageAction tooltip="复制回答" onClick={() => void navigator.clipboard.writeText(message.content)}><Copy size={14} /></MessageAction>
@@ -174,7 +189,9 @@ export function ResearchMessageItem({ message, onCitation, onUserInputSelect }: 
 }
 
 function activityMessage(item: ResearchProgress): string {
-  const count = item.queryCount || 1
+  if (item.status === 'pending' || item.status === 'superseded') return item.message
+  const count = item.status === 'completed' && item.queries?.length
+    ? item.queries.filter((query) => query.status === 'completed').length : item.queryCount || 1
   if (item.activityType === 'web_search') {
     if (item.status === 'started') return `正在搜索 ${count} 项信息…`
     if (item.status === 'failed') return '搜索未完成'
@@ -196,8 +213,10 @@ function activityMessage(item: ResearchProgress): string {
 function ActivityIcon({ activityType, message, status }: {
   activityType?: ResearchProgress['activityType']
   message: string
-  status: 'started' | 'completed' | 'failed'
+  status: ResearchProgress['status']
 }) {
+  if (status === 'pending') return <LoaderCircle className="reasoning-activity__spinner" size={15} aria-hidden="true" />
+  if (status === 'superseded') return <Workflow size={15} aria-hidden="true" />
   if (status === 'failed') return <CircleAlert size={15} aria-hidden="true" />
   if (status === 'completed') return <CheckCircle2 size={15} aria-hidden="true" />
   if (activityType === 'web_search' || message.includes('联网检索')) return <Search size={15} aria-hidden="true" />

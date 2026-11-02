@@ -1,4 +1,5 @@
 from hashlib import sha256
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
@@ -12,7 +13,6 @@ from app.schemas import (
     validate_market_data_provider_settings,
 )
 
-
 router = APIRouter(
     prefix="/api/internal/market-data-providers",
     tags=["internal-market-data-providers"],
@@ -20,7 +20,7 @@ router = APIRouter(
 
 
 @router.get("/active/mcp-connection", response_model=MarketDataMcpConnectionRead)
-def get_active_mcp_connection(db: Session = Depends(get_db)) -> dict:
+def get_active_mcp_connection(db: Annotated[Session, Depends(get_db)]) -> dict:
     record = db.scalar(
         select(MarketDataProviderConfigRecord).where(
             MarketDataProviderConfigRecord.active.is_(True),
@@ -51,6 +51,8 @@ def get_active_mcp_connection(db: Session = Depends(get_db)) -> dict:
         "server_name": "tushare",
         "server_url": settings["mcp_server_url"],
         "config_revision": sha256(revision_source.encode()).hexdigest(),
+        "public_documentation": settings["public_documentation"],
+        "documentation_domains": settings["documentation_domains"],
     }
 
 

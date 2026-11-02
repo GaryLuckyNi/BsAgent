@@ -2,21 +2,25 @@
 
 import json
 from hashlib import sha256
+from itertools import zip_longest
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.operations.langfuse_content import LangfuseContentPolicy
 from app.schemas.tools import ToolSpec
+from app.tool_documentation.metadata import effective_description, model_schema, output_field_hints
 from app.tools.input_schema import planning_input_schema
 from app.tools.registry import ToolCatalogChangedError
 from app.tools.search import ToolSearchContext, ToolSearchInput, ToolSearchService
 from app.tools.search.contracts import SearchSource
+from app.tools.search.documents import tokenize_tool_text
 from app.tools.search.index import ToolSearchUnavailableError
 
 MAX_CARD_CHARS = 1200
 MAX_CARDS_CHARS = 8000
 MAX_INPUT_SCHEMA_CHARS = 4000
 MAX_INPUT_SCHEMAS_CHARS = 12000
+MAX_SUPPLEMENTED_CANDIDATES = 8
 
 
 class PlanningToolCard(BaseModel):
@@ -29,6 +33,7 @@ class PlanningToolCard(BaseModel):
     truncated: bool = False
     input_schema: dict | None = None
     sources: list[SearchSource] = Field(default_factory=list, max_length=2)
+    source_id: str | None = None
 
     @model_validator(mode="after")
     def validate_identity_and_budget(self):
@@ -46,7 +51,7 @@ class PlanningToolSnapshot(BaseModel):
     request_id: str
     catalog_digest: str
     query_fingerprint: str
-    candidates: list[PlanningToolCard] = Field(default_factory=list, max_length=8)
+    candidates: list[PlanningToolCard] = Field(default_factory=list, max_length=MAX_SUPPLEMENTED_CANDIDATES)
     truncated: bool = False
     reason: str | None = None
 
@@ -70,10 +75,10 @@ def _schema_size(schema: dict | None) -> int:
 
 
 def project_card(spec: ToolSpec, *, max_chars: int = MAX_CARD_CHARS,
-                 max_schema_chars: int = MAX_INPUT_SCHEMA_CHARS) -> PlanningToolCard:
+                 max_schema_chars: int = MAX_INPUT_SCHEMA_CHARS, query: str = "") -> PlanningToolCard:
     max_chars = max(1, min(max_chars, MAX_CARD_CHARS))
     required = set(spec.input_schema.get("required", []))
-    properties = spec.input_schema.get("properties", {})
+    properties = model_schema(spec).get("properties", {})
     order = sorted(properties, key=lambda name: (name != "fields", name not in required, name))
     lines = []
     for name in order:
@@ -82,13 +87,18 @@ def project_card(spec: ToolSpec, *, max_chars: int = MAX_CARD_CHARS,
         item = properties[name]
         if isinstance(item, dict):
             lines.append(f"{name}{'（必需）' if name in required else ''}: {item.get('description', '')}")
-    outputs = spec.output_schema.get("properties", {})
-    if outputs:
-        lines.append("返回字段：" + "、".join(outputs))
-    description, excerpt = _clean(spec.description), _clean("\n".join(lines))
-    description_budget = min(len(description), max_chars // 2) if excerpt else max_chars
+    query_tokens = set(tokenize_tool_text(query))
+    outputs = sorted(output_field_hints(spec), key=lambda hint: -len(
+        query_tokens.intersection(tokenize_tool_text(hint))))
+    output_excerpt = _clean("\n".join(f"返回 {hint}" for hint in outputs))
+    description, excerpt = _clean(effective_description(spec)), _clean("\n".join(lines))
+    description_budget = min(len(description), max_chars // 2) if excerpt or output_excerpt else max_chars
     kept_description = description[:description_budget]
-    kept_excerpt = excerpt[: max_chars - len(kept_description)]
+    remaining = max_chars - len(kept_description)
+    output_budget = remaining // 2 if excerpt else remaining
+    kept_output = output_excerpt[:output_budget]
+    projected_excerpt = kept_output + ("\n" if kept_output and excerpt else "") + excerpt
+    kept_excerpt = projected_excerpt[:remaining]
     input_schema = planning_input_schema(spec) if spec.risk_level in {"low", "medium"} else None
     if input_schema is not None:
         serialized = json.dumps(input_schema, ensure_ascii=False)
@@ -97,24 +107,29 @@ def project_card(spec: ToolSpec, *, max_chars: int = MAX_CARD_CHARS,
     return PlanningToolCard(
         ref=f"tool:{spec.name}@{spec.version}", tool_name=spec.name, tool_version=spec.version,
         description=kept_description, schema_excerpt=kept_excerpt,
-        truncated=len(kept_description) < len(description) or len(kept_excerpt) < len(excerpt),
+        truncated=(len(kept_description) < len(description) or len(kept_output) < len(output_excerpt)
+                   or len(kept_excerpt) < len(projected_excerpt)),
         input_schema=input_schema,
     )
 
 
 def recall_candidates(*, state: dict, search_service: ToolSearchService | None,
-                      top_k: int) -> PlanningToolSnapshot:
+                      top_k: int, supplemental_queries: tuple[str, ...] = ()) -> PlanningToolSnapshot:
     original = " ".join(state["user_message"].split())
     goal = " ".join(((state.get("intent") or {}).get("goal") or original).split())
     queries = [original[:512]]
     if (len(original) > 512 or len(original) < 12) and goal[:512] not in queries:
         queries.append(goal[:512])
+    if supplemental_queries:
+        queries = list(dict.fromkeys([*supplemental_queries, *queries]))
+        top_k = 8
     top_k = max(1, min(top_k, 8))
+    card_limit = MAX_SUPPLEMENTED_CANDIDATES if supplemental_queries else top_k
     digest = search_service.catalog_digest if search_service is not None else state.get("tool_catalog_digest", "")
     if search_service is not None and state.get("tool_catalog_digest") not in (None, "", digest):
         raise ToolCatalogChangedError()
     fingerprint = sha256(json.dumps({
-        "queries": queries, "goal": goal[:500], "top_k": top_k,
+        "queries": queries, "goal": goal[:500], "top_k": top_k, "card_limit": card_limit,
         "request_id": state["request_id"], "tenant_id": state["tenant_id"],
         "user_id": state["user_id"], "scopes": sorted(state["permission_scopes"]),
         "catalog_digest": digest, "truncated": len(original) > 512 or len(goal) > 500,
@@ -128,8 +143,11 @@ def recall_candidates(*, state: dict, search_service: ToolSearchService | None,
             "query_fingerprint": fingerprint, "truncated": len(original) > 512 or len(goal) > 500}
     if search_service is None:
         return PlanningToolSnapshot(**base, reason="tool_search_service_missing")
-    cards = {}
+    cards = ({card.tool_name: card for card in previous.candidates}
+             if supplemental_queries and previous is not None
+             and previous.request_id == state["request_id"] and previous.catalog_digest == digest else {})
     try:
+        recalled = []
         for query in queries:
             response = search_service.search(ToolSearchInput(query=query, top_k=top_k), context=ToolSearchContext(
                 tenant_id=state["tenant_id"], user_id=state["user_id"],
@@ -142,17 +160,25 @@ def recall_candidates(*, state: dict, search_service: ToolSearchService | None,
                     if hit.tool_name not in ("search_tool", "web_search") and (
                         "exact" in hit.sources or ("bm25" in hit.sources and hit.lexical_score >= 0.15))]
             specs = search_service.resolve_specs([hit.tool_name for hit in hits])
-            for hit, spec in zip(hits, specs, strict=True):
-                if hit.tool_version != spec.version:
-                    raise ToolCatalogChangedError()
-                if spec.name not in cards and len(cards) < top_k:
-                    remaining = MAX_INPUT_SCHEMAS_CHARS - sum(
-                        _schema_size(card.input_schema) for card in cards.values())
-                    card = project_card(spec, max_chars=min(MAX_CARD_CHARS, MAX_CARDS_CHARS // top_k),
-                                        max_schema_chars=remaining)
-                    cards[spec.name] = card.model_copy(update={"sources": list(hit.sources)})
+            recalled.append([(hit, spec, query) for hit, spec in zip(hits, specs, strict=True)])
+        rows = ([row for group in zip_longest(*recalled) for row in group if row is not None]
+                if supplemental_queries else [row for group in recalled for row in group])
+        for hit, spec, query in rows:
+            if hit.tool_version != spec.version:
+                raise ToolCatalogChangedError()
+            if spec.name not in cards and len(cards) < card_limit:
+                remaining = MAX_INPUT_SCHEMAS_CHARS - sum(
+                    _schema_size(card.input_schema) for card in cards.values())
+                remaining_chars = MAX_CARDS_CHARS - sum(
+                    len(card.description) + len(card.schema_excerpt) for card in cards.values())
+                card = project_card(spec, max_chars=min(MAX_CARD_CHARS, remaining_chars // (card_limit - len(cards))),
+                                    max_schema_chars=remaining, query=query)
+                cards[spec.name] = card.model_copy(update={"sources": list(hit.sources),
+                                                         "source_id": search_service.source_id(spec.name)})
     except ToolSearchUnavailableError:
-        return PlanningToolSnapshot(**base, candidates=list(cards.values()), reason="tool_search_unavailable")
+        fallback = (previous.candidates if supplemental_queries and previous is not None
+                    and previous.request_id == state["request_id"] and previous.catalog_digest == digest else [])
+        return PlanningToolSnapshot(**base, candidates=list(cards.values()) or fallback, reason="tool_search_unavailable")
     base["truncated"] |= any(card.truncated for card in cards.values())
     return PlanningToolSnapshot(**base, candidates=list(cards.values()),
                                 reason=None if cards else "no_specialized_candidate")

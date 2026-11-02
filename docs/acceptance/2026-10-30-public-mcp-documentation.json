@@ -1,0 +1,88 @@
+{
+  "分支": "codex/public-mcp-documentation",
+  "后端回归通过": 621,
+  "Admin回归通过": 18,
+  "迁移组合": {
+    "通过": 3,
+    "跳过": 3,
+    "说明": "PostgreSQL 可选组合测试未提供独立验收配置；单独验证本地实际升级成功"
+  },
+  "静态检查": [
+    "Ruff通过",
+    "git diff --check通过",
+    "Node语法检查通过",
+    "生产Compose使用示例配置解析通过"
+  ],
+  "真实文档补全": {
+    "mode": "真实目录、官方文档Search/Fetch、真实模型提取、隔离SQLite缓存；零业务数据查询",
+    "seconds": 20.68,
+    "status": "partial",
+    "input_fields": 10,
+    "output_fields": 97,
+    "sample": {
+      "n_cashflow_act": {
+        "description": "经营活动产生的现金流量净额",
+        "unit": null,
+        "enum_values": {},
+        "evidence": [
+          {
+            "url": "https://tushare.pro/document/2?doc_id=44",
+            "quote": "n_cashflow_act | float | Y | 经营活动产生的现金流量净额"
+          }
+        ]
+      },
+      "report_type": {
+        "description": "报表类型",
+        "unit": null,
+        "enum_values": {},
+        "evidence": [
+          {
+            "url": "https://tushare.pro/document/2?doc_id=44",
+            "quote": "report_type | str | Y | 报表类型"
+          }
+        ]
+      },
+      "end_date": {
+        "description": "报告期",
+        "unit": null,
+        "enum_values": {},
+        "evidence": [
+          {
+            "url": "https://tushare.pro/document/2?doc_id=44",
+            "quote": "end_date | str | Y | 报告期"
+          }
+        ]
+      },
+      "update_flag": {
+        "description": "更新标志(1最新）",
+        "unit": null,
+        "enum_values": {},
+        "evidence": [
+          {
+            "url": "https://tushare.pro/document/2?doc_id=44",
+            "quote": "update_flag | str | Y | 更新标志(1最新）"
+          }
+        ]
+      }
+    },
+    "future_snapshot_has_meaning": true
+  },
+  "本地迁移": "20261022_0015 -> 20261030_0016，仅新增文档缓存表",
+  "未执行": [
+    "业务数据工具查询",
+    "生产部署",
+    "分支合并"
+  ],
+  "本地Redis消费验收": {
+    "认证": "复用本机现有认证，安全写入Git忽略的.env.local",
+    "独立worker": "已启动",
+    "任务": "cashflow官方文档说明补全",
+    "状态": "ready",
+    "输入字段": 10,
+    "输出字段": 97,
+    "保存位置": "PostgreSQL",
+    "后端健康检查": "ready",
+    "新建Redis实例": false,
+    "修改Redis认证": false
+  }
+}

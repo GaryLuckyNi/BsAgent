@@ -238,7 +238,8 @@ def settle_blocked_deferred(state, registry):
         try:
             # superstep 已结束；仍有 running/unknown 时保留保护，不等同于健康同批等待。
             control.ensure_tool_effects_resolved(
-                risk_level=registry.get(record.request.tool_name).spec.risk_level, call_id=call_id
+                risk_level=registry.get(record.request.tool_name).spec.risk_level,
+                effect_type=registry.get(record.request.tool_name).spec.effect_type, call_id=call_id,
             )
         except UnresolvedToolEffect:
             context = state.get("tool_selection_contexts", {}).get(call_id)

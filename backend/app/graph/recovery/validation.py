@@ -135,7 +135,8 @@ def locally_unstarted_original(state, request, result, registry) -> bool:
             return False  # 已有远端执行身份，不能走“本地未派发”证明。
         try:
             control.ensure_tool_effects_resolved(
-                risk_level=entry.spec.risk_level, db=db, call_id=request.call_id,
+                risk_level=entry.spec.risk_level, effect_type=entry.spec.effect_type,
+                db=db, call_id=request.call_id,
             )
         except UnresolvedToolEffect as exc:
             return exc.code == "tool_side_effects_unresolved"

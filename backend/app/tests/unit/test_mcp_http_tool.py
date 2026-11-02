@@ -1,5 +1,7 @@
 import asyncio
 import json
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
 from app.schemas.tools import ToolError
@@ -7,6 +9,7 @@ from app.tools import mcp_http
 from app.tools.mcp_http import DynamicMcpHttpTool, McpHttpClient
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
+from mcp.types import Tool as McpTool
 
 
 def _langchain_tool(name: str, payload: object, *, schema: dict | None = None):
@@ -62,12 +65,17 @@ def test_http_client_uses_official_streamable_http_adapter(monkeypatch):
 
     class FakeMultiServerMCPClient:
         def __init__(self, connections, **options):
+            self.connections = connections
             captured["connections"] = connections
             captured["options"] = options
 
-        async def get_tools(self, *, server_name):
+        @asynccontextmanager
+        async def session(self, server_name):
             captured["server_name"] = server_name
-            return [discovered]
+            async def list_tools(**kwargs):
+                return SimpleNamespace(tools=[McpTool(name=discovered.name, description=discovered.description,
+                    inputSchema=discovered.args_schema)], nextCursor=None)
+            yield SimpleNamespace(list_tools=list_tools)
 
     monkeypatch.setattr(mcp_http, "MultiServerMCPClient", FakeMultiServerMCPClient)
 
@@ -255,7 +263,7 @@ def test_explicit_remote_permission_denial_is_normalized_without_raw_secrets(mon
     tool.name = "mcp.tushare.income_vip"
     tool._server_name = "tushare"
     response = ToolMessage(
-        content="抱歉，您没有访问该接口的权限。token=top-secret",
+        content=json.dumps({"code": "permission_denied", "message": "token=top-secret"}),
         artifact={"structured_content": {"code": "permission_denied", "message": "secret"}}
         if structured else None,
         tool_call_id="remote-1",
@@ -274,7 +282,7 @@ def test_explicit_remote_permission_denial_is_normalized_without_raw_secrets(mon
 
 
 @pytest.mark.parametrize("text,code", [
-    ("参数错误", "provider_invalid_request"),
+    ("参数错误", "mcp_tool_execution_failed"),
     ("connection timed out", "mcp_tool_execution_failed"),
     ("permission service unavailable", "mcp_tool_execution_failed"),
     ("授权检查服务内部错误", "mcp_tool_execution_failed"),
@@ -294,7 +302,8 @@ def test_non_permission_remote_errors_keep_their_category(monkeypatch, text, cod
 def test_explicit_permission_denial_does_not_depend_on_tool_name_or_server(monkeypatch, name):
     tool = _dynamic_tool(name, {})
     async def invoke(_value):
-        return ToolMessage(content="抱歉，您没有访问该接口的权限", tool_call_id="remote-1", status="error")
+        return ToolMessage(content='{"code":"permission_denied","message":"任意说明"}',
+                           tool_call_id="remote-1", status="error")
     monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
     result = asyncio.run(tool.run(tool.input_model.model_validate({})))
     assert result.status == "denied"
@@ -312,8 +321,7 @@ def test_possible_write_with_ambiguous_remote_error_remains_failed(monkeypatch):
 
 
 @pytest.mark.parametrize("content", [
-    "抱歉，您没有访问该接口的权限，权限详情请查看文档。",
-    [{"type": "text", "text": "抱歉，您没有访问该接口的权限"}],
+    '{"code":"permission_denied","message":"权限说明"}',
     [{"type": "text", "text": '{"code":"permission_denied","message":"账号无权限"}'}],
     [{"type": "text", "text": '{"error":{"code":"forbidden","message":"账号无权限"}}'}],
 ])
@@ -364,7 +372,8 @@ def test_partial_result_with_permission_error_does_not_claim_execution_was_denie
 
 
 def test_official_tushare_failure_envelope_is_recognized_but_business_data_is_not():
-    denied = _dynamic_tool("income_vip", {"code": -2002, "msg": "抱歉，您没有访问该接口的权限", "data": None})
+    denied = _dynamic_tool("income_vip", {"code": 2002, "msg": "任意服务端说明", "data": None})
+    denied._error_protocol = "tushare"
     result = asyncio.run(denied.run(denied.input_model.model_validate({})))
     assert result.error.code == "provider_permission_denied"
     normal = _dynamic_tool("income_vip", {"error": "permission_denied", "data": [1]})
@@ -382,7 +391,7 @@ def test_adapter_execution_certainty_requires_trusted_protocol_semantics(monkeyp
     )
     async def invoke(_value):
         return ToolMessage(
-            content="抱歉，您没有接口访问权限。token=top-secret",
+            content=json.dumps({"code": "permission_denied", "message": "token=top-secret"}),
             artifact={"structured_content": {"code": "permission_denied"}} if structured else None,
             status="error", tool_call_id="remote",
         )
@@ -405,11 +414,12 @@ def test_unknown_failure_envelope_is_not_a_successful_business_result():
 
 @pytest.mark.parametrize("name", ["anns_d", "income_vip", "new_api_2027"])
 @pytest.mark.parametrize("trusted", [False, True])
-def test_real_tushare_error_text_is_classified_without_interface_allowlist(monkeypatch, name, trusted):
+def test_real_tushare_error_code_is_classified_without_interface_allowlist(monkeypatch, name, trusted):
     tool = DynamicMcpHttpTool(
         name=f"mcp.any.{name}", server_name="any", langchain_tool=_langchain_tool(name, {}),
         description="只验证错误协议", input_schema={"type": "object"},
         permission_denial_is_pre_execution=trusted,
+        error_protocol="tushare",
     )
 
     async def invoke(_value):
@@ -420,8 +430,9 @@ def test_real_tushare_error_text_is_classified_without_interface_allowlist(monke
 
     monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
     result = asyncio.run(tool.run(tool.input_model.model_validate({})))
-    assert result.error.code == "provider_permission_denied"
-    assert result.status == "denied"
+    assert result.error.code == "provider_request_rejected"
+    assert result.error.details["provider_code"] == 40203
+    assert result.status == "failed"
     assert result.execution_state == ("not_started" if trusted else "uncertain")
 
 
@@ -436,7 +447,8 @@ def test_real_tushare_40203_rate_limit_is_not_permission_denial(monkeypatch):
 
     monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
     result = asyncio.run(tool.run(tool.input_model.model_validate({})))
-    assert result.error.code == "provider_rate_limited"
+    # 未配置 TuShare 协议的连接也不能通过错误文案获得特定分类。
+    assert result.error.code == "mcp_tool_execution_failed"
     assert result.status == "failed"
     assert result.execution_state == "uncertain"
 

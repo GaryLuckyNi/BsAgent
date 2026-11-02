@@ -26,6 +26,7 @@ class ToolCandidateResolution:
     fallback_reason: str | None
     availability_skips: tuple[dict, ...] = ()
     source: Literal["task_search", "planning_reuse", "skill_named_tool"] = "task_search"
+    multi_source: bool = False
 
 
 class ToolCandidateResolver:
@@ -101,6 +102,23 @@ class ToolCandidateResolver:
             source = "task_search"
         specs = [spec for spec in specs if spec.name not in _PLATFORM_TOOL_NAMES
                  and permitted(spec) and _compatible_description(task_goal, spec.description)]
+        multi_source = False
+        grouped_search = getattr(self._search_service, "search_by_source", None)
+        if (skill_allowed_tools is None and callable(grouped_search) and any(
+                spec.name.startswith("mcp.") and spec.effect_type == "read_only" for spec in specs)
+                and all(spec.effect_type == "read_only" for spec in specs)):
+            pinned = list(specs) if source == "planning_reuse" else []
+            pinned_hits = hits if pinned else ()
+            pinned_sources = {self._search_service.source_id(spec.name) for spec in pinned}
+            response = grouped_search(ToolSearchInput(query=tool_search_query or task_goal),
+                context=ToolSearchContext(tenant_id=tenant_id, user_id=user_id,
+                    permission_scopes=permission_scopes, task_goal=task_goal,
+                    excluded_tools=tuple(sorted(_PLATFORM_TOOL_NAMES))), per_source=3)
+            discovered = tuple(hit for hit in response.hits if self._qualified(hit)
+                               and self._search_service.source_id(hit.tool_name) not in pinned_sources)
+            hits = (*pinned_hits, *discovered)
+            specs = [*pinned, *self._search_service.resolve_specs([hit.tool_name for hit in discovered])]
+            source, multi_source = ("planning_reuse" if pinned else "task_search"), bool(specs)
         reason = reason or (None if specs else "no_specialized_candidate")
         skipped = []
         if request_id and capability_observations:
@@ -143,6 +161,7 @@ class ToolCandidateResolver:
             candidates=tuple(specs), hits=hits, tool_choice="auto", fallback_reason=reason,
             availability_skips=tuple(skipped),
             source=source,
+            multi_source=multi_source,
         )
 
     def _qualified(self, hit: ToolSearchHit) -> bool:

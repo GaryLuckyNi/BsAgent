@@ -47,7 +47,7 @@ def observe_denial(*, scope, call_id, arguments_fingerprint, result, receipt_set
     proof = result.error.details
     if (proof.get("source") != "mcp_adapter" or proof.get("phase") != "pre_execution"
             or proof.get("has_partial_result") is not False
-            or proof.get("rule_id") not in {"mcp-error-code-v1", "mcp-denial-subject-v1"}):
+            or proof.get("rule_id") not in {"mcp-error-code-v1", "mcp-error-code-v2", "mcp-denial-subject-v1"}):
         return None
     denied_scope = proof.get("denied_scope", "arguments")
     if denied_scope not in {"arguments", "tool", "permission"}:

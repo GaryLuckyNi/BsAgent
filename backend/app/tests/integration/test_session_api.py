@@ -499,6 +499,141 @@ def test_list_sessions_returns_only_principal_owned_sessions():
     assert [item["session_id"] for item in response.json()["items"]] == ["session_owned"]
 
 
+def test_list_sessions_summarizes_first_question_and_latest_visible_message():
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        service = ConversationService(db)
+        for index, (user_id, question, answer) in enumerate((
+            ("user_1", "分析新能源产业链", "首轮实际回答"),
+            ("user_1", "继续分析排产", "最近排产数据分析"),
+            ("user_2", "其他用户的问题", "其他用户的私有回答"),
+        )):
+            turn = service.begin_turn(BeginTurn(
+                tenant_id="tenant_1", user_id=user_id, session_id="same-id",
+                request_id=f"summary-{index}", user_content=question,
+            ))
+            service.complete_turn(tenant_id="tenant_1", run_id=turn.run_id, content=answer)
+            db.commit()
+        service.begin_turn(BeginTurn(
+            tenant_id="tenant_1", user_id="user_1", session_id="pending",
+            request_id="summary-pending", user_content="尚未回答的实际问题",
+        ))
+        db.commit()
+
+    response = TestClient(app).get("/api/sessions")
+
+    assert response.status_code == 200
+    items = {item["session_id"]: item for item in response.json()["items"]}
+    assert items["same-id"]["title"] == "分析新能源产业链"
+    assert items["same-id"]["preview"] == "最近排产数据分析"
+    assert items["pending"]["title"] == "尚未回答的实际问题"
+    assert items["pending"]["preview"] == "尚未回答的实际问题"
+    assert "私有" not in response.text
+
+
+def test_session_summary_excludes_soft_deleted_messages():
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        service = ConversationService(db)
+        for index in range(3):
+            turn = service.begin_turn(BeginTurn(
+                tenant_id="tenant_1", user_id="user_1", session_id="summary-deleted",
+                request_id=f"deleted-{index}", user_content=f"问题{index}",
+            ))
+            service.complete_turn(tenant_id="tenant_1", run_id=turn.run_id, content=f"回答{index}")
+            db.commit()
+        messages = list(db.scalars(select(AgentMessage).order_by(AgentMessage.sequence_no)))
+        for message in (messages[0], messages[-1]):
+            message.deleted_at = datetime.now(UTC)
+        db.commit()
+    item = TestClient(app).get("/api/sessions").json()["items"][0]
+    assert item["title"] == "问题1"
+    assert item["preview"] == "问题2"
+
+
+def test_session_search_matches_history_and_is_literal_and_owned():
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        service = ConversationService(db)
+        for index, (user, title, answer) in enumerate((
+            ("user_1", "新能源研究", "实际产能增长 20%_abc"),
+            ("user_1", "银行研究", "股息与资产质量"),
+            ("user_2", "新能源私有记录", "实际产能增长 20%_abc"),
+        )):
+            turn = service.begin_turn(BeginTurn(
+                tenant_id="tenant_1", user_id=user, session_id=f"search-{index}",
+                request_id=f"search-{index}", user_content=title,
+            ))
+            service.complete_turn(tenant_id="tenant_1", run_id=turn.run_id, content=answer)
+        db.commit()
+    client = TestClient(app)
+    for query in ("产能", "20%_ABC", " 新能源 "):
+        result = client.get("/api/sessions", params={"q": query})
+        assert result.status_code == 200
+        assert [item["session_id"] for item in result.json()["items"]] == ["search-0"]
+    assert client.get("/api/sessions", params={"q": "不存在"}).json()["items"] == []
+
+
+def test_delete_session_hides_history_and_blocks_replay(monkeypatch):
+    monkeypatch.setattr(sessions, "run_question_answer_graph", lambda **kwargs: _completed_graph_state(kwargs))
+    app, _ = create_test_app_with_database()
+    client = TestClient(app)
+    headers = {"Idempotency-Key": "delete-test-request"}
+    assert client.post("/api/sessions/to-delete/messages", json={"message": "待删除研究"}, headers=headers).status_code == 200
+    assert client.delete("/api/sessions/to-delete").status_code == 204
+    assert client.delete("/api/sessions/to-delete").status_code == 204
+    assert client.get("/api/sessions").json()["items"] == []
+    assert client.get("/api/sessions/to-delete/messages").status_code == 404
+    assert client.post("/api/sessions/to-delete/messages", json={"message": "待删除研究"}, headers=headers).status_code == 409
+    assert client.post("/api/sessions/to-delete/messages", json={"message": "新问题"}).status_code == 409
+
+
+def test_delete_session_cannot_delete_another_users_session():
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        db.add(AgentSession(session_key="other-delete", session_id="other-delete", tenant_id="tenant_1", user_id="user_2"))
+        db.commit()
+    assert TestClient(app).delete("/api/sessions/other-delete").status_code == 404
+    with testing_session_local() as db:
+        assert db.get(AgentSession, "other-delete").status == "active"
+
+
+def test_delete_running_session_requests_stop_and_blocks_event_replay():
+    from app.conversations.durable import DurableRunService
+    from app.storage.models import AgentRunExecution
+
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        handle = ConversationService(db).begin_turn(BeginTurn(
+            tenant_id="tenant_1", user_id="user_1", session_id="delete-running",
+            request_id="delete-running", user_content="运行中的研究",
+        ))
+        DurableRunService(db).prepare(handle=handle, payload={})
+        db.commit()
+    client = TestClient(app)
+    assert client.delete("/api/sessions/delete-running").status_code == 204
+    with testing_session_local() as db:
+        assert db.get(AgentRunExecution, handle.run_id).stop_requested is True
+        assert db.get(AgentRun, handle.run_id).status == "stop_requested"
+        assert db.get(AgentSession, handle.session_key).status == "deleted"
+    assert client.get(f"/api/sessions/delete-running/runs/{handle.run_id}/events").status_code == 404
+
+
+def test_delete_legacy_running_session_keeps_record_when_stop_is_unsupported():
+    app, testing_session_local = create_test_app_with_database()
+    with testing_session_local() as db:
+        handle = ConversationService(db).begin_turn(BeginTurn(
+            tenant_id="tenant_1", user_id="user_1", session_id="legacy-running",
+            request_id="legacy-running", user_content="旧执行",
+        ))
+        db.commit()
+    response = TestClient(app).delete("/api/sessions/legacy-running")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "run_stop_not_supported"
+    with testing_session_local() as db:
+        assert db.get(AgentSession, handle.session_key).status == "active"
+
+
 def test_post_message_passes_only_recent_completed_visible_history(monkeypatch):
     captured = {}
     monkeypatch.setattr(sessions, "CONVERSATION_HISTORY_LIMIT", 4)
@@ -2724,6 +2859,11 @@ def test_agent_protocol_stream_projects_progress_and_message_tokens(monkeypatch)
 def test_agent_protocol_stream_projects_user_input_without_approval_record(monkeypatch):
     def interrupted_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
+        for kind, message in [("goal", "分析目标公司"), ("plan", "1. 确认公司\n2. 核实财报")]:
+            yield AgentGraphStreamEvent(event="custom", data={
+                "type": "progress", "kind": kind, "id": kind, "label": "研究目标" if kind == "goal" else "研究计划",
+                "message": message, "status": "completed",
+            })
         state["__interrupt__"] = [
             Interrupt(
                 value={
@@ -2785,9 +2925,11 @@ def test_agent_protocol_stream_projects_user_input_without_approval_record(monke
             select(AgentMessage).where(AgentMessage.role == "assistant")
         ).one()
     assert run.status == assistant.status == "interrupted"
+    assert [event["kind"] for event in assistant.metadata_json["research_process"]] == ["goal", "plan"]
 
 
-def test_agent_protocol_resume_uses_active_run_and_server_checkpoint_identity(monkeypatch):
+@pytest.mark.parametrize("stream_recovery", [False, True])
+def test_agent_protocol_resume_uses_active_run_and_server_checkpoint_identity(monkeypatch, stream_recovery):
     captured = {}
 
     def fake_resume(**kwargs):
@@ -2809,6 +2951,17 @@ def test_agent_protocol_resume_uses_active_run_and_server_checkpoint_identity(mo
             "cited_evidence_ids": [],
             "approval_status": "not_required",
         }
+        if stream_recovery:
+            return iter([
+                AgentGraphStreamEvent(event="custom", data={
+                    "type": "progress", "kind": "activity", "id": "tool_agent:search",
+                    "stage": "tool_agent", "label": "获取证据", "message": "已完成联网搜索",
+                    "status": "completed", "activity_type": "web_search", "task_id": "search",
+                    "group_id": "web_search:1", "answer": "恢复搜索摘要",
+                }),
+                AgentGraphStreamEvent(event="custom", data={"type": "answer_delta", "content": "已选择 C长鑫。"}),
+                state,
+            ])
         return state
 
     monkeypatch.setattr(sessions, "resume_user_input_graph", fake_resume)
@@ -2827,6 +2980,11 @@ def test_agent_protocol_resume_uses_active_run_and_server_checkpoint_identity(mo
             tenant_id="tenant_1",
             run_id=handle.run_id,
         )
+        assistant = db.get(AgentMessage, handle.assistant_message_id)
+        assistant.metadata_json = {"research_process": [
+            {"id": "goal", "kind": "goal", "label": "研究目标", "message": "分析目标公司", "status": "completed", "sequence": 0},
+            {"id": "plan", "kind": "plan", "label": "研究计划", "message": "1. 确认公司\n2. 核实财报", "status": "completed", "sequence": 1},
+        ]}
         db.commit()
         expected_thread_id = build_checkpoint_thread_id(
             tenant_id="tenant_1",
@@ -2850,6 +3008,7 @@ def test_agent_protocol_resume_uses_active_run_and_server_checkpoint_identity(mo
 
     assert response.status_code == 200
     assert captured["checkpoint_thread_id"] == expected_thread_id
+    assert captured["stream_events"] is True
     assert captured["interrupt_id"] == "interrupt_1"
     assert captured["interaction_id"] == "interaction_1"
     assert "checkpoint_id" not in captured
@@ -2859,6 +3018,15 @@ def test_agent_protocol_resume_uses_active_run_and_server_checkpoint_identity(mo
         session_record = db.scalars(select(AgentSession)).one()
     assert run.status == "completed"
     assert session_record.active_run_id is None
+    with testing_session_local() as db:
+        assistant = db.get(AgentMessage, handle.assistant_message_id)
+        events = assistant.metadata_json["research_process"]
+        assert [event["kind"] for event in events] == ["goal", "plan"] + (["activity"] if stream_recovery else [])
+        if stream_recovery:
+            assert events[-1]["answer"] == "恢复搜索摘要"
+            assert response.text.index("恢复搜索摘要") < response.text.index('"type": "final"')
+            assert response.text.count('"content": "已选择 C长鑫。"') == 2  # 正文增量与 final 各一次
+
 
 
 def test_agent_protocol_resume_rejects_client_checkpoint_coordinates():
@@ -3163,6 +3331,12 @@ def test_completed_stream_idempotency_replays_without_graph(monkeypatch):
 
 def test_stream_graph_error_fails_original_turn_and_clears_active_run(monkeypatch):
     def failing_stream(**_kwargs):
+        for task_id, status in (("pending_skill", "pending"), ("replaced_skill", "superseded")):
+            yield AgentGraphStreamEvent(event="custom", data={
+                "type": "progress", "kind": "activity", "id": f"skill_agent:{task_id}",
+                "label": "执行研究流程", "message": "正在评估" if status == "pending" else "已调整研究流程",
+                "status": status,
+            })
         raise AgentGraphExecutionError(
             node_name="retriever_agent",
             message="rag unavailable",
@@ -3195,6 +3369,23 @@ def test_stream_graph_error_fails_original_turn_and_clears_active_run(monkeypatc
     assert error["run_id"] == run.run_id
     assert error["request_id"] == "stream-failure-1"
     assert error["message_id"] == assistant.message_id
+    saved = assistant.metadata_json["research_process"]
+    assert [(item["id"], item["status"]) for item in saved] == [
+        ("skill_agent:pending_skill", "failed"), ("skill_agent:replaced_skill", "superseded"),
+    ]
+    assert "研究流程未完成" in saved[0]["message"]
+    assert '"status": "failed"' in response.text
+
+
+def test_stream_initialization_failure_does_not_require_progress_to_exist(monkeypatch):
+    def broken_trace(**_kwargs):
+        raise RuntimeError("initialization failed")
+
+    monkeypatch.setattr(sessions, "_record_context_snapshot_trace", broken_trace)
+    app, _ = create_test_app_with_database()
+    response = TestClient(app).post("/api/sessions/s1/messages/stream", json={"message": "问题"})
+    assert "agent_stream_internal_error" in response.text
+    assert "UnboundLocalError" not in response.text
 
 
 def test_closing_stream_generator_fails_started_turn(monkeypatch):
@@ -3647,17 +3838,25 @@ def test_post_session_message_stream_emits_notice_when_sync_compaction_starts(
     assert '"message": "正在压缩上下文"' in protocol_body
 
 
+@pytest.mark.parametrize("progress_kind", ["goal", "plan", "summary"])
 def test_post_session_message_stream_emits_native_progress_and_tokens_before_final(
-    monkeypatch,
+    monkeypatch, progress_kind,
 ):
     def fake_stream(**kwargs):
         state = _initial_state_from_graph_kwargs(kwargs)
         _apply_dynamic_plan(state)
         yield AgentGraphStreamEvent(
+            event="messages",
+            data=(
+                SimpleNamespace(content='{"action":"answer"}\nPRIVATE_PROTOCOL'),
+                {"langgraph_node": "synthesizer"},
+            ),
+        )
+        yield AgentGraphStreamEvent(
             event="custom",
             data={
                 "type": "progress",
-                "kind": "summary",
+                "kind": progress_kind,
                 "id": "planner_agent:0",
                 "stage": "planner_agent",
                 "label": "研究计划",
@@ -3703,6 +3902,7 @@ def test_post_session_message_stream_emits_native_progress_and_tokens_before_fin
         body = response.read().decode("utf-8")
 
     assert response.status_code == 200
+    assert "PRIVATE_PROTOCOL" not in body
     progress_index = body.index("event: progress")
     answer_index = body.index("event: answer_delta")
     final_index = body.index("event: final")
@@ -3712,6 +3912,10 @@ def test_post_session_message_stream_emits_native_progress_and_tokens_before_fin
     assert "先确认分析对象与证据范围，再核对市场数据" in body
     assert "银之杰公司概览。" in body
     assert body.count("event: answer_delta") == 2
+
+    messages = client.get("/api/sessions/s1/messages").json()["items"]
+    assistant = next(item for item in reversed(messages) if item["role"] == "assistant")
+    assert assistant["metadata"]["research_process"][0]["kind"] == progress_kind
 
 
 def test_post_session_message_stream_does_not_turn_trace_into_thinking(
@@ -3863,18 +4067,12 @@ def test_post_session_message_stream_does_not_repeat_native_answer_tokens(monkey
         state = _initial_state_from_graph_kwargs(kwargs)
         _apply_dynamic_plan(state)
         yield AgentGraphStreamEvent(
-            event="messages",
-            data=(
-                SimpleNamespace(content="银之杰公司"),
-                {"langgraph_node": "synthesizer"},
-            ),
+            event="custom",
+            data={"type": "answer_delta", "content": "银之杰公司"},
         )
         yield AgentGraphStreamEvent(
-            event="messages",
-            data=(
-                SimpleNamespace(content="概览。"),
-                {"langgraph_node": "synthesizer"},
-            ),
+            event="custom",
+            data={"type": "answer_delta", "content": "概览。"},
         )
         state["final_response"] = {
             "content": "银之杰公司概览。",

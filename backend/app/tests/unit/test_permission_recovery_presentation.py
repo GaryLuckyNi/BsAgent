@@ -24,7 +24,8 @@ def test_denial_without_task_result_never_reports_evidence_obtained(monkeypatch,
              "tool_selection_contexts": {"original": {"task": {"id": "research"}}},
              "recovery_items": {"original": {"task_id": "research"}}, "recovery_outcomes": {}}
     public_events.emit_public_progress("tool_agent", state, status="completed")
-    assert emitted[0]["status"] == "failed"
+    # 等待来源恢复仍可继续；只有补偿耗尽后才展示最终失败。
+    assert emitted[0]["status"] == "pending"
     assert "权限不足" in emitted[0]["message"] and "等待选择来源" in emitted[0]["message"]
     assert "已取得" not in emitted[0]["message"]
 

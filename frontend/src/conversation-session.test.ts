@@ -54,6 +54,27 @@ describe('resolveConversationSession', () => {
 })
 
 describe('toConversationMessages', () => {
+  it.each(['pending', 'superseded'])('刷新后保留研究活动的 %s 状态', (status) => {
+    const restored = toConversationMessages([{
+      role: 'assistant', status: 'completed', content: '结论', sequence_no: 1,
+      metadata: { research_process: [{ id: 'skill_agent:report', kind: 'activity',
+        label: '研究流程', message: '研究流程已调整', status, sequence: 2 }] }
+    }])
+    expect(restored[0].researchProcess?.[0]).toMatchObject({ status, sequence: 2 })
+  })
+
+  it('恢复直接来自目标和任务字段的研究过程', () => {
+    const restored = toConversationMessages([{
+      role: 'assistant', status: 'completed', content: '结论', sequence_no: 1,
+      metadata: { research_process: [
+        { id: 'goal', kind: 'goal', label: '研究目标', message: '分析行情', status: 'completed', sequence: 0 },
+        { id: 'plan', kind: 'plan', label: '研究计划', message: '1. 取得行情\n2. 核验消息', status: 'completed', sequence: 1 }
+      ] }
+    }])
+    expect(restored[0].researchProcess?.map((event) => event.kind)).toEqual(['goal', 'plan'])
+    expect(restored[0].researchProcess?.[1].message).toBe('1. 取得行情\n2. 核验消息')
+  })
+
   it('恢复空的运行中与已停止回答，保留持久化标识和状态', () => {
     const restored = toConversationMessages([
       { message_id: 'a1', run_id: 'r1', role: 'assistant', status: 'pending', content: '', sequence_no: 2, metadata: {} },

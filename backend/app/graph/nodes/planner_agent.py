@@ -14,6 +14,7 @@ from app.graph.planning.policy import (
     remaining_planner_iterations,
 )
 from app.graph.planning.request_flow import pending_replan_valid, uses_request_flow
+from app.graph.public_events import build_public_field_stream, emit_replanned_task_progress
 from app.graph.state import AgentState
 from app.llm.factory import LlmClient
 from app.memory.candidates import propose_explicit_preference_candidates
@@ -74,6 +75,7 @@ def build_planner_agent_node(
         current_iteration = state["planner_iteration"]
         if state.get("plan") is not None:
             current_plan = PlanModel.model_validate(state["plan"])
+            progress = build_public_field_stream("planner_agent", state, feedback=True)
             try:
                 decision = LlmTaskPlanner(llm_client=llm_client).review(
                     goal=goal,
@@ -90,9 +92,12 @@ def build_planner_agent_node(
                         - current_iteration,
                     ),
                     planning_constraints=constraints,
+                    on_delta=progress,
                     **({"replan_request": state["pending_replan"]["request"]} if new_flow else {}),
                 )
             except PlannerOutputError:
+                if progress is not None:
+                    progress.fail()
                 if new_flow:
                     state["pending_replan"] = None
                     state["replan_stop_reason"] = "replan_output_invalid"
@@ -103,6 +108,10 @@ def build_planner_agent_node(
                     current_plan, state.get("task_results", [])
                 )
                 return state
+            except Exception:
+                if progress is not None:
+                    progress.fail()
+                raise
             if decision.plan is not None:
                 state["plan_history"] = [
                     *state.get("plan_history", []),
@@ -117,6 +126,10 @@ def build_planner_agent_node(
                 )
                 state["plan"] = plan.model_dump(mode="python")
                 state["planner_iteration"] = current_iteration + 1
+                emit_replanned_task_progress(
+                    state, previous_plan=current_plan.model_dump(mode="python"),
+                    previous_iteration=current_iteration,
+                )
             else:
                 plan = current_plan
             state["planner_decision"] = {
@@ -137,25 +150,33 @@ def build_planner_agent_node(
                     state["replan_stop_reason"] = "replan_no_effective_change"
             return state
         mode = planner_mode(current_iteration)
-        plan = LlmTaskPlanner(llm_client=llm_client).plan(
-            goal=goal,
-            intent_type=intent_type,
-            domain=domain,
-            subdomain=subdomain,
-            capabilities=capabilities,
-            task_results=tuple(
-                TaskResultModel.model_validate(item) for item in state.get("task_results", [])
-            ),
-            remaining_iterations=remaining_planner_iterations(current_iteration),
-            planning_constraints={**constraints, "user_message": state["user_message"]},
-            mode=mode,
-        )
+        progress = build_public_field_stream("planner_agent", state)
+        try:
+            plan = LlmTaskPlanner(llm_client=llm_client).plan(
+                goal=goal,
+                intent_type=intent_type,
+                domain=domain,
+                subdomain=subdomain,
+                capabilities=capabilities,
+                task_results=tuple(
+                    TaskResultModel.model_validate(item) for item in state.get("task_results", [])
+                ),
+                remaining_iterations=remaining_planner_iterations(current_iteration),
+                planning_constraints={**constraints, "user_message": state["user_message"]},
+                mode=mode,
+                on_delta=progress,
+                **({"capability_search": lambda queries: _discover_capabilities(
+                    state=state, domain=domain, subdomain=subdomain, skill_registry=skill_registry,
+                    tool_search_service=tool_search_service, supplemental_queries=queries,
+                )} if tool_search_service is not None else {}),
+            )
+        except Exception:
+            if progress is not None:
+                progress.fail()
+            raise
         if current_iteration:
             plan = _namespace_replanned_tasks(plan, revision=current_iteration)
-        plan_payload = plan.model_dump(mode="python")
-        if plan_payload.get("public_summary") is None:
-            plan_payload.pop("public_summary", None)
-        state["plan"] = plan_payload
+        state["plan"] = plan.model_dump(mode="python")
         state["planner_iteration"] = current_iteration + 1
         state["memory_candidates"] = propose_explicit_preference_candidates(
             user_message=state["user_message"],
@@ -193,7 +214,6 @@ def _namespace_replanned_tasks(
         names[task.id] = name
         occupied.add(name)
     return PlanModel(
-        public_summary=plan.public_summary,
         tasks=[
             SubTaskModel.model_validate(
                 {
@@ -214,6 +234,7 @@ def _discover_capabilities(
     subdomain: str,
     skill_registry: SkillRegistry | None,
     tool_search_service: ToolSearchService | None,
+    supplemental_queries: tuple[str, ...] = (),
 ) -> PlannerCapabilities:
     skill_cards = ()
     if skill_registry is not None:
@@ -225,7 +246,9 @@ def _discover_capabilities(
     started = perf_counter()
     with langfuse_observation(as_type="span", name="planning_tool_recall") as observation:
         snapshot = recall_candidates(state=state, search_service=tool_search_service,
-                                     top_k=settings.tool_search_top_k)
+                                     top_k=(min(settings.tool_search_top_k, 5) if state.get("plan") is None
+                                            and not supplemental_queries else settings.tool_search_top_k),
+                                     supplemental_queries=supplemental_queries)
         update_langfuse_observation(observation, bounded_content=True, output={
             "catalog_digest": snapshot.catalog_digest,
             "query_fingerprint": snapshot.query_fingerprint,
@@ -233,6 +256,7 @@ def _discover_capabilities(
             "candidate_count": len(snapshot.candidates),
             "candidates": [{"ref": card.ref, "sources": card.sources} for card in snapshot.candidates],
             "truncated": snapshot.truncated, "reason": snapshot.reason,
+            "supplemental_queries": list(supplemental_queries),
         })
     state["planning_tool_candidates"] = snapshot.model_dump(mode="json")
     return PlannerCapabilities(skills=skill_cards, tools=tuple(snapshot.candidates))

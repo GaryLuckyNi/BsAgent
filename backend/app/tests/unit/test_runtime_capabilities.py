@@ -23,14 +23,15 @@ def test_default_denial_only_matches_same_identity_and_arguments(changed):
     assert not capabilities.matches_observation(observed, replace(scope, **{changed: "other"}), arguments_fingerprint="fp")
 
 
-def test_only_settled_pre_execution_permission_creates_observation():
+@pytest.mark.parametrize("rule_id", ["mcp-error-code-v1", "mcp-error-code-v2"])
+def test_only_settled_pre_execution_permission_creates_observation(rule_id):
     scope = capabilities.CapabilityScope("t", "u", "r", "mcp.x.api", "1", "binding", None)
     result = ToolCallResult(
         tool_call_id="c", tool_name=scope.tool_name, status="denied", trace_id="t",
         execution_state="not_started", error=ToolError(
             code="provider_permission_denied", message="权限不足",
             details={"source": "mcp_adapter", "phase": "pre_execution", "has_partial_result": False,
-                     "rule_id": "mcp-error-code-v1", "denied_scope": "arguments"},
+                     "rule_id": rule_id, "denied_scope": "arguments"},
         ),
     )
     args = {"scope": scope, "call_id": "c", "arguments_fingerprint": "fp", "result": result}

@@ -1,8 +1,7 @@
 """规划与原生工具调用共用的模型输入契约。"""
 
-from copy import deepcopy
-
 from app.schemas.tools import ToolSpec
+from app.tool_documentation.metadata import model_schema
 from app.tools.redaction import (
     contains_inline_credentials,
     reject_inline_credentials,
@@ -11,7 +10,7 @@ from app.tools.redaction import (
 
 
 def model_input_schema(spec: ToolSpec) -> dict:
-    schema = deepcopy(spec.input_schema)
+    schema = model_schema(spec)
     properties = schema.get("properties")
     if isinstance(properties, dict):
         blocked = set(spec.server_injected_fields)

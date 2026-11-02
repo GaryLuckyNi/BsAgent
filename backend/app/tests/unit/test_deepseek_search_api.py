@@ -206,3 +206,17 @@ def test_web_search_input_exposes_upstream_unicode_limit():
     assert WebSearchInput(query="  " + "字" * 128 + "  ").query == "字" * 128
     with pytest.raises(ValidationError):
         WebSearchInput(query="字" * 129)
+
+
+@pytest.mark.parametrize("answer, expected", [
+    ("  搜索服务提供的摘要。  ", "搜索服务提供的摘要。"),
+    (None, ""), (" ", ""), (17, ""), ({"text": "非字符串"}, ""),
+    ("字" * 20001, "字" * 20000),
+], ids=["answer", "null", "blank", "number", "object", "bounded"])
+def test_search_api_preserves_only_optional_string_answer(answer, expected):
+    result, requests = run_search({"results": [source()], "answer": answer})
+    assert result.answer == expected
+    assert len(requests) == 1
+    assert json.loads(requests[0].content) == {
+        "query": "上市主体", "count": 3, "need_content": False,
+    }

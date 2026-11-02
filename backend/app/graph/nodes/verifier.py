@@ -1,12 +1,6 @@
-import re
-
 from app.graph.nodes.synthesizer import FINANCIAL_DISCLAIMER
+from app.graph.planning.output_checks import has_prohibited_advice
 from app.graph.state import AgentState
-
-_PROHIBITED_PATTERNS = (
-    re.compile(r"(?:保证|确保|必然).{0,12}(?:收益|盈利|上涨)"),
-    re.compile(r"(?:建议|应该|必须).{0,8}(?:买入|卖出|加仓|减仓)"),
-)
 
 
 def verifier_node(state: AgentState) -> AgentState:
@@ -20,11 +14,7 @@ def verifier_node(state: AgentState) -> AgentState:
         state["verification"] = _result("pass", "respond")
         return state
 
-    risk_flags = [
-        "investment_advice_boundary_violation"
-        for pattern in _PROHIBITED_PATTERNS
-        if pattern.search(content)
-    ]
+    risk_flags = ["investment_advice_boundary_violation"] if has_prohibited_advice(content) else []
     if FINANCIAL_DISCLAIMER not in content:
         risk_flags.append("missing_financial_disclaimer")
     if not content:

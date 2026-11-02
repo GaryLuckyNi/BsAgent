@@ -6,6 +6,33 @@ export type RequestIdentity = {
   accessToken?: string
 }
 
+export type ResearchSessionSummary = {
+  session_id: string
+  title: string
+  preview: string
+  updated_at: string
+}
+
+export async function loadResearchSessions(identity: RequestIdentity, query = ''): Promise<ResearchSessionSummary[]> {
+  const params = new URLSearchParams({ limit: '100' })
+  if (query.trim()) params.set('q', query.trim())
+  const response = await fetch(`${apiBaseUrl}/api/sessions?${params}`, { headers: authHeaders(identity) })
+  const body = await parseJsonResponse<{ items: ResearchSessionSummary[] }>(response)
+  return body.items
+}
+
+export async function deleteResearchSession(sessionId: string, identity: RequestIdentity): Promise<void> {
+  const response = await fetch(`${apiBaseUrl}/api/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE', headers: authHeaders(identity)
+  })
+  if (response.ok) return
+  const body = await response.json().catch(() => null)
+  const code = body?.detail?.code
+  if (code === 'run_stop_not_supported') throw new Error('当前任务暂不支持停止，请等待任务结束后重试删除。')
+  if (code === 'session_changed_retry') throw new Error('会话状态发生变化，请重试删除。')
+  throw new Error(`删除研究记录失败 · HTTP ${response.status}`)
+}
+
 const apiBaseUrl = normalizeBaseUrl(import.meta.env.VITE_AGENT_API_BASE_URL)
 
 export function agentProtocolStreamUrl(sessionId: string): string {

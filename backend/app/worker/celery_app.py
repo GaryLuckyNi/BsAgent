@@ -22,6 +22,7 @@ celery_app = Celery(
         "app.harness.tasks",
         "app.context_compaction.tasks",
         "app.conversations.tasks",
+        "app.tool_documentation.tasks",
     ],
 )
 celery_app.conf.update(
@@ -36,6 +37,7 @@ celery_app.conf.update(
     task_soft_time_limit=210,
     task_time_limit=240,
     task_routes={
+        "bs_agent.tool_documentation.enrich": {"queue": "tool-documentation"},
         "bs_agent.conversations.execute_turn": {"queue": "agent-turns"},
         "bs_agent.conversations.recover_dead_turns": {"queue": "agent-turns"},
         "bs_agent.vision.analyze_asset": {"queue": "image-analysis"},

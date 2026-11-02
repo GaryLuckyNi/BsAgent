@@ -95,6 +95,3 @@ def _terminal_failure(
         error_code=code,
     )
     return {"task_results": [result.model_dump(mode="python", exclude={"tool_name"})]}
-
-
-analysis_agent_node = build_analysis_agent_node()

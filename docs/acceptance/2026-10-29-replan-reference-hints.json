@@ -1,0 +1,35 @@
+{
+  "trace_id": "f12ccd6d3f1e6e67b3b3b4f2dbcdf338",
+  "mode": "原始工具回执经现有结果投影、原始合成输出的离线回放，无真实模型或工具调用",
+  "before": {
+    "next_node": "synthesizer",
+    "stop_reason": "replan_evidence_ref_invalid"
+  },
+  "after": {
+    "next_node": "planner_agent",
+    "stop_reason": null,
+    "draft_answer": null,
+    "replan_request_count": 1,
+    "evidence_refs": [
+      "task:hsgt_target_list",
+      "task:hsgt_inclusion_rules",
+      "source_1",
+      "source_5",
+      "source_9"
+    ],
+    "required_changes_preserved": true,
+    "source_ids": [
+      "source_1",
+      "source_2",
+      "source_3",
+      "source_4",
+      "source_5",
+      "source_6",
+      "source_7",
+      "source_8",
+      "source_9",
+      "source_10"
+    ],
+    "synthesis_completion_calls": 1
+  }
+}

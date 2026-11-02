@@ -1,3 +1,7 @@
+import { normalizeProgressStatus, type ResearchProgressKind, type ResearchProgressStatus } from './domain/research'
+import type { EvidenceSource } from './domain/research'
+import { parseResearchSources } from './services/research-sources'
+
 export type ConversationSessionStorage = Pick<Storage, 'getItem' | 'setItem'>
 
 export type ConversationIdentity = {
@@ -6,6 +10,7 @@ export type ConversationIdentity = {
 }
 
 export type PersistedConversationMessage = {
+  created_at?: string
   message_id?: string
   run_id?: string
   role: 'user' | 'assistant'
@@ -16,6 +21,8 @@ export type PersistedConversationMessage = {
 }
 
 export type RestoredConversationMessage = {
+  sources?: EvidenceSource[]
+  createdAt?: string
   messageId?: string
   runId?: string
   status?: string
@@ -29,10 +36,10 @@ export type RestoredConversationMessage = {
 
 export type RestoredResearchProcessEvent = {
   id: string
-  kind: 'activity' | 'summary'
+  kind: ResearchProgressKind
   label: string
   message: string
-  status: 'started' | 'completed' | 'failed'
+  status: ResearchProgressStatus
   sequence: number
   activityType?: 'web_search' | 'market_data' | 'evidence'
   groupId?: string
@@ -40,6 +47,7 @@ export type RestoredResearchProcessEvent = {
   taskLabel?: string
   query?: string
   resultCount?: number
+  answer?: string
   resultUrls?: string[]
 }
 
@@ -80,7 +88,8 @@ export function toConversationMessages(
       const identity = item.message_id ? {
         messageId: item.message_id,
         runId: item.run_id,
-        status: item.status
+        status: item.status,
+        createdAt: item.created_at
       } : {}
       if (item.role === 'user') {
         return { role: 'user', content: item.content, ...identity }
@@ -89,6 +98,7 @@ export function toConversationMessages(
       const approvalStatus = stringMetadata(item.metadata, 'approval_status')
       const citedEvidenceIds = stringArrayMetadata(item.metadata, 'cited_evidence_ids')
       const researchProcess = researchProcessMetadata(item.metadata)
+      const sources = parseResearchSources(item.metadata.sources)
       return {
         role: 'agent',
         content: item.content,
@@ -96,7 +106,8 @@ export function toConversationMessages(
         ...(traceId ? { traceId } : {}),
         ...(approvalStatus ? { approvalStatus } : {}),
         ...(citedEvidenceIds ? { citedEvidenceIds } : {}),
-        ...(researchProcess ? { researchProcess } : {})
+        ...(researchProcess ? { researchProcess } : {}),
+        ...(sources.length ? { sources } : {})
       }
     })
 }
@@ -111,7 +122,7 @@ function researchProcessMetadata(
     const event = item as Record<string, unknown>
     if (
       typeof event.id !== 'string'
-      || (event.kind !== 'activity' && event.kind !== 'summary')
+      || (event.kind !== 'goal' && event.kind !== 'plan' && event.kind !== 'activity' && event.kind !== 'summary')
       || typeof event.message !== 'string'
     ) return []
     const activityType = (
@@ -124,13 +135,15 @@ function researchProcessMetadata(
       kind: event.kind,
       label: typeof event.label === 'string' ? event.label : '研究过程',
       message: event.message,
-      status: event.status === 'failed' || event.status === 'completed' ? event.status : 'started',
+      status: normalizeProgressStatus(event.status),
       sequence: typeof event.sequence === 'number' ? event.sequence : 0,
       ...(activityType ? { activityType } : {}),
       ...stringEventField(event, 'group_id', 'groupId'),
       ...stringEventField(event, 'task_id', 'taskId'),
       ...stringEventField(event, 'task_label', 'taskLabel'),
       ...stringEventField(event, 'query', 'query'),
+      ...(activityType === 'web_search' && event.status === 'completed'
+        ? stringEventField(event, 'answer', 'answer') : {}),
       ...(typeof event.result_count === 'number' ? { resultCount: event.result_count } : {}),
       ...(Array.isArray(event.result_urls) ? {
         resultUrls: event.result_urls.filter((url): url is string => typeof url === 'string')

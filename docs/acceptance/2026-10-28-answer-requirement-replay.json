@@ -1,0 +1,33 @@
+{
+  "trace_id": "df0dff78b8193725361d5ea122c8f8ba",
+  "generation_id": "7c010b77202bb747",
+  "original_input_sha256": "ac8e44a8119709d184a1db745131b1e6d1a598534fd747d1f1f6bbc4beeb720c",
+  "system_prompt_sha256": "5058b2db54383b40dad6bc58e1966cac69f0f53f6514c6ca7b5bf5a55b8e62ae",
+  "source_count": 29,
+  "scope": "固定材料，只替换合成提示；第二例改为缺少必要计算输入的数值任务。不重新检索或执行工具。",
+  "review_method": "人工核对答复内容；不是生产关键词过滤，也不评定原始市场资料的真实性。",
+  "runs": [
+    {
+      "case": "original_scope",
+      "model": "deepseek-flash",
+      "thinking": false,
+      "seconds": 9.362,
+      "finish_reason": "stop",
+      "input_unchanged": true,
+      "judgment_returned": true,
+      "auxiliary_missing_data_notice": false,
+      "note": "根据现有量价、市场结构等材料作研判；未再把北向未取得写成答复缺陷，后续观察中仍可提及该指标。"
+    },
+    {
+      "case": "required_calculation",
+      "model": "deepseek-flash",
+      "thinking": false,
+      "seconds": 4.131,
+      "finish_reason": "stop",
+      "input_unchanged": false,
+      "required_input_gap_preserved": true,
+      "numeric_result_fabricated": false,
+      "note": "识别外资净买卖额这一必要输入不存在，不用主力资金替代，不编造比例。"
+    }
+  ]
+}

@@ -3,7 +3,7 @@ import socket
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import Engine, and_, select, update
+from sqlalchemy import Engine, and_, case, select, update
 from sqlalchemy.orm import Session
 
 from app.conversations.service import ConversationService
@@ -123,7 +123,10 @@ def recover_orphaned_durable_runs(engine: Engine, *, run_id: str | None = None) 
                     AgentRunToolReceipt.run_id == execution.run_id,
                     AgentRunToolReceipt.status == "running",
                 )
-                .values(status="unknown")
+                .values(status=case(
+                    (AgentRunToolReceipt.result_summary["_effect_type"].as_string() == "read_only", "settled"),
+                    else_="unknown",
+                ))
             )
             run = db.get(AgentRun, execution.run_id, populate_existing=True)
             service = DurableRunService(db)
@@ -146,8 +149,12 @@ def recover_orphaned_durable_runs(engine: Engine, *, run_id: str | None = None) 
                     )
                 service.publish_status(run.run_id, execution.owner_token)
             db.commit()
-            from app.conversations.execution import forget_finished_producer
+            from app.conversations.execution import (
+                forget_finished_producer,
+                release_terminal_catalog_snapshot,
+            )
 
+            release_terminal_catalog_snapshot(db, execution.run_id)
             forget_finished_producer(execution.run_id, old_owner)
             recovered += 1
     return recovered

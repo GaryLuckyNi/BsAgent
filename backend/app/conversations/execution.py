@@ -2,6 +2,7 @@
 
 import json
 import logging
+from collections.abc import Callable
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -16,7 +17,13 @@ from sqlalchemy import select, update
 
 from app.conversations.durable import DurableRunService, RunOwnershipLost, TurnCancelled
 from app.schemas.tools import ToolCallResult
-from app.storage.models import AgentRun, AgentRunExecution, AgentRunToolReceipt
+from app.storage.models import (
+    AgentMessage,
+    AgentRun,
+    AgentRunExecution,
+    AgentRunProtocolEvent,
+    AgentRunToolReceipt,
+)
 
 logger = logging.getLogger(__name__)
 _finished_owners: set[tuple[str, str]] = set()
@@ -40,6 +47,7 @@ def note_producer_finished(control):
         _finished_owners.add((control.run_id, control.owner))
     try:
         with control.session_factory() as db:
+            release_terminal_catalog_snapshot(db, control.run_id)
             execution = db.get(AgentRunExecution, control.run_id)
             if (
                 execution is None
@@ -49,6 +57,27 @@ def note_producer_finished(control):
                 forget_finished_producer(control.run_id, control.owner)
     except Exception:
         logger.exception("turn_exit_status_unavailable run_id=%s", control.run_id)
+
+
+def release_terminal_catalog_snapshot(db, run_id):
+    """在业务状态提交后释放本进程的 run 快照；有效中断和未决取消仍保留。"""
+    try:
+        run = db.get(AgentRun, run_id, populate_existing=True)
+        if run is None or run.status not in {"completed", "failed", "cancelled", "rejected"}:
+            return
+        assistant = db.scalar(select(AgentMessage).where(
+            AgentMessage.tenant_id == run.tenant_id, AgentMessage.run_id == run_id,
+            AgentMessage.role == "assistant",
+        ))
+        if assistant is not None:
+            from app.graph.state import build_checkpoint_thread_id
+            from app.tools.default_registry import get_default_tool_catalog_runtime
+
+            get_default_tool_catalog_runtime().release_run_snapshot(build_checkpoint_thread_id(
+                tenant_id=run.tenant_id, session_key=run.session_key, request_id=assistant.request_id,
+            ))
+    except Exception:  # 清理失败不能改写已提交的业务结果
+        logger.exception("run_catalog_release_failed run_id=%s", run_id)
 
 
 def retry_pending_tool_results(engine, *, run_id=None):
@@ -111,13 +140,13 @@ class ExecutionControl:
         with self.session_factory() as session:
             DurableRunService(session).guard(self.run_id, self.owner)
 
-    def ensure_tool_effects_resolved(self, *, risk_level, db=None, call_id=None):
-        if risk_level == "low":
+    def ensure_tool_effects_resolved(self, *, risk_level, effect_type="unknown", db=None, call_id=None):
+        if effect_type != "write":
             return
         if db is None:
             with self.session_factory() as session:
                 return self.ensure_tool_effects_resolved(
-                    risk_level=risk_level, db=session, call_id=call_id
+                    risk_level=risk_level, effect_type=effect_type, db=session, call_id=call_id
                 )
         run = db.get(AgentRun, self.run_id)
         unknown = db.scalar(
@@ -129,7 +158,7 @@ class ExecutionControl:
             .where(
                 AgentRun.session_key == run.session_key,
                 AgentRun.tenant_id == run.tenant_id,
-                AgentRunToolReceipt.risk_level.in_(("medium", "high")),
+                AgentRunToolReceipt.result_summary["_effect_type"].as_string() == "write",
                 AgentRunToolReceipt.status.in_(("unknown", "running")),
             )
             .limit(1)
@@ -142,7 +171,7 @@ class ExecutionControl:
                 .where(
                     AgentRunToolReceipt.run_id == self.run_id,
                     AgentRunToolReceipt.call_id == call_id,
-                    AgentRunToolReceipt.risk_level.in_(("medium", "high")),
+                    AgentRunToolReceipt.result_summary["_effect_type"].as_string() == "write",
                     AgentRunToolReceipt.status == "settled",
                     AgentRunToolReceipt.result_summary["status"].as_string() == "success",
                 )
@@ -151,11 +180,13 @@ class ExecutionControl:
             if succeeded:
                 raise ToolCallAlreadyExecuted("tool_call_already_executed")
 
-    def tool_started(self, request, *, risk_level, capability_scope=None):
+    def tool_started(self, request, *, risk_level, effect_type="unknown", capability_scope=None):
         receipt_id = uuid4().hex
         with self.session_factory() as db:
             self.guard(db)
-            self.ensure_tool_effects_resolved(risk_level=risk_level, db=db, call_id=request.call_id)
+            self.ensure_tool_effects_resolved(
+                risk_level=risk_level, effect_type=effect_type, db=db, call_id=request.call_id,
+            )
             db.add(
                 AgentRunToolReceipt(
                     receipt_id=receipt_id,
@@ -165,7 +196,10 @@ class ExecutionControl:
                     call_id=request.call_id,
                     risk_level=risk_level,
                     status="running",
-                    result_summary=({"_capability_scope": capability_scope} if capability_scope else {}),
+                    result_summary={
+                        "_effect_type": effect_type,
+                        **({"_capability_scope": capability_scope} if capability_scope else {}),
+                    },
                 )
             )
             db.commit()
@@ -248,7 +282,11 @@ class ExecutionControl:
             DurableRunService(db).owned(self.run_id, self.owner, allow_done=True)
             receipt = db.get(AgentRunToolReceipt, receipt_id)
             # 调用身份只接受预留时落盘的服务端元数据，不接受工具返回中的同名字段。
-            summary = {k: v for k, v in summary.items() if k not in {"_invocation", "_capability_scope"}}
+            summary = {k: v for k, v in summary.items() if k not in {"_invocation", "_capability_scope", "_effect_type"}}
+            if receipt is not None and "_effect_type" in receipt.result_summary:
+                summary["_effect_type"] = receipt.result_summary["_effect_type"]
+                if summary["_effect_type"] == "read_only":
+                    uncertain = False
             if receipt is not None and isinstance(receipt.result_summary.get("_capability_scope"), dict):
                 summary["_capability_scope"] = receipt.result_summary["_capability_scope"]
             if receipt is not None and isinstance(receipt.result_summary.get("_invocation"), dict):
@@ -272,6 +310,7 @@ class ExecutionControl:
                 DurableRunService(db).finish_cancelled(self.run_id, self.owner)
             db.commit()
             if execution.producer_done:
+                release_terminal_catalog_snapshot(db, self.run_id)
                 forget_finished_producer(self.run_id, self.owner)
         with _finished_owners_lock:
             _pending_tool_results.pop(receipt_id, None)
@@ -325,6 +364,49 @@ def execution_heartbeat(control):
         heartbeat.join(timeout=1)
 
 
+class _PublicEventTiming:
+    """只测量对外进展开始到对外正文开始，不读取模型内部生成时刻。"""
+
+    def __init__(self, *, started_at=None, answer_started=False, clock: Callable[[], datetime] | None = None):
+        self._started_at = started_at
+        if started_at is not None and started_at.tzinfo is None:
+            self._started_at = started_at.replace(tzinfo=UTC)
+        self._answer_started = answer_started
+        self._clock = clock or (lambda: datetime.now(UTC))
+
+    def observe(self, event, data):
+        if self._answer_started:
+            return None
+        if (event == "custom" and isinstance(data, dict) and data.get("type") == "progress"
+                and self._started_at is None and isinstance(data.get("message"), str) and data["message"].strip()):
+            self._started_at = self._clock()
+        if event == "messages" and isinstance(data, list) and data:
+            content = data[0].get("content") if isinstance(data[0], dict) else None
+            if isinstance(content, str) and content.strip():
+                self._answer_started = True
+                if self._started_at is not None:
+                    return {"type": "answer_started", "elapsed_ms": max(
+                        0, round((self._clock() - self._started_at).total_seconds() * 1000),
+                    )}
+        return None
+
+
+def _restore_public_event_timing(db, run_id):
+    execution = db.get(AgentRunExecution, run_id)
+    if not execution.phase_start_sequence:
+        return _PublicEventTiming()
+    progress = db.scalar(select(AgentRunProtocolEvent).where(
+        AgentRunProtocolEvent.run_id == run_id,
+        AgentRunProtocolEvent.event == "custom",
+        AgentRunProtocolEvent.data["type"].as_string() == "progress",
+    ).order_by(AgentRunProtocolEvent.sequence).limit(1))
+    body = db.scalar(select(AgentRunProtocolEvent.sequence).where(
+        AgentRunProtocolEvent.run_id == run_id, AgentRunProtocolEvent.event == "messages",
+    ).limit(1))
+    return _PublicEventTiming(started_at=progress.created_at if progress is not None else None,
+                              answer_started=body is not None)
+
+
 def produce_frames(*, session_factory, run_id, frames_factory):
     with session_factory() as db:
         owner = DurableRunService(db).claim(run_id)
@@ -340,6 +422,7 @@ def produce_frames(*, session_factory, run_id, frames_factory):
             stream = None
             try:
                 control.guard()
+                timing = _restore_public_event_timing(db, run_id)
                 stream = frames_factory(db)
                 for frame in stream:
                     event, data = parse_frame(frame)
@@ -347,7 +430,11 @@ def produce_frames(*, session_factory, run_id, frames_factory):
                         data = {**data, "run_id": run_id}
                     # 订阅事件使用独立事务；请求 DB session 从未跨线程传递。
                     with session_factory() as event_db:
-                        DurableRunService(event_db).append(run_id, owner, event, data)
+                        service = DurableRunService(event_db)
+                        answer_timing = timing.observe(event, data)
+                        if answer_timing is not None:
+                            service.append(run_id, owner, "custom", {**answer_timing, "run_id": run_id})
+                        service.append(run_id, owner, event, data)
                         event_db.commit()
                     control.guard()
                 _finish_producer(control, error_code="agent_stream_incomplete")

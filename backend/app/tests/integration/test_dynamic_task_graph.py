@@ -402,7 +402,7 @@ class WorkflowLlm:
                     "tasks": [
                         {
                             "id": "quality",
-                            "task_goal": "基于已有上下文评估经营质量",
+                            "task_goal": "取得评估经营质量所需财务事实",
                             "depends_on": [],
                             "skill_name": None,
                         }
@@ -517,7 +517,7 @@ def _market_tool_runtime():
     return snapshot, search_service
 
 
-def test_full_graph_executes_dynamic_analysis_task(business_intent_catalog):
+def test_full_graph_collects_evidence_then_synthesizes_analysis(business_intent_catalog):
     registry = ToolRegistry().snapshot()
 
     result = run_question_answer_graph(
@@ -712,8 +712,8 @@ class FeedbackWorkflowLlm(ToolWorkflowLlm):
                 tasks.append(
                     {
                         "id": "compare",
-                        "task_goal": "分析价格",
-                        "execution_type": "analysis",
+                        "task_goal": "根据行情查询海能达历史日线行情",
+                        "execution_type": "tool",
                         "depends_on": ["market"],
                     }
                 )
@@ -726,14 +726,14 @@ class FeedbackWorkflowLlm(ToolWorkflowLlm):
                 tasks = payload["current_plan"]["tasks"] + [
                     {
                         "id": "verify",
-                        "task_goal": "分析已取得的价格",
-                        "execution_type": "analysis",
+                        "task_goal": "核实海能达历史日线行情",
+                        "execution_type": "tool",
                         "depends_on": ["market"],
                     }
                 ]
                 decision = {
                     "action": "revise",
-                    "reason": "需要进一步分析",
+                    "reason": "需要补充历史行情",
                     "plan": {"tasks": tasks},
                 }
             else:
@@ -775,7 +775,7 @@ def test_model_continues_then_finishes_multibatch_graph(business_intent_catalog)
         result.get("errors"),
         result.get("final_response"),
     )
-    assert client.tool_count == 1
+    assert client.tool_count == 2
     assert result["planner_decision"]["action"] == "finish"
     assert {item["task_id"] for item in result["task_results"]} == {"market", "compare"}
 
@@ -788,7 +788,7 @@ def test_model_revises_without_reexecuting_completed_evidence(business_intent_ca
         result.get("errors"),
         result.get("final_response"),
     )
-    assert client.tool_count == 1
+    assert client.tool_count == 2
     assert result["planner_iteration"] == 2
     assert {item["task_id"] for item in result["task_results"]} == {"market", "r1_verify"}
 
@@ -801,11 +801,11 @@ def test_parallel_tool_discovery_updates_merge_without_conflict(business_intent_
     assert len(result["tool_calls"]) == 2
 
 
-@pytest.mark.parametrize("handoff,expected_calls", [(False, 8), (True, 6)])
-def test_terminal_analysis_handoff_replay_reduces_eight_calls_to_six(
-    business_intent_catalog, handoff, expected_calls,
+@pytest.mark.parametrize("request_flow,expected_calls", [(False, 6), (True, 5)])
+def test_evidence_goes_directly_to_synthesis_without_analysis_calls(
+    business_intent_catalog, request_flow, expected_calls,
 ):
-    """相同双取证 DAG 的确定性回放；不把原生工具绑定算成模型调用。"""
+    """两种入口协议均不再生成分析草稿；保留双取证、最终分析与证据限制。"""
     class ReplayLlm(ToolWorkflowLlm):
         def __init__(self):
             self.calls = []
@@ -827,35 +827,35 @@ def test_terminal_analysis_handoff_replay_reduces_eight_calls_to_six(
             payload = json.loads(kwargs["user_prompt"])
             if "投研任务理解器" in prompt:
                 self.calls.append("router")
-                return await super().complete(**kwargs)
+                response = await super().complete(**kwargs)
+                content = json.loads(response.content)
+                if request_flow:
+                    content["route"] = "plan"
+                return LlmCompletionResult(content=json.dumps(content), model="test", provider="test")
             if "投研任务 Planner" in prompt:
                 self.calls.append("planner")
                 content = {"tasks": [
                     {"id": "market", "task_goal": "查询最新日线行情"},
                     {"id": "history", "task_goal": "查询历史日线行情"},
-                    {"id": "judgment", "task_goal": "综合分析价格的意义并说明证据限制",
-                     "completion_criteria": ["区分价格事实与趋势推断"],
-                     "execution_type": "analysis", "depends_on": ["market", "history"]},
                 ]}
             elif "计划反馈决策器" in prompt:
                 self.calls.append("review")
                 self.reviews += 1
-                assert len(payload["observations"]) == (2 if self.reviews == 1 else 3)
-                content = {"action": "finish" if handoff or self.reviews == 2 else "continue",
+                assert len(payload["observations"]) == 2
+                content = {"action": "finish",
                            "reason": "取证已完成，保留历史材料限制"}
-                if handoff:
-                    content["synthesis_task_id"] = "judgment"
             elif "投研任务执行器" in prompt:
-                self.calls.append("analysis")
-                assert not handoff
-                return LlmCompletionResult(content="价格为8.12；不足以判断趋势。", model="test", provider="test")
+                raise AssertionError("取证后的分析应由合成层完成")
             elif "投研报告合成器" in prompt:
                 self.calls.append("synthesis")
-                assert kwargs["thinking"] is handoff
-                if handoff:
-                    assert payload["answer_requirements"]["completion_criteria"] == ["区分价格事实与趋势推断"]
-                    assert len(payload["research_materials"]) == 2
-                return LlmCompletionResult(content="价格为8.12；不足以判断趋势。", model="test", provider="test")
+                assert kwargs["thinking"] is False
+                assert len(payload["research_materials"]) == 2
+                assert "answer_requirements" not in payload
+                answer = "价格为8.12；不足以判断趋势。"
+                return LlmCompletionResult(
+                    content='{"action":"answer"}\n' + answer if request_flow else answer,
+                    model="test", provider="test",
+                )
             else:
                 raise AssertionError(prompt)
             return LlmCompletionResult(content=json.dumps(content), model="test", provider="test")
@@ -864,10 +864,11 @@ def test_terminal_analysis_handoff_replay_reduces_eight_calls_to_six(
     result = _feedback_run(business_intent_catalog, client)
 
     assert len(client.calls) == expected_calls, (client.calls, result.get("errors"))
-    assert client.calls.count("review") == (1 if handoff else 2)
+    assert client.calls.count("review") == (0 if request_flow else 1)
     assert client.calls.count("tool_chooser") == 2
-    assert result["planner_decision"]["action"] == "finish"
-    assert {item["task_id"] for item in result["task_results"]} == {"market", "history", "judgment"}
+    if not request_flow:
+        assert result["planner_decision"]["action"] == "finish"
+    assert {item["task_id"] for item in result["task_results"]} == {"market", "history"}
     assert "不足以判断趋势" in result["final_response"]["content"]
     assert result["verification"]["verdict"] == "pass"
 
@@ -882,8 +883,8 @@ def test_default_runtime_supports_twelve_sequential_tasks(business_intent_catalo
                     "tasks": [
                         {
                             "id": f"task_{i}",
-                            "task_goal": "分析提供的材料",
-                            "execution_type": "analysis",
+                            "task_goal": f"根据前序证券标识查询第{i + 1}个期间的日线行情",
+                            "execution_type": "tool",
                             "depends_on": [] if i == 0 else [f"task_{i - 1}"],
                         }
                         for i in range(12)

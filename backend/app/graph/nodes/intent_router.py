@@ -3,6 +3,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from app.graph.image_context import summarize_image_analyses
 from app.graph.nodes.synthesizer import _draft
 from app.graph.planning.context import result_catalog
+from app.graph.public_events import build_public_field_stream
 from app.graph.state import (
     AgentState,
     context_compaction_payload,
@@ -27,17 +28,24 @@ def build_intent_router_node(
     )
 
     def node(state: AgentState) -> AgentState:
-        result = selected_router.route(
-            message=state["user_message"],
-            tenant_id=state["tenant_id"],
-            user_id=state["user_id"],
-            context={
-                "context_summary": _context_summary(state),
-                "conversation_history": _recent_conversation_history(state),
-                "image_analyses": summarize_image_analyses(state["image_analyses"]),
-                "available_results": result_catalog(state),
-            },
-        )
+        progress = build_public_field_stream("intent_router", state)
+        try:
+            result = selected_router.route(
+                message=state["user_message"],
+                tenant_id=state["tenant_id"],
+                user_id=state["user_id"],
+                context={
+                    "context_summary": _context_summary(state),
+                    "conversation_history": _recent_conversation_history(state),
+                    "image_analyses": summarize_image_analyses(state["image_analyses"]),
+                    "available_results": result_catalog(state),
+                },
+                on_delta=progress,
+            )
+        except Exception:
+            if progress is not None:
+                progress.fail()
+            raise
         state["intent"] = result.model_dump()
         # 旧提供方响应缺路由时保守保留旧语义；恢复中的旧运行不会重新经过入口。
         if "route" in result.model_fields_set:

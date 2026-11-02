@@ -1,0 +1,58 @@
+{
+  "验收范围": "真实目录与真实模型，仅首次规划；零业务取数",
+  "模型调用次数": 3,
+  "能力补召回轮数": 1,
+  "格式修复次数": 1,
+  "必要能力检索词": [
+    "获取A股上市公司年报利润表数据：营业收入、归母净利润",
+    "获取A股上市公司年报现金流量表数据：经营活动产生的现金流量净额",
+    "按证券简称查询上市公司指定年度财务报告主要会计数据"
+  ],
+  "最终任务": {
+    "tasks": [
+      {
+        "id": "income_statement_2024",
+        "task_goal": "取得立昂微（证券简称立昂微，证券代码待核实）2024年度（报告期2024-12-31）年报利润表中的营业收入与归属于母公司股东的净利润，作为净利率（归母净利润/营业收入）与经营现金流/净利润比率的输入。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回报告期为2024-12-31的合并报表口径营业收入与归属于母公司股东的净利润，单位为元，并保留公告日期与报告类型，以确认取自2024年年报而非业绩快报或单季数据",
+          "若归母净利润为负，如实保留负号，不做绝对值处理",
+          "若同一报告期存在多条记录，说明选取依据（如合并报表口径、最新公告版本）",
+          "未取得或口径不符时如实标注缺失，不推测数值"
+        ],
+        "tool_search_query": "A股上市公司年报利润表 营业收入 归母净利润",
+        "tool_candidate_refs": [
+          "tool:mcp.tushare.income@mcp-http-v1"
+        ],
+        "proposed_tool_call": null,
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      },
+      {
+        "id": "cashflow_statement_2024",
+        "task_goal": "取得立昂微2024年度（报告期2024-12-31）年报现金流量表中经营活动产生的现金流量净额，作为经营现金流/净利润比率的分子。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回报告期为2024-12-31的合并报表口径经营活动产生的现金流量净额，单位为元，并保留公告日期与报告类型，以确认取自2024年年报",
+          "保留正负号原值，不做绝对值处理",
+          "若同一报告期存在多条记录，说明选取依据",
+          "未取得或口径不符时如实标注缺失，不推测数值"
+        ],
+        "tool_search_query": "A股上市公司年报现金流量表 经营活动产生的现金流量净额",
+        "tool_candidate_refs": [
+          "tool:mcp.tushare.cashflow@mcp-http-v1"
+        ],
+        "proposed_tool_call": null,
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      }
+    ]
+  },
+  "说明": "Planner节点已成功返回；只规划脚本的报告生成曾因修复请求的嵌套结构报KeyError。现已修复报告脚本，并依据捕获的真实响应重建本记录，没有为报告再调用模型。",
+  "证据文件": "/tmp/bsagent-planner-coverage-live-responses.json",
+  "未验证": "未重新执行用户整条研究请求或业务财务取数；不宣称所有语义规划都能保证完整。"
+}

@@ -5,13 +5,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   resolveConversationSession,
   toConversationMessages,
+  type PersistedConversationMessage,
   type RestoredResearchProcessEvent
 } from '../conversation-session'
 import {
-  buildEvidenceIndex,
+  normalizeProgressStatus,
   parseRecoveryBatch,
   type ResearchMessage,
-  type ResearchProgress
+  type ResearchProgress,
+  type ResearchProgressKind
 } from '../domain/research'
 import {
   agentProtocolStreamUrl,
@@ -20,6 +22,8 @@ import {
   loadSessionMessages,
   type RequestIdentity
 } from '../services/research-api'
+import { loadResearchHistoryPage } from '../services/research-history-pages'
+import { parseResearchSources } from '../services/research-sources'
 import {
   loadActiveRun, stopResearchRun, subscribeRunEvents,
   type ResearchRun, type RunStatus
@@ -36,17 +40,20 @@ type ResearchGraphUpdate = {
 }
 
 type AgentProtocolEvent = {
-  type: 'progress' | 'final' | 'approval_required' | 'input_required' | 'run_started' | 'run_status'
+  type: 'progress' | 'final' | 'approval_required' | 'input_required' | 'run_started' | 'run_status' | 'answer_started' | 'answer_sources'
+  sources?: unknown
+  elapsed_ms?: number
   run_id?: string
   message_id?: string
+  user_message_id?: string
   request_id?: string
   replay_after?: number
   id?: string
   stage?: string
   label?: string
   message?: string
-  status?: 'started' | RunStatus
-  kind?: 'status' | 'activity' | 'summary'
+  status?: 'started' | RunStatus | ResearchProgress['status']
+  kind?: 'status' | ResearchProgressKind
   activity_type?: 'web_search' | 'market_data' | 'evidence'
   group_id?: string
   task_id?: string
@@ -54,6 +61,7 @@ type AgentProtocolEvent = {
   query?: string
   result_count?: number
   result_urls?: string[]
+  answer?: string
   interrupt_id?: string
   interaction_id?: string
   input_type?: 'selection'
@@ -67,6 +75,7 @@ type AgentProtocolEvent = {
   response?: {
     content?: string
     cited_evidence_ids?: string[]
+    sources?: unknown
   }
 }
 
@@ -75,50 +84,14 @@ type ResearchStreamBag = {
   CustomEventType: AgentProtocolEvent
 }
 
-const sampleEvidence = buildEvidenceIndex([
-  {
-    id: 'sse-market-2026',
-    publisher: '上海证券交易所',
-    title: '市场数据与交易公开信息',
-    url: 'https://www.sse.com.cn/market/',
-    publishedAt: '2026-08-28',
-    summary: '用于核验指数、成交与市场结构数据。'
-  },
-  {
-    id: 'pbc-policy',
-    publisher: '中国人民银行',
-    title: '货币政策执行报告',
-    url: 'https://www.pbc.gov.cn/zhengcehuobisi/125207/125227/125957/index.html',
-    publishedAt: '2026-08-15',
-    summary: '观察流动性、利率与信用环境的权威材料。'
-  },
-  {
-    id: 'stats-industry',
-    publisher: '国家统计局',
-    title: '规模以上工业企业数据',
-    url: 'https://data.stats.gov.cn/',
-    publishedAt: '2026-08-27',
-    summary: '用于跟踪行业景气度和盈利周期。'
-  }
-])
-
-const welcomeMessage: ResearchMessage = {
-  id: 'welcome-analysis',
-  role: 'assistant',
-  createdAt: new Date().toISOString(),
-  status: 'complete',
-  citations: [1, 2, 3],
-  evidence: sampleEvidence,
-  content: `### 研究摘要\n\n当前 A 股的核心变量不是单一指数点位，而是**流动性改善能否传导到企业盈利**。交易数据显示风格正在从纯红利向“稳定现金流 + 盈利修复”扩散。\n\n- **基准情景**：仓位保持中性，优先配置有盈利验证的科技制造与高股息资产。\n- **上行触发**：社融与工业利润连续改善，可提高顺周期暴露。\n- **风险触发**：成交结构快速收缩或盈利预期下修时，应降低组合波动率。`
-}
-
-export function useResearchSession(identity: RequestIdentity) {
-  const sessionId = useMemo(() => resolveConversationSession(
+export function useResearchSession(identity: RequestIdentity, selectedSessionId?: string) {
+  const sessionId = useMemo(() => selectedSessionId || resolveConversationSession(
     window.localStorage,
     identity,
-    () => `session_${crypto.randomUUID().slice(0, 8)}`
-  ), [identity])
-  const [messages, setMessages] = useState<ResearchMessage[]>([welcomeMessage])
+    () => `session_${crypto.randomUUID()}`
+  ), [identity, selectedSessionId])
+  const [messages, setMessages] = useState<ResearchMessage[]>([])
+  const [submittedMessageId, setSubmittedMessageId] = useState<string>()
   const [isOnline, setIsOnline] = useState<boolean | null>(null)
   const [error, setError] = useState('')
   const activeAssistantIdRef = useRef<string | null>(null)
@@ -133,6 +106,9 @@ export function useResearchSession(identity: RequestIdentity) {
   const [isStopping, setIsStopping] = useState(false)
   const [isInitializing, setIsInitializing] = useState(true)
   const initializationRef = useRef<Promise<void>>(Promise.resolve())
+  const oldestSequenceRef = useRef<number | undefined>(undefined)
+  const currentSessionRef = useRef(sessionId)
+  currentSessionRef.current = sessionId
   const completedResponseRef = useRef(false)
   const stoppingRef = useRef(false)
   const stopCurrentRef = useRef<() => Promise<void>>(async () => undefined)
@@ -182,14 +158,50 @@ export function useResearchSession(identity: RequestIdentity) {
       if (activeRunRef.current && event.run_id !== activeRunRef.current.runId) return
       pendingResumeRef.current = null
       activeRunRef.current = { runId: event.run_id, messageId: event.message_id, terminal: false, replayAfter: event.replay_after || 0 }
+      const optimisticAssistantId = activeAssistantIdRef.current
+      const persistedAssistantId = event.message_id
+      if (optimisticAssistantId && persistedAssistantId) {
+        activeAssistantIdRef.current = persistedAssistantId
+        // 搜索和历史使用数据库ID；流式开始后让乐观消息使用同一身份。
+        setMessages((current) => {
+          const assistantIndex = current.findIndex((message) => message.id === optimisticAssistantId)
+          if (assistantIndex < 0) return current
+          const next = current.map((message, index) => {
+            if (index === assistantIndex) return { ...message, id: persistedAssistantId }
+            if (index === assistantIndex - 1 && message.role === 'user' && event.user_message_id) {
+              return { ...message, id: event.user_message_id }
+            }
+            return message
+          })
+          messagesRef.current = next
+          return next
+        })
+        if (event.user_message_id) {
+          setSubmittedMessageId((current) => current ? event.user_message_id : current)
+        }
+      }
       if (stoppingRef.current) void stopCurrentRef.current()
       return
     }
     const assistantId = activeAssistantIdRef.current
     if (!assistantId) return
     if (event.run_id && event.run_id !== activeRunRef.current?.runId) return
+    if (event.type === 'answer_started') {
+      const elapsed = event.elapsed_ms
+      if (typeof elapsed === 'number' && Number.isFinite(elapsed) && elapsed >= 0) {
+        setMessages((current) => updateMessage(current, assistantId, (message) => (
+          message.thinkingDurationMs !== undefined ? message : {
+            ...message, thinkingDurationMs: elapsed,
+            thinkingDurationSeconds: Math.round(elapsed / 1000)
+          }
+        )))
+      }
+      return
+    }
     if (event.type === 'run_status' && event.status) {
       const status = event.status
+      const closed = status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'rejected'
+      if (closed) pendingResumeRef.current = null
       if (status !== 'running' && status !== 'stop_requested' && status !== 'started') {
         if (activeRunRef.current) activeRunRef.current.terminal = true
         completedResponseRef.current = true
@@ -200,6 +212,7 @@ export function useResearchSession(identity: RequestIdentity) {
       }
       setMessages((current) => updateMessage(current, assistantId, (message) => ({
         ...message, status: researchStatus(status),
+        userInput: closed ? undefined : message.userInput,
         processStatus: status === 'stop_requested' ? '正在安全结束当前任务…' : undefined
       })))
       return
@@ -219,7 +232,7 @@ export function useResearchSession(identity: RequestIdentity) {
         stage: event.stage,
         label: event.label || '分析',
         message: event.message,
-        status: event.status === 'failed' || event.status === 'completed' ? event.status : 'started',
+        status: normalizeProgressStatus(event.status),
         activityType: event.activity_type,
         groupId: event.group_id,
         queryCount: event.activity_type && event.task_id ? 1 : undefined,
@@ -227,8 +240,10 @@ export function useResearchSession(identity: RequestIdentity) {
         queries: event.activity_type && event.task_id ? [{
           taskId: event.task_id,
           query: event.task_label || event.query || event.message,
-          status: event.status === 'failed' || event.status === 'completed' ? event.status : 'started',
-          resultUrls: uniqueUrls(event.result_urls)
+          status: normalizeProgressStatus(event.status),
+          resultUrls: uniqueUrls(event.result_urls),
+          answer: event.activity_type === 'web_search' && event.status === 'completed'
+            && typeof event.answer === 'string' ? event.answer.trim().slice(0, 4000) || undefined : undefined
         }] : undefined
       }
       setMessages((current) => updateMessage(current, assistantId, (message) => ({
@@ -239,24 +254,21 @@ export function useResearchSession(identity: RequestIdentity) {
       })))
       return
     }
+    if (event.type === 'answer_sources') {
+      const evidence = parseResearchSources(event.sources)
+      setMessages((current) => updateMessage(current, assistantId, (message) => ({ ...message, evidence })))
+      return
+    }
     if (event.type === 'final') {
       pendingResumeRef.current = null
       completedResponseRef.current = true
       const response = event.response || {}
-      const evidence = buildEvidenceIndex((response.cited_evidence_ids || []).map((id) => ({
-        id,
-        publisher: '投资研究数据源',
-        title: `引用资料 ${id}`,
-        url: '#',
-        summary: '原始资料地址将由后端证据元数据补充。'
-      })))
+      const evidence = parseResearchSources(response.sources)
       setMessages((current) => updateMessage(current, assistantId, (message) => ({
-        ...message,
-        content: response.content || message.content,
+        ...message, content: response.content || message.content,
         status: 'complete',
         userInput: undefined,
-        evidence,
-        citations: evidence.map((item) => item.index)
+        evidence: response.sources === undefined ? message.evidence : evidence,
       })))
       return
     }
@@ -334,6 +346,9 @@ export function useResearchSession(identity: RequestIdentity) {
         return current.some((item) => item.id === assistantId)
           ? updateMessage(current, assistantId, (existing) => ({
             ...message, content: existing.content || run.content,
+            createdAt: existing.createdAt,
+            thinkingDurationSeconds: existing.thinkingDurationSeconds,
+            thinkingDurationMs: existing.thinkingDurationMs,
             status: stoppingRef.current ? 'stopping' : message.status
           })) : [...current, message]
       })
@@ -355,7 +370,8 @@ export function useResearchSession(identity: RequestIdentity) {
               if (content && !stoppingRef.current && !activeRunRef.current?.terminal) {
                 replayedContent += content
                 if (replayedContent.length >= preservedContent.length) {
-                  setMessages((current) => updateMessage(current, assistantId, (message) => ({ ...message, content: replayedContent })))
+                  const answer = replayedContent
+                  setMessages((current) => updateMessage(current, activeAssistantIdRef.current || assistantId, (message) => ({ ...message, content: answer })))
                 }
               }
             }
@@ -448,15 +464,11 @@ export function useResearchSession(identity: RequestIdentity) {
     initializationRef.current = loadSessionMessages(sessionId, identity).then((items) => {
       if (disposed || epoch !== interactionEpochRef.current) return
       const conversation = toConversationMessages(items)
-      const restored = conversation.map<ResearchMessage>((item) => ({
-        id: item.messageId || crypto.randomUUID(),
-        role: item.role === 'agent' ? 'assistant' : 'user',
-        content: item.content,
-        createdAt: new Date().toISOString(),
-        status: researchStatus(item.status || 'completed'),
-        progress: restoreResearchProgress(item.researchProcess)
-      }))
-      if (restored.length) setMessages(restored)
+      const restored = restoreMessages(items)
+      oldestSequenceRef.current = earliestSequence(items)
+      // 初始化后的定位可能在下一次 React effect 前执行，立即同步已恢复快照。
+      messagesRef.current = restored
+      setMessages(restored)
       return loadActiveRun(sessionId, identity).then((run) => {
         if (disposed || epoch !== interactionEpochRef.current) return
         if (run) {
@@ -493,7 +505,10 @@ export function useResearchSession(identity: RequestIdentity) {
       setIsStopping(false)
       setIsRecovering(false)
       recoveryBusyRef.current = false
-      setMessages([welcomeMessage])
+      oldestSequenceRef.current = undefined
+      messagesRef.current = []
+      setMessages([])
+      setSubmittedMessageId(undefined)
     }
   }, [identity.tenantId, identity.userId, identity.accessToken, sessionId, recoverRun])
 
@@ -520,6 +535,39 @@ export function useResearchSession(identity: RequestIdentity) {
     )))
   }, [stream.messages, isRecovering])
 
+  const revealMessage = useCallback(async (messageId: string, sequenceNo: number, signal?: AbortSignal): Promise<void> => {
+    const epoch = interactionEpochRef.current
+    const isCurrent = () => !signal?.aborted && epoch === interactionEpochRef.current
+      && identityKey === identityKeyRef.current && sessionId === currentSessionRef.current
+    const assertCurrent = () => { if (!isCurrent()) throw new DOMException('历史消息定位已取消', 'AbortError') }
+    assertCurrent()
+    await initializationRef.current
+    assertCurrent()
+    if (messagesRef.current.some((message) => message.id === messageId)) return
+    if (!Number.isSafeInteger(sequenceNo) || sequenceNo < 1) throw new Error('未找到目标历史消息，消息可能已被删除。')
+    let cursor = oldestSequenceRef.current
+    while (cursor === undefined || cursor > sequenceNo) {
+      const items = await loadResearchHistoryPage(sessionId, identity, cursor, signal)
+      assertCurrent()
+      const nextCursor = earliestSequence(items)
+      if (nextCursor === undefined || (cursor !== undefined && nextCursor >= cursor)) break
+      const restored = restoreMessages(items)
+      setMessages((current) => {
+        if (!isCurrent()) return current
+        const knownIds = new Set(current.map((message) => message.id))
+        const next = [...restored.filter((message) => !knownIds.has(message.id)), ...current]
+        oldestSequenceRef.current = Math.min(oldestSequenceRef.current ?? nextCursor, nextCursor)
+        messagesRef.current = next
+        return next
+      })
+      if (restored.some((message) => message.id === messageId)) return
+      cursor = nextCursor
+      if (items.length < 200) break
+    }
+    assertCurrent()
+    throw new Error('未找到目标历史消息，消息可能已被删除。')
+  }, [sessionId, identityKey])
+
   const sendMessage = useCallback(async (content: string, attachmentIds: string[] = []) => {
     const submitIdentity = identityKey
     await initializationRef.current
@@ -535,11 +583,13 @@ export function useResearchSession(identity: RequestIdentity) {
     completedResponseRef.current = false
     setError('')
     const text = content.trim()
+    const submittedAt = Date.now()
+    const createdAt = new Date(submittedAt).toISOString()
     const userMessage: ResearchMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: text,
-      createdAt: new Date().toISOString(),
+      createdAt,
       status: 'complete'
     }
     const assistantId = crypto.randomUUID()
@@ -555,13 +605,14 @@ export function useResearchSession(identity: RequestIdentity) {
     eventSequenceRef.current = 0
     activeAssistantIdRef.current = assistantId
     lastStreamedAnswerRef.current = null
+    setSubmittedMessageId(userMessage.id)
     setMessages((current) => [...current, userMessage, {
       id: assistantId,
       role: 'assistant',
       content: '',
       progress: [],
       processStatus: '正在理解问题与研究范围。',
-      createdAt: new Date().toISOString(),
+      createdAt,
       status: 'streaming'
     }])
     await stream.submit(
@@ -662,13 +713,33 @@ export function useResearchSession(identity: RequestIdentity) {
   return {
     sessionId,
     messages,
+    submittedMessageId,
+    isInitializing,
     isStreaming: stream.isLoading || isRecovering || isStopping || isInitializing,
     isOnline,
     error,
     sendMessage,
     resumeUserInput,
-    cancelMessage
+    cancelMessage,
+    revealMessage
   }
+}
+
+function earliestSequence(items: PersistedConversationMessage[]): number | undefined {
+  const sequences = items.map((item) => item.sequence_no).filter((value) => Number.isSafeInteger(value) && value > 0)
+  return sequences.length ? Math.min(...sequences) : undefined
+}
+
+function restoreMessages(items: PersistedConversationMessage[]): ResearchMessage[] {
+  return toConversationMessages(items).map((item) => ({
+    id: item.messageId || crypto.randomUUID(),
+    role: item.role === 'agent' ? 'assistant' : 'user',
+    content: item.content,
+    createdAt: item.createdAt || new Date().toISOString(),
+    status: researchStatus(item.status || 'completed'),
+    progress: restoreResearchProgress(item.researchProcess),
+    evidence: item.sources
+  }))
 }
 
 function researchStatus(status: string): ResearchMessage['status'] {
@@ -699,7 +770,14 @@ function mergeActivityProgress(
   current: ResearchProgress[] | undefined,
   incoming: ResearchProgress
 ): ResearchProgress[] {
-  const items = [...(current || [])]
+  const taskIds = new Set((incoming.queries || []).map((query) => query.taskId))
+  const items = (current || []).flatMap((item) => {
+    if (!item.activityType || !item.queries
+      || (item.activityType === incoming.activityType && item.groupId === incoming.groupId)) return [item]
+    const queries = item.queries.filter((query) => !taskIds.has(query.taskId))
+    if (queries.length === item.queries.length) return [item]
+    return queries.length ? [aggregateActivity({ ...item, queries })] : []
+  })
   const index = items.findIndex((item) => (
     item.activityType === incoming.activityType && item.groupId === incoming.groupId
   ))
@@ -710,24 +788,28 @@ function mergeActivityProgress(
     if (queryIndex >= 0) queries[queryIndex] = query
     else queries.push(query)
   }
-  const resultUrls = uniqueUrls(queries.flatMap((query) => query.resultUrls))
-  const status = queries.some((query) => query.status === 'started')
-    ? 'started'
-    : queries.some((query) => query.status === 'completed')
-      ? 'completed'
-      : 'failed'
-  const merged: ResearchProgress = {
+  const merged = aggregateActivity({
     ...incoming,
     id: incoming.groupId || incoming.id,
     sequence: existing?.sequence ?? incoming.sequence,
-    status,
-    queryCount: queries.length,
-    resultCount: resultUrls.length,
     queries
-  }
+  })
   if (index >= 0) items[index] = merged
   else items.push(merged)
   return items
+}
+
+function aggregateActivity(item: ResearchProgress): ResearchProgress {
+  const queries = item.queries || []
+  return {
+    ...item,
+    status: queries.some((query) => query.status === 'started')
+      ? 'started' : queries.some((query) => query.status === 'pending') ? 'pending'
+        : queries.some((query) => query.status === 'failed') ? 'failed'
+          : queries.some((query) => query.status === 'completed') ? 'completed' : 'superseded',
+    queryCount: queries.length,
+    resultCount: uniqueUrls(queries.flatMap((query) => query.resultUrls)).length
+  }
 }
 
 function restoreResearchProgress(
@@ -750,7 +832,9 @@ function restoreResearchProgress(
         taskId: event.taskId,
         query: event.taskLabel || event.query || event.message,
         status: event.status,
-        resultUrls: uniqueUrls(event.resultUrls)
+        resultUrls: uniqueUrls(event.resultUrls),
+        answer: event.activityType === 'web_search' && event.status === 'completed'
+          ? event.answer?.trim().slice(0, 4000) || undefined : undefined
       }] : undefined
     }
     restored = progress.activityType && progress.groupId

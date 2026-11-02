@@ -1,4 +1,4 @@
-import { BarChart3, Bell, ChevronDown, CircleUserRound, Search } from 'lucide-react'
+import { BarChart3, Bell, ChevronDown, CircleUserRound } from 'lucide-react'
 import { Outlet } from 'react-router-dom'
 
 import { MainNavigation } from '@/components/navigation/main-navigation'
@@ -23,7 +23,6 @@ export function AppLayout() {
           </div>
           <MainNavigation />
           <div className="top-actions">
-            <button type="button" aria-label="全局搜索"><Search size={18} /></button>
             <button type="button" aria-label="通知"><Bell size={18} /></button>
             <button
               className="profile"

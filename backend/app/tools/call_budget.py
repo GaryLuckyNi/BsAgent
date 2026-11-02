@@ -1,7 +1,16 @@
 """同一图实例内原子预留搜索调用；恢复时从已记录调用重建使用量。"""
 
-from threading import Lock
 from collections.abc import Iterable
+from threading import Lock
+
+
+def consumes_search_budget(record) -> bool:
+    result = record.result
+    return bool(record.request.tool_name == "web_search" and result is not None and not (
+        result.error and (result.error.code == "research_budget_exhausted" or (
+            result.error.code == "tool_argument_validation_failed" and result.execution_state == "not_started"
+        ))
+    ))
 
 
 class SearchCallBudget:

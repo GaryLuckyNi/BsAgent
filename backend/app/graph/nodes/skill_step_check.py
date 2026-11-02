@@ -8,6 +8,7 @@ from app.graph.nodes.tool_agent import _trusted_call_id
 from app.graph.planning.contracts import SubTaskModel
 from app.graph.planning.json_output import extract_json_object
 from app.graph.planning.skill_workflow import active_step
+from app.graph.recovery.tool_failure import fallback_call_id, skill_allows_search
 from app.llm.factory import invoke_llm_completion
 from app.skills.workflow import missing_fields
 from app.tools.redaction import redact_sensitive_data
@@ -31,11 +32,26 @@ def build_skill_step_check_node(*, llm_client):
             task = SubTaskModel.model_validate(state["active_task"])
             call_id = _trusted_call_id(state, task, step.tool_name)
             record = next((item for item in state["tool_calls"] if item.request.call_id == call_id), None)
+            fallback = False
+            if (record is not None and record.result is not None and record.result.status != "success"
+                    and record.request.tool_name == step.tool_name
+                    and record.request.tool_version == step.tool_version
+                    and record.result.tool_name == step.tool_name
+                    and skill_allows_search(workflow, step)):
+                replacement_id = fallback_call_id(call_id)
+                replacement = next((item for item in state["tool_calls"]
+                                    if item.request.call_id == replacement_id
+                                    and item.request.tool_name == "web_search"), None)
+                if (replacement and replacement.result and replacement.result.status == "success"
+                        and replacement.result.execution_state == "completed"
+                        and replacement.result.tool_name == "web_search"):
+                    record = replacement
+                    fallback = True
             if (record is None or record.result is None or record.result.status != "success"
                     or record.result.execution_state != "completed"
-                    or record.request.tool_name != step.tool_name
-                    or record.request.tool_version != step.tool_version
-                    or record.result.tool_name != step.tool_name):
+                    or (not fallback and (record.request.tool_name != step.tool_name
+                        or record.request.tool_version != step.tool_version
+                        or record.result.tool_name != step.tool_name))):
                 payload = None
                 reasons.append("缺少固定工具的成功原始结果，搜索文章或任务 success 不能代替原数据。")
                 invalid_verdict = True

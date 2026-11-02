@@ -17,10 +17,14 @@ class ToolSpec(BaseModel):
     description: str
     input_schema: dict[str, Any] = Field(default_factory=dict)
     output_schema: dict[str, Any] = Field(default_factory=dict)
+    # 只供模型理解的有出处说明，不作为执行契约或授权。
+    documentation: dict[str, Any] = Field(default_factory=dict)
     timeout_ms: int = Field(default=30_000, ge=1)
     retry_policy: RetryPolicy = Field(default_factory=RetryPolicy)
     permission_scope: list[str] = Field(default_factory=list)
     risk_level: Literal["low", "medium", "high"] = "low"
+    # 宿主受信契约，不能由模型参数或工具返回声明；与审批风险等级独立。
+    effect_type: Literal["read_only", "write", "unknown"] = "unknown"
     server_injected_fields: list[str] = Field(default_factory=list)
 
 

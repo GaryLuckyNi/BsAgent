@@ -319,6 +319,7 @@ export const MessageBranchPage = ({
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
 const streamdownPlugins = { cjk };
+const directLinks = { enabled: false };
 
 export const MessageResponse = memo(
   ({ className, ...props }: MessageResponseProps) => (
@@ -328,6 +329,7 @@ export const MessageResponse = memo(
         className
       )}
       plugins={streamdownPlugins}
+      linkSafety={directLinks}
       {...props}
     />
   ),

@@ -1,6 +1,7 @@
 """使用真实 LangGraph / ChatOpenAI / Langfuse SDK，全部模型请求由内存 transport 响应。"""
 
 import json
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
@@ -21,8 +22,9 @@ from langfuse import Langfuse
 
 
 @pytest.mark.parametrize("mode", ["local_content", "metadata_only"])
-def test_real_chatopenai_and_nodes_export_sanitized_io_without_duplicate_generation(
-    mode, business_intent_catalog,
+@pytest.mark.parametrize("native_stream", [False, True])
+def test_real_model_clients_and_nodes_export_sanitized_io_without_duplicate_generation(
+    mode, native_stream, business_intent_catalog,
 ):
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
@@ -37,17 +39,27 @@ def test_real_chatopenai_and_nodes_export_sanitized_io_without_duplicate_generat
 
     def respond(request):
         requests.append(json.loads(request.content))
+        content = json.dumps(outputs.pop(0))
+        if requests[-1].get("stream"):
+            frames = [{"model": "deepseek-test", "choices": [{
+                "index": 0, "delta": {"content": content}, "finish_reason": None,
+            }]}, {"model": "deepseek-test", "choices": [{
+                "index": 0, "delta": {}, "finish_reason": "stop",
+            }], "usage": {"prompt_tokens": 100, "completion_tokens": 30, "total_tokens": 130}}]
+            return httpx.Response(200, text="".join(
+                f"data: {json.dumps(frame)}\n\n" for frame in frames
+            ) + "data: [DONE]\n\n", headers={"Content-Type": "text/event-stream"})
         return httpx.Response(200, json={
             "id": f"chat-{len(requests)}", "object": "chat.completion", "created": 1,
             "model": "deepseek-test", "choices": [{
                 "index": 0, "finish_reason": "stop",
-                "message": {"role": "assistant", "content": json.dumps(outputs.pop(0))},
+                "message": {"role": "assistant", "content": content},
             }],
             "usage": {"prompt_tokens": 100, "completion_tokens": 30, "total_tokens": 130},
         })
 
     # SDK 自身的后台 API 也被拦截，测试绝不访问真实模型或 Langfuse 服务。
-    with httpx.Client(transport=httpx.MockTransport(respond)) as model_http, httpx.Client(
+    with httpx.Client(base_url="https://model.invalid/v1", transport=httpx.MockTransport(respond)) as model_http, httpx.Client(
         transport=httpx.MockTransport(lambda _: httpx.Response(200, json={}))
     ) as telemetry_http:
         config = Settings(
@@ -62,16 +74,22 @@ def test_real_chatopenai_and_nodes_export_sanitized_io_without_duplicate_generat
             ),
         )
         try:
-            client = DeepSeekClient(api_key="synthetic-api-key", model="deepseek-test")
+            client = DeepSeekClient(
+                api_key="synthetic-api-key", model="deepseek-test",
+                base_url="https://model.invalid/v1", sync_http_client=model_http,
+            )
             client._chat_model = ChatOpenAI(
                 api_key="synthetic-api-key", model="deepseek-test",
                 base_url="https://model.invalid/v1", http_client=model_http, max_retries=0,
             )
+            selected_client = client if native_stream else SimpleNamespace(
+                complete_with_streaming_callbacks=client.complete_with_streaming_callbacks,
+            )
             graph = StateGraph(AgentState)
             graph.add_node("intent_router", build_intent_router_node(
-                catalog=business_intent_catalog, llm_client=client,
+                catalog=business_intent_catalog, llm_client=selected_client,
             ))
-            graph.add_node("planner_agent", build_planner_agent_node(llm_client=client))
+            graph.add_node("planner_agent", build_planner_agent_node(llm_client=selected_client))
             graph.add_edge(START, "intent_router")
             graph.add_edge("intent_router", "planner_agent")
             graph.add_edge("planner_agent", END)
@@ -89,7 +107,9 @@ def test_real_chatopenai_and_nodes_export_sanitized_io_without_duplicate_generat
             generations = [span for span in spans
                            if span.attributes.get("langfuse.observation.type") == "generation"]
             assert len(requests) == len(generations) == 2
-            assert {span.name for span in generations} == {"ChatOpenAI"}
+            assert {span.name for span in generations} == {
+                "deepseek.chat.completions" if native_stream else "ChatOpenAI"
+            }
             assert result["intent"]["goal"] == "分析贵州茅台"
             assert result["plan"]["tasks"][0]["id"] == "facts"
             nodes = {span.name: span for span in spans

@@ -777,6 +777,7 @@ def _validate_resume_turn_lifecycle(
 
 def _assistant_response_metadata(final_response: dict) -> dict:
     return {
+        **({"sources": final_response["sources"]} if final_response.get("sources") else {}),
         "cited_evidence_ids": list(final_response.get("cited_evidence_ids", [])),
         "approval_status": final_response.get("approval_status", "not_required"),
         "response_type": final_response.get("response_type"),
@@ -830,6 +831,7 @@ def _persisted_assistant_response(
     metadata = message.metadata_json or {}
     return {
         "content": message.content,
+        **({"sources": metadata["sources"]} if metadata.get("sources") else {}),
         "trace_id": run.trace_id if run is not None else None,
         "cited_evidence_ids": list(metadata.get("cited_evidence_ids", [])),
         "approval_status": metadata.get("approval_status", "not_required"),

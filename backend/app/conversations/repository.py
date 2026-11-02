@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -33,12 +33,14 @@ class ConversationRepository:
         tenant_id: str,
         user_id: str,
         session_id: str,
+        include_deleted: bool = False,
     ) -> AgentSession | None:
         return self._session.scalar(
             select(AgentSession).where(
                 AgentSession.tenant_id == tenant_id,
                 AgentSession.user_id == user_id,
                 AgentSession.session_id == session_id,
+                True if include_deleted else AgentSession.status != "deleted",
             )
         )
 
@@ -48,13 +50,21 @@ class ConversationRepository:
         tenant_id: str,
         user_id: str,
         limit: int,
+        query: str = "",
     ) -> list[AgentSession]:
+        matching_message = select(AgentMessage.message_id).where(
+            AgentMessage.session_key == AgentSession.session_key,
+            AgentMessage.deleted_at.is_(None),
+            func.lower(AgentMessage.content).contains(query.strip().lower(), autoescape=True),
+        ).exists()
         return list(
             self._session.scalars(
                 select(AgentSession)
                 .where(
                     AgentSession.tenant_id == tenant_id,
                     AgentSession.user_id == user_id,
+                    AgentSession.status != "deleted",
+                    matching_message if query.strip() else True,
                 )
                 .order_by(
                     AgentSession.updated_at.desc(),
@@ -63,6 +73,74 @@ class ConversationRepository:
                 .limit(limit)
             )
         )
+
+    def session_summaries(
+        self, *, records: list[AgentSession],
+    ) -> dict[str, tuple[str, str]]:
+        if not records:
+            return {}
+        first_question = (
+            select(func.substr(AgentMessage.content, 1, 160))
+            .where(
+                AgentMessage.session_key == AgentSession.session_key,
+                AgentMessage.role == "user",
+                AgentMessage.deleted_at.is_(None),
+            )
+            .order_by(AgentMessage.sequence_no)
+            .limit(1)
+            .correlate(AgentSession)
+            .scalar_subquery()
+        )
+        latest_message = (
+            select(func.substr(AgentMessage.content, 1, 320))
+            .where(
+                AgentMessage.session_key == AgentSession.session_key,
+                AgentMessage.deleted_at.is_(None),
+                func.length(func.trim(AgentMessage.content)) > 0,
+            )
+            .order_by(AgentMessage.sequence_no.desc())
+            .limit(1)
+            .correlate(AgentSession)
+            .scalar_subquery()
+        )
+        # records 已由归属查询筛选；一次查询获取摘要，不逐会话读取完整消息。
+        rows = self._session.execute(
+            select(AgentSession.session_key, first_question, latest_message)
+            .where(AgentSession.session_key.in_([record.session_key for record in records]))
+        )
+        return {key: (title or "", preview or "") for key, title, preview in rows}
+
+    def search_owned_messages(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        query: str,
+        limit: int,
+        offset: int,
+    ) -> list[tuple[AgentMessage, AgentSession]]:
+        query = query.strip()
+        if not query:
+            return []
+        rows = self._session.execute(
+            select(AgentMessage, AgentSession)
+            .join(AgentSession, AgentSession.session_key == AgentMessage.session_key)
+            .where(
+                AgentSession.tenant_id == tenant_id,
+                AgentSession.user_id == user_id,
+                AgentSession.status != "deleted",
+                AgentMessage.tenant_id == tenant_id,
+                AgentMessage.user_id == user_id,
+                AgentMessage.deleted_at.is_(None),
+                AgentMessage.role.in_(("user", "assistant")),
+                func.length(func.trim(AgentMessage.content)) > 0,
+                func.lower(AgentMessage.content).contains(query.lower(), autoescape=True),
+            )
+            .order_by(AgentMessage.created_at.desc(), AgentMessage.message_id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return [(message, session) for message, session in rows]
 
     def get_or_create_session(
         self,
@@ -75,8 +153,11 @@ class ConversationRepository:
             tenant_id=tenant_id,
             user_id=user_id,
             session_id=session_id,
+            include_deleted=True,
         )
         if existing is not None:
+            if existing.status == "deleted":
+                raise ConversationConflictError("session_deleted")
             return existing
 
         record = AgentSession(
@@ -99,9 +180,12 @@ class ConversationRepository:
                 tenant_id=tenant_id,
                 user_id=user_id,
                 session_id=session_id,
+                include_deleted=True,
             )
             if existing is None:
                 raise ConversationConflictError("session_create_conflict") from None
+            if existing.status == "deleted":
+                raise ConversationConflictError("session_deleted")
             return existing
 
     def lock_session(
@@ -123,6 +207,8 @@ class ConversationRepository:
         )
         if record is None:
             raise ConversationNotFoundError("session_not_found")
+        if record.status == "deleted":
+            raise ConversationConflictError("session_deleted")
         return record
 
     def get_turn_by_request(

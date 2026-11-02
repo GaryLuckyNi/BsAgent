@@ -24,7 +24,10 @@ class IntentDecisionModel(BaseModel):
     subdomain: str | None = None
     goal: str | None = None
     confidence: float = Field(ge=0, le=1)
-    source_constraint: Literal["unrestricted", "original_only", "confirmation_required", "unclear"] = "unclear"
+    # 只接收旧提供方响应以兼容历史协议；新运行不再发布或使用来源门控字段。
+    source_constraint: Literal["unrestricted", "original_only", "confirmation_required", "unclear"] = Field(
+        default="unrestricted", exclude=True,
+    )
     available_information: dict[str, JsonValue] = Field(default_factory=dict)
     route: Literal["direct_answer", "synthesize", "plan"] = "plan"
     answer: str | None = None

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.schemas.tools import ToolSpec
-
+from app.tool_documentation.metadata import effective_description, model_schema, output_field_hints
 
 _TOKEN_PATTERN = re.compile(r"[a-z0-9_]+|[\u4e00-\u9fff]+")
 
@@ -43,8 +43,11 @@ def tokenize_tool_text(text: str) -> tuple[str, ...]:
 
 
 def build_tool_search_document(spec: ToolSpec) -> ToolSearchDocument:
-    search_parts = [spec.name, *spec.name.split(".")[:2], spec.description]
-    schema_parts = _schema_search_parts(spec.input_schema)
+    search_parts = [spec.name, *spec.name.split(".")[:2], effective_description(spec)]
+    schema_parts = _schema_search_parts(model_schema(spec))
+    schema_parts.extend(output_field_hints(spec))
+    if spec.output_schema.get("description"):
+        schema_parts.append(spec.output_schema["description"])
     search_parts.extend(schema_parts)
     search_parts.extend(spec.permission_scope)
     search_parts.append(spec.risk_level)
@@ -60,7 +63,7 @@ def build_tool_search_document(spec: ToolSpec) -> ToolSearchDocument:
     return ToolSearchDocument(
         tool_name=spec.name,
         tool_version=spec.version,
-        description=spec.description,
+        description=effective_description(spec),
         search_text=search_text,
         tokens=tokenize_tool_text(search_text),
         schema_tokens=tokenize_tool_text(" ".join(schema_parts)),

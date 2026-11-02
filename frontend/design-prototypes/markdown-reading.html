@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>InvestWise · 正文与引用设计</title>
+  <style>
+    :root { font-family: Inter, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; color: #17283f; background: #f5f6f8; --ink: #17283f; --body: #3e4857; --muted: #808997; --line: #e6e9ee; --gold: #a27c47; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    button { font: inherit; cursor: pointer; }
+    button:focus-visible, a:focus-visible { outline: 2px solid #a27c47; outline-offset: 4px; }
+    svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+    [hidden] { display: none !important; }
+    .symbols { display: none; }
+    .topbar { height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 32px; background: #0c1930; color: #e4e9f0; }
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid #8a704e; border-radius: 7px; color: #d6b57e; }
+    .brand b { font: 600 19px Georgia, serif; }
+    .topbar > span { font-size: 12px; color: #abb5c4; }
+    .board { max-width: 1080px; margin: 0 auto; padding: 34px 32px 48px; }
+    .intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+    .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #8a7659; letter-spacing: .07em; margin: 0 0 9px; }
+    .eyebrow::before { content: ""; height: 1px; width: 18px; background: #b39771; }
+    .intro h1 { font-size: 25px; line-height: 1.4; letter-spacing: -.5px; font-weight: 650; margin: 0 0 9px; }
+    .intro p { font-size: 13px; line-height: 1.8; color: #788291; margin: 0; }
+    .preview-label { margin-top: 4px; padding: 5px 9px; border-radius: 5px; border: 1px solid #e0e5ea; background: #fbfcfd; color: #7a8593; white-space: nowrap; font-size: 11px; }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
+    .segmented { display: flex; gap: 3px; padding: 3px; border: 1px solid #e0e5eb; border-radius: 8px; background: #eef1f4; }
+    .segmented button { min-height: 32px; border: 0; padding: 0 15px; color: #7a8492; background: transparent; border-radius: 5px; font-size: 12px; }
+    .segmented button[aria-pressed="true"] { color: #26384f; background: white; box-shadow: 0 1px 4px #17283f12; font-weight: 600; }
+    .control-text { font-size: 11px; color: #8c94a0; }
+    .control-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .quiet-button { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; border: 1px solid #dfe5eb; background: #fff; border-radius: 7px; padding: 0 11px; color: #69778a; font-size: 12px; }
+    .quiet-button svg { width: 14px; height: 14px; }
+    .quiet-button:hover, .quiet-button[aria-pressed="true"] { color: #896738; border-color: #d2be9e; background: #fbf7f0; }
+    .paper { border: 1px solid #e2e7ec; border-radius: 12px; background: #fff; box-shadow: 0 3px 16px #14243a03; }
+    .message { padding: 32px 42px 30px; display: flex; gap: 14px; }
+    .avatar { display: grid; place-items: center; width: 32px; height: 32px; flex: none; border: 1px solid #dac9ae; border-radius: 8px; color: #9a7646; background: #faf7f2; }
+    .message-body { flex: 1; min-width: 0; }
+    .author { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 2px 0 14px; color: #223249; font-size: 12px; font-weight: 650; }
+    .author span { font-size: 11px; font-weight: 400; color: #9ba3af; }
+    .progress { display: flex; align-items: center; gap: 7px; margin-bottom: 25px; color: #8b93a0; font-size: 12px; }
+    .progress svg { width: 14px; height: 14px; }
+    .progress span { color: #a1a8b3; margin-left: 3px; }
+    .markdown { color: var(--body); font-size: 16px; font-weight: 400; line-height: 1.9; overflow-wrap: anywhere; }
+    .markdown h2 { font-size: 20px; font-weight: 700; color: #17283f; line-height: 1.5; margin: 32px 0 16px; letter-spacing: -.2px; display: flex; gap: 10px; align-items: center; }
+    .markdown h2:first-child { margin-top: 0; }
+    .markdown h3 { color: #213149; font-size: 20px; font-weight: 700; line-height: 1.6; margin: 24px 0 12px; }
+    .markdown p { margin: 0 0 17px; }
+    .markdown strong { color: #14243b; font-weight: 700; }
+    .markdown ul { margin: 10px 0 23px; padding-left: 21px; }
+    .markdown li { margin: 7px 0; padding-left: 3px; }
+    .markdown li::marker { color: #a1aab6; font-size: .75em; }
+    .markdown blockquote { margin: 24px 0 0; border-left: 2px solid #d7c4a7; padding: 7px 16px; color: #77818e; background: #fbfaf8; border-radius: 0 5px 5px 0; font-size: 14px; line-height: 1.8; }
+    .markdown blockquote p { margin: 0; }
+    .citation-group { display: inline-flex; align-items: baseline; white-space: nowrap; gap: 4px; margin: 0 4px; vertical-align: .12em; }
+    .citation { display: inline-flex; align-items: center; justify-content: center; position: relative; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid #e1e7ef; border-radius: 6px; font-size: 11px; font-weight: 600; line-height: 1; text-decoration: none; color: #586b82; background: #f0f3f7; font-variant-numeric: tabular-nums; transition: background 150ms, border-color 150ms, color 150ms; }
+    .citation::after { content: ""; position: absolute; inset: -7px -3px; }
+    .citation:hover, .citation[data-active="true"] { color: #896330; border-color: #d6bf9a; background: #f8f1e6; }
+    .text-link { color: #3b5b7d; text-decoration: underline; text-decoration-color: #b9c7d7; text-underline-offset: 4px; }
+    .text-link:hover { color: #976d38; text-decoration-color: #c7aa81; }
+    .paper-footer { display: flex; align-items: center; gap: 7px; padding: 16px 42px 17px 88px; border-top: 1px solid #edf0f3; color: #97a0ac; font-size: 11px; line-height: 1.7; }
+    .paper-footer svg { width: 13px; height: 13px; }
+    .design-notes { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px; color: #929aa7; font-size: 11px; margin: 16px 2px 0; }
+    .design-notes span { display: inline-flex; align-items: center; gap: 6px; }
+    .design-notes svg { width: 13px; height: 13px; }
+    .markdown.original { font-size: 14px; line-height: 1.85; color: #374151; }
+    .markdown.original h2 { font-size: 1.3em; font-weight: 600; color: #243247; }
+    .markdown.original h3 { font-size: 1.15em; font-weight: 600; }
+    .markdown.original strong { font-weight: 600; color: inherit; }
+    .markdown.original .citation-group { gap: 6px; vertical-align: baseline; }
+    .markdown.original .citation { min-width: 0; height: auto; padding: 0; border: 0; border-radius: 0; color: #486d99; background: transparent; text-decoration: underline; text-decoration-color: #b9c9dc; text-underline-offset: 3px; font-size: inherit; font-weight: 400; }
+    .markdown.original .citation-group::before { content: "（"; margin-right: -5px; }
+    .markdown.original .citation-group::after { content: "）"; margin-left: -5px; }
+    .markdown.original .citation + .citation::before { content: "、"; color: #374151; }
+    .source-preview { position: fixed; z-index: 30; width: min(368px, calc(100vw - 32px)); padding: 18px 19px 15px; border: 1px solid #e1e6ec; border-radius: 14px; background: #fff; box-shadow: 0 16px 48px #15263d15, 0 3px 10px #15263d07; animation: appear 150ms ease-out; }
+    .source-meta { display: flex; align-items: center; gap: 9px; margin-bottom: 11px; color: #727d8b; font-size: 12px; }
+    .site-mark { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid #eadfcd; border-radius: 7px; color: #977348; background: #faf6ef; }
+    .site-mark svg { width: 14px; height: 14px; }
+    .site-mark img { display: block; width: 20px; height: 20px; object-fit: contain; }
+    .site-mark.has-site-icon { background: transparent; border-color: transparent; }
+    .source-publisher { font-weight: 500; color: #677281; }
+    .source-meta time { margin-left: 1px; padding-left: 10px; border-left: 1px solid #e3e7ed; color: #929ba7; font-variant-numeric: tabular-nums; }
+    .source-index { margin-left: auto; color: #9da6b3; font-size: 11px; }
+    .source-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin: 0 0 9px; color: #1c2d43; font-size: 16px; font-weight: 650; line-height: 1.65; letter-spacing: -.15px; }
+    .source-summary { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin: 0; color: #7c8694; font-size: 13px; line-height: 1.8; }
+    .source-link { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-top: 14px; padding-top: 11px; border-top: 1px solid #edf0f4; color: #8a95a3; font-size: 11px; text-decoration: none; }
+    .source-link > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .source-link svg { width: 13px; height: 13px; }
+    .source-link:hover { color: #987340; }
+    @keyframes appear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 700px) { .topbar { padding: 0 20px; height: 55px; } .board { padding: 26px 16px 32px; } .intro { gap: 10px; } .intro h1 { font-size: 22px; } .intro p { max-width: 280px; } .preview-label { display: none; } .message { padding: 24px 20px; gap: 10px; } .avatar { width: 28px; height: 28px; } .markdown { font-size: 16px; line-height: 1.9; } .markdown h2, .markdown h3 { font-size: 20px; } .paper-footer { padding: 14px 20px; } .control-actions { margin-left: 0; } .control-text { margin-left: auto; } }
+    @media (max-width: 420px) { .message { padding: 22px 16px; } .avatar { display: none; } .topbar > span { font-size: 10px; } .controls { gap: 10px; } .control-text { font-size: 10px; } .quiet-button { font-size: 11px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m16 8-2.5 5.5L8 16l2.5-5.5Z"/></symbol>
+    <symbol id="document" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Zm0 0v6h6M8 13h8M8 17h5"/></symbol>
+    <symbol id="chart" viewBox="0 0 24 24"><path d="M4 3v17h17M8 15v-4M13 15V6M18 15v-7"/></symbol>
+    <symbol id="shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6Z"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="chevron" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+    <symbol id="external" viewBox="0 0 24 24"><path d="M14 3h7v7M21 3l-11 11M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5"/></symbol>
+    <symbol id="pointer" viewBox="0 0 24 24"><path d="m4 3 7 18 3-7 7-3Z"/></symbol>
+    <symbol id="keyboard" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M18 13h.01M8 16h8"/></symbol>
+  </svg>
+  <header class="topbar"><div class="brand"><span class="brand-mark"><svg><use href="#compass"/></svg></span><b>InvestWise</b></div><span>AI 研究 · 阅读体验</span></header>
+  <main class="board">
+    <div class="intro"><div><div class="eyebrow">正文排版 / 来源引用</div><h1>正文与引用样式</h1><p>突出关键结论，保留长文阅读的舒适度。悬停编号查看来源预览。</p></div><span class="preview-label">设计预览 · 示例资料</span></div>
+    <div class="controls" aria-label="设计比较选项">
+      <div class="segmented" role="group" aria-label="排版方案"><button type="button" data-mode="original" aria-pressed="false">当前样式</button><button type="button" data-mode="improved" aria-pressed="true">优化方案</button></div>
+      <span class="control-text" id="type-spec">正文 16px · 加粗 700</span>
+      <div class="control-actions"><button class="quiet-button" id="preview-trigger" aria-expanded="false"><svg><use href="#pointer"/></svg>预览引用卡片</button></div>
+    </div>
+    <section class="paper" aria-label="研究回答排版示例">
+      <div class="message"><div class="avatar"><svg><use href="#compass"/></svg></div><div class="message-body">
+        <div class="author">InvestWise 研究助手 <span>研究完成</span></div>
+        <div class="progress"><svg><use href="#compass"/></svg>研究进展 <span>· 思考用时 14 秒</span><svg><use href="#chevron"/></svg></div>
+        <article class="markdown" id="markdown">
+          <h2>数据确认与来源</h2>
+          <p>同期归母净利润为 <strong>−2.66 亿元</strong>（−26,575.71 万元），上年为盈利 6,575.25 万元，同比下降 504.18%。2024 年末归属于上市公司股东的净资产为 <strong>73.38 亿元</strong>，较上年末下降 7.96%。<span class="citation-group"><a class="citation" data-source="1" href="https://www.sse.com.cn/" target="_blank" rel="noopener noreferrer" aria-label="来源 1：年度报告，悬停预览，点击打开原文">1</a><a class="citation" data-source="7" href="https://finance.sina.com.cn/" target="_blank" rel="noopener noreferrer" aria-label="来源 7：公告资料，悬停预览，点击打开原文">7</a></span></p>
+          <p><strong>关键变化在于利润与现金流的方向不同。</strong>正文保持正常字重，让结论、金额和重要概念自然突出；强调文字使用更深的颜色，不给整段文字同时加粗。</p>
+          <h2>计算口径与解读</h2>
+          <p>净利率采用<strong>归母净利润 ÷ 营业收入</strong>计算。引用编号紧跟对应论据，使用轻量徽标表达来源，避免浅蓝色下划线打断连续阅读。<span class="citation-group"><a class="citation" data-source="4" href="https://www.sse.com.cn/" target="_blank" rel="noopener noreferrer" aria-label="来源 4：计算口径，悬停预览，点击打开原文">4</a></span></p>
+          <h3>阅读时应区分的两个层次</h3>
+          <ul><li><strong>数据事实：</strong>保留主体、报告期、金额与单位，来源随论据提供。</li><li><strong>分析判断：</strong>根据已有事实解释含义，加粗用于结论，不与正文争夺注意力。</li></ul>
+          <h2>来源与范围</h2>
+          <p>有来源资料时，预览卡片展示网站、发布日期、标题及摘要；只有网址的历史引用，展示网站和地址，不生成不存在的内容。<span class="citation-group"><a class="citation" data-source="9" href="https://disclosure.example/annual-report" target="_blank" rel="noopener noreferrer" aria-label="来源 9：仅有地址的历史引用预览">9</a></span></p>
+          <blockquote><p>本页仅演示阅读样式。标题与正文中的 icon 随原文保留，有就显示，没有就保持纯文字；正式回答不增加这些设计控制按钮。</p></blockquote>
+        </article>
+      </div></div>
+      <div class="paper-footer"><svg><use href="#document"/></svg>示例文字与网站入口用于设计预览，不代表对应网页的真实标题、日期或内容。</div>
+    </section>
+    <div class="design-notes"><span><svg><use href="#pointer"/></svg>悬停 200ms 展开 · 可移入卡片</span><span><svg><use href="#keyboard"/></svg>Tab 预览 · Esc 收起 · ↓ 进入卡片</span><span>普通文字链接保留独立样式，编号引用单独设计</span></div>
+  </main>
+  <aside class="source-preview" id="source-preview" aria-label="引用来源预览" hidden>
+    <div class="source-meta"><span class="site-mark" id="site-mark"><img id="site-icon" alt="" referrerpolicy="no-referrer" hidden><svg id="site-icon-fallback" aria-hidden="true"><use href="#document"/></svg></span><span class="source-publisher" id="source-publisher"></span><time id="source-date"></time><span class="source-index" id="source-index"></span></div>
+    <h3 class="source-title" id="source-title"></h3><p class="source-summary" id="source-summary"></p>
+    <a class="source-link" id="source-link" target="_blank" rel="noopener noreferrer"><span id="source-domain"></span><svg aria-label="打开来源网页"><use href="#external"/></svg></a>
+  </aside>
+  <script>
+    const sources = {
+      '1': { publisher: '上交所信息披露', date: '2025/04/29', title: '立昂微：2024 年年度报告', summary: '年度财务数据与经营情况。报告涵盖营业收入、归母净利润、股东权益及现金流等信息。', domain: 'sse.com.cn', url: 'https://www.sse.com.cn/' },
+      '7': { publisher: '新浪财经', date: '2025/04/29', title: '立昂微（605358）公司公告：年度报告与主要财务数据', summary: '报告期内归母净利润、股东权益及相关财务指标的披露说明。预览摘要以实际搜索结果为准。', domain: 'finance.sina.com.cn', url: 'https://finance.sina.com.cn/' },
+      '4': { publisher: '上交所信息披露', date: '2025/04/29', title: '年度财务数据与报表口径说明', summary: '本示例说明来源卡片的排版。正式卡片展示检索已返回的标题和摘要，日期未提供时不显示。', domain: 'sse.com.cn', url: 'https://www.sse.com.cn/' },
+      '9': { publisher: 'disclosure.example', title: '来源网页', summary: '该历史引用暂未包含标题和摘要，可直接打开原文。', domain: 'disclosure.example/annual-report', url: 'https://disclosure.example/annual-report' }
+    };
+    const article = document.getElementById('markdown');
+    const card = document.getElementById('source-preview');
+    const demoTrigger = document.getElementById('preview-trigger');
+    const siteIcon = document.getElementById('site-icon');
+    const siteMark = document.getElementById('site-mark');
+    const siteIconFallback = document.getElementById('site-icon-fallback');
+    siteIcon.addEventListener('load', () => {
+      siteIcon.hidden = false; siteIconFallback.setAttribute('hidden', ''); siteMark.classList.add('has-site-icon');
+    });
+    siteIcon.addEventListener('error', () => {
+      siteIcon.hidden = true; siteIconFallback.removeAttribute('hidden'); siteMark.classList.remove('has-site-icon');
+    });
+    let activeAnchor = null, showTimer, hideTimer, pinned = false, keyboardMode = false;
+    const field = (id, value) => document.getElementById(id).textContent = value || '';
+    function positionCard() {
+      if (!activeAnchor || card.hidden) return;
+      const rect = activeAnchor.getBoundingClientRect();
+      const width = card.offsetWidth, height = card.offsetHeight;
+      const left = Math.max(16, Math.min(rect.left - 18, innerWidth - width - 16));
+      const above = rect.top - height - 12;
+      const top = above >= 12 ? above : Math.min(rect.bottom + 12, innerHeight - height - 12);
+      card.style.left = left + 'px'; card.style.top = Math.max(12, top) + 'px';
+    }
+    function openCard(anchor) {
+      clearTimeout(hideTimer); clearTimeout(showTimer);
+      activeAnchor?.removeAttribute('data-active'); activeAnchor?.removeAttribute('aria-describedby');
+      activeAnchor = anchor;
+      const source = sources[anchor.dataset.source];
+      siteIcon.hidden = true; siteIconFallback.removeAttribute('hidden'); siteMark.classList.remove('has-site-icon');
+      const iconUrl = new URL(source.url); iconUrl.pathname = '/favicon.ico'; iconUrl.search = ''; iconUrl.hash = '';
+      siteIcon.src = source.favicon || iconUrl.href;
+      field('source-publisher', source.publisher); field('source-date', source.date);
+      document.getElementById('source-date').hidden = !source.date;
+      field('source-index', '来源 ' + anchor.dataset.source);
+      field('source-title', source.title); field('source-summary', source.summary); field('source-domain', source.domain);
+      document.getElementById('source-link').href = source.url;
+      card.hidden = false; anchor.dataset.active = 'true'; anchor.setAttribute('aria-describedby', 'source-title source-summary');
+      positionCard(); demoTrigger.setAttribute('aria-expanded', String(pinned));
+    }
+    function closeCard() {
+      clearTimeout(showTimer); clearTimeout(hideTimer); pinned = false;
+      card.hidden = true; activeAnchor?.removeAttribute('data-active'); activeAnchor?.removeAttribute('aria-describedby');
+      demoTrigger.setAttribute('aria-expanded', 'false'); activeAnchor = null;
+    }
+    function scheduleClose() {
+      clearTimeout(showTimer); clearTimeout(hideTimer);
+      if (pinned) return;
+      hideTimer = setTimeout(() => {
+        if (card.matches(':hover') || card.contains(document.activeElement)
+          || (keyboardMode && document.activeElement === activeAnchor)) return;
+        closeCard();
+      }, 220);
+    }
+    document.querySelectorAll('.citation').forEach(anchor => {
+      anchor.addEventListener('mouseenter', () => { clearTimeout(hideTimer); clearTimeout(showTimer); pinned = false; showTimer = setTimeout(() => openCard(anchor), 200); });
+      anchor.addEventListener('mouseleave', scheduleClose);
+      anchor.addEventListener('focus', () => { if (keyboardMode) openCard(anchor); });
+      anchor.addEventListener('blur', scheduleClose);
+      anchor.addEventListener('keydown', event => { if (event.key === 'ArrowDown') { event.preventDefault(); openCard(anchor); document.getElementById('source-link').focus(); } });
+      anchor.addEventListener('click', event => { if (matchMedia('(hover: none)').matches) { event.preventDefault(); pinned = true; openCard(anchor); } });
+    });
+    card.addEventListener('mouseenter', () => clearTimeout(hideTimer)); card.addEventListener('mouseleave', scheduleClose);
+    card.addEventListener('focusout', scheduleClose);
+    document.addEventListener('keydown', event => { if (event.key === 'Tab') keyboardMode = true; if (event.key === 'Escape' && !card.hidden) { const target = card.contains(document.activeElement) ? activeAnchor : null; closeCard(); if (target) { keyboardMode = false; target.focus({ preventScroll: true }); } } });
+    document.addEventListener('pointerdown', event => { keyboardMode = false; if (!card.hidden && !card.contains(event.target) && !event.target.closest('.citation') && !event.target.closest('#preview-trigger')) closeCard(); });
+    document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => {
+      const original = button.dataset.mode === 'original'; closeCard();
+      article.classList.toggle('original', original);
+      document.querySelectorAll('[data-mode]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      field('type-spec', original ? '正文 14px · 加粗 600' : '正文 16px · 加粗 700');
+    }));
+    demoTrigger.addEventListener('click', () => { if (pinned && !card.hidden) { closeCard(); return; } pinned = true; openCard(document.querySelector('[data-source="7"]')); });
+    addEventListener('resize', positionCard); addEventListener('scroll', positionCard, { passive: true });
+  </script>
+</body>
+</html>

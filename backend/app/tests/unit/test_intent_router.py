@@ -42,22 +42,22 @@ def _decision(
 
 
 @pytest.mark.parametrize("constraint", ["unrestricted", "original_only", "unclear"])
-def test_source_constraint_is_extracted_in_the_existing_single_intent_call(
+def test_legacy_source_label_is_accepted_but_not_published_or_requested(
     business_intent_catalog, constraint,
 ):
     llm = FakeLlmClient({**_decision(), "source_constraint": constraint})
     decision = HybridIntentRouter(catalog=business_intent_catalog, llm_client=llm).route(
-        message="分析公司，保留用户声明的来源要求", tenant_id="t", user_id="u",
+        message="从公司2024年年报提取营业收入", tenant_id="t", user_id="u",
     )
     assert decision.source_constraint == constraint
     assert len(llm.calls) == 1
     prompt = json.loads(llm.calls[0]["user_prompt"])
-    assert "source_constraint" in prompt["required_schema"]
-    assert "局部" in llm.calls[0]["system_prompt"]
+    assert "source_constraint" not in prompt["required_schema"]
+    assert "source_constraint" not in decision.model_dump()
 
 
-def test_missing_source_constraint_is_unclear_not_unrestricted():
-    assert IntentDecisionModel.model_validate(_decision()).source_constraint == "unclear"
+def test_missing_source_constraint_does_not_create_a_source_gate():
+    assert "source_constraint" not in IntentDecisionModel.model_validate(_decision()).model_dump()
 
 
 def test_business_intent_catalog_has_no_local_file_or_keyword_router(
@@ -96,7 +96,7 @@ def test_intent_router_builder_has_one_explicit_entrypoint(
     assert not hasattr(intent_router_module, "intent_router_node")
 
 
-def test_llm_intent_router_returns_taxonomy_goal_and_source_constraint(
+def test_llm_intent_router_returns_taxonomy_goal_and_available_information(
     business_intent_catalog,
 ):
     llm = FakeLlmClient(_decision())
@@ -116,7 +116,6 @@ def test_llm_intent_router_returns_taxonomy_goal_and_source_constraint(
         "subdomain",
         "goal",
         "confidence",
-        "source_constraint",
         "available_information",
         "route",
         "answer",
@@ -341,4 +340,4 @@ def test_classifier_prompt_contains_admin_taxonomy_and_semantic_guard(
     payload = json.loads(request["user_prompt"])
     assert payload["allowed_taxonomy"][0]["intent_type"] == "financial_research"
     assert "不要改变用户问题的原意" in request["system_prompt"]
-    assert "不要丢失公司名称" in request["system_prompt"]
+    assert "保留主体标识、时间或版本、所问关系" in request["system_prompt"]

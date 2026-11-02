@@ -51,9 +51,13 @@ class AdminMarketDataConfigClient:
                 timeout_seconds=self._timeout_seconds,
                 enforce_local_rbac=False,
                 deployment_revision="tushare-official",
-                # 受信连接指定的是 TuShare 错误协议，不是逐接口只读白名单。
+                # Admin 的 TuShare 数据查询连接指定受信协议，不依据工具名猜测读写。
                 permission_denial_is_pre_execution=True,
+                effect_type="read_only",
+                error_protocol="tushare",
                 config_revision=config_revision,
+                public_documentation=payload.get("public_documentation", True),
+                documentation_domains=payload.get("documentation_domains", ["tushare.pro"]),
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise RuntimeError("market_data_config_invalid_response") from exc

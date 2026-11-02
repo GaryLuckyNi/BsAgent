@@ -18,6 +18,7 @@
     "dev:admin:backend": "node scripts/dev.mjs admin-backend",
     "dev:admin:frontend": "node scripts/dev.mjs admin-frontend",
     "test:dev-env": "node --test scripts/local-env.test.mjs scripts/langfuse-dev.test.mjs",
-    "debug": "node scripts/dev.mjs admin-backend frontend admin-frontend"
+    "debug": "node scripts/dev.mjs admin-backend frontend admin-frontend",
+    "dev:tool-documentation": "node scripts/tool-documentation-worker.mjs"
   }
 }

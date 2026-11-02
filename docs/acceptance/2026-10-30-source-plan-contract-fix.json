@@ -1,0 +1,60 @@
+{
+  "trace_id": "cee9079511ef1eeffad72ca8615493ff",
+  "根因": [
+    "平铺函数候选只靠提示约束每源单选，实际同源多选导致整组拒绝",
+    "结构修正未携带具体冲突",
+    "计划生成失败未保存失败队列，漏过重规划门控"
+  ],
+  "修复": [
+    "单个计划函数，每源一个可为空的选择位，首次生成全部备用参数",
+    "来源归属与完整排序校验；具体错误在当前任务修正一次",
+    "结构错误持久化，最终失败保存failed队列和source_plan_invalid"
+  ],
+  "回归": {
+    "通过": 514,
+    "用时秒": 17.43,
+    "静态检查": "Ruff、git diff --check通过"
+  },
+  "真实模型验证": {
+    "trace_id": "cee9079511ef1eeffad72ca8615493ff",
+    "mode": "原始任务上下文与当前真实MCP目录，真实模型仅生成计划，零数据工具执行",
+    "model": "deepseek-v4-flash",
+    "elapsed_seconds": 1.39,
+    "selected": [
+      {
+        "tool": "mcp.tushare.cashflow",
+        "source": "mcp:tushare",
+        "arguments": {
+          "ts_code": "605358.SH",
+          "period": "20241231",
+          "report_type": "1",
+          "fields": [
+            "ts_code",
+            "ann_date",
+            "f_ann_date",
+            "end_date",
+            "report_type",
+            "comp_type",
+            "end_type",
+            "n_cashflow_act",
+            "n_cashflow_inv_act",
+            "n_cash_flows_fnc_act",
+            "net_profit",
+            "update_flag"
+          ]
+        }
+      },
+      {
+        "tool": "web_search",
+        "source": "web_search",
+        "arguments": {
+          "query": "立昂微 605358 2024年年报 经营活动产生的现金流量净额 营业收入 归母净利润",
+          "max_results": 5
+        }
+      }
+    ]
+  },
+  "范围说明": "真实模型验证只生成计划并读取目录，没有执行MCP数据查询或联网搜索；执行、权限、审批、参数修正与预算由受控模型下的真实Graph/Gateway/回执测试覆盖。",
+  "分支": "codex/multi-source-tool-fallback",
+  "已合并dev": false
+}

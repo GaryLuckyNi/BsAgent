@@ -88,8 +88,15 @@ def task_snapshot_matches(snapshot: object, task: object) -> bool:
 class PlanModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    public_summary: str | None = Field(default=None, min_length=1, max_length=300)
     tasks: list[SubTaskModel] = Field(min_length=1, max_length=MAX_PLAN_TASKS)
+
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_display_summary(cls, value):
+        # 旧检查点仍可恢复；不把展示摘要继续注入计划或模型上下文。
+        if isinstance(value, dict) and "public_summary" in value:
+            return {key: item for key, item in value.items() if key != "public_summary"}
+        return value
 
     @model_validator(mode="after")
     def validate_task_graph(self):

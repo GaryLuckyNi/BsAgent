@@ -6,6 +6,7 @@ from app.graph.state import create_initial_state
 from app.llm.schemas import LlmCompletionResult
 from app.schemas.messages import Message
 from app.skills.definitions import SkillDefinition, SkillExecutionGuide
+from app.tests.unit.test_skill_workflow import registry as workflow_tool_registry
 
 
 class FakeLlmClient:
@@ -29,7 +30,7 @@ class FakeSkillRegistry:
             SkillDefinition(
                 name=name,
                 version="1.0.0",
-                description="评估公司质量",
+                description="调用 first 获取财务事实，评估公司质量",
                 constraints=["不得补造数据"],
                 definition_hash="definition-hash",
             ),
@@ -64,7 +65,8 @@ def test_skill_worker_freezes_summary_then_aggregates_validated_results():
     llm = FakeLlmClient(
         json.dumps(
             {
-                "steps": [{"instruction": "评估公司质量", "source": "评估公司质量"}],
+                "steps": [{"instruction": "获取财务事实", "source": "调用 first 获取财务事实",
+                           "tool_name": "first"}],
                 "output_requirement": "",
             }
         )
@@ -76,11 +78,13 @@ def test_skill_worker_freezes_summary_then_aggregates_validated_results():
         "depends_on": ["financial"],
         "skill_name": "company_quality",
     }
-    node = build_skill_agent_node(registry=FakeSkillRegistry(), llm_client=llm)
+    node = build_skill_agent_node(
+        registry=FakeSkillRegistry(), llm_client=llm, tool_registry=workflow_tool_registry(),
+    )
     update = node(state)
     assert "task_results" not in update
     workflow = update["skill_workflows"]["quality"]
-    assert workflow["summary"] == "评估公司质量"
+    assert workflow["summary"] == "调用 first 获取财务事实，评估公司质量"
     assert workflow["definition_hash"] == "definition-hash"
     child_id = workflow["steps"][0]["task_id"]
     workflow["checked_steps"] = [child_id]

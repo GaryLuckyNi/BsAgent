@@ -1,6 +1,5 @@
 import json
 
-from app.graph.nodes.analysis_agent import build_analysis_agent_node
 from app.graph.nodes.skill_agent import build_skill_agent_node
 from app.graph.nodes.skill_step_check import build_skill_step_check_node
 from app.graph.planning.contracts import PlanModel, TaskResultModel
@@ -9,8 +8,8 @@ from app.graph.planning.scheduler import plan_status, ready_tasks, recovery_acti
 from app.graph.runtime import _dispatch_after_scheduler, task_scheduler_node
 from app.graph.state import AgentState, create_initial_state, merge_task_results
 from app.llm.schemas import LlmCompletionResult
-from app.skills.definitions import SkillDefinition, SkillExecutionGuide
 from app.schemas.user_input import UserInputOption, UserInputRequest, UserInputSource
+from app.skills.definitions import SkillDefinition, SkillExecutionGuide
 from langgraph.graph import END, StateGraph
 
 
@@ -316,7 +315,6 @@ def test_langgraph_runs_two_fixed_skills_without_scalar_conflict():
             llm_client=_ParallelSkillLlm(),
         ),
     )
-    graph.add_node("analysis_agent", build_analysis_agent_node(llm_client=_ParallelSkillLlm()))
     graph.add_node("skill_step_check", build_skill_step_check_node(llm_client=_ParallelSkillLlm()))
     graph.add_node(
         "planner_agent",
@@ -326,7 +324,6 @@ def test_langgraph_runs_two_fixed_skills_without_scalar_conflict():
             )
         },
     )
-    graph.add_edge("analysis_agent", "task_scheduler")
     graph.add_edge("skill_step_check", "task_scheduler")
     graph.add_edge("planner_agent", "task_scheduler")
     graph.add_node("finish", lambda _state: {})
@@ -351,6 +348,22 @@ def test_langgraph_runs_two_fixed_skills_without_scalar_conflict():
             {"id": "risk", "task_goal": "风险", "skill_name": "risk"},
         ]
     }
+    # 已完成取证的两个固定工作流依次汇总，仍需验证并发状态归并约束。
+    state["skill_workflows"] = {
+        name: {
+            "parent_task_id": name, "skill_name": name, "skill_version": "1.0.0",
+            "definition_hash": f"{name}-hash", "summary": f"执行 {name}",
+            "output_requirement": "整理结果",
+            "steps": [{"task_id": f"sw_{name}", "instruction": "取得事实",
+                       "source": "取得事实", "tool_name": "mcp.local.facts", "tool_version": "1"}],
+            "checked_steps": [f"sw_{name}"],
+        }
+        for name in ("quality", "risk")
+    }
+    state["task_results"] = [
+        {"task_id": f"sw_{name}", "status": "success", "content": "已验收的业务事实"}
+        for name in ("quality", "risk")
+    ]
 
     result = graph.compile().invoke(state, {"recursion_limit": 128})
 

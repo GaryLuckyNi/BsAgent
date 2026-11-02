@@ -56,7 +56,139 @@ vi.mock('../services/research-api', () => ({
   loadSessionMessages: runs.history
 }))
 
+const pages = vi.hoisted(() => ({ load: vi.fn() }))
+vi.mock('../services/research-history-pages', () => ({ loadResearchHistoryPage: pages.load }))
+function persisted(sequence: number): PersistedConversationMessage {
+  return { message_id: `m${sequence}`, sequence_no: sequence, role: sequence % 2 ? 'user' : 'assistant', status: 'completed', content: `消息${sequence}`, metadata: {} }
+}
+
 describe('useResearchSession', () => {
+  it('来源先于正文到达时保留稳定编号，最终响应更新资料而不生成虚假引用', async () => {
+    const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+    await act(async () => { await result.current.sendMessage('分析') })
+    const source = { source_id: 'source_7', index: 7, url: 'https://example.com/report', title: '报告', snippet: '报告摘要' }
+    act(() => sdk.options?.onCustomEvent?.({ type: 'answer_sources', sources: [source] }))
+    expect(result.current.messages.at(-1)?.evidence).toEqual([{ id: 'source_7', index: 7, url: source.url, title: '报告', summary: '报告摘要' }])
+    sdk.messages = [{ type: 'ai', id: 'answer', content: '结论（[7](https://example.com/report)）。' } as Message]
+    rerender()
+    act(() => sdk.options?.onCustomEvent?.({ type: 'final', response: { content: '结论。', sources: [{ ...source, title: '年度报告' }] } }))
+    expect(result.current.messages.at(-1)?.evidence?.[0]).toMatchObject({ index: 7, title: '年度报告' })
+    expect(result.current.messages.at(-1)?.citations).toBeUndefined()
+  })
+
+  it('最终响应省略来源时保留公开流已收到的资料', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+    await act(async () => { await result.current.sendMessage('分析') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'answer_sources', sources: [{ source_id: 'source_3', index: 3, url: 'https://example.com', title: '公开资料' }] }))
+    act(() => sdk.options?.onCustomEvent?.({ type: 'final', response: { content: '结论。' } }))
+    expect(result.current.messages.at(-1)?.evidence?.[0]).toMatchObject({ index: 3, title: '公开资料' })
+  })
+
+  it('使用服务端正文开始时刻的用时，排除整句缓冲、传输和页面更新延迟', async () => {
+    const clock = vi.spyOn(Date, 'now')
+    try {
+      const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+      await act(async () => { await result.current.sendMessage('分析') })
+      const submittedAt = Date.parse(result.current.messages.at(-1)!.createdAt)
+      clock.mockReturnValue(submittedAt + 30000)
+      act(() => sdk.options?.onCustomEvent?.({ type: 'answer_started', elapsed_ms: 5400 }))
+      sdk.messages = [{ type: 'ai', id: 'answer', content: '结论。' } as Message]
+      rerender()
+      expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBe(5)
+      clock.mockReturnValue(submittedAt + 90000)
+      act(() => sdk.options?.onCustomEvent?.({ type: 'answer_started', elapsed_ms: 80000 }))
+      act(() => sdk.options?.onCustomEvent?.({ type: 'final', response: { content: '完整答案。' } }))
+      expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBe(5)
+    } finally { clock.mockRestore() }
+  })
+
+  it.each([-1, NaN, Infinity, '5400', undefined])('忽略不合法的服务端计时：%s', async (elapsed) => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+    await act(async () => { await result.current.sendMessage('分析') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'answer_started', elapsed_ms: elapsed }))
+    expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBeUndefined()
+  })
+
+  it('服务端计时晚于正文到达时等待真实测量，不按前端接收时间估算', async () => {
+    const clock = vi.spyOn(Date, 'now')
+    try {
+      const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+      await act(async () => { await result.current.sendMessage('分析') })
+      clock.mockReturnValue(Date.parse(result.current.messages.at(-1)!.createdAt) + 30000)
+      sdk.messages = [{ type: 'ai', id: 'answer', content: '结论。' } as Message]
+      rerender()
+      expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBeUndefined()
+      act(() => sdk.options?.onCustomEvent?.({ type: 'answer_started', elapsed_ms: 5400 }))
+      expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBe(5)
+    } finally { clock.mockRestore() }
+  })
+
+  it('没有服务端测量时，提交、进展、正文和 final 都不会自行生成思考秒数', async () => {
+    const clock = vi.spyOn(Date, 'now')
+    try {
+      const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+      await act(async () => { await result.current.sendMessage('分析问题') })
+      const submittedAt = Date.parse(result.current.messages.at(-1)!.createdAt)
+      clock.mockReturnValue(submittedAt + 6000)
+      act(() => sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'goal', id: 'goal', message: '研究目标' }))
+      expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBeUndefined()
+      clock.mockReturnValue(submittedAt + 12500)
+      sdk.messages = [{ type: 'ai', id: 'answer', content: '第一句答案。' } as Message]
+      rerender()
+      expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBeUndefined()
+      clock.mockReturnValue(submittedAt + 30000)
+      sdk.messages = [{ type: 'ai', id: 'answer', content: '第一句答案。第二句。' } as Message]
+      rerender()
+      act(() => sdk.options?.onCustomEvent?.({ type: 'final', response: { content: '完整答案。' } }))
+      expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBeUndefined()
+    } finally { clock.mockRestore() }
+  })
+
+  it('只有 final 而没有计时标记时不使用总等待时间充当思考时间', async () => {
+    const clock = vi.spyOn(Date, 'now')
+    try {
+      const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+      await act(async () => { await result.current.sendMessage('直接回答') })
+      clock.mockReturnValue(Date.parse(result.current.messages.at(-1)!.createdAt) + 4500)
+      act(() => sdk.options?.onCustomEvent?.({ type: 'final', response: { content: '答案。' } }))
+      expect(result.current.messages.at(-1)?.thinkingDurationSeconds).toBeUndefined()
+    } finally { clock.mockRestore() }
+  })
+
+  it('断线重连保留已冻结的思考时间，不从恢复组件时重新计时', async () => {
+    const clock = vi.spyOn(Date, 'now')
+    try {
+      const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+      await act(async () => { await result.current.sendMessage('需要研究') })
+      const submittedAt = Date.parse(result.current.messages.at(-1)!.createdAt)
+      act(() => sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1', message_id: 'a1' }))
+      clock.mockReturnValue(submittedAt + 5000)
+      act(() => sdk.options?.onCustomEvent?.({ type: 'answer_started', elapsed_ms: 5000 }))
+      sdk.messages = [{ type: 'ai', id: 'a1', content: '第一句。' } as Message]
+      rerender()
+      clock.mockReturnValue(submittedAt + 60000)
+      runs.subscribe.mockImplementationOnce(async (_s, _r, _i, _a, _sig, onEvent) => {
+        onEvent({ sequence: 1, event: 'messages', data: [{ type: 'ai', id: 'a1', content: '第一句。后续内容。' }, {}] })
+        onEvent({ sequence: 2, event: 'custom', data: { type: 'run_status', run_id: 'r1', status: 'completed' } })
+        return 2
+      })
+      await act(async () => { sdk.options?.onFinish?.(); await Promise.resolve() })
+      expect(result.current.messages.at(-1)).toMatchObject({
+        content: '第一句。后续内容。', thinkingDurationSeconds: 5, status: 'complete'
+      })
+    } finally { clock.mockRestore() }
+  })
+
+  it('指定会话 ID 时读取该会话，空历史不生成演示分析', async () => {
+    const identity = { tenantId: 'tenant-1', userId: 'user-1' }
+    const { result } = renderHook(() => useResearchSession(identity, 'chosen-session'))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.sessionId).toBe('chosen-session')
+    expect(runs.history).toHaveBeenCalledWith('chosen-session', identity)
+    expect(result.current.messages).toEqual([])
+    await act(async () => { await result.current.sendMessage('实际首问') })
+    expect(result.current.submittedMessageId).toBe(result.current.messages[0].id)
+  })
   beforeEach(() => {
     const values = new Map<string, string>()
     Object.defineProperty(window, 'localStorage', {
@@ -75,11 +207,112 @@ describe('useResearchSession', () => {
     sdk.options = undefined
     sdk.submit.mockClear()
     sdk.stop.mockClear()
+    pages.load.mockReset().mockResolvedValue([])
     runs.history.mockReset().mockResolvedValue([])
     runs.active.mockReset().mockResolvedValue(null)
     runs.stop.mockClear()
     runs.subscribe.mockReset().mockResolvedValue(0)
     window.localStorage.clear()
+  })
+
+  it('初始化后立即定位已加载消息，不重置会话和订阅', async () => {
+    runs.history.mockResolvedValue([persisted(201)])
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+    await act(async () => { await result.current.revealMessage('m201', 201) })
+    expect(result.current.messages.map((message) => message.id)).toEqual(['m201'])
+    expect(pages.load).not.toHaveBeenCalled()
+    expect(runs.history).toHaveBeenCalledTimes(1)
+    expect(sdk.stop).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('刚完成的一问一答可按服务端ID定位，不补入重复历史（已有历史：%s）', async (hasHistory) => {
+    const previous = hasHistory ? [persisted(1), persisted(2)] : []
+    runs.history.mockResolvedValue(previous)
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+    await act(async () => { await result.current.sendMessage('新的追问') })
+    act(() => sdk.options?.onCustomEvent?.({
+      type: 'run_started', run_id: 'new-run', message_id: 'server-answer', user_message_id: 'server-question'
+    }))
+    act(() => sdk.options?.onCustomEvent?.({ type: 'final', response: { content: '新的回答' } }))
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'new-run', status: 'completed' }))
+
+    await act(async () => {
+      await result.current.revealMessage('server-answer', previous.length + 2)
+      await result.current.revealMessage('server-question', previous.length + 1)
+    })
+
+    expect(result.current.messages.slice(-2)).toMatchObject([
+      { id: 'server-question', role: 'user', content: '新的追问' },
+      { id: 'server-answer', role: 'assistant', content: '新的回答', status: 'complete' }
+    ])
+    expect(result.current.messages).toHaveLength(previous.length + 2)
+    expect(result.current.submittedMessageId).toBe('server-question')
+    expect(pages.load).not.toHaveBeenCalled()
+  })
+
+  it('定位200条以外消息逐页补齐连续历史，同时保留最新流式消息', async () => {
+    runs.history.mockResolvedValue(Array.from({ length: 200 }, (_, index) => persisted(index + 401)))
+    pages.load.mockResolvedValueOnce(Array.from({ length: 200 }, (_, index) => persisted(index + 201))).mockResolvedValueOnce(Array.from({ length: 200 }, (_, index) => persisted(index + 1)))
+    const identity = { tenantId: 't', userId: 'u' }
+    const { result, rerender } = renderHook(() => useResearchSession(identity, 's'))
+    await act(async () => { await result.current.sendMessage('最新追问') })
+    sdk.messages = [{ type: 'ai', id: 'new-stream', content: '实时新增内容' } as Message]
+    rerender()
+    const latestId = result.current.messages.at(-1)?.id
+    await act(async () => { await result.current.revealMessage('m100', 100) })
+    expect(pages.load.mock.calls.map((call) => call[2])).toEqual([401, 201])
+    expect(result.current.messages.slice(0, 600).map((message) => message.id)).toEqual(Array.from({ length: 600 }, (_, index) => `m${index + 1}`))
+    expect(result.current.messages.at(-1)).toMatchObject({ id: latestId, content: '实时新增内容', status: 'streaming' })
+    expect(sdk.stop).not.toHaveBeenCalled()
+  })
+
+  it('分页加载期间的流式更新与最新终态不被历史快照覆盖', async () => {
+    runs.history.mockResolvedValue([persisted(401)])
+    let resolvePage!: (items: PersistedConversationMessage[]) => void
+    pages.load.mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve }))
+    const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+    await act(async () => { await result.current.sendMessage('追问') })
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'live', message_id: 'answer' }))
+    let revealing!: Promise<void>
+    act(() => { revealing = result.current.revealMessage('m1', 1) })
+    await act(async () => { await Promise.resolve() })
+    sdk.messages = [{ type: 'ai', id: 'answer', content: '分页期间的新回答' } as Message]
+    rerender()
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'live', status: 'cancelled' }))
+    await act(async () => { resolvePage([persisted(1), persisted(401)]); await revealing })
+    expect(result.current.messages.at(-1)).toMatchObject({ content: '分页期间的新回答', status: 'cancelled' })
+    expect(result.current.messages.filter((message) => message.id === 'm401')).toHaveLength(1)
+    expect(sdk.stop).not.toHaveBeenCalled()
+    expect(runs.active).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['取消', '会话切换', '身份切换', '新一轮提交'])('分页响应迟到时%s不会写回旧历史', async (change) => {
+    runs.history.mockResolvedValue([persisted(401)])
+    let resolvePage!: (items: PersistedConversationMessage[]) => void
+    pages.load.mockImplementationOnce(() => new Promise((resolve) => { resolvePage = resolve }))
+    const controller = new AbortController()
+    const { result, rerender } = renderHook(({ id, user }) => useResearchSession({ tenantId: 't', userId: user }, id), { initialProps: { id: 's', user: 'u' } })
+    await act(async () => { await Promise.resolve() })
+    let revealing!: Promise<void>
+    act(() => { revealing = result.current.revealMessage('m1', 1, controller.signal) })
+    await act(async () => { await Promise.resolve() })
+    if (change === '取消') controller.abort()
+    if (change === '会话切换') rerender({ id: 'other', user: 'u' })
+    if (change === '身份切换') rerender({ id: 's', user: 'other' })
+    if (change === '新一轮提交') await act(async () => { await result.current.sendMessage('新的追问') })
+    await act(async () => {
+      resolvePage([persisted(1)])
+      await expect(revealing).rejects.toMatchObject({ name: 'AbortError' })
+    })
+    expect(result.current.messages.some((message) => message.id === 'm1')).toBe(false)
+  })
+
+  it('找不到消息或分页游标不前进时返回中文错误', async () => {
+    runs.history.mockResolvedValue([persisted(401)])
+    pages.load.mockResolvedValue([persisted(401)])
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+    await act(async () => { await expect(result.current.revealMessage('missing', 1)).rejects.toThrow('未找到目标历史消息') })
+    expect(pages.load).toHaveBeenCalledTimes(1)
   })
 
   it('刷新后订阅原 run，从头重放正文而不重复快照', async () => {
@@ -365,7 +598,81 @@ describe('useResearchSession', () => {
     expect(result.current.messages.at(-1)?.reasoning).toBeUndefined()
   })
 
-  it('保留研究摘要与工具活动的到达顺序，工具完成不改变位置', async () => {
+  it('接收目标与计划事件，工具状态更新不覆盖计划列表', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('分析当日市场') })
+    act(() => {
+      sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'goal', id: 'goal', label: '研究目标', message: '分析当日市场', status: 'completed' })
+      sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'plan', id: 'plan', label: '研究计划', message: '1. 获取行情\n2. 核验消息', status: 'completed' })
+      sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'activity', id: 'task', message: '正在获取行情', status: 'started' })
+      sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'activity', id: 'task', message: '已取得行情', status: 'completed' })
+    })
+    const progress = result.current.messages.at(-1)!.progress!
+    expect(progress.map((item) => item.kind)).toEqual(['goal', 'plan', 'activity'])
+    expect(progress[1].message).toBe('1. 获取行情\n2. 核验消息')
+    expect(progress[2].status).toBe('completed')
+    expect(progress.map((item) => item.sequence)).toEqual([0, 1, 2])
+  })
+
+  it('研究目标和计划的流式快照即时覆盖原条目，完成后保留全部文字', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }))
+    await act(async () => { await result.current.sendMessage('核实财报并分析') })
+    const publish = (kind: 'goal' | 'plan', message: string, status = 'started') => {
+      act(() => sdk.options?.onCustomEvent?.({
+        type: 'progress', kind, id: kind, label: kind === 'goal' ? '研究目标' : '研究计划', message, status
+      }))
+    }
+    publish('goal', '核实财报')
+    expect(result.current.messages.at(-1)?.progress?.[0].message).toBe('核实财报')
+    publish('goal', '核实财报并分析增长原因')
+    expect(result.current.messages.at(-1)?.progress).toHaveLength(1)
+    expect(result.current.messages.at(-1)?.progress?.[0].message).toBe('核实财报并分析增长原因')
+    publish('plan', '1. 取得原始财报')
+    const goal = '核实不同期间的财报口径并完成推演与验证。'.repeat(40) + '目标结尾。'
+    const plan = `1. ${'核实必要字段和期间。'.repeat(45)}第一项结尾。\n2. 核对直接披露值。`
+    publish('goal', goal, 'completed')
+    publish('plan', plan, 'completed')
+    const progress = result.current.messages.at(-1)!.progress!
+    expect(progress.map((item) => [item.message, item.status, item.sequence])).toEqual([
+      [goal, 'completed', 0], [plan, 'completed', 2]
+    ])
+  })
+
+  it('重规划覆盖原失败活动，最终未补偿时仍可更新为告警', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }))
+    await act(async () => { await result.current.sendMessage('使用流程查询') })
+    const publish = (status: string, message: string) => act(() => sdk.options?.onCustomEvent?.({
+      type: 'progress', kind: 'activity', id: 'skill_agent:report', stage: 'skill_agent', status, message
+    }))
+    publish('pending', '正在评估后续方案')
+    expect(result.current.messages.at(-1)?.progress?.[0].status).toBe('pending')
+    publish('superseded', '已调整研究流程')
+    expect(result.current.messages.at(-1)?.progress).toEqual([
+      expect.objectContaining({ status: 'superseded', message: '已调整研究流程', sequence: 0 })
+    ])
+    publish('failed', '研究流程未完成')
+    expect(result.current.messages.at(-1)?.progress?.[0]).toMatchObject({ status: 'failed', sequence: 0 })
+  })
+
+  it('同组成功任务不会吞掉最终未补偿失败的告警，替代后恢复中性状态', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }))
+    await act(async () => { await result.current.sendMessage('并行查询') })
+    const publish = (taskId: string, status: string) => act(() => sdk.options?.onCustomEvent?.({
+      type: 'progress', kind: 'activity', id: `tool_agent:${taskId}`, stage: 'tool_agent',
+      activity_type: 'market_data', group_id: 'market_data:1', task_id: taskId,
+      status, message: status === 'superseded' ? '已调整研究流程' : '查询状态'
+    }))
+    publish('a', 'completed')
+    publish('b', 'pending')
+    expect(result.current.messages.at(-1)?.progress?.[0].status).toBe('pending')
+    publish('b', 'failed')
+    expect(result.current.messages.at(-1)?.progress?.[0].status).toBe('failed')
+    publish('b', 'superseded')
+    expect(result.current.messages.at(-1)?.progress?.[0].status).toBe('completed')
+    expect(result.current.messages.at(-1)?.progress).toHaveLength(1)
+  })
+
+  it('兼容旧研究摘要与工具活动的到达顺序，工具完成不改变位置', async () => {
     const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
     await act(async () => { await result.current.sendMessage('测试活动顺序。') })
     act(() => {
@@ -434,14 +741,19 @@ describe('useResearchSession', () => {
         message: '已完成联网检索：搜索量价', status: 'completed',
         activity_type: 'web_search', group_id: 'web_search:1', task_id: 'a',
         query: '搜索量价', result_count: 2,
-        result_urls: ['https://a.example/x', 'https://b.example/y']
+        result_urls: ['https://a.example/x', 'https://b.example/y'], answer: '量价摘要'
       })
+    })
+    expect(result.current.messages.at(-1)?.progress?.[0]).toMatchObject({
+      status: 'started', queries: [expect.objectContaining({ answer: '量价摘要' }), expect.objectContaining({ status: 'started' })]
+    })
+    act(() => {
       sdk.options?.onCustomEvent?.({
         type: 'progress', kind: 'activity', id: 'tool:b', stage: 'tool_agent',
         message: '已完成联网检索：搜索资金', status: 'completed',
         activity_type: 'web_search', group_id: 'web_search:1', task_id: 'b',
         query: '搜索资金', result_count: 2,
-        result_urls: ['https://b.example/y', 'https://c.example/z']
+        result_urls: ['https://b.example/y', 'https://c.example/z'], answer: '资金摘要'
       })
     })
 
@@ -451,8 +763,47 @@ describe('useResearchSession', () => {
         activityType: 'web_search',
         queryCount: 2,
         resultCount: 3,
-        status: 'completed'
+        status: 'completed',
+        queries: [expect.objectContaining({ answer: '量价摘要' }), expect.objectContaining({ answer: '资金摘要' })]
       })
+    ])
+  })
+
+  it('真实工具确定后迁移同一任务，不遗留通用取证的进行中状态', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('查询') })
+    act(() => {
+      sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'activity', id: 'tool:a', message: '取证中',
+        status: 'started', activity_type: 'evidence', group_id: 'evidence:1', task_id: 'a' })
+      sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'activity', id: 'tool:b', message: '取证中',
+        status: 'started', activity_type: 'evidence', group_id: 'evidence:1', task_id: 'b' })
+      sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'activity', id: 'tool:a', message: '搜索完成',
+        status: 'completed', activity_type: 'web_search', group_id: 'web_search:1', task_id: 'a', answer: '实际摘要' })
+    })
+    expect(result.current.messages.at(-1)?.progress).toEqual([
+      expect.objectContaining({ activityType: 'evidence', queryCount: 1, status: 'started',
+        queries: [expect.objectContaining({ taskId: 'b' })] }),
+      expect.objectContaining({ activityType: 'web_search', queryCount: 1, status: 'completed',
+        queries: [expect.objectContaining({ taskId: 'a', answer: '实际摘要' })] })
+    ])
+    act(() => sdk.options?.onCustomEvent?.({ type: 'progress', kind: 'activity', id: 'tool:b', message: '搜索完成',
+      status: 'completed', activity_type: 'web_search', group_id: 'web_search:1', task_id: 'b', answer: '第二摘要' }))
+    expect(result.current.messages.at(-1)?.progress).toHaveLength(1)
+    expect(result.current.messages.at(-1)?.progress?.[0].queries).toHaveLength(2)
+  })
+
+  it('恢复历史搜索摘要并保留不同任务的结果', async () => {
+    runs.history.mockResolvedValueOnce([{
+      message_id: 'a1', role: 'assistant', status: 'completed', content: '最终结果', sequence_no: 2,
+      metadata: { research_process: ['a', 'b'].map((taskId, sequence) => ({
+        id: `tool:${taskId}`, kind: 'activity', label: '获取证据', message: '已完成搜索', status: 'completed',
+        sequence, activity_type: 'web_search', group_id: 'web_search:1', task_id: taskId, answer: `${taskId}摘要`
+      })) }
+    }])
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await Promise.resolve() })
+    expect(result.current.messages.at(-1)?.progress?.[0].queries).toEqual([
+      expect.objectContaining({ taskId: 'a', answer: 'a摘要' }), expect.objectContaining({ taskId: 'b', answer: 'b摘要' })
     ])
   })
 
@@ -579,6 +930,52 @@ describe('useResearchSession', () => {
     expect(result.current.messages.at(-1)?.userInput?.isSubmitting).not.toBe(true)
     const submitted = sdk.submit.mock.calls.length
     await act(async () => { await result.current.resumeUserInput(id, 'use_existing') })
+    expect(sdk.submit).toHaveBeenCalledTimes(submitted + 1)
+  })
+
+  it.each(['failed', 'cancelled'])('运行%s后清除失效选择，允许下一条query', async (status) => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('查询资料') })
+    const id = result.current.messages.at(-1)!.id
+    act(() => {
+      sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1' })
+      sdk.options?.onCustomEvent?.({
+        type: 'input_required', interrupt_id: 'interrupt', interaction_id: 'interaction',
+        input_type: 'selection', question: '是否替代取证？', recovery_batch: recoveryBatch(),
+        options: [{ value: 'web_search', label: '搜索' }, { value: 'use_existing', label: '已有资料' }]
+      })
+    })
+    expect(result.current.messages.at(-1)?.userInput).toBeDefined()
+    act(() => sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'r1', status }))
+    expect(result.current.messages.at(-1)?.userInput).toBeUndefined()
+    const submitted = sdk.submit.mock.calls.length
+    await act(async () => { await result.current.resumeUserInput(id, 'web_search') })
+    expect(sdk.submit).toHaveBeenCalledTimes(submitted)
+    await act(async () => { await result.current.sendMessage('下一问') })
+    expect(sdk.submit).toHaveBeenCalledTimes(submitted + 1)
+  })
+
+  it('目录失效终态后的提交异常不能重新打开旧选择框', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 'tenant-1', userId: 'user-1' }))
+    await act(async () => { await result.current.sendMessage('查询资料') })
+    const id = result.current.messages.at(-1)!.id
+    act(() => {
+      sdk.options?.onCustomEvent?.({ type: 'run_started', run_id: 'r1' })
+      sdk.options?.onCustomEvent?.({
+        type: 'input_required', interrupt_id: 'interrupt', interaction_id: 'interaction',
+        input_type: 'selection', question: '是否替代取证？',
+        options: [{ value: 'web_search', label: '搜索' }, { value: 'use_existing', label: '已有资料' }]
+      })
+    })
+    sdk.submit.mockImplementationOnce(async () => {
+      sdk.options?.onCustomEvent?.({ type: 'run_status', run_id: 'r1', status: 'failed' })
+      throw new Error('工具目录已变化，不能继续用户输入恢复。')
+    })
+    await act(async () => { await result.current.resumeUserInput(id, 'web_search') })
+    expect(result.current.messages.at(-1)?.status).toBe('error')
+    expect(result.current.messages.at(-1)?.userInput).toBeUndefined()
+    const submitted = sdk.submit.mock.calls.length
+    await act(async () => { await result.current.sendMessage('下一问') })
     expect(sdk.submit).toHaveBeenCalledTimes(submitted + 1)
   })
 

@@ -20,6 +20,7 @@ class StepDraft(BaseModel):
     completion_criteria: list[str] = Field(default_factory=list, max_length=8)
     missing_policy: Literal["stop", "continue"] = "stop"
     missing_policy_source: str | None = None
+    web_search_fallback_source: str | None = Field(default=None, min_length=1, max_length=4000)
 
 
 class WorkflowDraft(BaseModel):
@@ -31,6 +32,7 @@ class WorkflowDraft(BaseModel):
 class WorkflowStep(StepDraft):
     task_id: str
     tool_version: str | None = None
+    argument_retry_count: int = Field(default=0, ge=0, le=1)
 
 
 class SkillWorkflow(BaseModel):

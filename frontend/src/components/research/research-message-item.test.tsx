@@ -18,12 +18,120 @@ vi.mock('@/components/ai-elements/message', () => ({
 
 vi.mock('@/components/ai-elements/reasoning', () => ({
   Reasoning: ({ children, isStreaming }: { children: ReactNode; isStreaming: boolean }) => <section data-testid="reasoning" data-streaming={isStreaming}>{children}</section>,
-  ReasoningTrigger: () => <div>研究过程</div>,
+  ReasoningTrigger: ({ getThinkingMessage }: { getThinkingMessage?: (streaming: boolean, duration?: number) => ReactNode }) => <div>{getThinkingMessage?.(false, 3) || '研究过程'}</div>,
   ReasoningContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   ReasoningText: ({ children }: { children: ReactNode }) => <div>{children}</div>
 }))
 
 describe('ResearchMessageItem', () => {
+  it('正文流式输出期间隐藏来源入口，完整回答结束后再展示', () => {
+    const message = { id: 'stream-sources', role: 'assistant' as const, content: '已输出的正文', createdAt: '',
+      status: 'streaming' as const, evidence: [{ id: 'source_7', index: 7, title: '报告', url: 'https://example.com/report' }] }
+    const view = render(<ResearchMessageItem message={message} onCitation={vi.fn()} />)
+    expect(screen.getByText('已输出的正文')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /研究来源/ })).toBeNull()
+    view.rerender(<ResearchMessageItem message={{ ...message, status: 'complete', content: '完整正文' }} onCitation={vi.fn()} />)
+    expect(screen.getByText('完整正文')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /研究来源/ })).toBeTruthy()
+  })
+
+  it('没有正文时不单独展示来源入口', () => {
+    render(<ResearchMessageItem message={{ id: 'empty-sources', role: 'assistant', content: '  ', createdAt: '',
+      status: 'complete', evidence: [{ id: 'source_7', index: 7, title: '报告', url: 'https://example.com/report' }] }} onCitation={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: /研究来源/ })).toBeNull()
+  })
+
+  it('已替代的查询不计入已取得数据的数量', () => {
+    render(<ResearchMessageItem message={{ id: 'group', role: 'assistant', content: '结论', createdAt: '',
+      status: 'complete', progress: [{ id: 'market', kind: 'activity', label: '市场数据',
+        message: '已调整流程', status: 'completed', activityType: 'market_data', queryCount: 2,
+        queries: [
+          { taskId: 'ok', query: '成功', status: 'completed', resultUrls: [] },
+          { taskId: 'replaced', query: '替代', status: 'superseded', resultUrls: [] }
+        ] }] }} onCitation={vi.fn()} />)
+    expect(screen.getByText('已取得 1 项市场数据')).toBeTruthy()
+    expect(screen.queryByText('已取得 2 项市场数据')).toBeNull()
+  })
+
+  it('待补偿及已替代的流程使用中性图标，只有最终失败显示感叹号', () => {
+    const message = { id: 'replan', role: 'assistant' as const, content: '', createdAt: '',
+      status: 'streaming' as const, progress: [{ id: 'skill', kind: 'activity' as const,
+        label: '研究流程', message: '正在评估后续方案', status: 'pending' as const }] }
+    const view = render(<ResearchMessageItem message={message} onCitation={vi.fn()} />)
+    expect(view.container.querySelector('.lucide-circle-alert')).toBeNull()
+    view.rerender(<ResearchMessageItem message={{ ...message, progress: [{ ...message.progress[0],
+      status: 'superseded', message: '已调整研究流程' }] }} onCitation={vi.fn()} />)
+    expect(screen.getByText('已调整研究流程')).toBeTruthy()
+    expect(view.container.querySelector('.lucide-workflow')).toBeTruthy()
+    expect(view.container.querySelector('.lucide-circle-alert')).toBeNull()
+    view.rerender(<ResearchMessageItem message={{ ...message, progress: [{ ...message.progress[0],
+      status: 'failed', message: '研究流程未完成' }] }} onCitation={vi.fn()} />)
+    expect(view.container.querySelector('.lucide-circle-alert')).toBeTruthy()
+  })
+
+  it('历史消息没有可靠计时数据时，不使用组件挂载时长作为思考用时', () => {
+    render(<ResearchMessageItem message={{
+      id: 'history', role: 'assistant', content: '历史答案', status: 'complete', createdAt: '2026-10-28T00:00:00Z',
+      progress: [{ id: 'goal', kind: 'goal', label: '研究目标', message: '目标', status: 'completed' }]
+    }} onCitation={vi.fn()} />)
+    expect(screen.getByText('研究进展')).toBeTruthy()
+    expect(screen.queryByText(/思考用时|· 3 秒/)).toBeNull()
+  })
+  it('搜索完成即在 timeline 下方展示摘要，其他并行搜索仍可继续', () => {
+    const message = {
+      id: 'answers', role: 'assistant' as const, content: '', createdAt: '', status: 'streaming' as const,
+      progress: [{
+        id: 'web', kind: 'activity' as const, label: '获取证据', message: '搜索中',
+        activityType: 'web_search' as const, status: 'started' as const, queryCount: 2,
+        queries: [
+          { taskId: 'a', query: '量价', status: 'completed' as const, resultUrls: [], answer: '量价摘要' },
+          { taskId: 'b', query: '资金', status: 'started' as const, resultUrls: [], answer: '未完成不展示' }
+        ]
+      }]
+    }
+    const view = render(<ResearchMessageItem message={message} onCitation={vi.fn()} />)
+    expect(screen.getByText('正在搜索 2 项信息…')).toBeTruthy()
+    const summaries = screen.getByRole('region', { name: '搜索摘要' })
+    expect(summaries.textContent).toContain('量价摘要')
+    expect(summaries.textContent).not.toContain('未完成不展示')
+    const timeline = view.container.querySelector('.reasoning-stream')!
+    expect(timeline.compareDocumentPosition(summaries) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    view.rerender(<ResearchMessageItem message={{ ...message, progress: [{ ...message.progress[0],
+      queries: message.progress[0].queries.map((query) => ({ ...query,
+        status: 'completed' as const, answer: query.taskId === 'a' ? '量价摘要' : '资金摘要' }))
+    }] }} onCitation={vi.fn()} />)
+    expect(summaries.textContent).toContain('量价摘要')
+    expect(summaries.textContent).toContain('资金摘要')
+  })
+
+  it('没有非空搜索 answer 时不显示摘要区域', () => {
+    render(<ResearchMessageItem message={{
+      id: 'empty', role: 'assistant', content: '', createdAt: '', status: 'streaming',
+      progress: [{ id: 'web', kind: 'activity', label: '获取证据', message: '完成',
+        activityType: 'web_search', status: 'completed', queries: [
+          { taskId: 'a', query: '查询', status: 'completed', resultUrls: [], answer: ' ' }
+        ] }]
+    }} onCitation={vi.fn()} />)
+    expect(screen.queryByRole('region', { name: '搜索摘要' })).toBeNull()
+    expect(screen.queryByText('查看搜索范围')).toBeNull()
+  })
+
+  it('直接展示研究目标和任务列表，不需要模型生成摘要', () => {
+    render(<ResearchMessageItem message={{
+      id: 'goal-plan', role: 'assistant', content: '', createdAt: '', status: 'streaming',
+      progress: [
+        { id: 'goal', kind: 'goal', label: '研究目标', message: '分析当日表现', status: 'completed', sequence: 0 },
+        { id: 'plan', kind: 'plan', label: '研究计划', message: '1. 核验行情\n2. 核验消息', status: 'completed', sequence: 1 },
+        { id: 'task', kind: 'activity', label: '获取证据', message: '正在核验行情', status: 'started', sequence: 2 }
+      ]
+    }} onCitation={vi.fn()} />)
+    expect(screen.getByText('研究目标')).toBeTruthy()
+    expect(screen.getByText('分析当日表现')).toBeTruthy()
+    expect(screen.getByText('研究计划')).toBeTruthy()
+    expect(screen.getByText(/1\. 核验行情/)).toBeTruthy()
+    expect(screen.getByText('正在核验行情')).toBeTruthy()
+  })
+
   it('恢复卡片使用简短问题和选项，点击仍传原始授权值', () => {
     const onUserInputSelect = vi.fn()
     render(<ResearchMessageItem message={{
@@ -226,10 +334,10 @@ describe('ResearchMessageItem', () => {
     expect(screen.getByTestId('reasoning').getAttribute('data-streaming')).toBe('false')
   })
 
-  it('将搜索分组渲染为网页总数并保留查询方向', () => {
+  it('搜索分组仅展示网页总数，不重复展示研究计划中的查询范围', () => {
     render(<ResearchMessageItem message={{
       id: 'search-group', role: 'assistant', createdAt: new Date().toISOString(),
-      status: 'complete', content: '完成',
+      status: 'complete', content: '完成', thinkingDurationSeconds: 12,
       progress: [{
         id: 'web_search:1', label: '获取证据', message: '已完成联网检索',
         status: 'completed', kind: 'activity', activityType: 'web_search',
@@ -241,9 +349,12 @@ describe('ResearchMessageItem', () => {
       }]
     }} onCitation={vi.fn()} />)
 
+    expect(screen.getByText('研究进展')).toBeTruthy()
+    expect(screen.getByText('· 思考用时 12 秒')).toBeTruthy()
     expect(screen.getByText('搜索到 3 个网页')).toBeTruthy()
-    expect(screen.getByText('搜索量价')).toBeTruthy()
-    expect(screen.getByText('搜索资金')).toBeTruthy()
+    expect(screen.queryByText('查看搜索范围')).toBeNull()
+    expect(screen.queryByText('搜索量价')).toBeNull()
+    expect(screen.queryByText('搜索资金')).toBeNull()
   })
 
   it('将相同类型的市场数据活动合并为一个操作组', () => {
@@ -262,8 +373,9 @@ describe('ResearchMessageItem', () => {
     }} onCitation={vi.fn()} />)
 
     expect(screen.getByText('已取得 2 项市场数据')).toBeTruthy()
-    expect(screen.getByText('查询当日行情')).toBeTruthy()
-    expect(screen.getByText('查询资金流向')).toBeTruthy()
+    expect(screen.queryByText('查看任务明细')).toBeNull()
+    expect(screen.queryByText('查询当日行情')).toBeNull()
+    expect(screen.queryByText('查询资金流向')).toBeNull()
   })
 
   it('相同的模型思考和结构化摘要只展示一次', () => {

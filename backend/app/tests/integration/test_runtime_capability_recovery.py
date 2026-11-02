@@ -1,5 +1,7 @@
 """真实 Gateway、独立回执和 Graph 的受控批次恢复，不访问外部服务。"""
 
+import json
+
 import pytest
 from app.conversations.execution import execution_control
 from app.core import config as app_config
@@ -32,7 +34,7 @@ def telemetry(request):
 
 
 def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planner_node=None,
-                search_tool=None):
+                search_tool=None, healthy_uses_gateway=False):
     monkeypatch.setattr(app_config, "settings", app_config.settings.model_copy(
         update={"permission_recovery_source_policy": "public_supplement_only"}
     ))
@@ -76,22 +78,22 @@ def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planne
              "source_requirement": "public_information"},
             {"id": "cashflow", "task_goal": "查询现金流公开披露", "completion_criteria": ["保留报告期间"],
              "source_requirement": "public_information"},
-            {"id": "healthy", "task_goal": "分析已有材料", "execution_type": "analysis"},
+            {"id": "healthy", "task_goal": "查询独立公开事实", "execution_type": "tool"},
         ]
     }
     builder = StateGraph(AgentState)
     builder.add_node("task_scheduler", build_task_scheduler_node(registry))
-    builder.add_node("tool_agent", capture_dispatch(worker))
-    builder.add_node(
-        "analysis_agent",
-        capture_dispatch(
-            lambda state: {
+
+    def tool_worker(state):
+        if state["active_task"]["id"] == "healthy" and not healthy_uses_gateway:
+            return {
                 "task_results": [
                     {"task_id": "healthy", "status": "success", "content": "健康任务结果"}
                 ]
             }
-        ),
-    )
+        return worker(state)
+
+    builder.add_node("tool_agent", capture_dispatch(tool_worker))
     builder.add_node(
         "user_input_gate",
         lambda state: user_input_gate_node(
@@ -111,7 +113,7 @@ def batch_graph(control, monkeypatch, *, recovery_hook=None, policy=None, planne
     builder.add_node("synthesizer", lambda state: {})
     builder.set_entry_point("task_scheduler")
     builder.add_conditional_edges("task_scheduler", _dispatch_after_scheduler)
-    for node in ("tool_agent", "analysis_agent", "user_input_gate", "permission_recovery"):
+    for node in ("tool_agent", "user_input_gate", "permission_recovery"):
         builder.add_edge(node, "task_scheduler")
     builder.add_edge("planner_agent", END)
     builder.add_edge("synthesizer", END)
@@ -304,11 +306,11 @@ def test_same_dispatch_refusals_form_one_complete_interrupt_without_model_resele
     assert "planner_stop_reason" not in resumed
 
 
-@pytest.mark.parametrize("choice",["web_search","use_existing"])
-@pytest.mark.parametrize("constraint", ["unrestricted", "confirmation_required"])
+@pytest.mark.parametrize("provider_code", [2002, 40203])
+@pytest.mark.parametrize("constraint", ["unrestricted", "original_only", "confirmation_required", "unclear", None])
 @pytest.mark.parametrize("requirement", ["public_information", "original_data"])
-def test_real_adapter_error_text_reaches_merged_interrupt_and_durable_settlement(
-    control, monkeypatch, choice, constraint, requirement,
+def test_readonly_rejection_without_multi_source_plan_keeps_original_receipts(
+    control, monkeypatch, provider_code, constraint, requirement,
 ):
     import json
 
@@ -328,7 +330,8 @@ def test_real_adapter_error_text_reaches_merged_interrupt_and_durable_settlement
         adapter=DynamicMcpHttpTool(name=data.name,server_name="tushare",
             langchain_tool=_langchain_tool("income_vip",{}),description="年报公开披露",
             input_schema={"type":"object","properties":{"dataset":{"type":"string"}},"required":["dataset"]},
-            permission_scope=[],permission_denial_is_pre_execution=True)
+            permission_scope=[],permission_denial_is_pre_execution=True,
+            effect_type="read_only",error_protocol="tushare")
 
         class SelectDataset:
             def bind_tools(self,tools,*,tool_choice):
@@ -344,14 +347,14 @@ def test_real_adapter_error_text_reaches_merged_interrupt_and_durable_settlement
         async def remote(_value):
             invoked.append(_value)
             return ToolMessage(content=[{"type":"text","text":
-                "tushare API 错误 [40203]: 抱歉，您没有接口(income_vip)访问权限，权限详情请查文档。"
+                f"tushare API 错误 [{provider_code}]: 任意语言的权限说明，不参与分类。"
             }],status="error",tool_call_id="remote")
 
         monkeypatch.setattr(type(adapter._langchain_tool),"ainvoke",lambda self,value:remote(value))
         registry=ToolRegistry()
         registry.register(adapter,execution_binding=McpGateway.execution_binding(
             McpServerConfig(name="tushare",url="https://provider.example/mcp",
-                permission_denial_is_pre_execution=True),tool=adapter))
+                permission_denial_is_pre_execution=True,effect_type="read_only",error_protocol="tushare"),tool=adapter))
         registry.register(search)
         registry=registry.snapshot()
         worker=tool_agent.build_tool_agent_node(registry_factory=lambda:registry,llm_client=client,
@@ -361,24 +364,29 @@ def test_real_adapter_error_text_reaches_merged_interrupt_and_durable_settlement
     monkeypatch.setitem(globals(),"setup_worker",setup)
     graph,state,_,search,_,_=batch_graph(control,monkeypatch)
     state["intent"]={"source_constraint":constraint}
+    state["request_flow_version"] = "context-routing-v1"
+    state["planner_iteration"] = 1
     for task in state["plan"]["tasks"][:2]:
         task["source_requirement"] = requirement
     cfg={"configurable":{"thread_id":"real-text-recovery"}}
     with execution_control(control):
-        paused=graph.invoke(state,cfg)
-        assert len(paused["__interrupt__"])==1
-        payload=paused["__interrupt__"][0].value
-        assert len(payload["recovery_batch"]["items"])==2
-        assert len(invoked)==2 and search.calls==0
+        finished=graph.invoke(state,cfg)
+        assert "__interrupt__" not in finished
+        assert len(invoked) == 2 and search.calls == 0
+        assert not finished.get("recovery_batches")
+        assert finished["plan"] == state["plan"]
+        completed = {row["task_id"]: row for row in finished["task_results"]}
+        assert completed["healthy"]["status"] == "success"
+        expected = "provider_permission_denied" if provider_code == 2002 else "provider_request_rejected"
+        assert all(completed[key]["error_code"] == expected for key in ("income", "cashflow"))
+        assert len(finished["tool_selection_contexts"]) == 2
         with control.session_factory() as db:
-            rows=list(db.scalars(select(AgentRunToolReceipt).where(AgentRunToolReceipt.run_id==control.run_id)))
-            assert len(rows)==2 and all(r.status=="settled" for r in rows)
-            assert all(r.result_summary["execution_state"]=="not_started" for r in rows)
-        resumed=graph.invoke(confirm(payload,choice),cfg)
-    assert "__interrupt__" not in resumed
-    assert len(invoked)==2
-    assert search.calls==(2 if choice=="web_search" else 0)
-    assert any(r["task_id"]=="healthy" and r["status"]=="success" for r in resumed["task_results"])
+            rows = list(db.scalars(select(AgentRunToolReceipt).where(
+                AgentRunToolReceipt.run_id == control.run_id)))
+            assert len(rows) == 2 and all(row.status == "settled" for row in rows)
+            originals = [row for row in rows if row.tool_name != "web_search"]
+            assert len(originals) == 2
+            assert all(row.result_summary["execution_state"] == "not_started" for row in originals)
 
 
 def confirm(payload, value="web_search"):
@@ -406,8 +414,8 @@ def add_historical_unknown(control, *, session_key=None):
         db.flush()
         db.add(AgentRunToolReceipt(
             receipt_id="historical-unknown", run_id="historical-run", owner_token="old-owner",
-            tool_name="mcp.tushare.anns_d", call_id="historical-call", risk_level="medium",
-            status="unknown", result_summary={"execution_state": "uncertain"},
+            tool_name="mcp.business.submit_order", call_id="historical-call", risk_level="medium",
+            status="unknown", result_summary={"execution_state": "uncertain", "_effect_type": "write"},
         ))
         db.commit()
 
@@ -421,6 +429,8 @@ def test_historical_unknown_offers_frozen_search_without_clearing_or_replaying_o
     from app.tests.unit.test_permission_fallback import DeniedTool
 
     monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    # 此处复用假工具测试显式业务写契约；真实 Admin TuShare 连接始终只读。
+    monkeypatch.setattr(DeniedTool, "effect_type", "write")
     graph, state, data, search, client, _ = batch_graph(control, monkeypatch)
     for task in state["plan"]["tasks"][:2]:
         task["source_requirement"] = requirement
@@ -444,10 +454,10 @@ def test_historical_unknown_offers_frozen_search_without_clearing_or_replaying_o
     from app.conversations.execution import UnresolvedToolEffect
 
     with pytest.raises(UnresolvedToolEffect):
-        control.ensure_tool_effects_resolved(risk_level="medium")
+        control.ensure_tool_effects_resolved(risk_level="medium", effect_type="write")
     with control.session_factory() as db:
         old = db.get(AgentRunToolReceipt, "historical-unknown")
-        assert old.status == "unknown" and old.result_summary == {"execution_state": "uncertain"}
+        assert old.status == "unknown" and old.result_summary == {"execution_state": "uncertain", "_effect_type": "write"}
         current = list(db.scalars(select(AgentRunToolReceipt).where(AgentRunToolReceipt.run_id == control.run_id)))
         assert len(current) == (2 if choice == "web_search" else 0)
         assert all(r.tool_name == "web_search" and r.status == "settled" for r in current)
@@ -460,6 +470,8 @@ def test_historical_unknown_cannot_offer_search_without_source_and_original_cand
     from app.tests.unit.test_permission_fallback import DeniedTool
 
     monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    # 此处复用假工具测试显式业务写契约；真实 Admin TuShare 连接始终只读。
+    monkeypatch.setattr(DeniedTool, "effect_type", "write")
     if restriction == "no_candidate":
         original_setup = setup_worker
         monkeypatch.setitem(globals(), "setup_worker", lambda: original_setup(candidates=False))
@@ -489,6 +501,8 @@ def test_local_unstarted_recovery_rechecks_execution_proof_before_confirmed_sear
     from app.tests.unit.test_permission_fallback import DeniedTool
 
     monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    # 此处复用假工具测试显式业务写契约；真实 Admin TuShare 连接始终只读。
+    monkeypatch.setattr(DeniedTool, "effect_type", "write")
     graph, state, data, search, _, registry = batch_graph(control, monkeypatch)
     add_historical_unknown(control)
     with execution_control(control):
@@ -525,14 +539,16 @@ def test_production_source_contract_reaches_interrupt_without_allowed_policy_stu
         assert context["source_policy"]["basis"][0] == "runtime-contract:public-supplement-v1"
 
 
-def test_existing_router_and_planner_produce_source_labels_without_additional_calls(
+def test_router_and_planner_keep_single_calls_without_source_gate(
     control, monkeypatch, business_intent_catalog,
 ):
     from app.graph.nodes.intent_router import build_intent_router_node
     from app.graph.nodes.planner_agent import build_planner_agent_node
     from app.tests.unit.test_dynamic_planner import RecordingLlmClient
     from app.tests.unit.test_intent_router import FakeLlmClient
+    from app.tests.unit.test_permission_fallback import DeniedTool
 
+    monkeypatch.setattr(DeniedTool, "effect_type", "read_only")
     graph, state, _, search, _, _ = batch_graph(control, monkeypatch)
     router_llm = FakeLlmClient({
         "intent_type": "financial_research", "domain": "a_share_equity_research",
@@ -545,10 +561,11 @@ def test_existing_router_and_planner_produce_source_labels_without_additional_ca
     build_planner_agent_node(llm_client=planner_llm)(state)
     with execution_control(control):
         paused = graph.invoke(state, {"configurable": {"thread_id": "existing-model-passes"}})
-    assert "__interrupt__" in paused and search.calls == 0
+    assert "__interrupt__" not in paused and search.calls == 0
+    assert sum(row["status"] == "business_failure" for row in paused["task_results"]) == 2
     assert len(router_llm.calls) == len(planner_llm.calls) == 1
-    assert all("test-contract" not in str(row["source_policy"])
-        for row in paused["tool_selection_contexts"].values())
+    assert "source_constraint" not in paused["intent"]
+    assert "source_constraint" not in json.loads(planner_llm.calls[0]["user_prompt"])["planning_constraints"]
 
 
 @pytest.mark.parametrize("choice", ["web_search", "use_existing"])
@@ -726,6 +743,8 @@ def test_medium_risk_healthy_call_waits_for_peer_refusal_settlement_without_disa
 
     monkeypatch.setattr(ExecutionControl, "ensure_tool_effects_resolved", guard)
     monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    # 此处复用假工具测试显式业务写契约；真实 Admin TuShare 连接始终只读。
+    monkeypatch.setattr(DeniedTool, "effect_type", "write")
     monkeypatch.setattr(DeniedTool, "run", run)
     graph, state, data, search, client, _ = batch_graph(control, monkeypatch)
     with execution_control(control):
@@ -793,11 +812,13 @@ def test_three_medium_calls_do_not_drop_a_second_deferred_attempt(
 
     monkeypatch.setattr(ExecutionControl, "ensure_tool_effects_resolved", guard)
     monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    # 此处复用假工具测试显式业务写契约；真实 Admin TuShare 连接始终只读。
+    monkeypatch.setattr(DeniedTool, "effect_type", "write")
     monkeypatch.setattr(DeniedTool, "run", run)
-    graph, state, data, search, client, _ = batch_graph(control, monkeypatch)
-    state["plan"]["tasks"][2].update(
-        execution_type="tool", source_requirement="public_information",
+    graph, state, data, search, client, _ = batch_graph(
+        control, monkeypatch, healthy_uses_gateway=True,
     )
+    state["plan"]["tasks"][2]["source_requirement"] = "public_information"
     config = {"configurable": {"thread_id": "three-medium"}}
     with execution_control(control):
         finished = graph.invoke(state, config)
@@ -992,6 +1013,8 @@ def test_existing_uncertain_effect_remains_protected_and_is_not_rewritten(contro
     from app.tests.unit.test_permission_fallback import DeniedTool
 
     monkeypatch.setattr(DeniedTool, "risk_level", "medium")
+    # 此处复用假工具测试显式业务写契约；真实 Admin TuShare 连接始终只读。
+    monkeypatch.setattr(DeniedTool, "effect_type", "write")
     receipt = control.tool_started(
         ToolCallRequest(
             call_id="controlled-unknown",
@@ -1000,6 +1023,7 @@ def test_existing_uncertain_effect_remains_protected_and_is_not_rewritten(contro
             purpose="受控未决执行",
         ),
         risk_level="medium",
+        effect_type="write",
     )
     control.tool_finished(
         receipt, {"status": "unknown", "error": {"code": "controlled_timeout"}}, uncertain=True
@@ -1164,3 +1188,32 @@ def test_recovery_does_not_reselect_tools_and_preserves_one_normal_planner_revie
         finished = graph.invoke(confirm(paused["__interrupt__"][0].value), config)
     assert review.calls == 1 and data.calls == search.calls == 2
     assert finished["planner_decision"]["action"] == "finish"
+
+
+def test_each_recovered_search_emits_its_own_public_answer(control, monkeypatch):
+    from app.tools.web_search import WebSearchTool
+
+    class SummaryClient(RecordingSearchClient):
+        async def search(self, **kwargs):
+            result = await super().search(**kwargs)
+            return result.model_copy(update={"answer": "摘要：" + kwargs["query"]})
+
+    search_client = SummaryClient()
+    graph, state, _, _, _, _ = batch_graph(
+        control, monkeypatch, search_tool=WebSearchTool(client=search_client),
+    )
+    graph_config = {"configurable": {"thread_id": "recovery-public-answers"}}
+    with execution_control(control):
+        paused = graph.invoke(state, graph_config)
+        payload = paused["__interrupt__"][0].value
+        events = list(graph.stream(Command(resume={
+            "interaction_id": payload["interaction_id"], "input_type": "selection", "value": "web_search",
+            "presentation_version": payload["recovery_batch"]["version"],
+            "batch_digest": payload["recovery_batch"]["digest"],
+        }), graph_config, stream_mode="custom"))
+    progress = [event for event in events if event.get("type") == "progress"]
+    assert len(progress) == 4
+    for task_id in ("income", "cashflow"):
+        assert [event["status"] for event in progress if event["task_id"] == task_id] == ["started", "completed"]
+    assert all(event.get("answer", "").startswith("摘要：") for event in progress if event["status"] == "completed")
+    assert all("answer" not in event for event in progress if event["status"] == "started")

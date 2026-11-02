@@ -9,6 +9,7 @@ from app.conversations.durable import DurableRunService
 from app.graph.planning.contracts import MAX_TASK_RESULT_CONTENT_CHARS, TaskResultModel
 from app.graph.planning.evidence_projection import recovery_coverage
 from app.graph.planning.policy import MAX_WEB_SEARCH_TASKS
+from app.graph.public_events import emit_public_progress
 from app.graph.recovery.batching import SOURCE_NOTICE, batch_request
 from app.graph.recovery.validation import invalid, require_control, validate_batch
 from app.operations.langfuse_scheduler import record_recovery_event
@@ -136,7 +137,7 @@ def _content(item, request, result=None, *, code=None):
     return text
 
 
-def build_recovery_node(registry):
+def build_recovery_node(registry, *, availability_registry_factory=None):
     def node(state):
         response = state.get("user_input_response")
         if response is None or response.source.kind != RECOVERY_KIND:
@@ -188,9 +189,14 @@ def build_recovery_node(registry):
                 except Exception:  # noqa: BLE001 - 脱敏失败只能保留缺口，不回退明文
                     code = "recovery_query_redaction_failed"
                 if request is not None:
+                    progress_state = {**state, "active_task": {
+                        "id": item.task_id, "task_goal": item.task_goal, "tool_name": "web_search",
+                    }, "task_results": []}
+                    emit_public_progress("tool_agent", progress_state, status="started")
                     selection = state["tool_selection_contexts"][item.original_call_id]
                     result = asyncio.run(
-                        ToolExecutionGateway(registry).execute(
+                        ToolExecutionGateway(registry,
+                            availability_registry_factory=availability_registry_factory).execute(
                             request,
                             trace_id=state["trace_id"],
                             context=ToolExecutionContext(
@@ -233,6 +239,10 @@ def build_recovery_node(registry):
                     tool_name="web_search" if request else item.original_tool,
                 ).model_dump(mode="python")
             )
+            if request is not None:
+                emit_public_progress("tool_agent", {
+                    **progress_state, "task_results": [update["task_results"][-1]],
+                }, status="completed")
             update["recovery_outcomes"][item.original_call_id] = {
                 "batch_id": batch.batch_id,
                 "replacement_call_id": request.call_id if request else None,

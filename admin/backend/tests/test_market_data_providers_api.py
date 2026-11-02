@@ -280,3 +280,22 @@ def test_internal_active_mcp_connection_returns_409_for_invalid_active_provider(
 
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "market_data_provider_config_invalid"
+
+
+def test_public_documentation_scope_is_explicit_and_can_be_disabled():
+    client = create_test_client()
+    payload = _provider_payload(active=True)
+    payload["settings"]["public_documentation"] = False
+    payload["settings"]["documentation_domains"] = []
+    assert client.post("/api/market-data-providers", json=payload).status_code == 201
+    connection = client.get("/api/internal/market-data-providers/active/mcp-connection").json()
+    assert connection["public_documentation"] is False
+    assert connection["documentation_domains"] == []
+
+
+def test_documentation_domains_reject_urls_before_saving_provider():
+    client = create_test_client()
+    payload = _provider_payload(active=True)
+    payload["settings"]["documentation_domains"] = ["https://docs.example.com/private?token=secret"]
+    response = client.post("/api/market-data-providers", json=payload)
+    assert response.status_code == 422

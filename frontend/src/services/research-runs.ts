@@ -1,6 +1,6 @@
 import { agentRequestHeaders, type RequestIdentity } from './research-api'
 
-export type RunStatus = 'running' | 'stop_requested' | 'cancelled' | 'completed' | 'failed' | 'interrupted'
+export type RunStatus = 'running' | 'stop_requested' | 'cancelled' | 'completed' | 'failed' | 'rejected' | 'interrupted'
 export type ResearchRun = {
   run_id: string
   request_id?: string

@@ -253,16 +253,14 @@ def project_numeric_materials(
 
 
 def numeric_fallback(
-    materials: list[dict], limitations: list[str], references: list[NumericReference]
+    materials: list[dict], _limitations: list[str], references: list[NumericReference]
 ) -> str:
     sections = [
-        "## 已取得的可核验材料\n\n以下保留原始数值与确定性换算，不采用未经核对的额外盘面或结构推断。"
+        "## 已取得的可核验材料\n\n数值核对未通过，尚未形成完整答复。以下保留原始数值与确定性换算，不采用未经核对的额外盘面或结构推断。"
     ]
     for material in project_numeric_materials(materials, references):
         content = material["content"]
         if isinstance(content, str) and numeric_conflict(content, references):
             continue  # 不把同样矛盾的中间衍生分析复制到保底答复。
         sections.append(f"### {material['research_goal']}\n\n{content}")
-    if limitations:
-        sections.append("## 数据缺口\n\n" + "\n".join(f"- {item}" for item in limitations))
     return "\n\n".join(sections)

@@ -103,12 +103,31 @@ def test_planner_receives_available_information_in_existing_call():
 
     llm = Answers({"tasks": [{"id": "news", "task_goal": "核实近期公告"}]})
     value = state()
+    value["intent"]["source_constraint"] = "original_only"
     build_planner_agent_node(llm_client=llm)(value)
     payload = json.loads(llm.calls[0]["user_prompt"])
+    assert "source_constraint" not in payload["planning_constraints"]
     assert payload["planning_constraints"]["request_context"]["available_information"] == (
         value["intent"]["available_information"]
     )
     assert len(llm.calls) == 1
+
+
+def test_synthesis_omits_legacy_summary_without_changing_plan_signature():
+    from app.graph.nodes.synthesizer import build_synthesizer_node
+    from app.graph.planning.request_flow import plan_signature
+
+    value = state()
+    value["plan"] = {"public_summary": "旧的展示摘要", "tasks": [{"id": "facts", "task_goal": "核实事实"}]}
+    value["task_results"] = [{"task_id": "facts", "status": "success", "content": "已有数据"}]
+    signature = plan_signature(value["plan"])
+    llm = Answers('{"action":"answer"}\n根据已有数据完成分析。')
+    build_synthesizer_node(llm_client=llm)(value)
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert "public_summary" not in payload["current_plan"]
+    assert payload["current_plan"]["tasks"][0]["task_goal"] == "核实事实"
+    assert value["plan"]["public_summary"] == "旧的展示摘要"
+    assert plan_signature(value["plan"]) == signature
 
 
 def test_new_scheduler_advances_dependencies_without_review():
@@ -150,7 +169,7 @@ def test_synthesis_answers_and_assesses_in_one_call():
     assert "用户提供的收入为12" in result["draft_answer"]["content"]
     assert '"action"' not in result["draft_answer"]["content"]
     assert len(llm.calls) == 1
-    assert llm.calls[0]["thinking"] is True
+    assert llm.calls[0]["thinking"] is False
     payload = json.loads(llm.calls[0]["user_prompt"])
     assert payload["request_context"]["available_information"] == value["intent"]["available_information"]
     assert payload["allow_replan"] is False
@@ -256,27 +275,142 @@ def test_synthesis_prompt_prioritizes_required_verification_over_a_limitations_o
     assert "先判断必须完成的目标" in prompt
 
 
-@pytest.mark.parametrize("change,expected", [
-    ("unknown_ref", "replan_evidence_ref_invalid"),
-    ("budget", "replan_budget_exhausted"),
-    ("pending_task", "replan_pending_execution"),
+@pytest.mark.parametrize("refs", [
+    ["task:facts", "source_1", "source_5"],
+    ["article:vendor/abc-123"],
+    ["task:invented"],
 ])
-def test_revision_rejects_unknown_evidence_budget_and_unfinished_work(change, expected):
+def test_replan_reference_hints_do_not_block_revision_or_become_verified_evidence(refs):
+    from app.graph.nodes.planner_agent import build_planner_agent_node
+    from app.graph.nodes.synthesizer import build_synthesizer_node
+    from app.graph.runtime import _dispatch_after_scheduler, _route_after_synthesis
+
+    value = state()
+    value.update(planner_iteration=1, plan={"tasks": [{"id": "facts", "task_goal": "查收入"}]},
+                 task_results=[{"task_id": "facts", "status": "terminal_failure",
+                                "error_code": "provider_request_rejected", "content": "原接口拒绝请求"}])
+    proposal = {**request(), "evidence_refs": refs,
+                "required_changes": ["改从公司披露公告核实收入"]}
+    build_synthesizer_node(llm_client=Answers({
+        "action": "request_replan", "replan_request": proposal,
+    }))(value)
+
+    assert _route_after_synthesis(value) == "planner_agent"
+    assert value["pending_replan"]["request"] == proposal
+    assert value.get("replan_stop_reason") is None
+    assert value["replan_request_count"] == 1
+    llm = Answers({"action": "revise", "reason": "切换取证路径", "plan": {"tasks": [
+        {"id": "verify", "task_goal": "从公司披露公告核实收入"},
+    ]}})
+    build_planner_agent_node(llm_client=llm)(value)
+
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert payload["replan_request"] == proposal
+    assert payload["observations"][0]["status"] == "terminal_failure"
+    assert payload["successful_history_task_ids"] == []
+    dispatch = _dispatch_after_scheduler(value)
+    assert [item.arg["active_task"]["id"] for item in dispatch] == ["r1_verify"]
+    assert value["task_results"][0]["status"] == "terminal_failure"
+
+
+@pytest.mark.parametrize("change,expected", [
+    ("no_plan", "replan_no_active_plan"),
+    ("legacy_flow", "replan_no_active_plan"),
+    ("stopped", "replan_output_invalid"),
+    ("budget", "replan_budget_exhausted"),
+    ("planner_budget", "replan_budget_exhausted"),
+    ("pending_task", "replan_pending_execution"),
+    ("pending_user_input", "replan_pending_execution"),
+    ("user_input_response", "replan_pending_execution"),
+    ("pending_tool_approval", "replan_pending_execution"),
+    ("running_skill", "replan_pending_execution"),
+    ("running_tool", "replan_pending_execution"),
+])
+def test_revision_still_enforces_lifecycle_budget_and_unfinished_work(change, expected):
     from app.graph.planning.request_flow import accept_replan
 
     value = state()
     value.update(planner_iteration=1, plan={"tasks": [{"id": "facts", "task_goal": "查收入"}]},
                  task_results=[{"task_id": "facts", "status": "success", "content": "冲突"}])
-    proposal = request()
-    if change == "unknown_ref":
-        proposal["evidence_refs"] = ["task:invented"]
+    proposal = {**request(), "evidence_refs": ["source_1"]}
+    if change == "no_plan":
+        value["plan"] = None
+    elif change == "legacy_flow":
+        value["request_flow_version"] = None
+    elif change == "stopped":
+        value["replan_stop_reason"] = expected
     elif change == "budget":
         value["replan_request_count"] = 1
-    else:
+    elif change == "planner_budget":
+        from app.graph.planning.policy import MAX_PLANNER_ITERATIONS
+
+        value["planner_iteration"] = MAX_PLANNER_ITERATIONS
+    elif change == "pending_task":
         value["task_results"] = []
+    elif change in {"pending_user_input", "user_input_response", "pending_tool_approval"}:
+        value[change] = {"pending": True}
+    elif change == "running_skill":
+        value["skill_workflows"] = {"facts": {"status": "running"}}
+    else:
+        from app.schemas.tools import ToolCallRecord, ToolCallRequest
+
+        value["tool_calls"] = [ToolCallRecord(request=ToolCallRequest(
+            call_id="inflight", tool_name="web_search", arguments={}, purpose="查询事实",
+        ))]
     assert accept_replan(value, proposal) == "synthesizer"
     assert value["pending_replan"] is None
     assert value["replan_stop_reason"] == expected
+
+
+@pytest.mark.parametrize("change", ["request_id", "plan"])
+def test_replan_remains_bound_to_the_current_request_and_plan(change):
+    from app.graph.nodes.planner_agent import build_planner_agent_node
+    from app.graph.planning.request_flow import accept_replan
+
+    value = state()
+    value.update(planner_iteration=1, plan={"tasks": [{"id": "facts", "task_goal": "查收入"}]},
+                 task_results=[{"task_id": "facts", "status": "success", "content": "冲突"}])
+    assert accept_replan(value, {**request(), "evidence_refs": ["source_1"]}) == "planner_agent"
+    if change == "request_id":
+        value["request_id"] = "another_request"
+    else:
+        value["plan"]["tasks"][0]["task_goal"] = "另一个目标"
+    llm = Answers({"action": "finish", "reason": "不应执行"})
+    build_planner_agent_node(llm_client=llm)(value)
+    assert llm.calls == []
+    assert value["replan_stop_reason"] == "replan_request_unbound"
+
+
+@pytest.mark.parametrize("changes", [
+    {"required_changes": []}, {"affected_goal": ""},
+    {"reason_type": "invented"}, {"evidence_refs": "source_1"},
+])
+def test_replan_still_rejects_invalid_request_structure(changes):
+    from app.graph.planning.request_flow import accept_replan
+
+    value = state()
+    value.update(planner_iteration=1, plan={"tasks": [{"id": "facts", "task_goal": "查收入"}]},
+                 task_results=[{"task_id": "facts", "status": "success", "content": "冲突"}])
+    assert accept_replan(value, {**request(), **changes}) == "synthesizer"
+    assert value["replan_stop_reason"] == "replan_request_invalid"
+    assert value["pending_replan"] is None
+
+
+def test_replan_reference_hint_cannot_authorize_a_missing_history_dependency():
+    from app.graph.nodes.planner_agent import build_planner_agent_node
+    from app.graph.planning.request_flow import accept_replan
+
+    value = state()
+    value.update(planner_iteration=1, plan={"tasks": [{"id": "facts", "task_goal": "查收入"}]},
+                 task_results=[{"task_id": "facts", "status": "success", "content": "冲突"}])
+    assert accept_replan(value, {**request(), "evidence_refs": ["task:invented"]}) == "planner_agent"
+    llm = Answers({"action": "revise", "reason": "引用申请中的线索", "plan": {"tasks": [
+        {"id": "verify", "task_goal": "核实收入", "evidence_task_ids": ["invented"]},
+    ]}})
+    build_planner_agent_node(llm_client=llm)(value)
+    assert value["replan_stop_reason"] == "replan_output_invalid"
+    assert value["planner_iteration"] == 1
+    assert value["pending_replan"] is None
 
 
 def test_malformed_synthesis_is_repaired_at_most_once_and_not_published():

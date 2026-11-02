@@ -1,12 +1,14 @@
 import json
 import logging
+import re
 from collections.abc import AsyncIterator, Generator, Iterator
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from html import unescape
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from langgraph.store.base import BaseStore
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -174,6 +176,7 @@ class _ProtocolUserInputCommand(BaseModel):
 
 
 class SessionMessageResponse(BaseModel):
+    sources: list[dict] = Field(default_factory=list)
     content: str
     trace_id: str
     cited_evidence_ids: list[str]
@@ -207,6 +210,8 @@ class SessionMessagePage(BaseModel):
 
 class SessionItem(BaseModel):
     session_id: str
+    title: str = ""
+    preview: str = ""
     status: str
     created_at: datetime
     updated_at: datetime
@@ -216,28 +221,130 @@ class SessionPage(BaseModel):
     items: list[SessionItem]
 
 
+class SessionMessageSearchItem(BaseModel):
+    session_id: str
+    message_id: str
+    title: str
+    role: str
+    sequence_no: int
+    created_at: datetime
+    snippet: str
+
+
+class SessionMessageSearchPage(BaseModel):
+    items: list[SessionMessageSearchItem]
+    next_offset: int | None = None
+
+
+def _message_search_snippet(content: str, query: str) -> str:
+    # 摘要作为纯文本返回；移除常见 Markdown 包装，保留被搜索的字面内容。
+    text = unescape(re.sub(r"<[^>]*>", "", content))
+    plain = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    plain = re.sub(r"\*\*|__|~~|`+", "", plain)
+    plain = re.sub(r"(?m)^\s{0,3}(?:#{1,6}\s+|[-*+]\s+|>\s?)", "", plain)
+    match = re.search(re.escape(query), plain, flags=re.IGNORECASE)
+    if match is None:
+        # 用户也可以搜索 Markdown 标记本身，此时保留这些字面字符。
+        plain = text
+        match = re.search(re.escape(query), plain, flags=re.IGNORECASE)
+    start = max(0, match.start() - 60) if match is not None else 0
+    end = min(len(plain), match.end() + 160) if match is not None else min(len(plain), 220)
+    return ("…" if start else "") + plain[start:end] + ("…" if end < len(plain) else "")
+
+
 @router.get("", response_model=SessionPage)
 def list_sessions(
     limit: int = Query(default=20, ge=1, le=100),
+    q: str = Query(default="", max_length=200),
     principal: Principal = Depends(require_permission("agent:read")),
     db: Session = Depends(get_db),
 ) -> SessionPage:
-    records = ConversationRepository(db).list_owned_sessions(
+    repository = ConversationRepository(db)
+    records = repository.list_owned_sessions(
         tenant_id=principal.tenant_id,
         user_id=principal.user_id,
         limit=limit,
+        query=q,
     )
+    summaries = repository.session_summaries(records=records)
     return SessionPage(
         items=[
             SessionItem(
                 session_id=record.session_id,
+                title=summaries[record.session_key][0],
+                preview=summaries[record.session_key][1],
                 status=record.status,
                 created_at=record.created_at,
-                updated_at=record.updated_at,
+                updated_at=record.updated_at.replace(tzinfo=UTC)
+                if record.updated_at.tzinfo is None else record.updated_at,
             )
             for record in records
         ]
     )
+
+
+@router.get("/search", response_model=SessionMessageSearchPage)
+def search_session_messages(
+    q: str = Query(max_length=200),
+    limit: int = Query(default=30, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    principal: Principal = Depends(require_permission("agent:read")),
+    db: Session = Depends(get_db),
+) -> SessionMessageSearchPage:
+    query = q.strip()
+    if not query:
+        return SessionMessageSearchPage(items=[])
+    repository = ConversationRepository(db)
+    matches = repository.search_owned_messages(
+        tenant_id=principal.tenant_id,
+        user_id=principal.user_id,
+        query=query,
+        limit=limit + 1,
+        offset=offset,
+    )
+    has_more = len(matches) > limit
+    matches = matches[:limit]
+    records = list({record.session_key: record for _, record in matches}.values())
+    summaries = repository.session_summaries(records=records)
+    return SessionMessageSearchPage(
+        items=[
+            SessionMessageSearchItem(
+                session_id=record.session_id,
+                message_id=message.message_id,
+                title=summaries[record.session_key][0],
+                role=message.role,
+                sequence_no=message.sequence_no,
+                created_at=message.created_at.replace(tzinfo=UTC)
+                if message.created_at.tzinfo is None else message.created_at.astimezone(UTC),
+                snippet=_message_search_snippet(message.content, query),
+            )
+            for message, record in matches
+        ],
+        next_offset=offset + limit if has_more else None,
+    )
+
+
+@router.delete("/{session_id}", status_code=204)
+def delete_session(
+    session_id: str,
+    principal: Principal = Depends(require_permission("agent:invoke")),
+    db: Session = Depends(get_db),
+) -> Response:
+    try:
+        ConversationService(db).delete_session(
+            tenant_id=principal.tenant_id, user_id=principal.user_id, session_id=session_id,
+        )
+        db.commit()
+    except ConversationNotFoundError as exc:
+        db.rollback()
+        raise HTTPException(status_code=404, detail={"code": "session_not_found"}) from exc
+    except (ConversationConflictError, ValueError) as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(status_code=503, detail={"code": "conversation_persistence_unavailable"}) from exc
+    return Response(status_code=204)
 
 
 @router.post(
@@ -734,6 +841,7 @@ def _fail_turn_after_error(
     principal: Principal,
     handle: TurnHandle,
     error_code: str = "agent_execution_failed",
+    research_process: list[dict] | None = None,
 ) -> None:
     try:
         conversation_service.fail_turn(
@@ -741,7 +849,11 @@ def _fail_turn_after_error(
             run_id=handle.run_id,
             error_code=error_code,
         )
+        _store_research_process(db, principal, handle, research_process)
         db.commit()
+        from app.conversations.execution import release_terminal_catalog_snapshot
+
+        release_terminal_catalog_snapshot(db, handle.run_id)
     except ConversationConflictError:
         db.rollback()
     except SQLAlchemyError:
@@ -766,6 +878,7 @@ def _stream_agent_message(
     handle: TurnHandle | None = prepared_handle
     state: AgentState | None = None
     trace_buffer: TraceBuffer | None = None
+    research_process: list[dict] = []
     finalized = False
     approval_occurred = False
     trace_lifecycle = _TraceLifecycle()
@@ -840,7 +953,6 @@ def _stream_agent_message(
         emitted_event_count = 0
         emitted_progress_stages = {"planning"}
         answer_streamed = False
-        research_process: list[dict] = []
         for stream_item in stream_question_answer_graph(
             business_intent_catalog=business_intent_catalog,
             session_id=session_id,
@@ -870,20 +982,16 @@ def _stream_agent_message(
                     if event_type == "progress":
                         _collect_research_process_event(research_process, public_event)
                         yield _sse("progress", public_event)
+                    elif event_type == "answer_sources":
+                        yield _sse("answer_sources", public_event)
                     elif event_type == "answer_delta":
                         content = str(public_event.get("content") or "")
                         if content:
                             answer_streamed = True
                             yield _sse("answer_delta", {"content": content})
                     continue
-                chunk, metadata = stream_item.data
-                node_name = str(metadata.get("langgraph_node") or "analysis")
-                if node_name != "synthesizer":
-                    continue
-                content = _message_chunk_text(chunk)
-                if content:
-                    answer_streamed = True
-                    yield _sse("answer_delta", {"content": content})
+                # messages 是模型原始片段，可能含决策头或尚未通过检查的正文。
+                # 公开正文只接受合成层显式发布的 custom.answer_delta。
                 continue
             state = stream_item
             events = trace_buffer.events
@@ -965,7 +1073,11 @@ def _stream_agent_message(
             conversation_service=conversation_service,
             principal=principal,
             handle=handle,
+            research_process=research_process,
         )
+        for event in research_process:
+            if event.get("status") == "failed":
+                yield _sse("progress", event)
         yield _sse(
             "error",
             {
@@ -1017,7 +1129,11 @@ def _stream_agent_message(
             conversation_service=conversation_service,
             principal=principal,
             handle=handle,
+            research_process=research_process,
         )
+        for event in research_process:
+            if event.get("status") == "failed":
+                yield _sse("progress", event)
         yield _sse(
             "error",
             {
@@ -1069,6 +1185,17 @@ def _emit_stream_result(
     execution_snapshot: _ExecutionSnapshot | None = None,
 ) -> Generator[str, None, bool]:
     identity = _stream_identity(handle)
+    if interrupt_payloads or research_process is None:
+        # 确认来源前保存公开进度；恢复完成后沿用，避免刷新丢失目标与计划。
+        assistant = ConversationRepository(db).get_assistant_by_run(
+            tenant_id=principal.tenant_id, run_id=handle.run_id,
+        )
+        metadata = (assistant.metadata_json or {}) if assistant is not None else {}
+        if research_process is None:
+            research_process = metadata.get("research_process", [])
+        if interrupt_payloads and assistant is not None and research_process:
+            assistant.metadata_json = {**metadata, "research_process": research_process[:32]}
+            db.commit()
     if state["image_analyses"]:
         yield _sse(
             "status",
@@ -1179,11 +1306,20 @@ def _fail_stream_turn(
     principal: Principal,
     handle: TurnHandle | None,
     error_code: str = "agent_execution_failed",
+    research_process: list[dict] | None = None,
 ) -> bool:
     if handle is None or handle.replayed:
         db.rollback()
         return True
     db.rollback()
+    for event in research_process or []:
+        if event.get("status") == "pending":
+            event["status"] = "failed"
+            event["message"] = (
+                "研究流程未完成，后续处理未能完成。"
+                if str(event.get("id", "")).startswith("skill_agent:")
+                else "研究未完成，后续处理未能完成。"
+            )
     try:
         _fail_turn_after_error(
             db=db,
@@ -1191,10 +1327,21 @@ def _fail_stream_turn(
             principal=principal,
             handle=handle,
             error_code=error_code,
+            research_process=research_process,
         )
     except SQLAlchemyError:
         logger.exception("agent_stream_failure_finalization_error")
     return True
+
+
+def _store_research_process(db, principal, handle, research_process):
+    if research_process is None:
+        return
+    assistant = ConversationRepository(db).get_assistant_by_run(
+        tenant_id=principal.tenant_id, run_id=handle.run_id,
+    )
+    if assistant is not None:
+        assistant.metadata_json = {**(assistant.metadata_json or {}), "research_process": research_process[:32]}
 
 
 def _finalize_trace_best_effort(
@@ -1416,14 +1563,21 @@ def _stream_user_input_resume(
     conversation_service = ConversationService(db)
     trace_buffer = TraceBuffer()
     trace_lifecycle = _TraceLifecycle()
+    research_process: list[dict] = []
+    answer_streamed = False
     state: AgentState | None = None
     finalized = False
     approval_occurred = False
     identity = _stream_identity(handle)
     try:
         yield _sse("status", {"stage": "accepted", **identity})
+        assistant = ConversationRepository(db).get_assistant_by_run(
+            tenant_id=principal.tenant_id, run_id=handle.run_id,
+        )
+        if assistant is not None:
+            research_process = list((assistant.metadata_json or {}).get("research_process", []))
         llm_client = maybe_build_llm_client()
-        state = resume_user_input_graph(
+        resumed = resume_user_input_graph(
             business_intent_catalog=business_intent_catalog,
             checkpoint_thread_id=build_checkpoint_thread_id(
                 tenant_id=principal.tenant_id,
@@ -1446,7 +1600,28 @@ def _stream_user_input_resume(
             checkpointer=build_graph_checkpointer(),
             llm_client=llm_client,
             permission_scopes=list(principal.scopes),
+            stream_events=True,
         )
+        for stream_item in ([resumed] if isinstance(resumed, dict) else resumed):
+            if isinstance(stream_item, AgentGraphStreamEvent):
+                if stream_item.event != "custom" or not isinstance(stream_item.data, dict):
+                    continue
+                event = stream_item.data
+                if event.get("type") == "progress":
+                    _collect_research_process_event(research_process, event)
+                    yield _sse("progress", event)
+                elif event.get("type") == "answer_sources":
+                    yield _sse("answer_sources", event)
+                elif event.get("type") == "answer_delta" and event.get("content"):
+                    answer_streamed = True
+                    yield _sse("answer_delta", {"content": str(event["content"])})
+            else:
+                state = stream_item
+        if state is None:
+            raise AgentGraphExecutionError(
+                node_name="user_input_resume", message="恢复图未返回状态。",
+                code="agent_stream_empty", http_status=500,
+            )
         _validate_user_input_resume_state(
             state=state,
             handle=handle,
@@ -1482,14 +1657,30 @@ def _stream_user_input_resume(
             trace_buffer=trace_buffer,
             trace_lifecycle=trace_lifecycle,
             mark_streaming=False,
+            answer_streamed=answer_streamed,
+            research_process=research_process,
         )
     except AgentGraphExecutionError as exc:
-        finalized = _restore_interrupted_turn(
-            db=db,
-            conversation_service=conversation_service,
-            principal=principal,
-            handle=handle,
-        )
+        if exc.code == "tool_catalog_changed":
+            # 旧工具快照已失效，重试同一个 Interrupt 无法恢复，必须释放会话。
+            db.rollback()
+            _fail_turn_after_error(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+                error_code=exc.code,
+                research_process=research_process,
+            )
+            finalized = True
+        else:
+            finalized = _restore_interrupted_turn(
+                db=db,
+                conversation_service=conversation_service,
+                principal=principal,
+                handle=handle,
+                research_process=research_process,
+            )
         yield _sse(
             "error",
             {
@@ -1508,6 +1699,7 @@ def _stream_user_input_resume(
             conversation_service=conversation_service,
             principal=principal,
             handle=handle,
+            research_process=research_process,
         )
         yield _sse(
             "error",
@@ -1529,6 +1721,7 @@ def _stream_user_input_resume(
                 conversation_service=conversation_service,
                 principal=principal,
                 handle=handle,
+                research_process=research_process,
             )
         _finalize_trace_best_effort(
             db=db,
@@ -1569,6 +1762,7 @@ def _restore_interrupted_turn(
     conversation_service: ConversationService,
     principal: Principal,
     handle: TurnHandle,
+    research_process: list[dict] | None = None,
 ) -> bool:
     db.rollback()
     try:
@@ -1576,6 +1770,7 @@ def _restore_interrupted_turn(
             tenant_id=principal.tenant_id,
             run_id=handle.run_id,
         )
+        _store_research_process(db, principal, handle, research_process)
         db.commit()
     except (ConversationConflictError, SQLAlchemyError):
         db.rollback()
@@ -1607,7 +1802,7 @@ def _to_agent_protocol_stream(frames: Iterator[str]) -> Iterator[str]:
                         ],
                     )
                 continue
-            if event == "progress":
+            if event in {"progress", "answer_sources"}:
                 yield _sse("custom", {"type": event, **data})
                 continue
             if event == "approval_required":
@@ -1650,19 +1845,6 @@ def _parse_sse_frame(frame: str) -> tuple[str, dict]:
             decoded = json.loads(line.removeprefix("data:").strip())
             data = decoded if isinstance(decoded, dict) else {"value": decoded}
     return event, data
-
-
-def _message_chunk_text(chunk) -> str:
-    content = getattr(chunk, "content", "")
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "".join(
-            str(item.get("text") or "")
-            for item in content
-            if isinstance(item, dict) and item.get("type") == "text"
-        )
-    return ""
 
 
 def _product_progress_payload(stage: str) -> dict[str, str]:
@@ -1833,6 +2015,7 @@ def _session_message_response(
     final_response = state["final_response"] or {}
     return SessionMessageResponse(
         content=final_response.get("content", ""),
+        sources=final_response.get("sources", []),
         trace_id=final_response.get("trace_id", state["trace_id"]),
         cited_evidence_ids=final_response.get("cited_evidence_ids", []),
         approval_status=final_response.get("approval_status", "not_required"),
@@ -1857,6 +2040,8 @@ def _assistant_response_metadata(
         "response_type": final_response.get("response_type"),
         "business_error_code": final_response.get("business_error_code"),
     }
+    if final_response.get("sources"):
+        metadata["sources"] = final_response["sources"]
     if research_process:
         metadata["research_process"] = research_process[:32]
     if execution_snapshot is not None and execution_snapshot.context_status != "full":
@@ -1871,10 +2056,12 @@ def _assistant_response_metadata(
 
 def _collect_research_process_event(events: list[dict], event: dict) -> None:
     kind = event.get("kind")
-    if kind not in {"activity", "summary"}:
+    if kind not in {"goal", "plan", "activity", "summary"}:
         return
     event_id = str(event.get("id") or "").strip()[:128]
-    message = str(event.get("message") or "").strip()[:500]
+    message = str(event.get("message") or "").strip()
+    if kind not in {"goal", "plan"}:
+        message = message[:500]
     if not event_id or not message:
         return
     normalized = {
@@ -1884,7 +2071,7 @@ def _collect_research_process_event(events: list[dict], event: dict) -> None:
         "message": message,
         "status": (
             event.get("status")
-            if event.get("status") in {"started", "completed", "failed"}
+            if event.get("status") in {"started", "completed", "failed", "pending", "superseded"}
             else "started"
         ),
     }
@@ -1900,6 +2087,10 @@ def _collect_research_process_event(events: list[dict], event: dict) -> None:
             value = event.get(key)
             if isinstance(value, str) and value.strip():
                 normalized[key] = value.strip()[:limit]
+        answer = event.get("answer")
+        if (activity_type == "web_search" and normalized["status"] == "completed"
+                and isinstance(answer, str) and answer.strip()):
+            normalized["answer"] = answer.strip()[:4000]
         result_count = event.get("result_count")
         if isinstance(result_count, int) and result_count >= 0:
             normalized["result_count"] = result_count
@@ -1942,6 +2133,7 @@ def _replayed_message_response(
     metadata = assistant.metadata_json or {}
     return SessionMessageResponse(
         content=assistant.content,
+        sources=metadata.get("sources", []),
         trace_id=handle.trace_id,
         cited_evidence_ids=list(metadata.get("cited_evidence_ids", [])),
         approval_status=metadata.get("approval_status", "not_required"),

@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import settings
 from app.graph.planning.contracts import PlanModel, TaskResultModel
 from app.graph.planning.policy import MAX_PLANNER_ITERATIONS
-from app.graph.planning.scheduler import ready_tasks
+from app.graph.planning.scheduler import executable_ready_tasks
 
 REQUEST_FLOW_VERSION = "context-routing-v1"
 MAX_REPLAN_REQUESTS = 1
@@ -30,7 +30,10 @@ class ReplanRequest(BaseModel):
         "missing_task", "new_evidence", "evidence_conflict", "path_invalid", "premise_invalid"
     ]
     affected_goal: str = Field(min_length=1, max_length=500)
-    evidence_refs: list[str] = Field(min_length=1, max_length=16)
+    evidence_refs: list[str] = Field(
+        min_length=1, max_length=16,
+        description="申请中的参考线索，不作为已核验证据或执行授权。",
+    )
     existing_plan_limitation: str = Field(min_length=1, max_length=1000)
     required_changes: list[str] = Field(min_length=1, max_length=8)
 
@@ -40,6 +43,12 @@ def replan_block_reason(state: dict) -> str | None:
         return "replan_no_active_plan"
     if state.get("replan_stop_reason"):
         return state["replan_stop_reason"]
+    active_ids = {task["id"] for task in state["plan"].get("tasks", [])}
+    queues = [queue for task_id, queue in state.get("source_attempt_queues", {}).items() if task_id in active_ids]
+    if any(queue.get("status") in {"ready", "waiting"} for queue in queues):
+        return "replan_pending_execution"
+    if any(queue.get("status") == "failed" for queue in queues):
+        return "source_plan_exhausted"
     if state.get("replan_request_count", 0) >= MAX_REPLAN_REQUESTS:
         return "replan_budget_exhausted"
     if state.get("planner_iteration", 0) >= min(settings.planner_max_iterations, MAX_PLANNER_ITERATIONS):
@@ -53,19 +62,12 @@ def replan_block_reason(state: dict) -> str | None:
         return "replan_pending_execution"
     plan = PlanModel.model_validate(state["plan"])
     results = [TaskResultModel.model_validate(value) for value in state.get("task_results", [])]
-    if ready_tasks(plan, results=results):
+    if executable_ready_tasks(plan, results=results):
         return "replan_pending_execution"
+    fixed_ids = {task.id for task in plan.tasks if task.skill_name}
+    if any(result.task_id in fixed_ids and result.status != "success" for result in results):
+        return "skill_execution_failed"
     return None
-
-
-def evidence_refs(state: dict) -> set[str]:
-    from app.graph.planning.context import user_materials
-
-    return {
-        *(item["ref"] for item in user_materials(state)),
-        *(f"task:{item['task_id']}" for item in state.get("task_results", [])),
-        *(f"tool:{item.request.call_id}" for item in state.get("tool_calls", [])),
-    }
 
 
 def accept_replan(state: dict, request: dict) -> str:
@@ -76,8 +78,6 @@ def accept_replan(state: dict, request: dict) -> str:
     except ValueError:
         parsed = None
         reason = reason or "replan_request_invalid"
-    if parsed is not None and not set(parsed.evidence_refs) <= evidence_refs(state):
-        reason = reason or "replan_evidence_ref_invalid"
     state["replan_request_count"] = state.get("replan_request_count", 0) + 1
     state["synthesis_decision"] = None
     if reason:

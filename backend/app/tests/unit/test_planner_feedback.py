@@ -61,18 +61,23 @@ def test_model_chooses_action_for_same_observation(action):
     payload = {"action": action, "reason": "根据证据选择"}
     if action == "revise":
         payload["plan"] = {"tasks": [{"id": "more", "task_goal": "补充证据"}]}
-    decision = review(Decisions(payload))
+    current = plan()
+    if action == "continue":
+        current.tasks[1] = current.tasks[1].model_copy(update={
+            "execution_type": "tool", "task_goal": "根据事实进一步核实公告",
+        })
+    decision = review(Decisions(payload), current=current)
     assert decision.action == action
 
 
-def test_summary_only_revision_becomes_continue_without_retry_or_revision_budget():
+def test_summary_only_legacy_analysis_revision_finishes_without_retry_or_revision_budget():
     current = plan()
-    proposed = current.model_copy(update={"public_summary": "换一种描述，执行任务未变"})
-    client = Decisions({"action": "revise", "reason": "继续研究", "plan": proposed.model_dump()})
+    proposed = {**current.model_dump(), "public_summary": "旧版本只换了摘要，执行任务未变"}
+    client = Decisions({"action": "revise", "reason": "继续研究", "plan": proposed})
 
     decision = review(client, current=current, remaining=0)
 
-    assert decision.action == "continue"
+    assert decision.action == "finish"
     assert decision.plan is None
     assert len(client.calls) == 1
 
@@ -93,7 +98,7 @@ def test_noop_revision_does_not_namespace_tasks_or_increment_iteration():
     assert result["planner_iteration"] == 1
     assert result["plan_history"] == []
     assert [task["id"] for task in result["plan"]["tasks"]] == ["facts", "analysis"]
-    assert result["planner_decision"]["action"] == "continue"
+    assert result["planner_decision"]["action"] == "finish"
     assert len(client.calls) == 1
 
 
@@ -175,7 +180,7 @@ def test_revision_reuses_successful_removed_dependency_without_model_retry():
         "action": "revise", "reason": "复用事实，补齐缺口",
         "plan": {"tasks": [
             {"id": "more", "task_goal": "补充关键证据"},
-            {"id": "analysis", "task_goal": "分析", "execution_type": "analysis",
+            {"id": "verify", "task_goal": "根据新旧事实核实公告", "execution_type": "tool",
              "depends_on": ["more", "facts"], "evidence_task_ids": ["facts"]},
         ]},
     }
@@ -189,7 +194,7 @@ def test_revision_reuses_successful_removed_dependency_without_model_retry():
     assert payload["plan"]["tasks"][1]["depends_on"] == ["more", "facts"]
 
 
-def test_converted_history_is_available_to_analysis_after_active_dependency_completes():
+def test_converted_history_is_available_to_tool_after_active_dependency_completes():
     from app.graph.planning.context import task_evidence
     from app.graph.planning.scheduler import ready_tasks
 
@@ -197,14 +202,14 @@ def test_converted_history_is_available_to_analysis_after_active_dependency_comp
         "action": "revise", "reason": "复用已有成功证据",
         "plan": {"tasks": [
             {"id": "more", "task_goal": "补充关键证据"},
-            {"id": "analysis", "task_goal": "分析", "execution_type": "analysis",
+            {"id": "verify", "task_goal": "根据新旧事实核实公告", "execution_type": "tool",
              "depends_on": ["more", "facts"]},
         ]},
     }))
     results = [TaskResultModel(task_id="facts", status="success", content="历史证据")]
     assert [task.id for task in ready_tasks(decision.plan, results=results)] == ["more"]
     results.append(TaskResultModel(task_id="more", status="success", content="新增证据"))
-    assert [task.id for task in ready_tasks(decision.plan, results=results)] == ["analysis"]
+    assert [task.id for task in ready_tasks(decision.plan, results=results)] == ["verify"]
     evidence = task_evidence(
         {"task_results": [result.model_dump() for result in results]}, decision.plan.tasks[1],
     )
@@ -537,12 +542,16 @@ def test_scheduler_obeys_reviewed_continue_and_finish():
     from app.graph.runtime import _dispatch_after_scheduler
 
     state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="研究")
-    state.update(plan=plan().model_dump(), planner_iteration=1)
+    current = plan()
+    current.tasks[1] = current.tasks[1].model_copy(update={
+        "execution_type": "tool", "task_goal": "根据事实进一步核实公告",
+    })
+    state.update(plan=current.model_dump(), planner_iteration=1)
     state["task_results"] = [{"task_id": "facts", "status": "success", "content": "观察"}]
-    state["planner_reviewed_signature"] = observation_signature(plan(), state["task_results"])
+    state["planner_reviewed_signature"] = observation_signature(current, state["task_results"])
     state["planner_decision"] = {"action": "continue", "reason": "继续分析"}
     sends = _dispatch_after_scheduler(state)
-    assert sends[0].node == "analysis_agent"
+    assert sends[0].node == "tool_agent"
     state["planner_decision"] = {"action": "finish", "reason": "证据足够"}
     assert _dispatch_after_scheduler(state) == "synthesizer"
 
@@ -620,9 +629,9 @@ def test_revision_can_reference_archived_success_without_reexecuting_it():
             "plan": {
                 "tasks": [
                     {
-                        "id": "new_analysis",
-                        "task_goal": "比较",
-                        "execution_type": "analysis",
+                        "id": "new_verification",
+                        "task_goal": "依据历史信息核对新公告",
+                        "execution_type": "tool",
                         "evidence_task_ids": ["archived"],
                     }
                 ]

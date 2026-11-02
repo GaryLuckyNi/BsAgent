@@ -36,6 +36,13 @@ def ready_tasks(
     return ready
 
 
+def executable_ready_tasks(
+    plan: PlanModel, *, results: Sequence[TaskResultModel],
+) -> list[SubTaskModel]:
+    """当前运行链路只执行取证/Skill；旧分析任务留给合成，不改写依赖。"""
+    return [task for task in ready_tasks(plan, results=results) if task.execution_type == "tool"]
+
+
 def plan_status(
     plan: PlanModel,
     *,

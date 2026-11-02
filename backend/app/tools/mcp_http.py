@@ -9,6 +9,7 @@ from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool as LangChainTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import convert_mcp_tool_to_langchain_tool
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -26,7 +27,6 @@ from app.tools.mcp_permission import (
     classify_mcp_failure,
     has_execution_result,
     mcp_failure_envelope,
-    standalone_permission_denied,
 )
 from app.tools.redaction import sanitize_untrusted_details
 
@@ -39,6 +39,7 @@ MCP_TOOL_ERROR_MESSAGES = {
     "provider_rate_limited": "数据源请求超过频率限制。",
     "provider_quota_exceeded": "数据源账号额度不足。",
     "provider_invalid_request": "数据源请求参数无效。",
+    "provider_request_rejected": "数据源拒绝了请求，请检查权限、调用频率或参数。",
 }
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
 
@@ -87,14 +88,28 @@ class McpHttpClient:
         risk_level: Literal["low", "medium", "high"] = "medium",
         permission_scope: list[str] | None = None,
         permission_denial_is_pre_execution: bool = False,
+        effect_type: Literal["read_only", "write", "unknown"] = "unknown",
+        error_protocol: Literal["generic", "tushare"] = "generic",
     ) -> list["DynamicMcpHttpTool"]:
         client = self._client(server_name)
-        discovered = await asyncio.wait_for(
-            client.get_tools(server_name=server_name),
-            timeout=self._timeout_seconds,
-        )
+        async def discover():
+            result = []
+            async with client.session(server_name) as session:
+                cursor = None
+                while True:
+                    page = await session.list_tools(cursor=cursor)
+                    for raw in page.tools:
+                        adapted = convert_mcp_tool_to_langchain_tool(None, raw,
+                            connection=client.connections[server_name], server_name=server_name)
+                        result.append((adapted, raw.outputSchema or {}))
+                    if not page.nextCursor:
+                        break
+                    cursor = page.nextCursor
+            return result
+
+        discovered = await asyncio.wait_for(discover(), timeout=self._timeout_seconds)
         tools: list[DynamicMcpHttpTool] = []
-        for tool in discovered:
+        for tool, output_schema in discovered:
             input_schema = _langchain_input_schema(tool)
             tools.append(
                 DynamicMcpHttpTool(
@@ -103,10 +118,13 @@ class McpHttpClient:
                     langchain_tool=tool,
                     description=tool.description or tool.name,
                     input_schema=input_schema,
+                    output_schema=output_schema,
                     timeout_seconds=self._timeout_seconds,
                     risk_level=risk_level,
                     permission_scope=permission_scope,
                     permission_denial_is_pre_execution=permission_denial_is_pre_execution,
+                    effect_type=effect_type,
+                    error_protocol=error_protocol,
                 )
             )
         return tools
@@ -139,16 +157,21 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
         langchain_tool: LangChainTool,
         description: str,
         input_schema: dict[str, Any],
+        output_schema: dict[str, Any] | None = None,
         timeout_seconds: float = 30.0,
         risk_level: Literal["low", "medium", "high"] = "medium",
         permission_scope: list[str] | None = None,
         permission_denial_is_pre_execution: bool = False,
+        effect_type: Literal["read_only", "write", "unknown"] = "unknown",
+        error_protocol: Literal["generic", "tushare"] = "generic",
     ) -> None:
         self.name = name
         self._server_name = server_name
         self._permission_denial_is_pre_execution = permission_denial_is_pre_execution
+        self.effect_type = effect_type
+        self._error_protocol = error_protocol
         self.description = description or langchain_tool.name
-        self.output_schema = {}
+        self.output_schema = output_schema or {}
         self.permission_scope = list(
             permission_scope
             if permission_scope is not None
@@ -173,9 +196,11 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
             description=self.description,
             input_schema=self._input_schema,
             output_schema=self.output_schema,
+            documentation=self.documentation,
             timeout_ms=self.timeout_ms,
             permission_scope=self.permission_scope,
             risk_level=self.risk_level,
+            effect_type=self.effect_type,
         )
 
     async def run(self, input_data: DynamicMcpToolInput) -> ToolCallResult:
@@ -194,6 +219,7 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
             )
             payload = _langchain_tool_payload(
                 response, pre_execution_semantics=self._permission_denial_is_pre_execution,
+                error_protocol=self._error_protocol,
             )
         except McpToolResponseError as exc:
             return _failure_result(
@@ -229,10 +255,11 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 start=start,
             )
 
-        failed_envelope = mcp_failure_envelope(payload)
+        failed_envelope = mcp_failure_envelope(payload, error_protocol=self._error_protocol)
         classification = classify_mcp_failure(
             payload, error_context=failed_envelope,
             pre_execution_semantics=self._permission_denial_is_pre_execution,
+            error_protocol=self._error_protocol,
         )
         if classification is not None:
             code = classification["code"]
@@ -283,6 +310,8 @@ def discover_mcp_http_tools(
     risk_level: Literal["low", "medium", "high"] = "medium",
     permission_scope: list[str] | None = None,
     permission_denial_is_pre_execution: bool = False,
+    effect_type: Literal["read_only", "write", "unknown"] = "unknown",
+    error_protocol: Literal["generic", "tushare"] = "generic",
 ) -> list[DynamicMcpHttpTool]:
     client = McpHttpClient(
         url=url,
@@ -294,6 +323,8 @@ def discover_mcp_http_tools(
             risk_level=risk_level,
             permission_scope=permission_scope,
             permission_denial_is_pre_execution=permission_denial_is_pre_execution,
+            effect_type=effect_type,
+            error_protocol=error_protocol,
         )
     )
 
@@ -307,7 +338,9 @@ def _langchain_input_schema(tool: LangChainTool) -> dict[str, Any]:
     return {"type": "object", "properties": {}}
 
 
-def _langchain_tool_payload(response: object, *, pre_execution_semantics: bool = False) -> JsonValue:
+def _langchain_tool_payload(
+    response: object, *, pre_execution_semantics: bool = False, error_protocol: str = "generic",
+) -> JsonValue:
     if not isinstance(response, ToolMessage):
         raise McpToolResponseError(
             "mcp_tool_execution_failed", failure_stage="response_type_invalid"
@@ -317,6 +350,7 @@ def _langchain_tool_payload(response: object, *, pre_execution_semantics: bool =
         classification = classify_mcp_failure(
             content,
             error_context=True, pre_execution_semantics=pre_execution_semantics,
+            error_protocol=error_protocol,
         )
         if classification:
             raise McpToolResponseError(classification["code"], classification=classification)
@@ -341,12 +375,12 @@ def _langchain_tool_payload(response: object, *, pre_execution_semantics: bool =
         try:
             payload = json.loads(text)
         except json.JSONDecodeError:
-            if standalone_permission_denied(text):
-                classification = classify_mcp_failure(
-                    text, error_context=True, pre_execution_semantics=pre_execution_semantics,
-                )
-                if classification:
-                    raise McpToolResponseError(classification["code"], classification=classification) from None
+            classification = classify_mcp_failure(
+                text, error_context=True, pre_execution_semantics=pre_execution_semantics,
+                error_protocol=error_protocol,
+            )
+            if classification:
+                raise McpToolResponseError(classification["code"], classification=classification) from None
         else:
             return _validated_json_value(payload)
     raise McpToolResponseError("mcp_tool_response_invalid")

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -151,6 +152,8 @@ class MarketDataMcpConnectionRead(BaseModel):
     server_name: str
     server_url: str
     config_revision: str
+    public_documentation: bool = False
+    documentation_domains: list[str] = Field(default_factory=list)
 
 
 class Page(BaseModel):
@@ -186,8 +189,18 @@ def validate_market_data_provider_settings(
 
 class TushareSettings(BaseModel):
     mcp_server_url: str
+    public_documentation: bool = True
+    documentation_domains: list[str] = Field(default_factory=lambda: ["tushare.pro"], max_length=5)
 
     model_config = {"extra": "allow"}
+
+    @field_validator("documentation_domains")
+    @classmethod
+    def validate_documentation_domains(cls, domains):
+        if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", value) or "." not in value
+               or ".." in value for value in domains):
+            raise ValueError("文档域名必须为站点域名，不能包含协议、路径或凭证。")
+        return sorted(set(domains))
 
     @model_validator(mode="before")
     @classmethod

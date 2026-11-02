@@ -5,6 +5,7 @@ from typing import Any, Protocol
 
 from app.core.config import settings
 from app.llm.deepseek import DeepSeekClient, LlmConfigurationError
+from app.llm.prompts import BUSINESS_LANGUAGE_INSTRUCTION
 from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
 
 _REASONING_LANGUAGE_INSTRUCTION = (
@@ -104,6 +105,7 @@ def _invoke_llm_completion_once(
     thinking: bool,
     on_delta: Callable[[LlmStreamDelta], None] | None,
 ) -> LlmCompletionResult:
+    system_prompt = f"{system_prompt}\n\n{BUSINESS_LANGUAGE_INSTRUCTION}"
     sync_native_stream_completion = getattr(
         llm_client,
         "complete_streamed_sync",

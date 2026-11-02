@@ -48,3 +48,4 @@ class ToolSearchContext(BaseModel):
     skill_allowed_tools: tuple[str, ...] | None = None
     excluded_tools: tuple[str, ...] = ()
     task_goal: str | None = Field(default=None, max_length=500)
+    read_only_only: bool = False

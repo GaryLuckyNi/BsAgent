@@ -35,6 +35,10 @@ def _discover_default_tool_registry() -> ToolRegistry:
                 _http_status_code(exc) or "unknown",
             )
             continue
+        if server_config.public_documentation:
+            from app.tool_documentation.service import get_documentation_service
+
+            get_documentation_service().prepare(tools, server_config)
         for tool in tools:
             if registry.has(tool.spec.name):
                 logger.warning(
@@ -84,6 +88,8 @@ def _configured_mcp_servers() -> list[McpServerConfig]:
                 timeout_seconds=settings.mcp_timeout_seconds,
                 deployment_revision=settings.mcp_server_revision,
                 config_revision=settings.mcp_config_revision,
+                public_documentation=settings.mcp_public_documentation,
+                documentation_domains=settings.mcp_documentation_domains,
                 permission_denial_is_pre_execution=settings.mcp_permission_denial_is_pre_execution,
             )
         )

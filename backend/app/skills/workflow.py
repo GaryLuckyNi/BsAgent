@@ -17,8 +17,10 @@ source 必须逐字引用该步骤原文。required_fields 仅提取原文明示
 completion_criteria 只记录“该步原始工具结果必须已满足，否则停止”的事实条件，必须逐字引用 summary；不添加默认业务要求。
 结果筛选、排序、去重、空值展示、字段裁剪和最终表格列都属于 output_requirement，不得用于判定原始工具返回是否已经加工完成。
 缺失处理默认 missing_policy=stop；只有原文明示允许该步缺失后继续时才为 continue，并用 missing_policy_source 逐字引用依据。
+固定工具失败不允许自行换工具或重规划；只有 summary 明示允许该步骤失败后使用 web_search 兜底时，才在 web_search_fallback_source 逐字引用允许依据，否则为 null。不得把禁止条款、其他步骤的许可或普通缺失后继续当作搜索授权。
+条件性搜索兜底保留在该工具步骤上，不拆成每次必执行的独立步骤。
 output_requirement 提取最终数据整理、格式及约束，使用 summary 中包含这些要求的连续原文。不得遗漏步骤、改变顺序、增加工具或绕过审批。
-仅返回 JSON：{"steps":[{"instruction":"本步目标和参数约束","source":"原文","tool_name":"明确的工具名或null","required_fields":[],"completion_criteria":[],"missing_policy":"stop","missing_policy_source":null}],"output_requirement":"输出要求"}。
+仅返回 JSON：{"steps":[{"instruction":"本步目标和参数约束","source":"原文","tool_name":"明确的工具名或null","required_fields":[],"completion_criteria":[],"missing_policy":"stop","missing_policy_source":null,"web_search_fallback_source":null}],"output_requirement":"输出要求"}。
 无法确定固定工作流时返回 {"error":"具体缺失或歧义"}。"""
 
 
@@ -84,6 +86,12 @@ def compile_workflow(
                     ):
                         raise WorkflowError("必需字段必须有步骤原文依据。")
                 tool = None
+                if item.web_search_fallback_source and (
+                    not item.tool_name
+                    or item.web_search_fallback_source not in definition.description
+                    or not _mentioned("web_search", item.web_search_fallback_source)
+                ):
+                    raise WorkflowError("搜索兜底必须有 summary 中显式允许 web_search 的原文依据。")
                 if item.tool_name:
                     if not _mentioned(item.tool_name, item.source):
                         raise WorkflowError("工具名称必须在该步骤原文明确出现。")

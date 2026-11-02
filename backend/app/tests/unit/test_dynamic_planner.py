@@ -30,6 +30,57 @@ class RecordingLlmClient:
         )
 
 
+def test_plan_reads_legacy_summary_without_retaining_it_or_accepting_other_extras():
+    payload = {"public_summary": "旧检查点的摘要", "tasks": [{"id": "facts", "task_goal": "核对事实"}]}
+    parsed = PlanModel.model_validate(payload)
+    assert "public_summary" not in parsed.model_dump()
+    assert "public_summary" not in PlanModel.model_json_schema()["properties"]
+    assert payload["public_summary"] == "旧检查点的摘要"
+    with pytest.raises(ValidationError):
+        PlanModel.model_validate({**payload, "unexpected": "仍然禁止"})
+
+
+@pytest.mark.parametrize("review", [False, True])
+def test_planner_does_not_request_a_separate_display_summary(review):
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="按公式推演并核对")
+    state["intent"] = {"intent_type": "financial_research", "domain": "equity_research",
+                       "subdomain": "company_research", "goal": state["user_message"]}
+    old_plan = {"public_summary": "旧摘要", "tasks": [{"id": "facts", "task_goal": "取公式必要输入"}]}
+    response = old_plan
+    if review:
+        state.update(plan=old_plan, planner_iteration=1)
+        response = {"action": "finish", "reason": "已有材料足够", "unresolved_questions": []}
+    llm = RecordingLlmClient(response)
+    build_planner_agent_node(llm_client=llm)(state)
+    assert len(llm.calls) == 1
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert "public_summary" not in json.dumps(payload, ensure_ascii=False)
+    assert "public_summary" not in llm.calls[0]["system_prompt"]
+    assert "必要自变量" in llm.calls[0]["system_prompt"]
+    if not review:
+        assert "public_summary" not in state["plan"]
+
+
+@pytest.mark.parametrize("source_constraint", ["unrestricted", "original_only", "confirmation_required", "unclear", None])
+@pytest.mark.parametrize("review", [False, True])
+def test_planner_does_not_inherit_retired_source_gate(source_constraint, review):
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="取得研究所需事实")
+    state["intent"] = {"intent_type": "financial_research", "domain": "equity_research",
+                       "subdomain": "company_research", "goal": "取得研究所需事实"}
+    if source_constraint is not None:
+        state["intent"]["source_constraint"] = source_constraint
+    plan = {"tasks": [{"id": "facts", "task_goal": "取得研究所需事实"}]}
+    response = plan
+    if review:
+        state["plan"] = plan
+        state["planner_iteration"] = 1
+        response = {"action": "finish", "reason": "按已有资料收尾", "unresolved_questions": []}
+    client = RecordingLlmClient(response)
+    build_planner_agent_node(llm_client=client)(state)
+    payload = json.loads(client.calls[0]["user_prompt"])
+    assert "source_constraint" not in payload["planning_constraints"]
+
+
 def _skill(name: str) -> SkillCard:
     return SkillCard(
         name=name,

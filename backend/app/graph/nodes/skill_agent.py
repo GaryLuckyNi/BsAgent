@@ -38,9 +38,15 @@ def build_skill_agent_node(
                 )
             except WorkflowError as exc:
                 return {**_failure(task, exc.code, str(exc)), "planner_stop_reason": exc.code}
+            unsupported = _disabled_analysis_step(task, workflow, state)
+            if unsupported is not None:
+                return unsupported
             return {"skill_workflows": {task.id: workflow.model_dump()}}
 
         workflow = SkillWorkflow.model_validate(snapshot)
+        unsupported = _disabled_analysis_step(task, workflow, state)
+        if unsupported is not None:
+            return unsupported
         results = {item["task_id"]: item for item in state["task_results"]}
         failed = next(
             (
@@ -103,6 +109,17 @@ def build_skill_agent_node(
         }
 
     return node
+
+
+def _disabled_analysis_step(task, workflow, state):
+    completed = {item["task_id"] for item in state.get("task_results", [])}
+    if any(step.tool_name is None and step.task_id not in completed for step in workflow.steps):
+        workflow.status = "failed"
+        return {
+            **_failure(task, "analysis_agent_disabled", "当前链路已停用独立分析步骤，固定工作流未完成。"),
+            "skill_workflows": {task.id: workflow.model_dump()},
+        }
+    return None
 
 
 def _failure(task, code, content):

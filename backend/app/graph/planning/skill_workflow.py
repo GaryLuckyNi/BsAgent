@@ -33,10 +33,15 @@ def dispatch_workflow(state):
             if result is not None and step.task_id in workflow.checked_steps:
                 previous.append(step.task_id)
                 continue
+            if step.tool_name is None and result is None:
+                # 保留旧步骤契约，但由 Skill 节点明确结算不支持的步骤，不能转成工具调用。
+                return [Send("skill_agent", {
+                    **state, "active_task": parent.model_dump(), "active_skill_step": None,
+                })]
             child = SubTaskModel(
                 id=step.task_id,
                 task_goal=step.instruction,
-                execution_type="tool" if step.tool_name else "analysis",
+                execution_type="tool",
                 completion_criteria=step.completion_criteria,
                 depends_on=list(dict.fromkeys([*parent.depends_on, *previous])),
                 evidence_task_ids=parent.evidence_task_ids,
@@ -49,7 +54,7 @@ def dispatch_workflow(state):
             worker = (
                 "skill_step_check"
                 if result
-                else ("tool_agent" if step.tool_name else "analysis_agent")
+                else "tool_agent"
             )
             return [Send(worker, payload)]
         return [

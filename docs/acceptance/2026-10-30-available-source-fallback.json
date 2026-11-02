@@ -1,0 +1,13 @@
+{
+  "trace_id": "5ae77efacaf33d3cb1d93e1928cf677e",
+  "范围": "原trace失败后的自动兜底分支离线重放，搜索为受控替身，不代表已获取真实财报数据",
+  "source_constraint_in_old_state": "original_only",
+  "provider_code": 40203,
+  "error_code": "provider_request_rejected",
+  "replacement_tool": "web_search",
+  "query": "取得立昂微（A股上市公司）2024年年报口径（合并报表、2024年全年）的营业收入、归母净利润、经营活动现金流量净额三项数值，并同时取得可直接披露的净利率、经营现金流/净利润等比率记录作为交叉核对值（核对值不作为推演输入）。",
+  "query_chars": 112,
+  "search_calls": 1,
+  "original_tool_replayed": false,
+  "状态": "历史实现，已由 Tool Agent 多来源备用调用链替代；此重放不作为当前行为验收"
+}

@@ -183,7 +183,7 @@ def test_tool_request_includes_current_datetime_and_preserves_historical_period(
     if fixed_skill:
         monkeypatch.setattr(node_module, "active_step", lambda _state: (
             SimpleNamespace(summary="历史估值查询"),
-            SimpleNamespace(source="查询2025年估值", required_fields=[]),
+                SimpleNamespace(source="查询2025年估值", required_fields=[], argument_retry_count=0),
         ))
 
     state = create_initial_state(

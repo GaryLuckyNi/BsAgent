@@ -108,6 +108,16 @@ class Resolver:
         return ToolCandidateResolution(tuple(self.candidates), (), "required", None)
 
 
+class SearchSelection:
+    def bind_tools(self, tools, *, tool_choice):
+        class Bound:
+            def invoke(self, messages):
+                return AIMessage(content="", tool_calls=[{
+                    "id": "untrusted", "name": "web_search", "args": {"query": "公开资料"}, "type": "tool_call",
+                }])
+        return Bound()
+
+
 def setup_worker(*, candidates=True, budget=None, search_tool=None):
     data, search, client = DeniedTool(), search_tool or SearchTool(), SelectionClient()
     registry = ToolRegistry()
@@ -136,8 +146,9 @@ def setup_worker(*, candidates=True, budget=None, search_tool=None):
     return worker, state, data, search, client, registry
 
 
-@pytest.mark.parametrize("constraint,prior_failure",[("original_only",False),("unrestricted",True)])
-def test_ordinary_search_cannot_bypass_source_constraints_by_renaming_task(constraint,prior_failure):
+@pytest.mark.parametrize("constraint", ["original_only", "confirmation_required"])
+@pytest.mark.parametrize("prior_failure", [False, True])
+def test_ordinary_search_ignores_retired_source_labels_and_keeps_original_receipts(constraint,prior_failure):
     from app.graph.nodes.tool_agent import build_tool_agent_node
     from app.schemas.tools import ToolCallRecord, ToolCallRequest
 
@@ -151,18 +162,48 @@ def test_ordinary_search_cannot_bypass_source_constraints_by_renaming_task(const
         ),result=ToolCallResult(tool_call_id="remote",tool_name=data.name,status="failed",
             execution_state="uncertain",trace_id="",error=ToolError(code="mcp_tool_execution_failed",message="远端失败")))]
 
-    class SearchSelection:
-        def bind_tools(self, tools, *, tool_choice):
-            class Bound:
-                def invoke(self, messages):
-                    return AIMessage(content="",tool_calls=[{"id":"untrusted","name":"web_search","args":{"query":"公开资料"},"type":"tool_call"}])
-            return Bound()
-
     worker=build_tool_agent_node(registry_factory=lambda:registry,llm_client=SearchSelection(),
         candidate_resolver=Resolver([registry.get("web_search").spec]))
     update=worker(state)
-    assert search.calls==0
-    assert update["task_results"][0]["error_code"]=="source_switch_not_authorized"
+    assert search.calls==1
+    assert update["task_results"][0]["status"]=="success"
+    if prior_failure:
+        assert state["tool_calls"][0].result.execution_state=="uncertain"
+
+
+@pytest.mark.parametrize("requirement", ["public_information", "original_data", "unclear"])
+@pytest.mark.parametrize("prior_error", [None, "provider_permission_denied", "mcp_tool_execution_failed"])
+def test_ordinary_search_ignores_evidence_labels_and_preserves_prior_failures(requirement, prior_error):
+    from app.schemas.tools import ToolCallRecord, ToolCallRequest
+
+    _, state, data, search, _, registry = setup_worker()
+    state["intent"] = {"source_constraint": "unrestricted"}
+    state["active_task"] = {"id": "facts", "task_goal": "查询研究所需的数据", "source_requirement": requirement}
+    state["plan"] = {"tasks": [state["active_task"]]}
+    if prior_error:
+        state["tool_calls"] = [ToolCallRecord(request=ToolCallRequest(
+            call_id="earlier", tool_name=data.name, arguments={}, purpose="此前取证",
+        ), result=ToolCallResult(tool_call_id="earlier", tool_name=data.name, status="failed", trace_id="",
+            execution_state="not_started" if prior_error == "provider_permission_denied" else "uncertain",
+            error=ToolError(code=prior_error, message="保留的原调用失败")))]
+    original_records = [record.model_dump() for record in state["tool_calls"]]
+    worker = build_tool_agent_node(registry_factory=lambda: registry, llm_client=SearchSelection(),
+        candidate_resolver=Resolver([registry.get("web_search").spec]))
+    update = worker(state)
+    assert search.calls == 1 and data.calls == 0
+    assert update["task_results"][0]["status"] == "success"
+    assert [record.model_dump() for record in state["tool_calls"]] == original_records
+
+
+def test_ordinary_search_still_requires_execution_permission():
+    _, state, _, search, _, registry = setup_worker()
+    state["intent"] = {"source_constraint": "unrestricted"}
+    state["permission_scopes"] = []
+    worker = build_tool_agent_node(registry_factory=lambda: registry, llm_client=SearchSelection(),
+        candidate_resolver=Resolver([registry.get("web_search").spec]))
+    update = worker(state)
+    assert search.calls == 0
+    assert update["tool_calls"][0].result.error.code == "tool_permission_denied"
 
 
 def apply_update(state, update):

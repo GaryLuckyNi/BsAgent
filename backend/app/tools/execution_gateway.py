@@ -32,6 +32,8 @@ from app.tools.runtime_capabilities import (
 SAFE_TOOL_ERROR_MESSAGES = {
     "tool_execution_context_required": "缺少工具执行上下文。",
     "tool_not_found": "工具未注册。",
+    "tool_catalog_changed": "工具契约或执行绑定已变化，本次调用未执行；请选择其他可用工具或调整计划。",
+    "tool_catalog_unavailable": "当前工具目录暂不可用，本次调用未执行。",
     "tool_version_mismatch": "工具版本不匹配。",
     "tool_not_allowed_by_plan": "工具未被执行计划授权。",
     "tool_not_allowed_by_skill": "工具未被当前 Skill 授权。",
@@ -56,6 +58,7 @@ SAFE_TOOL_ERROR_MESSAGES = {
     "provider_rate_limited": "市场数据源请求超过频率限制。",
     "provider_quota_exceeded": "数据源账号额度不足。",
     "provider_invalid_request": "市场数据源请求无效。",
+    "provider_request_rejected": "数据源拒绝了请求，请检查权限、调用频率或参数。",
     "provider_timeout": "市场数据源响应超时。",
     "provider_unavailable": "市场数据源暂不可用。",
     "provider_upstream_error": "市场数据源上游执行失败。",
@@ -109,9 +112,9 @@ def validate_tool_arguments(
     return ToolArgumentValidationResult(valid=not safe_errors, errors=safe_errors)
 
 
-def execution_is_uncertain(result: ToolCallResult, *, risk_level: str) -> bool:
+def execution_is_uncertain(result: ToolCallResult, *, risk_level: str, effect_type: str = "unknown") -> bool:
     """确定性与成功分离；未知副作用不能被 denied 标签或错误清理抹掉。"""
-    if risk_level == "low":
+    if effect_type == "read_only" or (risk_level == "low" and effect_type != "write"):
         return False
     if result.execution_state == "uncertain":
         return True
@@ -165,8 +168,9 @@ def _trace_settled(request, result, context):
 
 
 class ToolExecutionGateway:
-    def __init__(self, registry: ToolRegistry) -> None:
+    def __init__(self, registry: ToolRegistry, *, availability_registry_factory=None) -> None:
         self._registry = registry
+        self._availability_registry_factory = availability_registry_factory
 
     async def execute(
         self,
@@ -302,6 +306,19 @@ class ToolExecutionGateway:
     ) -> ToolCallResult:
         from app.conversations.execution import UnresolvedToolEffect, current_execution
 
+        if self._availability_registry_factory is not None:
+            try:
+                available = self._availability_registry_factory()
+                current_entry = available.get(request.tool_name) if available.has(request.tool_name) else None
+            except Exception:  # 无法确认可用性时不派发，也不重放节点
+                return self._failure(request, trace_id=trace_id, start=start, code="tool_catalog_unavailable")
+            if current_entry is None:
+                return self._failure(request, trace_id=trace_id, start=start, code="tool_not_found")
+            if (current_entry.spec.model_dump(exclude={"documentation"})
+                    != entry.spec.model_dump(exclude={"documentation"})
+                    or current_entry.execution_binding_digest != entry.execution_binding_digest):
+                return self._failure(request, trace_id=trace_id, start=start, code="tool_catalog_changed")
+
         control = current_execution.get()
         scope = scope_for(context, entry)
         fingerprint = arguments_fingerprint(request, tool_version=entry.spec.version)
@@ -343,7 +360,7 @@ class ToolExecutionGateway:
                 receipt_id = claim.receipt_id
             else:
                 receipt_id = (
-                    control.tool_started(request, risk_level=entry.spec.risk_level, **({
+                    control.tool_started(request, risk_level=entry.spec.risk_level, effect_type=entry.spec.effect_type, **({
                         "capability_scope": {"scope": asdict(scope),
                                              "arguments_fingerprint": fingerprint},
                     } if scope is not None else {})) if control else None
@@ -374,9 +391,13 @@ class ToolExecutionGateway:
             if control:
                 control.tool_finished(
                     receipt_id, failure.model_dump(mode="json"),
-                    uncertain=entry.spec.risk_level != "low",
+                    uncertain=execution_is_uncertain(
+                        failure, risk_level=entry.spec.risk_level, effect_type=entry.spec.effect_type,
+                    ),
                 )
-                if entry.spec.risk_level == "low":
+                if not execution_is_uncertain(
+                    failure, risk_level=entry.spec.risk_level, effect_type=entry.spec.effect_type,
+                ):
                     _trace_settled(request, failure, context)
                 control.guard()
             return failure
@@ -384,7 +405,7 @@ class ToolExecutionGateway:
             if control:
                 control.tool_finished(
                     receipt_id, {"status": "unknown", "error": {"code": "tool_execution_aborted"}},
-                    uncertain=True,
+                    uncertain=entry.spec.effect_type != "read_only",
                 )
             raise
 
@@ -401,9 +422,13 @@ class ToolExecutionGateway:
                     summary["raw_result"] = raw if isinstance(raw, dict) else str(raw)
                 control.tool_finished(
                     receipt_id, summary,
-                    uncertain=execution_is_uncertain(result, risk_level=entry.spec.risk_level),
+                    uncertain=execution_is_uncertain(
+                        result, risk_level=entry.spec.risk_level, effect_type=entry.spec.effect_type,
+                    ),
                 )
-                if not execution_is_uncertain(result, risk_level=entry.spec.risk_level):
+                if not execution_is_uncertain(
+                    result, risk_level=entry.spec.risk_level, effect_type=entry.spec.effect_type,
+                ):
                     _trace_settled(request, result, context)
                 control.guard()
             return result
