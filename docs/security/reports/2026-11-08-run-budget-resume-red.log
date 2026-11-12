@@ -1,0 +1,73 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___________ test_expired_input_resume_releases_session_without_graph ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11b4ce1d0>
+
+    def test_expired_input_resume_releases_session_without_graph(monkeypatch):
+        from app.api import sessions
+        from app.security import run_budget
+        from app.storage.models import AgentRun,AgentSession
+        from app.tests.integration.test_durable_run_api import _pending_input_turn,_resume_input
+        from app.tests.integration.test_session_api import create_test_app_with_database
+        from fastapi.testclient import TestClient
+        app,factory=create_test_app_with_database()
+        handle=_pending_input_turn(factory)
+        monkeypatch.setattr(sessions,"maybe_build_llm_client",lambda:None)
+        monkeypatch.setattr(sessions,"build_graph_checkpointer",lambda:None)
+        monkeypatch.setattr(sessions,"resume_user_input_graph",lambda **kwargs:pytest.fail("过期任务不得进入Graph。"))
+        monkeypatch.setattr(run_budget,"utc_now",lambda:datetime.now(UTC)+timedelta(hours=1))
+        response=_resume_input(TestClient(app))
+        assert "run_budget_expired" in response.text
+        with factory() as db:
+>           assert db.get(AgentRun,handle.run_id).status=="failed"
+E           AssertionError: assert 'interrupted' == 'failed'
+E             
+E             - failed
+E             + interrupted
+
+backend/app/tests/unit/test_run_budget.py:357: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-08 19:11:33,410 INFO bs_agent.access http_request_completed
+2026-11-08 19:11:33,411 INFO httpx2 HTTP Request: POST http://testserver/api/sessions/s1/messages/protocol-stream "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/sessions/s1/messages/protocol-stream "HTTP/1.1 200 OK"
+_________ test_expired_approval_resume_releases_session_without_graph __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11b4ce090>
+
+    def test_expired_approval_resume_releases_session_without_graph(monkeypatch):
+        from app.api import approvals
+        from app.security import run_budget
+        from app.storage.models import AgentRun,AgentSession
+        from app.tests.integration.test_session_api import add_approval_resume_fixture,create_test_app_with_database
+        from fastapi.testclient import TestClient
+        app,factory=create_test_app_with_database()
+        monkeypatch.setattr(approvals,"maybe_build_llm_client",lambda:None)
+        monkeypatch.setattr(approvals,"build_graph_checkpointer",lambda:None)
+        with factory() as db:
+            add_approval_resume_fixture(db)
+            db.commit()
+        monkeypatch.setattr(approvals,"resume_question_answer_graph",lambda **kwargs:pytest.fail("过期任务不得进入Graph。"))
+        monkeypatch.setattr(run_budget,"utc_now",lambda:datetime.now(UTC)+timedelta(hours=1))
+        response=TestClient(app).post("/api/approvals/approval_1/decision",json={"decision":"approved","actor_id":"approver_1"})
+        assert response.status_code==409 and response.json()["detail"]["code"]=="run_budget_expired"
+        with factory() as db:
+>           assert db.get(AgentRun,"run_1").status=="failed"
+E           AssertionError: assert 'interrupted' == 'failed'
+E             
+E             - failed
+E             + interrupted
+
+backend/app/tests/unit/test_run_budget.py:378: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-08 19:11:33,974 INFO bs_agent.access http_request_completed
+2026-11-08 19:11:33,980 INFO httpx2 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+------------------------------ Captured log call -------------------------------
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_run_budget.py::test_expired_input_resume_releases_session_without_graph
+FAILED backend/app/tests/unit/test_run_budget.py::test_expired_approval_resume_releases_session_without_graph
+2 failed, 37 deselected in 2.68s

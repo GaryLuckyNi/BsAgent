@@ -131,8 +131,10 @@ def test_real_model_clients_and_nodes_export_sanitized_io_without_duplicate_gene
                     "langfuse.observation.output"])
                 assert "pending_tool_approval" not in json.loads(nodes["planner_agent"].attributes[
                     "langfuse.observation.input"])
-            # 观测不能改写业务请求，也不能把两个模型调用合并或重复执行。
-            assert "synthetic-private-value" in requests[0]["messages"][1]["content"]
+            # 安全层只改模型侧副本；原状态与正常研究目标保留，调用不重复。
+            assert "synthetic-private-value" not in requests[0]["messages"][1]["content"]
+            assert "分析贵州茅台" in requests[0]["messages"][1]["content"]
+            assert state["user_message"] == question
             assert {span.parent.span_id for span in generations} <= {
                 span.context.span_id for span in nodes.values()
             }

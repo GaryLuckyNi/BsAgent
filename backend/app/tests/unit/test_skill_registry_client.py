@@ -116,7 +116,7 @@ def test_admin_skill_provider_maps_admin_crud_api_to_runtime_definitions():
     from app.skills.admin_provider import AdminSkillDefinitionProvider
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/api/skills":
+        if request.url.path == "/api/runtime/skills":
             assert request.url.params["enabled"] == "true"
             return httpx.Response(
                 200,
@@ -136,7 +136,7 @@ def test_admin_skill_provider_maps_admin_crud_api_to_runtime_definitions():
                     "total": 1,
                 },
             )
-        if request.url.path == "/api/skills/company_snapshot":
+        if request.url.path == "/api/runtime/skills/company_snapshot":
             return httpx.Response(
                 200,
                 json={

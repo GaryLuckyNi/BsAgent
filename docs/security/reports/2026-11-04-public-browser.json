@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-04",
+  "environment": "隔离真实浏览器、合成素材、本地请求记录器",
+  "forbiddenElements": 0,
+  "unsafeLinks": [],
+  "manualImageLink": true,
+  "violations": [],
+  "controlLoaded": true,
+  "scriptExecuted": false,
+  "automaticRequests": [],
+  "positiveControlRequests": 1,
+  "passed": true,
+  "fixture_version": "2026-11-03",
+  "recorded_at": "2026-11-04T00:05:40.523736+00:00",
+  "raw_report": "2026-11-03-public-browser.json"
+}

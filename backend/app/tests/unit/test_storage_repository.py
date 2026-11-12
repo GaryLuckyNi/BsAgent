@@ -108,7 +108,8 @@ def test_memory_candidate_confidence_merge_keeps_synced_state():
 
     assert merged.confidence == 0.95
     assert merged.store_sync_status == "synced"
-    assert merged.store_synced_at == synced_at
+    # 仓储刷新后SQLite返回无时区UTC；仍核对同一时间，不依赖ORM旧缓存。
+    assert merged.store_synced_at.replace(tzinfo=UTC) == synced_at
     assert merged.store_sync_error == "old error"
 
 

@@ -1,6 +1,12 @@
 import { expect, it } from 'vitest'
 import { groupResearchSources, parseResearchSources } from './research-sources'
 import { toConversationMessages } from '@/conversation-session'
+import contract from '@/security/public-url-contract.json'
+import { webSourceUrl } from './research-sources'
+
+it.each(contract)('公共来源 URL 契约 $url', ({ url, allowed }) => {
+  expect(!!webSourceUrl(url)).toBe(allowed)
+})
 
 it('来源转换保留稀疏编号并拒绝非法地址', () => {
   expect(parseResearchSources([

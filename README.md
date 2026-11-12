@@ -202,6 +202,18 @@ BS_AGENT_RUN_LIVE_CONTEXT_COMPACTION_EVAL=1 \
 
 需要回滚时将 `BS_AGENT_CONTEXT_COMPACTION_ENABLED` 设为 `false` 并重启 API 与 worker。关闭开关会恢复最近 20 条消息的兼容读取路径；不要删除 compaction 数据，以便审计、诊断和重新启用。
 
+## Harness 安全增强
+
+独立安全模块的接入方向、本期能力范围与验收约定见 [Harness 安全增强说明](docs/security/README.md)，当前待验收项与未来能力启用前的安全要求见 [安全 TODO](docs/security/TODO.md)。第 1 批已实现 [当前权限目录](docs/security/current-permission-directory.md)，复用 OIDC/JWT 并接入普通请求和现有工具审批恢复；启用前需迁移并显式登记授权。第 2 批已补齐 Agent turn worker、工具派发与用户选择/审批恢复的当前权限和初始上限，相关回归 460 项通过；第 3 批已接入 [Admin 用户登录与服务准入](docs/security/admin-authorization.md)。真实部署、RAG 与其他后台服务身份仍待验收，详见安全 TODO。
+
+内容边界已接入模型输入/输出及受管观测。2026-11-10按用户调整，普通正文增量检查后发布，疑似凭证后缀、工具参数和结构化观测仍保守检查；失败时保留此前已展示的安全前文。实现、性能和限制见[增量发布验收](docs/security/reports/2026-11-10-security-stream-implementation.md)，此前全文缓冲策略保留于历史报告。业务分类规则、独立出口和真实多轮提示注入仍待验收。
+
+图片链路已补 owner/按操作授权、后台当前权限以及 OCR/Vision 文本、缓存和落盘保护，见 [图片安全验收记录](docs/security/reports/2026-11-03-image-asset-implementation.md)。OCR 已识别风险会阻止后续 Vision 外发，但不能代替图片像素分类及首个 OCR 接收方的部署信任。
+
+当前任务已加入持久化资源账本：默认32次模型请求、64次工具派发、16MiB受管请求正文及30分钟期限，审批等待计时，恢复不重置；HTTP次数与响应信用另有上限，见 [预算验收记录](docs/security/reports/2026-11-08-run-budget-implementation.md)。配置样例含 `BS_AGENT_RUN_BUDGET_*`，仅影响新任务。0019不自动为旧任务补发预算；真实迁移/部署、费用、全局并发和独立后台job预算仍保留TODO。
+
+记忆候选已绑定精确主体与审批内容，拒绝把旧批准沿用到替换正文，最终Store同步也复核现有敏感规则的批准要求，见 [记忆绑定验收](docs/security/reports/2026-11-08-memory-binding-implementation.md)。历史记忆不自动改写，完整来源、同键版本顺序、后台当前权限与真实部署仍需验收。
+
 ## 生产部署
 
 生产模式会强制 JWT、PostgreSQL、PostgresSaver、Redis、S3、Celery、真实 OCR/Vision、JSON 日志和非开发版能力 revision。完整步骤见 [生产部署与运维手册](docs/production-deployment.md)。

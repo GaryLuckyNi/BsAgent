@@ -37,6 +37,7 @@ from app.context_compaction.summarizer import (
 from app.conversations.execution import check_execution_cancelled
 from app.conversations.repository import ConversationRepository
 from app.schemas.messages import Message
+from app.security.run_budget import RunBudgetError
 from app.storage.models import AgentContextCompaction, AgentMessage
 
 
@@ -99,6 +100,7 @@ class ContextCompactionService:
         request_id: str,
         current_user_message: str,
         attachment_texts: Sequence[str],
+        legacy_history_limit: int = 20,
     ) -> EffectiveContext:
         preparation = self.prepare_for_request_events(
             tenant_id=tenant_id,
@@ -107,6 +109,7 @@ class ContextCompactionService:
             request_id=request_id,
             current_user_message=current_user_message,
             attachment_texts=attachment_texts,
+            legacy_history_limit=legacy_history_limit,
         )
         while True:
             try:
@@ -123,6 +126,7 @@ class ContextCompactionService:
         request_id: str,
         current_user_message: str,
         attachment_texts: Sequence[str],
+        legacy_history_limit: int = 20,
     ) -> Generator[ContextPreparationEvent, None, EffectiveContext]:
         check_execution_cancelled()
         current = self._current_message(
@@ -137,6 +141,7 @@ class ContextCompactionService:
                 session_key=session_key,
                 request_id=request_id,
                 current=current,
+                limit=legacy_history_limit,
             )
 
         snapshot = self._read_snapshot(
@@ -172,6 +177,7 @@ class ContextCompactionService:
             decision = self._forced_rebuild_decision(snapshot, current, decision)
 
         degraded = False
+        effective = snapshot
         if decision.trigger == "hard" or (
             rebuilding and decision.summary_through_sequence_no is not None
         ):
@@ -182,13 +188,14 @@ class ContextCompactionService:
                 trigger="hard_sync",
             )
             degraded = outcome.status == "failed"
-
-        effective = self._read_snapshot(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            session_key=session_key,
-            request_id=request_id,
-        )
+            # 生成/激活后必须重新读取，包含并发任务赢得激活的情况；
+            # 未发生生成时复用本轮已验证快照，避免重复遍历摘要链和历史。
+            effective = self._read_snapshot(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_key=session_key,
+                request_id=request_id,
+            )
         if effective.invalid_active_id is not None:
             degraded = True
             effective = replace(effective, active=None, summary=None)
@@ -261,6 +268,7 @@ class ContextCompactionService:
         session_key: str,
         request_id: str,
         current: SourceMessage,
+        limit: int,
     ) -> EffectiveContext:
         with self.session_factory() as db, db.begin():
             records = ConversationRepository(db).list_context_messages(
@@ -268,15 +276,21 @@ class ContextCompactionService:
                 user_id=user_id,
                 session_key=session_key,
                 exclude_request_id=request_id,
-                limit=20,
+                limit=limit,
             )
-            messages = tuple(self._message(record) for record in records)
             source = tuple(self._source_message(record) for record in records)
-        return EffectiveContext(
-            messages=messages,
-            compaction_id=None,
-            status="full",
-            projected_tokens=self._projected_tokens(source, current),
+        # 关闭摘要生成不等于关闭窗口保护；仍以完整回合降级，禁止超预算历史进入模型。
+        return self._assemble_effective_context(
+            _ReadSnapshot(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                session_key=session_key,
+                active=None,
+                summary=None,
+                raw_messages=source,
+            ),
+            current=current,
+            degraded=False,
         )
 
     def _read_snapshot(
@@ -450,6 +464,8 @@ class ContextCompactionService:
                 started_at=started_at,
             )
             return _GenerationOutcome(status="failed")
+        except RunBudgetError:
+            raise
         except Exception as exc:
             self._record_generation_failure(
                 snapshot=snapshot,
@@ -499,6 +515,8 @@ class ContextCompactionService:
                     previous.compaction_id if previous else None
                 ),
             )
+        except RunBudgetError:
+            raise
         except Exception as exc:
             self._record_generation_failure(
                 snapshot=snapshot,

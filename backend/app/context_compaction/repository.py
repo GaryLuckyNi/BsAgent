@@ -21,6 +21,7 @@ from app.context_compaction.contracts import (
     SourceMessage,
 )
 from app.context_compaction.errors import ActiveContextInvalidError
+from app.security.context_content import ContextContentRejected, require_safe_context_content
 from app.storage.models import AgentContextCompaction, AgentMessage, AgentSession
 
 
@@ -261,6 +262,7 @@ class ContextCompactionRepository:
         candidate: CompactionCandidate,
         expected_active_compaction_id: str | None,
     ) -> ActivationResult:
+        require_safe_context_content(candidate.summary.model_dump(mode="json"))
         owner = self._session.scalar(
             select(AgentSession)
             .where(
@@ -410,6 +412,10 @@ class ContextCompactionRepository:
                 raise ActiveContextInvalidError(
                     "active_context_contract_invalid"
                 ) from None
+            try:
+                require_safe_context_content(summary.model_dump(mode="json"))
+            except ContextContentRejected:
+                raise ActiveContextInvalidError("active_context_content_rejected") from None
             if not manifest or not self._manifest_has_complete_turns(manifest):
                 raise ActiveContextInvalidError("active_context_manifest_invalid")
             if record.previous_compaction_id != (

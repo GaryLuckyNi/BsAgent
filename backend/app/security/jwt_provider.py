@@ -1,10 +1,10 @@
+from math import isfinite
 from typing import Any, Protocol
 
 import jwt
 from jwt import PyJWTError
 
 from app.security.principal import Principal
-
 
 ASYMMETRIC_JWT_ALGORITHMS = frozenset(
     {
@@ -80,14 +80,21 @@ class JwtPrincipalProvider:
                     "strict_aud": True,
                 },
             )
+            expiry = claims["exp"]
+            if isinstance(expiry, bool) or not isinstance(expiry, (int, float)):
+                raise TypeError("invalid expiration")
+            expiry = float(expiry)
+            if not isfinite(expiry):
+                raise ValueError("invalid expiration")
             return Principal(
                 tenant_id=_required_text(claims, "tenant_id"),
                 user_id=_required_text(claims, "sub"),
                 scopes=_string_collection(claims.get("scope", claims.get("scopes"))),
                 token_id=_optional_text(claims, "jti"),
                 roles=_string_collection(claims.get("roles")),
+                expires_at=expiry,
             )
-        except (PyJWTError, TypeError, ValueError, KeyError, AttributeError) as exc:
+        except (PyJWTError, TypeError, ValueError, KeyError, AttributeError, OverflowError) as exc:
             raise JwtAuthenticationError() from exc
 
     def _resolve_key(self, token: str) -> Any:
@@ -116,9 +123,9 @@ def build_jwks_client(
 
 def _required_text(claims: dict[str, Any], name: str) -> str:
     value = claims[name]
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value or value != value.strip():
         raise ValueError(f"invalid {name}")
-    return value.strip()
+    return value
 
 
 def _optional_text(claims: dict[str, Any], name: str) -> str | None:
@@ -138,7 +145,7 @@ def _string_collection(value: Any) -> tuple[str, ...]:
     elif isinstance(value, list):
         items = value
     else:
-        raise ValueError("claim must be a string or string array")
+        raise TypeError("claim must be a string or string array")
     if any(not isinstance(item, str) or not item.strip() for item in items):
         raise ValueError("claim contains an invalid item")
     return tuple(dict.fromkeys(item.strip() for item in items))

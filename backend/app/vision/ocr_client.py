@@ -3,12 +3,15 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
-from app.vision.schemas import OcrExtractionResult
+from app.security.asset_authorization import check_active_asset_authorization
+from app.security.http_response import HttpResponseBudgetError, bounded_request
+from app.security.image_content import protect_image_result
 from app.vision.resilience import (
     ProviderCallGuard,
     ProviderCircuitOpenError,
     ProviderConcurrencyLimitError,
 )
+from app.vision.schemas import OcrExtractionResult
 
 
 class OcrProviderError(RuntimeError):
@@ -48,11 +51,10 @@ class PaddleOcrHttpClient:
         if self._call_guard is None:
             return self._extract(image=image, media_type=media_type)
         try:
-            return self._call_guard.call(
-                lambda: self._extract(image=image, media_type=media_type)
-            )
+            return self._call_guard.call(lambda: self._extract(image=image, media_type=media_type))
         except (ProviderCircuitOpenError, ProviderConcurrencyLimitError) as exc:
-            raise OcrProviderError(code=exc.code) from exc
+            failure = OcrProviderError(code=exc.code)
+        raise failure
 
     def _extract(self, *, image: bytes, media_type: str) -> OcrExtractionResult:
         if self._http_client is not None:
@@ -83,33 +85,35 @@ class PaddleOcrHttpClient:
             "image/png": "png",
             "image/webp": "webp",
         }.get(media_type, "bin")
-        headers = (
-            {"Authorization": f"Bearer {self._api_key}"}
-            if self._api_key
-            else None
-        )
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else None
+        check_active_asset_authorization()
+        failure = None
         try:
-            response = client.post(
-                "/v1/ocr",
+            response = bounded_request(
+                client, "POST", "/v1/ocr", timeout_seconds=self._timeout_seconds,
                 files={"file": (f"image.{extension}", image, media_type)},
                 data={"languages": "zh,en", "detect_tables": "true"},
                 headers=headers,
             )
             response.raise_for_status()
+        except HttpResponseBudgetError as error:
+            failure = OcrProviderError(code="ocr_timeout" if error.code == "http_response_deadline" else "ocr_response_limit_exceeded")
         except httpx.HTTPStatusError as exc:
-            raise OcrProviderError(
-                code="ocr_http_error",
-                status_code=exc.response.status_code,
-            ) from exc
-        except httpx.TimeoutException as exc:
-            raise OcrProviderError(code="ocr_timeout") from exc
-        except httpx.HTTPError as exc:
-            raise OcrProviderError(code="ocr_unreachable") from exc
+            failure = OcrProviderError(code="ocr_http_error", status_code=exc.response.status_code)
+        except httpx.TimeoutException:
+            failure = OcrProviderError(code="ocr_timeout")
+        except httpx.HTTPError:
+            failure = OcrProviderError(code="ocr_unreachable")
+        if failure is not None:
+            raise failure
 
         try:
             payload: dict[str, Any] = response.json()
             payload["provider"] = self.provider
             payload["provider_version"] = self._provider_version
-            return OcrExtractionResult.model_validate(payload)
-        except (ValidationError, ValueError, TypeError) as exc:
-            raise OcrProviderError(code="ocr_invalid_response") from exc
+            result = OcrExtractionResult.model_validate(payload)
+        except (ValidationError, ValueError, TypeError, RecursionError):
+            failure = OcrProviderError(code="ocr_invalid_response")
+        if failure is not None:
+            raise failure
+        return protect_image_result(result)

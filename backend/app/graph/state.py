@@ -115,6 +115,7 @@ class ImageAnalysisSummary(TypedDict):
     risk_flags: list[str]
     confidence: float
     truncated: bool
+    source_trust: NotRequired[Literal["untrusted_image_data"]]
 
 
 class AnswerClaim(TypedDict):

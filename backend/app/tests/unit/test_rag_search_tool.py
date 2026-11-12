@@ -6,6 +6,7 @@ import pytest
 from app.schemas.tools import ToolCallRequest
 from app.tools.execution_gateway import ToolExecutionContext, ToolExecutionGateway
 from app.tools.rag_search import (
+    RagSearchError,
     RagSearchInput,
     RagSearchTool,
     build_default_rag_search_registration,
@@ -19,7 +20,6 @@ from opentelemetry.trace import (
     TraceState,
     set_span_in_context,
 )
-from pydantic import ValidationError
 
 
 def test_rag_search_tool_normalizes_results():
@@ -328,8 +328,10 @@ def test_rag_search_tool_rejects_response_without_results():
                 )
             )
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(RagSearchError) as caught:
         asyncio.run(run_tool())
+    assert caught.value.code == "rag_response_invalid"
+    assert caught.value.http_status == 502
 
 
 def test_rag_search_tool_maps_503_to_structured_exception():

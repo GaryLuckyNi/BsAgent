@@ -1,0 +1,53 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+__ test_deep_sse_json_has_fixed_error_and_does_not_publish_partial_body[sync] __
+backend/app/tests/unit/test_http_response_budgets.py:347: in test_deep_sse_json_has_fixed_error_and_does_not_publish_partial_body
+    for event in DeepSeekClient(api_key="synthetic",model="test")._stream_events_with_sync_client(http,{}):
+backend/app/llm/deepseek.py:556: in _stream_events_with_sync_client
+    _record_packet_model(line)
+backend/app/llm/deepseek.py:593: in _record_packet_model
+    packet_model = json.loads(line.removeprefix("data:").strip()).get("model")
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/json/decoder.py:337: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/json/decoder.py:353: in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ^^^^^^^^^^^^^^^^^^^^^^
+E   RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string
+_ test_deep_sse_json_has_fixed_error_and_does_not_publish_partial_body[async] __
+backend/app/tests/unit/test_http_response_budgets.py:355: in test_deep_sse_json_has_fixed_error_and_does_not_publish_partial_body
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_http_response_budgets.py:352: in run
+    async for event in DeepSeekClient(api_key="synthetic",model="test")._stream_events_with_client(http,{}):
+backend/app/llm/deepseek.py:579: in _stream_events_with_client
+    _record_packet_model(line)
+backend/app/llm/deepseek.py:593: in _record_packet_model
+    packet_model = json.loads(line.removeprefix("data:").strip()).get("model")
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/json/__init__.py:346: in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/json/decoder.py:337: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/json/decoder.py:353: in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ^^^^^^^^^^^^^^^^^^^^^^
+E   RecursionError: maximum recursion depth exceeded while decoding a JSON array from a unicode string
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_deep_sse_json_has_fixed_error_and_does_not_publish_partial_body[sync]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_deep_sse_json_has_fixed_error_and_does_not_publish_partial_body[async]
+2 failed, 70 deselected in 1.94s

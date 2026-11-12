@@ -1,11 +1,13 @@
 from collections.abc import Callable
 from functools import lru_cache
+from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
 from app.operations.observability import bind_principal_log_context
+from app.security.directory import PermissionDirectoryDenied, PermissionDirectoryUnavailable
 from app.security.jwt_provider import (
     JwtAuthenticationError,
     JwtPrincipalProvider,
@@ -13,7 +15,6 @@ from app.security.jwt_provider import (
 )
 from app.security.principal import Principal
 from app.security.rbac import get_rbac_provider
-
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -36,7 +37,7 @@ def get_jwt_principal_provider() -> JwtPrincipalProvider:
 
 
 def get_current_principal(
-    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_scheme)] = None,
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID"),
     x_user_id: str | None = Header(default=None, alias="X-User-ID"),
 ) -> Principal:
@@ -54,21 +55,36 @@ def get_current_principal(
         raise _authentication_required()
     try:
         principal = get_jwt_principal_provider().authenticate(credentials.credentials)
-        bind_principal_log_context(principal)
-        return principal
     except JwtAuthenticationError as exc:
         raise HTTPException(
             status_code=401,
             detail={"code": "invalid_token", "message": "身份令牌无效。"},
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+    try:
+        principal = get_rbac_provider().resolve_authenticated_principal(principal)
+    except PermissionDirectoryDenied as exc:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "permission_denied", "message": "当前身份没有有效授权。"},
+        ) from exc
+    except PermissionDirectoryUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": exc.code, "message": "当前权限目录暂不可用。"},
+        ) from exc
+    bind_principal_log_context(principal)
+    return principal
 
 
-def require_permission(permission: str) -> Callable[..., Principal]:
+def require_permission(
+    permission: str, *, alternatives: tuple[str, ...] = ()
+) -> Callable[..., Principal]:
+    accepted = frozenset((permission, *alternatives, "*"))
     def dependency(
-        principal: Principal = Depends(get_current_principal),
+        principal: Annotated[Principal, Depends(get_current_principal)],
     ) -> Principal:
-        if "*" not in principal.scopes and permission not in principal.scopes:
+        if not accepted.intersection(principal.scopes):
             raise HTTPException(
                 status_code=403,
                 detail={"code": "permission_denied", "permission": permission},

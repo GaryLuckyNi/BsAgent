@@ -45,16 +45,20 @@ def _owned_run(db, principal, session_id, run_id):
     return run
 
 
-def _response(factory, run_id, after=0):
+def _response(factory, run_id, after=0, *, principal, session_id, permission):
     from app.api.sessions import _closeable_async_stream
+    from app.security.stream_authorization import StreamAuthorization, authorized_event_stream
 
     return StreamingResponse(
         _closeable_async_stream(
-            subscribe_events(
+            authorized_event_stream(subscribe_events(
                 session_factory=factory,
                 run_id=run_id,
                 after=after,
-            )
+            ), authorization=StreamAuthorization(
+                session_factory=factory, principal=principal, session_id=session_id,
+                run_id=run_id, permissions=(permission,),
+            ))
         ),
         media_type="text/event-stream",
         headers={
@@ -84,16 +88,21 @@ def get_active_run(session_id: str, principal: ReadPrincipal, db: DatabaseSessio
         return {"run": None}
     run = _owned_run(db, principal, session_id, session.active_run_id)
     assistant = repository.get_assistant_by_run(tenant_id=principal.tenant_id, run_id=run.run_id)
-    execution = db.get(AgentRunExecution, run.run_id)
+    from app.security.protocol_replay import public_message_snapshots
+
+    snapshots = public_message_snapshots(db, [assistant]) if assistant is not None else []
+    if not snapshots:
+        raise HTTPException(status_code=404, detail={"code": "run_not_found"})
+    snapshot = snapshots[0]
     return {
         "run": {
             "run_id": run.run_id,
-            "status": run.status,
-            "message_id": assistant.message_id,
-            "content": assistant.content,
-            "request_id": assistant.request_id,
-            "last_event_sequence": execution.last_sequence if execution else 0,
-            "replay_after": execution.phase_start_sequence if execution else 0,
+            "status": snapshot.run_status,
+            "message_id": snapshot.message_id,
+            "content": snapshot.content,
+            "request_id": snapshot.request_id,
+            "last_event_sequence": snapshot.last_event_sequence or 0,
+            "replay_after": snapshot.replay_after or 0,
         }
     }
 
@@ -115,7 +124,8 @@ def get_run_events(
             after = max(after, int(last_event_id))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail={"code": "invalid_event_sequence"}) from exc
-    return _response(_factory(db), run_id, after)
+    return _response(_factory(db), run_id, after, principal=principal,
+                     session_id=session_id, permission="agent:read")
 
 
 @router.post("/{session_id}/runs/{run_id}/stop")
@@ -149,17 +159,20 @@ def start_protocol_turn(
 ):
     from app.api import sessions
     from app.conversations.dispatcher import dispatch_turn
+    from app.security.run_authorization import (
+        RunAuthorizationDenied,
+        RunAuthorizationUnavailable,
+        ensure_request_transaction,
+        initialize_run,
+        refresh_run,
+    )
 
     factory = _factory(db)
+    subscription_principal = principal
     handle = None
     replay_after = 0
     try:
-        if db.get_bind().dialect.name == "sqlite":
-            connection = db.connection()
-            if not connection.connection.driver_connection.in_transaction:
-                # sqlite legacy transaction mode 不会为 SELECT/首次 SAVEPOINT 开事务。
-                # 明确 BEGIN 才能保证 begin_turn、快照与 execution 一起回滚。
-                connection.exec_driver_sql("BEGIN")
+        ensure_request_transaction(db)
         if protocol_request.command is not None:
             resume = sessions._protocol_user_input_resume(protocol_request)
             # 先锁后台所有权，和 stop 保持一致，避免恢复与取消并发。
@@ -178,6 +191,7 @@ def start_protocol_turn(
             )
             if execution is not None and not execution.producer_done:
                 raise HTTPException(status_code=409, detail={"code": "run_state_conflict"})
+            principal = refresh_run(db, run_id=record.active_run_id, principal=principal)
             handle = sessions._claim_user_input_resume(
                 db=db, principal=principal, session_id=session_id, commit=False
             )
@@ -207,7 +221,10 @@ def start_protocol_turn(
                     raise HTTPException(status_code=409, detail={"code": "run_events_not_found"})
                 db.commit()
                 execution = db.get(AgentRunExecution, handle.run_id)
-                return _response(factory, handle.run_id, execution.phase_start_sequence)
+                return _response(factory, handle.run_id, execution.phase_start_sequence,
+                                 principal=subscription_principal, session_id=session_id,
+                                 permission="agent:invoke")
+            principal = initialize_run(db, handle=handle, principal=principal)
             snapshot = sessions._load_execution_snapshot(
                 db=db,
                 principal=principal,
@@ -266,7 +283,12 @@ def start_protocol_turn(
                     "run_id": handle.run_id,
                 },
             ) from exc
-        return _response(factory, handle.run_id, replay_after)
+        return _response(factory, handle.run_id, replay_after,
+                         principal=subscription_principal, session_id=session_id,
+                         permission="agent:invoke")
+    except (RunAuthorizationDenied, RunAuthorizationUnavailable) as exc:
+        db.rollback()
+        raise HTTPException(status_code=exc.http_status, detail={"code": exc.code}) from exc
     except ConversationConflictError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc

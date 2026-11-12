@@ -92,12 +92,14 @@ def test_http_client_uses_official_streamable_http_adapter(monkeypatch):
                 "url": "https://mcp.internal/mcp",
                 "timeout": 12.5,
                 "sse_read_timeout": 12.5,
+                "httpx_client_factory": captured["connections"]["local"]["httpx_client_factory"],
             }
         },
         "options": {"handle_tool_errors": True},
         "server_name": "local",
     }
     assert tools[0].name == "mcp.local.echo"
+    assert callable(captured["connections"]["local"]["httpx_client_factory"])
     assert tools[0].spec.version == "mcp-http-v1"
     assert tools[0].spec.input_schema["required"] == ["text"]
 

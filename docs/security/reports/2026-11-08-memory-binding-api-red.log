@@ -1,0 +1,120 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______ test_public_persistence_conflict_is_fixed_and_releases_run[False] _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110ec7250>
+streaming = False
+
+    @pytest.mark.parametrize("streaming",[False,True])
+    def test_public_persistence_conflict_is_fixed_and_releases_run(monkeypatch,streaming):
+        from app.api import sessions
+        from app.storage.models import AgentRun,AgentSession
+        from app.tests.integration.test_session_api import create_test_app_with_database,_completed_graph_state
+        from fastapi.testclient import TestClient
+        app,factory=create_test_app_with_database()
+        with factory() as db:
+            MemoryCandidateRepository(db).save_candidate(_candidate(approval_status="approved"),tenant_id="tenant_1",user_id="user_1",run_id="old")
+            db.commit()
+        def graph(**kwargs):
+            state=_completed_graph_state(kwargs)
+            state["memory_candidates"]=[_candidate(content="不同内容",approval_status="pending")]
+            return state
+        def events(**kwargs):
+            yield graph(**kwargs)
+        monkeypatch.setattr(sessions,"run_question_answer_graph",graph)
+        monkeypatch.setattr(sessions,"stream_question_answer_graph",events)
+        monkeypatch.setattr(sessions,"maybe_build_llm_client",lambda:None)
+        monkeypatch.setattr(sessions,"build_graph_checkpointer",lambda:None)
+        monkeypatch.setattr(sessions,"dispatch_context_compaction",lambda **kwargs:False)
+        response=TestClient(app,raise_server_exceptions=False).post(
+            "/api/sessions/s/messages"+("/stream" if streaming else ""),json={"message":"公开问题"})
+        if streaming:
+            assert "memory_candidate_conflict" in response.text and '"ok": false' in response.text
+        else:
+>           assert response.status_code==409
+E           assert 500 == 409
+E            +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+backend/app/tests/unit/test_memory_candidate_binding.py:162: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-08 20:40:46,126 INFO bs_agent.access http_request_completed
+2026-11-08 20:40:46,128 INFO httpx2 HTTP Request: POST http://testserver/api/sessions/s/messages "HTTP/1.1 500 Internal Server Error"
+------------------------------ Captured log call -------------------------------
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/sessions/s/messages "HTTP/1.1 500 Internal Server Error"
+_______ test_public_persistence_conflict_is_fixed_and_releases_run[True] _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1150d66d0>
+streaming = True
+
+    @pytest.mark.parametrize("streaming",[False,True])
+    def test_public_persistence_conflict_is_fixed_and_releases_run(monkeypatch,streaming):
+        from app.api import sessions
+        from app.storage.models import AgentRun,AgentSession
+        from app.tests.integration.test_session_api import create_test_app_with_database,_completed_graph_state
+        from fastapi.testclient import TestClient
+        app,factory=create_test_app_with_database()
+        with factory() as db:
+            MemoryCandidateRepository(db).save_candidate(_candidate(approval_status="approved"),tenant_id="tenant_1",user_id="user_1",run_id="old")
+            db.commit()
+        def graph(**kwargs):
+            state=_completed_graph_state(kwargs)
+            state["memory_candidates"]=[_candidate(content="不同内容",approval_status="pending")]
+            return state
+        def events(**kwargs):
+            yield graph(**kwargs)
+        monkeypatch.setattr(sessions,"run_question_answer_graph",graph)
+        monkeypatch.setattr(sessions,"stream_question_answer_graph",events)
+        monkeypatch.setattr(sessions,"maybe_build_llm_client",lambda:None)
+        monkeypatch.setattr(sessions,"build_graph_checkpointer",lambda:None)
+        monkeypatch.setattr(sessions,"dispatch_context_compaction",lambda **kwargs:False)
+        response=TestClient(app,raise_server_exceptions=False).post(
+            "/api/sessions/s/messages"+("/stream" if streaming else ""),json={"message":"公开问题"})
+        if streaming:
+>           assert "memory_candidate_conflict" in response.text and '"ok": false' in response.text
+E           assert ('memory_candidate_conflict' in 'event: status\ndata: {"stage": "accepted", "run_id": "run_f6b75a5f37f1348b7d1e3612c4a2ef99086759916e3e2538a216c9cf269...2697", "request_id": "req_263d92259aa44e0cbf315de691692593", "message_id": "msg_00380fc19b7440f6a4e4fd5517cc76b7"}\n\n')
+E            +  where 'event: status\ndata: {"stage": "accepted", "run_id": "run_f6b75a5f37f1348b7d1e3612c4a2ef99086759916e3e2538a216c9cf269...2697", "request_id": "req_263d92259aa44e0cbf315de691692593", "message_id": "msg_00380fc19b7440f6a4e4fd5517cc76b7"}\n\n' = <Response [200 OK]>.text
+
+backend/app/tests/unit/test_memory_candidate_binding.py:160: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-08 20:40:46,669 ERROR app.api.sessions agent_stream_unhandled_error
+Traceback (most recent call last):
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/api/sessions.py", line 1069, in _stream_agent_message
+    _persist_agent_message_state(
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/api/sessions.py", line 1483, in _persist_agent_message_state
+    persist_agent_run(
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/storage/repositories.py", line 66, in persist_agent_run
+    candidate_repository.save_candidate(
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/storage/memory_candidates.py", line 28, in save_candidate
+    return self._save_locked(candidate,tenant_id=tenant_id,user_id=user_id,run_id=run_id)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/storage/memory_candidates.py", line 41, in _save_locked
+    require_candidate_binding(existing,candidate,tenant_id=tenant_id,user_id=user_id)
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/security/memory_candidate.py", line 42, in require_candidate_binding
+    raise MemoryCandidateConflict()
+app.security.memory_candidate.MemoryCandidateConflict: 记忆候选归属或审批内容不一致，请重新发起任务。
+2026-11-08 20:40:46,693 INFO bs_agent.access http_request_completed
+2026-11-08 20:40:46,694 INFO httpx2 HTTP Request: POST http://testserver/api/sessions/s/messages/stream "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+ERROR    app.api.sessions:sessions.py:1179 agent_stream_unhandled_error
+Traceback (most recent call last):
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/api/sessions.py", line 1069, in _stream_agent_message
+    _persist_agent_message_state(
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/api/sessions.py", line 1483, in _persist_agent_message_state
+    persist_agent_run(
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/storage/repositories.py", line 66, in persist_agent_run
+    candidate_repository.save_candidate(
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/storage/memory_candidates.py", line 28, in save_candidate
+    return self._save_locked(candidate,tenant_id=tenant_id,user_id=user_id,run_id=run_id)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/storage/memory_candidates.py", line 41, in _save_locked
+    require_candidate_binding(existing,candidate,tenant_id=tenant_id,user_id=user_id)
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/security/memory_candidate.py", line 42, in require_candidate_binding
+    raise MemoryCandidateConflict()
+app.security.memory_candidate.MemoryCandidateConflict: 记忆候选归属或审批内容不一致，请重新发起任务。
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/sessions/s/messages/stream "HTTP/1.1 200 OK"
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_public_persistence_conflict_is_fixed_and_releases_run[False]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_public_persistence_conflict_is_fixed_and_releases_run[True]
+2 failed, 20 deselected in 4.59s

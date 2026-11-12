@@ -11,7 +11,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from langgraph.store.base import BaseStore
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import iterate_in_threadpool
@@ -63,10 +63,20 @@ from app.llm.deepseek import LlmConfigurationError
 from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
 from app.memory.synchronizer import sync_committed_run
-from app.operations.rate_limit import RateLimitPolicy, require_rate_limit
+from app.operations.rate_limit import AGENT_INVOCATION_RATE_LIMIT, require_rate_limit
 from app.schemas.messages import Message
 from app.security.dependencies import require_permission
+from app.security.memory_candidate import MemoryCandidateConflict
 from app.security.principal import Principal
+from app.security.run_authorization import (
+    RunAuthorizationDenied,
+    RunAuthorizationUnavailable,
+    authorized_graph,
+    ensure_request_transaction,
+    initialize_run,
+    refresh_run,
+)
+from app.security.run_budget import BudgetExhausted, BudgetExpired, RunBudgetError, budgeted_call
 from app.storage.database import get_db
 from app.storage.repositories import persist_agent_run
 from app.vision.context import VisionAttachmentContextResolver
@@ -83,10 +93,6 @@ PRODUCT_PROGRESS_MESSAGES = {
     "analyzing_evidence": "正在核对并分析已获得的证据",
     "composing_answer": "正在生成最终投研报告",
 }
-AGENT_INVOCATION_RATE_LIMIT = RateLimitPolicy(
-    name="agent_invocation",
-    requests_per_minute=settings.agent_rate_limit_per_minute,
-)
 CONVERSATION_HISTORY_LIMIT = 0
 
 
@@ -175,7 +181,29 @@ class _ProtocolUserInputCommand(BaseModel):
     resume: _ProtocolUserInputResume
 
 
-class SessionMessageResponse(BaseModel):
+class _PublicMessageFields(BaseModel):
+    @field_validator("content", "title", "preview", "snippet", mode="before", check_fields=False)
+    @classmethod
+    def _public_text(cls, value, info):
+        from app.security.public_output import public_text
+        text = public_text(value)
+        limit = {"title": 160, "preview": 320}.get(info.field_name)
+        return text[:limit] if limit is not None else text
+
+    @field_validator("sources", mode="before", check_fields=False)
+    @classmethod
+    def _public_sources(cls, value):
+        from app.security.public_output import public_sources
+        return public_sources(value)
+
+    @field_validator("metadata", mode="before", check_fields=False)
+    @classmethod
+    def _public_metadata(cls, value):
+        from app.security.public_output import public_metadata
+        return public_metadata(value)
+
+
+class SessionMessageResponse(_PublicMessageFields):
     sources: list[dict] = Field(default_factory=list)
     content: str
     trace_id: str
@@ -189,7 +217,7 @@ class SessionMessageResponse(BaseModel):
     request_id: str
 
 
-class SessionMessageItem(BaseModel):
+class SessionMessageItem(_PublicMessageFields):
     message_id: str
     request_id: str
     run_id: str
@@ -208,7 +236,7 @@ class SessionMessagePage(BaseModel):
     next_before_sequence: int | None = None
 
 
-class SessionItem(BaseModel):
+class SessionItem(_PublicMessageFields):
     session_id: str
     title: str = ""
     preview: str = ""
@@ -221,7 +249,7 @@ class SessionPage(BaseModel):
     items: list[SessionItem]
 
 
-class SessionMessageSearchItem(BaseModel):
+class SessionMessageSearchItem(_PublicMessageFields):
     session_id: str
     message_id: str
     title: str
@@ -238,10 +266,12 @@ class SessionMessageSearchPage(BaseModel):
 
 def _message_search_snippet(content: str, query: str) -> str:
     # 摘要作为纯文本返回；移除常见 Markdown 包装，保留被搜索的字面内容。
-    text = unescape(re.sub(r"<[^>]*>", "", content))
+    from app.security.public_output import public_text
+    text = public_text(unescape(re.sub(r"<[^>]*>", "", public_text(content))))
     plain = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)
     plain = re.sub(r"\*\*|__|~~|`+", "", plain)
     plain = re.sub(r"(?m)^\s{0,3}(?:#{1,6}\s+|[-*+]\s+|>\s?)", "", plain)
+    plain = public_text(plain)
     match = re.search(re.escape(query), plain, flags=re.IGNORECASE)
     if match is None:
         # 用户也可以搜索 Markdown 标记本身，此时保留这些字面字符。
@@ -379,7 +409,7 @@ def post_message(
             business_intent_catalog=business_intent_catalog,
             request_id=idempotency_key or f"req_{uuid4().hex}",
         )
-    except AgentGraphExecutionError as exc:
+    except (AgentGraphExecutionError, RunAuthorizationDenied, RunAuthorizationUnavailable, RunBudgetError, MemoryCandidateConflict) as exc:
         raise HTTPException(
             status_code=exc.http_status,
             detail={
@@ -438,6 +468,8 @@ def list_messages(
     has_more = len(records) > limit
     if has_more:
         records = records[1:]
+    from app.security.protocol_replay import public_message_snapshots
+    records = public_message_snapshots(db, records)
     return SessionMessagePage(
         items=[_message_item(record) for record in records],
         next_before_sequence=records[0].sequence_no if has_more else None,
@@ -464,9 +496,11 @@ def post_message_stream(
         pattern=r"^[A-Za-z0-9._:-]+$",
     ),
 ) -> StreamingResponse:
+    from app.security.stream_authorization import StreamAuthorization, authorized_event_stream
+
     return StreamingResponse(
         _closeable_async_stream(
-            _stream_agent_message(
+            authorized_event_stream(_stream_agent_message(
                 session_id=session_id,
                 request=request,
                 principal=principal,
@@ -475,7 +509,11 @@ def post_message_stream(
                 memory_store=memory_store,
                 business_intent_catalog=business_intent_catalog,
                 request_id=idempotency_key or f"req_{uuid4().hex}",
-            )
+            ), authorization=StreamAuthorization(
+                session_factory=sessionmaker(bind=db.get_bind(), autoflush=False),
+                principal=principal, session_id=session_id, permissions=("agent:invoke",),
+                allow_new_session=True,
+            ))
         ),
         media_type="text/event-stream",
         headers={
@@ -563,7 +601,7 @@ def _load_execution_snapshot(
             contexts_json=attachment_json,
         ),
     )
-    if defer_compaction or not settings.context_compaction_enabled:
+    if defer_compaction or (not settings.context_compaction_enabled and not history):
         # HTTP 的 begin_turn、冻结附件和 durable payload 必须在同一事务提交。
         return snapshot
     preparation = _stream_execution_snapshot(
@@ -599,7 +637,7 @@ def _stream_execution_snapshot(
         llm_client=llm_client,
         defer_compaction=True,
     )
-    if not settings.context_compaction_enabled:
+    if not settings.context_compaction_enabled and not snapshot.history:
         return snapshot
     from app.conversations.execution import check_execution_cancelled
 
@@ -622,6 +660,8 @@ def _stream_execution_snapshot(
         "current_user_message": request.message,
         "attachment_texts": (*attachment_json, *(message.model_dump_json() for message in handoff)),
     }
+    if not settings.context_compaction_enabled:
+        prepare_kwargs["legacy_history_limit"] = CONVERSATION_HISTORY_LIMIT
     if callable(prepare_events):
         preparation = prepare_events(**prepare_kwargs)
         while True:
@@ -661,6 +701,7 @@ def _run_and_persist_agent_message(
     state: AgentState | None = None
     trace_buffer: TraceBuffer | None = None
     try:
+        ensure_request_transaction(db)
         handle = conversation_service.begin_turn(
             BeginTurn(
                 tenant_id=principal.tenant_id,
@@ -671,6 +712,8 @@ def _run_and_persist_agent_message(
                 metadata=ConversationMetadata(attachment_ids=tuple(request.attachments)),
             )
         )
+        if not handle.replayed:
+            principal = initialize_run(db, handle=handle, principal=principal)
         db.commit()
     except SQLAlchemyError as exc:
         db.rollback()
@@ -690,14 +733,17 @@ def _run_and_persist_agent_message(
     trace_buffer = TraceBuffer()
     try:
         llm_client = maybe_build_llm_client()
-        snapshot = _load_execution_snapshot(
-            db=db,
-            principal=principal,
-            session_id=session_id,
-            request=request,
-            handle=handle,
-            attachment_resolver=attachment_resolver,
-            llm_client=llm_client,
+        snapshot = budgeted_call(
+            db, run_id=handle.run_id, principal=principal,
+            function=lambda: _load_execution_snapshot(
+                db=db,
+                principal=principal,
+                session_id=session_id,
+                request=request,
+                handle=handle,
+                attachment_resolver=attachment_resolver,
+                llm_client=llm_client,
+            ),
         )
         _record_context_snapshot_trace(
             buffer=trace_buffer,
@@ -707,7 +753,8 @@ def _run_and_persist_agent_message(
         db.commit()
 
         checkpointer = build_graph_checkpointer()
-        state = run_question_answer_graph(
+        state = authorized_graph(
+            db, run_id=handle.run_id, principal=principal, function=run_question_answer_graph,
             business_intent_catalog=business_intent_catalog,
             session_id=session_id,
             session_key=handle.session_key,
@@ -761,7 +808,7 @@ def _run_and_persist_agent_message(
                 session_key=handle.session_key,
             )
         sync_committed_run(db=db, store=memory_store, run_id=handle.run_id)
-    except ContextCompactionError as exc:
+    except (ContextCompactionError, RunBudgetError, MemoryCandidateConflict) as exc:
         db.rollback()
         try:
             _fail_turn_after_error(
@@ -884,6 +931,7 @@ def _stream_agent_message(
     trace_lifecycle = _TraceLifecycle()
     try:
         if handle is None:
+            ensure_request_transaction(db)
             handle = conversation_service.begin_turn(
                 BeginTurn(
                     tenant_id=principal.tenant_id,
@@ -894,6 +942,8 @@ def _stream_agent_message(
                     metadata=ConversationMetadata(attachment_ids=tuple(request.attachments)),
                 )
             )
+            if not handle.replayed:
+                principal = initialize_run(db, handle=handle, principal=principal)
             db.commit()
         if handle.replayed:
             replayed = _replayed_message_response(
@@ -920,19 +970,23 @@ def _stream_agent_message(
             yield _sse("done", {"ok": True, "replayed": True, **identity})
             return
 
+        principal = refresh_run(db, run_id=handle.run_id, principal=principal)
         trace_buffer = TraceBuffer()
         identity = _stream_identity(handle)
         yield _sse("status", {"stage": "accepted", **identity})
         llm_client = maybe_build_llm_client()
-        snapshot = yield from _stream_execution_snapshot(
-            db=db,
-            principal=principal,
-            session_id=session_id,
-            request=request,
-            handle=handle,
-            attachment_resolver=attachment_resolver,
-            llm_client=llm_client,
-            execution_snapshot=execution_snapshot,
+        snapshot = yield from budgeted_call(
+            db, run_id=handle.run_id, principal=principal,
+            function=lambda: _stream_execution_snapshot(
+                db=db,
+                principal=principal,
+                session_id=session_id,
+                request=request,
+                handle=handle,
+                attachment_resolver=attachment_resolver,
+                llm_client=llm_client,
+                execution_snapshot=execution_snapshot,
+            ),
         )
         _record_context_snapshot_trace(
             buffer=trace_buffer,
@@ -953,7 +1007,8 @@ def _stream_agent_message(
         emitted_event_count = 0
         emitted_progress_stages = {"planning"}
         answer_streamed = False
-        for stream_item in stream_question_answer_graph(
+        for stream_item in authorized_graph(
+            db, run_id=handle.run_id, principal=principal, function=stream_question_answer_graph,
             business_intent_catalog=business_intent_catalog,
             session_id=session_id,
             session_key=handle.session_key,
@@ -1067,12 +1122,13 @@ def _stream_agent_message(
         )
         yield _sse("done", {"ok": False, **_stream_identity(handle)})
         return
-    except AgentGraphExecutionError as exc:
+    except (AgentGraphExecutionError, RunAuthorizationDenied, RunAuthorizationUnavailable, RunBudgetError, MemoryCandidateConflict) as exc:
         finalized = _fail_stream_turn(
             db=db,
             conversation_service=conversation_service,
             principal=principal,
             handle=handle,
+            error_code=exc.code,
             research_process=research_process,
         )
         for event in research_process:
@@ -1523,6 +1579,7 @@ def _claim_user_input_resume(
         raise HTTPException(status_code=404, detail={"code": "session_not_found"})
     if session_record.active_run_id is None:
         raise HTTPException(status_code=409, detail={"code": "run_state_conflict"})
+    principal = refresh_run(db, run_id=session_record.active_run_id, principal=principal)
     service = ConversationService(db)
     try:
         handle = service.resume_turn(
@@ -1570,6 +1627,7 @@ def _stream_user_input_resume(
     approval_occurred = False
     identity = _stream_identity(handle)
     try:
+        principal = refresh_run(db, run_id=handle.run_id, principal=principal)
         yield _sse("status", {"stage": "accepted", **identity})
         assistant = ConversationRepository(db).get_assistant_by_run(
             tenant_id=principal.tenant_id, run_id=handle.run_id,
@@ -1577,7 +1635,8 @@ def _stream_user_input_resume(
         if assistant is not None:
             research_process = list((assistant.metadata_json or {}).get("research_process", []))
         llm_client = maybe_build_llm_client()
-        resumed = resume_user_input_graph(
+        resumed = authorized_graph(
+            db, run_id=handle.run_id, principal=principal, function=resume_user_input_graph,
             business_intent_catalog=business_intent_catalog,
             checkpoint_thread_id=build_checkpoint_thread_id(
                 tenant_id=principal.tenant_id,
@@ -1660,8 +1719,8 @@ def _stream_user_input_resume(
             answer_streamed=answer_streamed,
             research_process=research_process,
         )
-    except AgentGraphExecutionError as exc:
-        if exc.code == "tool_catalog_changed":
+    except (AgentGraphExecutionError, RunAuthorizationDenied, RunAuthorizationUnavailable, RunBudgetError, MemoryCandidateConflict) as exc:
+        if exc.code == "tool_catalog_changed" or isinstance(exc,(BudgetExhausted,BudgetExpired,MemoryCandidateConflict)):
             # 旧工具快照已失效，重试同一个 Interrupt 无法恢复，必须释放会话。
             db.rollback()
             _fail_turn_after_error(
@@ -2059,6 +2118,8 @@ def _collect_research_process_event(events: list[dict], event: dict) -> None:
     if kind not in {"goal", "plan", "activity", "summary"}:
         return
     event_id = str(event.get("id") or "").strip()[:128]
+    from app.security.public_output import public_progress
+    event = public_progress(event)
     message = str(event.get("message") or "").strip()
     if kind not in {"goal", "plan"}:
         message = message[:500]

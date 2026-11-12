@@ -28,6 +28,21 @@ class ClassifiedRecoverableError:
 
 
 _RECOVERABLE_ERROR_DEFINITIONS: Mapping[str, RecoverableErrorDefinition] = {
+    **{code: RecoverableErrorDefinition(code=code,message=message,http_status=status,terminal=True)
+       for code,message,status in (
+           ("run_budget_exhausted","任务资源预算已耗尽，请重新发起任务。",429),
+           ("run_budget_expired","任务执行期限已过，请重新发起任务。",409),
+           ("run_budget_unavailable","任务预算记录暂不可用，请稍后重试或重新发起任务。",503),
+       )},
+    "memory_candidate_conflict": RecoverableErrorDefinition(
+        code="memory_candidate_conflict",
+        message="记忆候选归属或审批内容不一致，请重新发起任务。",
+        http_status=409, terminal=True,
+    ),
+    "llm_response_limit_exceeded": RecoverableErrorDefinition(
+        code="llm_response_limit_exceeded", message="模型服务响应超出读取限制。",
+        http_status=502, terminal=True,
+    ),
     **{
         code: RecoverableErrorDefinition(
             code=code, message="权限恢复授权或快照不匹配，请刷新或重新发起请求。",

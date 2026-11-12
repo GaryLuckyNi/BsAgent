@@ -8,6 +8,7 @@ class Principal:
     scopes: tuple[str, ...]
     token_id: str | None = None
     roles: tuple[str, ...] = ()
+    expires_at: float | None = None
 
     @property
     def permissions(self) -> tuple[str, ...]:

@@ -11,7 +11,7 @@ class SqlAlchemyTenantImagePolicyProvider:
         self._session = session
 
     def get_policy(self, *, tenant_id: str) -> TenantImagePolicy:
-        record = self._session.get(TenantImagePolicyRecord, tenant_id)
+        record = self._session.get(TenantImagePolicyRecord, tenant_id, populate_existing=True)
         return TenantImagePolicy(
             allow_external_vision=(
                 record.allow_external_vision if record is not None else False

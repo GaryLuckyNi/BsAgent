@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
+from app.security.tool_content import ToolContentMetadata
 from app.tools.redaction import contains_inline_credentials
 
 
@@ -25,6 +26,7 @@ class ToolSpec(BaseModel):
     risk_level: Literal["low", "medium", "high"] = "low"
     # 宿主受信契约，不能由模型参数或工具返回声明；与审批风险等级独立。
     effect_type: Literal["read_only", "write", "unknown"] = "unknown"
+    outbound_context_fields: list[Literal["research_context", "research_context.original_question"]] = Field(default_factory=list)
     server_injected_fields: list[str] = Field(default_factory=list)
 
 
@@ -48,7 +50,11 @@ class ToolCallRequest(BaseModel):
     @field_validator("arguments")
     @classmethod
     def reject_inline_credentials(cls, value: dict[str, Any]) -> dict[str, Any]:
-        if contains_inline_credentials(value):
+        from app.security.tool_outbound import ToolOutboundPolicy
+
+        if not ToolOutboundPolicy().evaluate(
+            value, tool_name="tool-request"
+        ).allowed or contains_inline_credentials(value):
             raise PydanticCustomError(
                 "inline_credentials_forbidden",
                 "工具参数不得包含内联连接凭证，请由 Gateway 或 Adapter 注入。",
@@ -57,6 +63,7 @@ class ToolCallRequest(BaseModel):
 
 
 class ToolCallResult(BaseModel):
+    content_policy: ToolContentMetadata | None = None
     tool_call_id: str
     tool_name: str
     status: Literal["success", "failed", "timeout", "denied"]

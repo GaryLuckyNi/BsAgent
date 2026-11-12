@@ -11,6 +11,7 @@ from app.context_compaction.contracts import (
 from app.context_compaction.summarizer import ContextSummarizer
 from app.llm.factory import maybe_build_llm_client
 from app.llm.schemas import LlmCompletionResult
+from app.security.context_content import ContextContentRejected
 
 CASES_PATH = Path(__file__).with_name("context_compaction_cases.json")
 REQUIRED_CASES = {
@@ -57,8 +58,10 @@ def _snapshot(case):
 class FixtureLlm:
     def __init__(self, summary):
         self.summary = summary
+        self.calls=[]
 
     async def complete(self, **_kwargs):
+        self.calls.append(_kwargs)
         return LlmCompletionResult(
             content=json.dumps(self.summary, ensure_ascii=False),
             model="fixture-summary",
@@ -73,8 +76,14 @@ def test_context_compaction_cases_cover_quality_contract_deterministically():
 
     for case in cases:
         expected = ContextSummary.model_validate(case["expected_summary"])
+        client=FixtureLlm(expected.model_dump(mode="json"))
+        if case["id"]=="prompt_injection":
+            with pytest.raises(ContextContentRejected):
+                ContextSummarizer(client,max_tokens=3000).summarize(_snapshot(case))
+            assert client.calls==[]
+            continue
         result = ContextSummarizer(
-            FixtureLlm(expected.model_dump(mode="json")),
+            client,
             max_tokens=3_000,
         ).summarize(_snapshot(case))
         assert result.summary == expected
@@ -92,6 +101,10 @@ def test_live_context_compaction_quality():
     added_facts = 0
 
     for case in _cases():
+        if case["id"]=="prompt_injection":
+            with pytest.raises(ContextContentRejected):
+                summarizer.summarize(_snapshot(case))
+            continue
         expected = ContextSummary.model_validate(case["expected_summary"])
         actual = summarizer.summarize(_snapshot(case)).summary
         fact_omissions += len(set(expected.facts) - set(actual.facts))

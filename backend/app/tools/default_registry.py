@@ -3,6 +3,7 @@ import re
 
 from app.core.config import settings
 from app.schemas.tools import ToolSpec
+from app.security.admin_service_auth import build_admin_service_auth
 from app.tools.catalog_runtime import ToolCatalogRuntime
 from app.tools.market_data_config import AdminMarketDataConfigClient
 from app.tools.mcp_gateway import McpGateway, McpServerConfig
@@ -62,6 +63,7 @@ def _discover_default_tool_registry() -> ToolRegistry:
 def _load_market_data_mcp_config() -> McpServerConfig | None:
     return AdminMarketDataConfigClient(
         base_url=settings.admin_base_url,
+        auth=build_admin_service_auth(settings),
         timeout_seconds=min(settings.mcp_timeout_seconds, 5.0),
     ).get_active_mcp_config()
 

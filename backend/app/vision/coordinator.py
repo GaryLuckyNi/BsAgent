@@ -1,9 +1,11 @@
-from dataclasses import dataclass
 import json
 import re
-from typing import Protocol
 import unicodedata
+from dataclasses import dataclass
+from typing import Protocol
 
+from app.security.asset_authorization import check_active_asset_authorization
+from app.security.image_content import protect_image_result
 from app.vision.client import VisionProviderError
 from app.vision.ocr_client import OcrProviderError
 from app.vision.schemas import (
@@ -43,9 +45,7 @@ class TenantImagePolicyProvider(Protocol):
 
 class StaticTenantImagePolicyProvider:
     def __init__(self, *, allow_external_vision: bool) -> None:
-        self._policy = TenantImagePolicy(
-            allow_external_vision=allow_external_vision
-        )
+        self._policy = TenantImagePolicy(allow_external_vision=allow_external_vision)
 
     def get_policy(self, *, tenant_id: str) -> TenantImagePolicy:
         del tenant_id
@@ -101,17 +101,24 @@ class ImageAnalysisCoordinator:
         risk_flags: list[str] = []
 
         try:
-            ocr_result = self._ocr_client.extract(image, media_type=media_type)
+            check_active_asset_authorization()
+            ocr_result = protect_image_result(
+                self._ocr_client.extract(image, media_type=media_type)
+            )
         except OcrProviderError as exc:
             failures.append(exc)
             risk_flags.append(exc.code)
 
         policy = self._policy_provider.get_policy(tenant_id=tenant_id)
-        if policy.allow_external_vision:
+        restricted = ocr_result is not None and ocr_result._content_restricted
+        if policy.allow_external_vision and not restricted:
             try:
-                vision_result = self._vision_client.analyze(
-                    image,
-                    media_type=media_type,
+                check_active_asset_authorization()
+                vision_result = protect_image_result(
+                    self._vision_client.analyze(
+                        image,
+                        media_type=media_type,
+                    )
                 )
             except VisionProviderError as exc:
                 failures.append(exc)
@@ -119,7 +126,11 @@ class ImageAnalysisCoordinator:
             vision_status = "success" if vision_result is not None else "failed"
         else:
             vision_status = "skipped"
-            risk_flags.append("external_vision_denied_by_tenant_policy")
+            risk_flags.append(
+                "external_vision_blocked_by_content_policy"
+                if restricted
+                else "external_vision_denied_by_tenant_policy"
+            )
 
         if ocr_result is None and vision_result is None:
             codes = tuple(error.code for error in failures)
@@ -167,55 +178,51 @@ class ImageAnalysisCoordinator:
                 else "screenshot"
             ),
             summary=(
-                vision_analysis.summary
-                if vision_analysis is not None
-                else _ocr_summary(excerpt)
+                vision_analysis.summary if vision_analysis is not None else _ocr_summary(excerpt)
             ),
             extracted_text=excerpt,
             financial_metrics=(
-                vision_analysis.financial_metrics
-                if vision_analysis is not None
-                else []
+                vision_analysis.financial_metrics if vision_analysis is not None else []
             ),
             chart_observations=(
-                vision_analysis.chart_observations
-                if vision_analysis is not None
-                else []
+                vision_analysis.chart_observations if vision_analysis is not None else []
             ),
             entities=vision_analysis.entities if vision_analysis is not None else [],
             risk_flags=list(dict.fromkeys(risk_flags)),
             confidence=confidence if both_succeeded else confidence * 0.85,
         )
-        return CoordinatedImageAnalysisResult(
-            status="ready" if both_succeeded else "partial",
-            analysis=analysis,
-            provider="ocr_vision_hybrid" if both_succeeded else "partial_image_analysis",
-            model=vision_result.model if vision_result is not None else "ocr-only",
-            usage=vision_result.usage if vision_result is not None else {},
-            ocr_status="success" if ocr_result is not None else "failed",
-            vision_status=vision_status,
-            ocr_provider=(
-                ocr_result.provider
-                if ocr_result is not None
-                else getattr(self._ocr_client, "provider", "paddleocr_http")
-            ),
-            ocr_version=(
-                ocr_result.provider_version
-                if ocr_result is not None
-                else getattr(self._ocr_client, "provider_version", "unknown")
-            ),
-            vision_provider=(
-                vision_result.provider
-                if vision_result is not None
-                else getattr(self._vision_client, "provider", "openai_compatible")
-            ),
-            vision_version=(
-                vision_result.model
-                if vision_result is not None
-                else getattr(self._vision_client, "model", "unknown")
-            ),
-            full_ocr_text=full_ocr_text,
-            ocr_tables=ocr_tables,
+        return protect_image_result(
+            CoordinatedImageAnalysisResult(
+                status="ready" if both_succeeded else "partial",
+                analysis=analysis,
+                provider="ocr_vision_hybrid" if both_succeeded else "partial_image_analysis",
+                model=vision_result.model if vision_result is not None else "ocr-only",
+                usage=vision_result.usage if vision_result is not None else {},
+                ocr_status="success" if ocr_result is not None else "failed",
+                vision_status=vision_status,
+                ocr_provider=(
+                    ocr_result.provider
+                    if ocr_result is not None
+                    else getattr(self._ocr_client, "provider", "paddleocr_http")
+                ),
+                ocr_version=(
+                    ocr_result.provider_version
+                    if ocr_result is not None
+                    else getattr(self._ocr_client, "provider_version", "unknown")
+                ),
+                vision_provider=(
+                    vision_result.provider
+                    if vision_result is not None
+                    else getattr(self._vision_client, "provider", "openai_compatible")
+                ),
+                vision_version=(
+                    vision_result.model
+                    if vision_result is not None
+                    else getattr(self._vision_client, "model", "unknown")
+                ),
+                full_ocr_text=full_ocr_text,
+                ocr_tables=ocr_tables,
+            )
         )
 
 
@@ -251,9 +258,7 @@ def _metric_conflict_warnings(
     warnings = []
     for metric in vision_analysis.financial_metrics:
         name = _normalize_metric_text(metric.name)
-        expected_value = _normalize_metric_text(
-            f"{metric.value}{metric.unit or ''}"
-        )
+        expected_value = _normalize_metric_text(f"{metric.value}{metric.unit or ''}")
         if name and name in ocr_evidence and expected_value not in ocr_evidence:
             warnings.append(f"ocr_vision_metric_conflict:{metric.name}")
     return warnings

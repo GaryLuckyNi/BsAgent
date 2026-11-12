@@ -9,35 +9,47 @@ import httpx
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from app.llm.errors import (
+    PROVIDER_TRANSPORT_ERRORS,
+    LlmConfigurationError,
+    LlmProviderError,
+    normalized_provider_error,
+)
+from app.llm.input_guard import ProtectedModel
 from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
 from app.operations.langfuse_observability import (
     langfuse_generation,
     update_langfuse_generation,
 )
+from app.security.http_response import async_bounded_request, async_bounded_stream, bounded_stream
+from app.security.model_input import check_tool_definitions, protect_model_prompts
+from app.security.model_output import (
+    IncrementalOutput,
+    ModelOutputRejected,
+    closing_async_model_source,
+    closing_model_source,
+    output_view,
+    protect_completion,
+)
+from app.security.sdk_http import BoundedAsyncClient, BoundedClient, RequestScopedAsyncClient
 
 _stream_response_model: ContextVar[str | None] = ContextVar(
     "deepseek_stream_response_model", default=None
 )
 
 
-class LlmConfigurationError(RuntimeError):
-    pass
+_stream_received = ContextVar("deepseek_received", default=None)
 
 
-class LlmProviderError(RuntimeError):
-    def __init__(
-        self,
-        *,
-        code: str,
-        message: str,
-        status_code: int | None = None,
-        timeout_phase: str | None = None,
-    ) -> None:
-        self.code = code
-        self.message = message
-        self.status_code = status_code
-        self.timeout_phase = timeout_phase
-        super().__init__(message)
+def _mark_received(event):
+    state = _stream_received.get()
+    if state is None:
+        state = {"first": None, "content_chars": 0, "reasoning_chars": 0}
+        _stream_received.set(state)
+    if event.kind in {"content", "reasoning"}:
+        state[event.kind + "_chars"] += len(event.delta)
+        if state["first"] is None:
+            state["first"] = (event.kind, perf_counter(), datetime.now(UTC))
 
 
 class DeepSeekClient:
@@ -68,23 +80,27 @@ class DeepSeekClient:
                 base_url=base_url,
                 timeout=timeout_seconds,
             )
+        self._sdk_sync_client = BoundedClient(timeout_seconds=timeout_seconds, delegate=self._sync_http_client, streaming_is_sse=True, budget_kind="model")
+        self._sdk_async_client = RequestScopedAsyncClient(timeout_seconds=timeout_seconds,budget_kind="model") if http_client is None else BoundedAsyncClient(timeout_seconds=timeout_seconds, delegate=http_client, streaming_is_sse=True,budget_kind="model")
         self._chat_model = ChatOpenAI(
             api_key=api_key,
             model=model,
             base_url=base_url,
             timeout=timeout_seconds,
             max_retries=0,
-            http_async_client=http_client,
+            http_client=self._sdk_sync_client,
+            http_async_client=self._sdk_async_client,
             extra_body={"thinking": {"type": "disabled"}},
         )
 
     def bind_tools(self, tools: list[dict[str, Any]], *, tool_choice: str):
-        return self._chat_model.bind_tools(
+        check_tool_definitions(tools)
+        return ProtectedModel(self._chat_model.bind_tools(
             tools,
             tool_choice=tool_choice,
             temperature=0,
             extra_body={"thinking": {"type": "disabled"}},
-        )
+        ))
 
     def complete_with_streaming_callbacks(
         self,
@@ -95,6 +111,7 @@ class DeepSeekClient:
         max_tokens: int = 256,
         thinking: bool = True,
     ) -> LlmCompletionResult:
+        system_prompt, user_prompt = protect_model_prompts(system_prompt, user_prompt)
         bind_options: dict[str, Any] = {
             "max_tokens": max_tokens,
             "extra_body": {"thinking": {"type": "enabled" if thinking else "disabled"}},
@@ -103,12 +120,14 @@ class DeepSeekClient:
             bind_options["reasoning_effort"] = "high"
         else:
             bind_options["temperature"] = temperature
-        response = self._chat_model.bind(**bind_options).invoke(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=user_prompt),
-            ]
-        )
+        failure = None
+        try:
+            response = ProtectedModel(self._chat_model.bind(**bind_options)).invoke([
+                SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)])
+        except PROVIDER_TRANSPORT_ERRORS as error:
+            failure = normalized_provider_error(error)
+        if failure is not None:
+            raise failure
         content = response.content if isinstance(response.content, str) else ""
         additional_kwargs = getattr(response, "additional_kwargs", None) or {}
         response_metadata = getattr(response, "response_metadata", None) or {}
@@ -117,14 +136,14 @@ class DeepSeekClient:
             reasoning_content = response_metadata.get("reasoning_content", "")
         if not isinstance(reasoning_content, str):
             reasoning_content = ""
-        return LlmCompletionResult(
+        return protect_completion(LlmCompletionResult(
             content=content,
             reasoning_content=reasoning_content,
             model=self._model,
             provider=self.provider,
             usage=response.usage_metadata or {},
             finish_reason=response_metadata.get("finish_reason"),
-        )
+        ))
 
     async def complete(
         self,
@@ -135,6 +154,7 @@ class DeepSeekClient:
         max_tokens: int = 256,
         thinking: bool | None = None,
     ) -> LlmCompletionResult:
+        system_prompt, user_prompt = protect_model_prompts(system_prompt, user_prompt)
         payload = {
             "model": self._model,
             "messages": [
@@ -195,56 +215,34 @@ class DeepSeekClient:
             )
             return result
 
-    async def _complete_with_client(
-        self,
-        client: httpx.AsyncClient,
-        payload: dict[str, Any],
-    ) -> LlmCompletionResult:
+    async def _complete_with_client(self, client, payload):
+        failure = None
         try:
-            response = await client.post(
-                "/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-            )
+            response = await async_bounded_request(client, "POST", "/chat/completions", json=payload,
+                budget_kind="model",
+                timeout_seconds=self._timeout_seconds,
+                headers={"Authorization": f"Bearer {self._api_key}"})
             response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise LlmProviderError(
-                code="llm_http_error",
-                message=exc.response.text,
-                status_code=exc.response.status_code,
-            ) from exc
-        except httpx.TimeoutException as exc:
-            raise LlmProviderError(
-                code="llm_timeout",
-                message=str(exc),
-                timeout_phase=_timeout_phase(exc),
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise LlmProviderError(code="llm_unreachable", message=str(exc)) from exc
-
-        data = response.json()
+        except PROVIDER_TRANSPORT_ERRORS as error:
+            failure = normalized_provider_error(error)
+        if failure is not None:
+            raise failure
+        invalid = False
         try:
+            data = response.json()
             choice = data["choices"][0]
-            content = choice["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            raise LlmProviderError(
-                code="llm_invalid_response",
-                message="DeepSeek response did not contain choices[0].message.content.",
-            ) from exc
-
-        return LlmCompletionResult(
-            content=content,
-            reasoning_content=(
-                choice["message"].get("reasoning_content", "")
-                if isinstance(choice.get("message"), dict)
-                and isinstance(choice["message"].get("reasoning_content", ""), str)
-                else ""
-            ),
-            model=data.get("model") if isinstance(data.get("model"), str) else self._model,
-            provider=self.provider,
-            usage=data.get("usage", {}),
-            finish_reason=choice.get("finish_reason"),
-        )
+            message = choice["message"]
+            if not isinstance(message.get("content"), str):
+                raise TypeError
+            result = LlmCompletionResult(content=message["content"],
+                reasoning_content=message.get("reasoning_content") if isinstance(message.get("reasoning_content"), str) else "",
+                model=data.get("model") if isinstance(data.get("model"), str) else self._model,
+                provider=self.provider, usage=data.get("usage", {}), finish_reason=choice.get("finish_reason"))
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError, RecursionError):
+            invalid = True
+        if invalid:
+            raise LlmProviderError(code="llm_invalid_response")
+        return protect_completion(result)
 
     async def stream_complete(
         self,
@@ -255,15 +253,16 @@ class DeepSeekClient:
         max_tokens: int = 256,
         thinking: bool | None = None,
     ) -> AsyncIterator[str]:
-        async for event in self.stream_complete_events(
+        async with closing_async_model_source(self.stream_complete_events(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
             thinking=thinking,
-        ):
-            if event.kind == "content":
-                yield event.delta
+        )) as source:
+            async for event in source:
+                if event.kind == "content":
+                    yield event.delta
 
     async def stream_complete_events(
         self,
@@ -274,7 +273,9 @@ class DeepSeekClient:
         max_tokens: int = 256,
         thinking: bool | None = None,
     ) -> AsyncIterator[LlmStreamDelta]:
+        system_prompt, user_prompt = protect_model_prompts(system_prompt, user_prompt)
         _stream_response_model.set(None)
+        _stream_received.set({"first": None, "content_chars": 0, "reasoning_chars": 0})
         payload = {
             "model": self._model,
             "messages": [
@@ -290,18 +291,19 @@ class DeepSeekClient:
             payload["thinking"] = {"type": "enabled" if thinking else "disabled"}
 
         if self._http_client is not None:
-            async for event in self._stream_events_with_client(
+            async with closing_async_model_source(self._stream_events_with_client(
                 self._http_client,
                 payload,
-            ):
-                yield event
+            )) as source:
+                async for event in source:
+                    yield event
             return
 
-        async with httpx.AsyncClient(
-            base_url=self._base_url,
-            timeout=self._timeout_seconds,
-        ) as client:
-            async for event in self._stream_events_with_client(client, payload):
+        async with (
+            httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout_seconds) as client,
+            closing_async_model_source(self._stream_events_with_client(client, payload)) as source,
+        ):
+            async for event in source:
                 yield event
 
     async def complete_streamed(
@@ -314,6 +316,7 @@ class DeepSeekClient:
         thinking: bool = True,
         on_delta: Callable[[LlmStreamDelta], None],
     ) -> LlmCompletionResult:
+        system_prompt, user_prompt = protect_model_prompts(system_prompt, user_prompt)
         generation_metadata = _generation_request_metadata(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -339,39 +342,48 @@ class DeepSeekClient:
             usage: dict[str, int] = {}
             first_token_received = False
             ttft_ms: float | None = None
+            callback_buffer = IncrementalOutput()
             try:
-                async for event in self.stream_complete_events(
+                async with closing_async_model_source(self.stream_complete_events(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     temperature=temperature,
                     max_tokens=max_tokens,
                     thinking=thinking,
-                ):
-                    if event.kind == "finish":
-                        finish_reason = event.delta or None
-                        continue
-                    if event.kind == "usage":
-                        usage = event.usage
-                        continue
-                    if not first_token_received and event.kind in {"content", "reasoning"}:
-                        first_token_received = True
-                        ttft_ms = round((perf_counter() - stream_started) * 1000, 3)
-                        update_langfuse_generation(
-                            generation,
-                            completion_start_time=datetime.now(UTC),
-                            metadata={
-                                **generation_metadata,
-                                "first_token_received": True,
-                                "first_token_kind": event.kind,
-                                "ttft_ms": ttft_ms,
-                            },
-                        )
-                    on_delta(event)
-                    if event.kind == "content":
-                        content_parts.append(event.delta)
-                    elif event.kind == "reasoning":
-                        reasoning_parts.append(event.delta)
+                )) as source:
+                    async for event in source:
+                        if event.kind == "finish":
+                            finish_reason = event.delta or None
+                            continue
+                        if event.kind == "usage":
+                            usage = event.usage
+                            continue
+                        if not first_token_received and event.kind in {"content", "reasoning"}:
+                            first_token_received = True
+                            raw_first = (_stream_received.get() or {}).get("first")
+                            ttft_ms = round(((raw_first[1] if raw_first else perf_counter()) - stream_started) * 1000, 3)
+                            update_langfuse_generation(
+                                generation,
+                                completion_start_time=raw_first[2] if raw_first else datetime.now(UTC),
+                                metadata={
+                                    **generation_metadata,
+                                    "first_token_received": True,
+                                    "first_token_kind": event.kind,
+                                    "ttft_ms": ttft_ms,
+                                },
+                            )
+                        if event.kind == "content":
+                            content_parts.append(event.delta)
+                        elif event.kind == "reasoning":
+                            reasoning_parts.append(event.delta)
+                        for checked in callback_buffer.add(event):
+                            on_delta(checked)
             except LlmProviderError as exc:
+                received = _stream_received.get() or {}
+                raw_first = received.get("first")
+                first_token_received = bool(raw_first)
+                if raw_first:
+                    ttft_ms = round((raw_first[1] - stream_started) * 1000, 3)
                 update_langfuse_generation(
                     generation,
                     level="ERROR",
@@ -382,8 +394,8 @@ class DeepSeekClient:
                     metadata={
                         **generation_metadata,
                         "first_token_received": first_token_received,
-                        "content_chars": sum(len(part) for part in content_parts),
-                        "reasoning_chars": sum(len(part) for part in reasoning_parts),
+                        "content_chars": received.get("content_chars", 0),
+                        "reasoning_chars": received.get("reasoning_chars", 0),
                         "timeout_phase": exc.timeout_phase,
                         **({"ttft_ms": ttft_ms} if ttft_ms is not None else {}),
                     },
@@ -397,6 +409,10 @@ class DeepSeekClient:
                 usage=usage,
                 finish_reason=finish_reason,
             )
+            result = protect_completion(result)
+            if result.finish_reason != "length" and callback_buffer.count:
+                for checked in callback_buffer.finish():
+                    on_delta(checked)
             _record_langfuse_result(
                 generation,
                 result=result,
@@ -421,7 +437,9 @@ class DeepSeekClient:
         thinking: bool = True,
         on_delta: Callable[[LlmStreamDelta], None],
     ) -> LlmCompletionResult:
+        system_prompt, user_prompt = protect_model_prompts(system_prompt, user_prompt)
         _stream_response_model.set(None)
+        _stream_received.set({"first": None, "content_chars": 0, "reasoning_chars": 0})
         payload = {
             "model": self._model,
             "messages": [
@@ -459,33 +477,42 @@ class DeepSeekClient:
             usage: dict[str, int] = {}
             first_token_received = False
             ttft_ms: float | None = None
+            callback_buffer = IncrementalOutput()
             try:
-                for event in self._stream_events_sync(payload):
-                    if event.kind == "finish":
-                        finish_reason = event.delta or None
-                        continue
-                    if event.kind == "usage":
-                        usage = event.usage
-                        continue
-                    if not first_token_received and event.kind in {"content", "reasoning"}:
-                        first_token_received = True
-                        ttft_ms = round((perf_counter() - stream_started) * 1000, 3)
-                        update_langfuse_generation(
-                            generation,
-                            completion_start_time=datetime.now(UTC),
-                            metadata={
-                                **generation_metadata,
-                                "first_token_received": True,
-                                "first_token_kind": event.kind,
-                                "ttft_ms": ttft_ms,
-                            },
-                        )
-                    on_delta(event)
-                    if event.kind == "content":
-                        content_parts.append(event.delta)
-                    elif event.kind == "reasoning":
-                        reasoning_parts.append(event.delta)
+                with closing_model_source(self._stream_events_sync(payload)) as source:
+                    for event in source:
+                        if event.kind == "finish":
+                            finish_reason = event.delta or None
+                            continue
+                        if event.kind == "usage":
+                            usage = event.usage
+                            continue
+                        if not first_token_received and event.kind in {"content", "reasoning"}:
+                            first_token_received = True
+                            raw_first = (_stream_received.get() or {}).get("first")
+                            ttft_ms = round(((raw_first[1] if raw_first else perf_counter()) - stream_started) * 1000, 3)
+                            update_langfuse_generation(
+                                generation,
+                                completion_start_time=raw_first[2] if raw_first else datetime.now(UTC),
+                                metadata={
+                                    **generation_metadata,
+                                    "first_token_received": True,
+                                    "first_token_kind": event.kind,
+                                    "ttft_ms": ttft_ms,
+                                },
+                            )
+                        if event.kind == "content":
+                            content_parts.append(event.delta)
+                        elif event.kind == "reasoning":
+                            reasoning_parts.append(event.delta)
+                        for checked in callback_buffer.add(event):
+                            on_delta(checked)
             except LlmProviderError as exc:
+                received = _stream_received.get() or {}
+                raw_first = received.get("first")
+                first_token_received = bool(raw_first)
+                if raw_first:
+                    ttft_ms = round((raw_first[1] - stream_started) * 1000, 3)
                 update_langfuse_generation(
                     generation,
                     level="ERROR",
@@ -495,8 +522,8 @@ class DeepSeekClient:
                     metadata={
                         **generation_metadata,
                         "first_token_received": first_token_received,
-                        "content_chars": sum(len(part) for part in content_parts),
-                        "reasoning_chars": sum(len(part) for part in reasoning_parts),
+                        "content_chars": received.get("content_chars", 0),
+                        "reasoning_chars": received.get("reasoning_chars", 0),
                         "timeout_phase": exc.timeout_phase,
                         **({"ttft_ms": ttft_ms} if ttft_ms is not None else {}),
                     },
@@ -510,6 +537,10 @@ class DeepSeekClient:
                 usage=usage,
                 finish_reason=finish_reason,
             )
+            result = protect_completion(result)
+            if result.finish_reason != "length" and callback_buffer.count:
+                for checked in callback_buffer.finish():
+                    on_delta(checked)
             _record_langfuse_result(
                 generation,
                 result=result,
@@ -540,81 +571,74 @@ class DeepSeekClient:
         ) as client:
             yield from self._stream_events_with_sync_client(client, payload)
 
-    def _stream_events_with_sync_client(
-        self,
-        client: httpx.Client,
-        payload: dict[str, Any],
-    ) -> Iterator[LlmStreamDelta]:
+    def _stream_events_with_sync_client(self, client, payload):
+        failure, buffer = None, IncrementalOutput()
         try:
-            with client.stream(
-                "POST",
-                "/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-            ) as response:
+            with bounded_stream(client, "POST", "/chat/completions", json=payload,
+                budget_kind="model",
+                timeout_seconds=self._timeout_seconds,
+                headers={"Authorization": f"Bearer {self._api_key}"}) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
-                    try:
-                        packet_model = json.loads(line.removeprefix("data:").strip()).get("model")
-                    except (TypeError, json.JSONDecodeError, AttributeError):
-                        packet_model = None
-                    if isinstance(packet_model, str):
-                        _stream_response_model.set(packet_model)
-                    yield from _parse_openai_stream_events(line)
-        except httpx.HTTPStatusError as exc:
-            raise LlmProviderError(
-                code="llm_http_error",
-                message=exc.response.text,
-                status_code=exc.response.status_code,
-            ) from exc
-        except httpx.TimeoutException as exc:
-            raise LlmProviderError(
-                code="llm_timeout", message=str(exc), timeout_phase=_timeout_phase(exc),
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise LlmProviderError(code="llm_unreachable", message=str(exc)) from exc
+                    _record_packet_model(line)
+                    for event in _parse_openai_stream_events(line):
+                        _mark_received(event)
+                        yield from buffer.add(event)
+        except PROVIDER_TRANSPORT_ERRORS as error:
+            failure = normalized_provider_error(error)
+        if failure is not None:
+            raise failure
+        yield from buffer.finish()
 
     def close(self) -> None:
+        self._sdk_async_client.retire()
+        self._sdk_sync_client.close()
         if self._owns_sync_http_client and self._sync_http_client is not None:
             self._sync_http_client.close()
         self._sync_http_client = None
 
-    async def _stream_events_with_client(
-        self,
-        client: httpx.AsyncClient,
-        payload: dict[str, Any],
-    ) -> AsyncIterator[LlmStreamDelta]:
+    async def aclose(self) -> None:
         try:
-            async with client.stream(
-                "POST",
-                "/chat/completions",
-                json=payload,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-            ) as response:
+            await self._sdk_async_client.aclose()
+        finally:
+            self.close()
+
+    async def _stream_events_with_client(self, client, payload):
+        failure, buffer = None, IncrementalOutput()
+        try:
+            async with async_bounded_stream(client, "POST", "/chat/completions", json=payload,
+                budget_kind="model",
+                timeout_seconds=self._timeout_seconds,
+                headers={"Authorization": f"Bearer {self._api_key}"}) as response:
                 response.raise_for_status()
                 async for line in response.aiter_lines():
-                    try:
-                        packet_model = json.loads(line.removeprefix("data:").strip()).get("model")
-                    except (TypeError, json.JSONDecodeError, AttributeError):
-                        packet_model = None
-                    if isinstance(packet_model, str):
-                        _stream_response_model.set(packet_model)
+                    _record_packet_model(line)
                     for event in _parse_openai_stream_events(line):
-                        yield event
-        except httpx.HTTPStatusError as exc:
-            raise LlmProviderError(
-                code="llm_http_error",
-                message=exc.response.text,
-                status_code=exc.response.status_code,
-            ) from exc
-        except httpx.TimeoutException as exc:
-            raise LlmProviderError(
-                code="llm_timeout",
-                message=str(exc),
-                timeout_phase=_timeout_phase(exc),
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise LlmProviderError(code="llm_unreachable", message=str(exc)) from exc
+                        _mark_received(event)
+                        for checked in buffer.add(event):
+                            yield checked
+        except PROVIDER_TRANSPORT_ERRORS as error:
+            failure = normalized_provider_error(error)
+        if failure is not None:
+            raise failure
+        for event in buffer.finish():
+            yield event
+
+
+def _record_packet_model(line):
+    invalid = False
+    try:
+        packet_model = json.loads(line.removeprefix("data:").strip()).get("model")
+    except RecursionError:
+        invalid = True
+    except (TypeError, ValueError, AttributeError):
+        return
+    if invalid:
+        raise LlmProviderError(code="llm_invalid_response")
+    if isinstance(packet_model, str):
+        if output_view(packet_model) != packet_model:
+            raise ModelOutputRejected
+        _stream_response_model.set(packet_model)
 
 
 def _parse_openai_stream_events(line: str) -> Iterator[LlmStreamDelta]:
@@ -623,9 +647,16 @@ def _parse_openai_stream_events(line: str) -> Iterator[LlmStreamDelta]:
     data = line.removeprefix("data:").strip()
     if not data or data == "[DONE]":
         return
+    invalid = False
     try:
         payload = json.loads(data)
+    except RecursionError:
+        invalid = True
     except (TypeError, json.JSONDecodeError):
+        return
+    if invalid:
+        raise LlmProviderError(code="llm_invalid_response")
+    if not isinstance(payload, dict):
         return
     usage = payload.get("usage")
     if isinstance(usage, dict):

@@ -403,7 +403,8 @@ def test_subscription_disconnect_does_not_close_background_producer(database):
     assert not producer.is_alive()
     with database() as db:
         events = DurableRunService(db).events(handle.run_id, after=0)
-        assert [event.sequence for event in events] == [1, 2, 3, 4]
+        assert [event.sequence for event in events] == list(range(1, len(events) + 1))
+        assert "".join(event.data[0]["content"] for event in events if event.event == "messages") == "第一段第二段"
         assert events[-1].data == {
             "type": "run_status",
             "run_id": handle.run_id,

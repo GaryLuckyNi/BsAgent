@@ -1,0 +1,40 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+______________ test_async_cancel_wins_over_cleanup_failure[error] ______________
+backend/app/tests/unit/test_http_response_budgets.py:549: in test_async_cancel_wins_over_cleanup_failure
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_http_response_budgets.py:547: in run
+    await task
+backend/app/security/http_response.py:311: in async_bounded_request
+    raise failure
+E   app.security.http_response.HttpResponseBudgetError: 上游响应超出读取限制或格式不受支持。
+_____________ test_async_cancel_wins_over_cleanup_failure[timeout] _____________
+backend/app/tests/unit/test_http_response_budgets.py:549: in test_async_cancel_wins_over_cleanup_failure
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_http_response_budgets.py:547: in run
+    await task
+backend/app/security/http_response.py:311: in async_bounded_request
+    raise failure
+E   app.security.http_response.HttpResponseBudgetError: 上游响应超出读取限制或格式不受支持。
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_async_cancel_wins_over_cleanup_failure[error]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_async_cancel_wins_over_cleanup_failure[timeout]
+2 failed, 72 deselected in 0.43s

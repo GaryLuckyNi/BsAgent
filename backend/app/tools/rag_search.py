@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.schemas.tools import ToolCallResult, ToolError
+from app.security.http_response import HttpResponseBudgetError, async_bounded_request
+from app.security.run_authorization import refresh_tool_context
 from app.tools.base import Tool
 from app.tools.registry import ExecutionBinding
 
@@ -22,10 +24,15 @@ class RagSearchError(RuntimeError):
         super().__init__(message)
 
 
+class RagAuthorizationError(RagSearchError):
+    def __init__(self, code="rag_authorization_unavailable", http_status=503):
+        super().__init__(code=code, message=code, http_status=http_status)
+
+
 class RagSearchInput(BaseModel):
     query: str
-    tenant_id: str
-    user_id: str
+    tenant_id: str = ""
+    user_id: str = ""
     top_k: int = Field(default=8, gt=0)
     filters: dict[str, Any] | None = None
     retrieval_mode: Literal["semantic", "hybrid", "keyword"] = "hybrid"
@@ -64,6 +71,8 @@ class RagSearchTool(Tool[RagSearchInput]):
     description = "检索当前用户所属企业的内部知识库，仅查询本企业已接入的内部文档、制度、流程及业务资料。适用于用户明确要求查询本企业内部资料、内部知识库，或上下文已明确资料来自内部知识库的请求。不用于查询外部公司的公开资料、公告、行情或研报。用户仅提到某家公司、“知识证据”或“分析依据”，不代表需要调用本工具。本工具不具备互联网搜索或任意公司信息查询能力。"
     permission_scope: ClassVar[list[str]] = ["rag:retrieve"]
     risk_level = "low"
+    effect_type = "read_only"
+    server_injected_fields: ClassVar[list[str]] = ["tenant_id", "user_id"]
     requires_explicit_execution_binding = True
 
     def __init__(
@@ -80,6 +89,8 @@ class RagSearchTool(Tool[RagSearchInput]):
         self._timeout_seconds = timeout_seconds
 
     async def run(self, input_data: RagSearchInput) -> ToolCallResult:
+        if settings.rbac_backend == "principal":
+            raise RagAuthorizationError("rag_authorization_context_required", 403)
         return await self._run(input_data, business_trace_id=None)
 
     async def run_with_context(
@@ -88,6 +99,19 @@ class RagSearchTool(Tool[RagSearchInput]):
         *,
         context: Any,
     ) -> ToolCallResult:
+        if context is None:
+            raise RagAuthorizationError("rag_authorization_context_required", 403)
+        if (input_data.tenant_id and input_data.tenant_id != context.tenant_id) or (
+            input_data.user_id and input_data.user_id != context.user_id
+        ):
+            raise RagAuthorizationError("rag_context_identity_mismatch", 403)
+        if settings.rbac_backend == "principal":
+            context = refresh_tool_context(context)
+            if "rag:retrieve" not in context.permission_scopes:
+                raise RagAuthorizationError("rag_authorization_denied", 403)
+        input_data = input_data.model_copy(
+            update={"tenant_id": context.tenant_id, "user_id": context.user_id}
+        )
         return await self._run(
             input_data,
             business_trace_id=getattr(context, "business_trace_id", None),
@@ -109,6 +133,7 @@ class RagSearchTool(Tool[RagSearchInput]):
         async with httpx.AsyncClient(
             base_url=self._base_url,
             timeout=self._timeout_seconds,
+            follow_redirects=False,
         ) as client:
             return await self._run_with_client(client, input_data, headers=headers)
 
@@ -119,27 +144,35 @@ class RagSearchTool(Tool[RagSearchInput]):
         *,
         headers: dict[str, str],
     ) -> ToolCallResult:
+        failure = None
         try:
-            response = await client.post(
-                "/api/rag/retrieve",
-                json=_rag_retrieve_payload(input_data),
-                headers=headers,
+            response = await async_bounded_request(
+                client, "POST", "/api/rag/retrieve", json=_rag_retrieve_payload(input_data), headers=headers,
+                timeout_seconds=self._timeout_seconds,
             )
-        except httpx.TimeoutException as exc:
-            raise RagSearchError(
+        except HttpResponseBudgetError as error:
+            expired = error.code == "http_response_deadline"
+            failure = RagSearchError(
+                code="rag_service_timeout" if expired else "rag_response_limit_exceeded",
+                message="检索服务响应超时。" if expired else "检索服务响应超出读取限制。",
+                http_status=504 if expired else 502,
+            )
+        except httpx.TimeoutException:
+            failure = RagSearchError(
                 code="rag_service_timeout",
-                message=str(exc),
+                message="检索服务响应超时。",
                 http_status=504,
-            ) from exc
-        except httpx.RequestError as exc:
-            raise RagSearchError(
+            )
+        except httpx.RequestError:
+            failure = RagSearchError(
                 code="rag_service_unreachable",
-                message=str(exc),
+                message="检索服务不可达。",
                 http_status=502,
-            ) from exc
+            )
+        if failure is not None:
+            raise failure
 
         if response.status_code == 404:
-            message = _response_error_message(response)
             return ToolCallResult(
                 tool_call_id=f"tool_{uuid4().hex}",
                 tool_name=self.name,
@@ -150,20 +183,23 @@ class RagSearchTool(Tool[RagSearchInput]):
                     "total": 0,
                     "latency_ms": 0,
                 },
-                error=ToolError(code="rag_no_evidence", message=message),
+                error=ToolError(code="rag_no_evidence", message="未检索到相关证据。"),
                 latency_ms=0,
                 trace_id=f"trace_{uuid4().hex}",
             )
-        if response.status_code >= 400:
+        if response.status_code != 200:
             raise RagSearchError(
                 code=_rag_error_code(response.status_code),
-                message=_response_error_message(response),
-                http_status=response.status_code,
+                message="检索服务返回非预期响应。",
+                http_status=response.status_code if response.status_code >= 400 else 502,
             )
 
-        response.raise_for_status()
-
-        output = RagSearchOutput.model_validate(_normalize_rag_retrieve_response(response.json()))
+        try:
+            output = RagSearchOutput.model_validate(_normalize_rag_retrieve_response(response.json()))
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError, RecursionError):
+            failure = RagSearchError(code="rag_response_invalid", message="检索服务返回了无效响应。", http_status=502)
+        if failure is not None:
+            raise failure
         return ToolCallResult(
             tool_call_id=f"tool_{uuid4().hex}",
             tool_name=self.name,
@@ -222,15 +258,6 @@ def _propagation_headers(business_trace_id: str | None) -> dict[str, str]:
     if isinstance(business_trace_id, str) and _SAFE_BUSINESS_TRACE_ID.fullmatch(business_trace_id):
         headers[_BUSINESS_TRACE_ID_HEADER] = business_trace_id
     return headers
-
-
-def _response_error_message(response: httpx.Response) -> str:
-    try:
-        payload = response.json()
-    except ValueError:
-        return response.text
-    detail = payload.get("detail") if isinstance(payload, dict) else None
-    return str(detail or response.reason_phrase)
 
 
 def _rag_error_code(status_code: int) -> str:

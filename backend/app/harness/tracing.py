@@ -1,10 +1,11 @@
-from dataclasses import dataclass, field, replace
 import re
+from dataclasses import dataclass, field, replace
 from time import perf_counter
 from typing import Any, Literal
 from uuid import uuid4
 
 from app.graph.state import AgentState
+from app.security.observation import observation_view
 from app.tools.redaction import redact_sensitive_data, sanitize_trace_error
 from app.tools.search import ToolSearchResponse
 
@@ -40,7 +41,7 @@ class InMemoryTraceStore:
         self._artifact_refs_by_trace: dict[str, list[str]] = {}
 
     def record_event(self, event: TraceEvent) -> None:
-        sanitized_event = replace(event, error=sanitize_trace_error(event.error))
+        sanitized_event = replace(event, error=sanitize_trace_error(observation_view(event.error)), metadata=observation_view(event.metadata))
         self.events.append(sanitized_event)
         self._events_by_trace.setdefault(event.trace_id, []).append(sanitized_event)
 
@@ -49,7 +50,7 @@ class InMemoryTraceStore:
             f"artifact_{artifact.trace_id}_{artifact.node_name}_"
             f"{artifact.artifact_type}_{uuid4().hex}"
         )
-        self._artifacts_by_ref[artifact_ref] = artifact
+        self._artifacts_by_ref[artifact_ref] = replace(artifact, payload=observation_view(artifact.payload))
         self._artifact_refs_by_trace.setdefault(artifact.trace_id, []).append(artifact_ref)
         return artifact_ref
 
@@ -438,4 +439,4 @@ def _final_response_summary(state: AgentState) -> dict[str, Any] | None:
 
 
 def _redact(value: Any) -> Any:
-    return redact_sensitive_data(value, replacement="[REDACTED]")
+    return observation_view(redact_sensitive_data(value, replacement="[REDACTED]"))

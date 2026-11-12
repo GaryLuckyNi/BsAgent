@@ -13,6 +13,8 @@ from pythonjsonlogger.json import JsonFormatter
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.operations.safe_exporter import SafeSpanExporter
+from app.security.observation import observation_view
 from app.security.principal import Principal
 from app.tools.redaction import redact_sensitive_data, sanitize_trace_error
 
@@ -25,9 +27,32 @@ _access_logger = logging.getLogger("bs_agent.access")
 
 
 class SafeJsonFormatter(JsonFormatter):
+    def format(self, record):
+        import copy
+        try:
+            return super().format(copy.copy(record))
+        except Exception:  # noqa: BLE001 - 不能让 logging.handleError 打印原始参数。
+            return '{"message":"log_content_withheld"}'
+
     def process_log_record(self, log_record: dict[str, Any]) -> dict[str, Any]:
-        redacted = redact_sensitive_data(log_record)
+        redacted = redact_sensitive_data(observation_view(log_record))
         return _sanitize_log_value(redacted)
+
+
+class SafeTextFormatter(logging.Formatter):
+    def format(self, record):
+        # Formatter 会缓存 exc_text；复制记录，避免改变其它 handler 的输入。
+        import copy
+        try:
+            return observation_view(super().format(copy.copy(record)))
+        except Exception:  # noqa: BLE001
+            return "log_content_withheld"
+
+
+class SafeStreamHandler(logging.StreamHandler):
+    def handleError(self, record):
+        # stream 本身不可写时丢弃，禁止标准 handler 向 stderr 转储原 record。
+        return None
 
 
 class RequestContextMiddleware:
@@ -90,14 +115,14 @@ def configure_logging(
     level: str,
     stream: Any | None = None,
 ) -> None:
-    handler = logging.StreamHandler(stream or sys.stdout)
+    handler = SafeStreamHandler(stream or sys.stdout)
     if log_format == "json":
         handler.setFormatter(
             SafeJsonFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
         )
     else:
         handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+            SafeTextFormatter("%(asctime)s %(levelname)s %(name)s %(message)s")
         )
     setattr(handler, "_bs_agent_managed", True)
     root = logging.getLogger()
@@ -270,7 +295,7 @@ def _install_opentelemetry(
         sampler=ParentBased(TraceIdRatioBased(sample_ratio)),
     )
     provider.add_span_processor(
-        BatchSpanProcessor(exporter or OTLPSpanExporter(endpoint=endpoint))
+        BatchSpanProcessor(SafeSpanExporter(exporter or OTLPSpanExporter(endpoint=endpoint)))
     )
     trace.set_tracer_provider(provider)
     meter_provider = MeterProvider(
@@ -338,7 +363,7 @@ def _install_worker_opentelemetry(
         sampler=ParentBased(TraceIdRatioBased(sample_ratio)),
     )
     provider.add_span_processor(
-        BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint))
+        BatchSpanProcessor(SafeSpanExporter(OTLPSpanExporter(endpoint=endpoint)))
     )
     trace.set_tracer_provider(provider)
     meter_provider = MeterProvider(

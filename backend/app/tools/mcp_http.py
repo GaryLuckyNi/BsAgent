@@ -22,6 +22,13 @@ from pydantic import (
 )
 
 from app.schemas.tools import ToolCallResult, ToolError, ToolSpec
+from app.security.run_budget import find_run_budget_error
+from app.security.run_budget_http import reserve_cleanup
+from app.security.sdk_http import (
+    BoundedAsyncClient,
+    find_response_budget_error,
+    run_with_response_budget,
+)
 from app.tools.base import Tool
 from app.tools.mcp_permission import (
     classify_mcp_failure,
@@ -31,6 +38,9 @@ from app.tools.mcp_permission import (
 from app.tools.redaction import sanitize_untrusted_details
 
 MCP_TOOL_ERROR_MESSAGES = {
+    "mcp_response_limit_exceeded": "MCP 服务响应超出读取限制。",
+    "mcp_discovery_failed": "MCP 工具发现失败。",
+    "mcp_discovery_limit_exceeded": "MCP 工具目录超出发现限制。",
     "invalid_field_request": "MCP tool arguments are invalid.",
     "mcp_tool_execution_failed": "MCP tool execution failed.",
     "mcp_tool_response_invalid": "MCP tool returned an invalid response.",
@@ -42,6 +52,9 @@ MCP_TOOL_ERROR_MESSAGES = {
     "provider_request_rejected": "数据源拒绝了请求，请检查权限、调用频率或参数。",
 }
 _JSON_VALUE_ADAPTER = TypeAdapter(JsonValue)
+MAX_MCP_DISCOVERY_PAGES = 64
+MAX_MCP_DISCOVERY_TOOLS = 2048
+MAX_MCP_DISCOVERY_BYTES = 8 * 1024 * 1024
 
 
 class McpToolResponseError(RuntimeError):
@@ -94,11 +107,24 @@ class McpHttpClient:
         client = self._client(server_name)
         async def discover():
             result = []
+            pages, size, seen = 0, 0, set()
             async with client.session(server_name) as session:
                 cursor = None
                 while True:
+                    if pages >= MAX_MCP_DISCOVERY_PAGES:
+                        raise McpToolResponseError("mcp_discovery_limit_exceeded")
                     page = await session.list_tools(cursor=cursor)
+                    pages += 1
+                    if len(result) + len(page.tools) > MAX_MCP_DISCOVERY_TOOLS:
+                        raise McpToolResponseError("mcp_discovery_limit_exceeded")
+                    if page.nextCursor and page.nextCursor in seen:
+                        raise McpToolResponseError("mcp_discovery_limit_exceeded")
+                    if page.nextCursor:
+                        seen.add(page.nextCursor)
                     for raw in page.tools:
+                        size += len(raw.model_dump_json().encode("utf-8"))
+                        if size > MAX_MCP_DISCOVERY_BYTES:
+                            raise McpToolResponseError("mcp_discovery_limit_exceeded")
                         adapted = convert_mcp_tool_to_langchain_tool(None, raw,
                             connection=client.connections[server_name], server_name=server_name)
                         result.append((adapted, raw.outputSchema or {}))
@@ -107,7 +133,16 @@ class McpHttpClient:
                     cursor = page.nextCursor
             return result
 
-        discovered = await asyncio.wait_for(discover(), timeout=self._timeout_seconds)
+        failure = None
+        try:
+            discovered = await run_with_response_budget(discover(), timeout_seconds=self._timeout_seconds)
+        except McpToolResponseError as error:
+            failure = McpToolResponseError(error.code)
+        except Exception as error:  # noqa: BLE001 - 发现阶段错误不发布原始连接与 SDK 文本。
+            run_error=find_run_budget_error(error)
+            failure = type(run_error)() if run_error is not None else McpToolResponseError("mcp_response_limit_exceeded" if find_response_budget_error(error) else "mcp_discovery_failed")
+        if failure is not None:
+            raise failure
         tools: list[DynamicMcpHttpTool] = []
         for tool, output_schema in discovered:
             input_schema = _langchain_input_schema(tool)
@@ -130,6 +165,12 @@ class McpHttpClient:
         return tools
 
     def _client(self, server_name: str) -> MultiServerMCPClient:
+        def client_factory(headers=None, timeout=None, auth=None):
+            kwargs = {"headers":headers,"auth":auth}
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+            return BoundedAsyncClient(timeout_seconds=self._timeout_seconds, cleanup_reservation=reserve_cleanup(self._url), **kwargs)
+
         return MultiServerMCPClient(
             {
                 server_name: {
@@ -137,6 +178,7 @@ class McpHttpClient:
                     "url": self._url,
                     "timeout": self._timeout_seconds,
                     "sse_read_timeout": self._timeout_seconds,
+                    "httpx_client_factory": client_factory,
                 }
             },
             handle_tool_errors=True,
@@ -205,8 +247,9 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
 
     async def run(self, input_data: DynamicMcpToolInput) -> ToolCallResult:
         start = perf_counter()
+        budget_failure=None
         try:
-            response = await asyncio.wait_for(
+            response = await run_with_response_budget(
                 self._langchain_tool.ainvoke(
                     {
                         "type": "tool_call",
@@ -215,7 +258,7 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                         "args": input_data.model_dump(),
                     }
                 ),
-                timeout=self.timeout_ms / 1000,
+                timeout_seconds=self.timeout_ms / 1000,
             )
             payload = _langchain_tool_payload(
                 response, pre_execution_semantics=self._permission_denial_is_pre_execution,
@@ -235,25 +278,36 @@ class DynamicMcpHttpTool(Tool[DynamicMcpToolInput]):
                 status="denied" if exc.code == "provider_permission_denied" else "failed",
                 execution_state=(exc.classification or {}).get("execution_state", "uncertain"),
             )
-        except TimeoutError as exc:
+        except TimeoutError:
             return _failure_result(
                 tool_name=self.name,
                 code="mcp_tool_timeout",
-                message=str(exc) or "MCP tool call timed out.",
+                message="MCP 工具调用超时。",
                 start=start,
                 status="timeout",
             )
         except Exception as exc:  # noqa: BLE001 - 外部 MCP 异常统一归一化，不泄露远端正文
-            return _failure_result(
-                tool_name=self.name,
-                code="mcp_tool_execution_failed",
-                message=MCP_TOOL_ERROR_MESSAGES["mcp_tool_execution_failed"],
-                details={
-                    "failure_stage": "client_exception",
-                    "exception_type": type(exc).__name__[:80],
-                },
-                start=start,
-            )
+            run_error=find_run_budget_error(exc)
+            if run_error is not None:
+                budget_failure=type(run_error)()
+            else:
+                if find_response_budget_error(exc):
+                    return _failure_result(tool_name=self.name,code="mcp_response_limit_exceeded",
+                        message=MCP_TOOL_ERROR_MESSAGES["mcp_response_limit_exceeded"],start=start,
+                        execution_state="uncertain")
+                return _failure_result(
+                    tool_name=self.name,
+                    code="mcp_tool_execution_failed",
+                    message=MCP_TOOL_ERROR_MESSAGES["mcp_tool_execution_failed"],
+                    details={
+                        "failure_stage": "client_exception",
+                        "exception_type": type(exc).__name__[:80],
+                    },
+                    start=start,
+                )
+
+        if budget_failure is not None:
+            raise budget_failure
 
         failed_envelope = mcp_failure_envelope(payload, error_protocol=self._error_protocol)
         classification = classify_mcp_failure(

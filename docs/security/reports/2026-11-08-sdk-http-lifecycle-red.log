@@ -1,0 +1,10 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_factory_async_shutdown_awaits_owned_model_resources ___________
+backend/app/tests/unit/test_sdk_http_budgets.py:86: in test_factory_async_shutdown_awaits_owned_model_resources
+    asyncio.run(factory.aclose_llm_client())
+                ^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: module 'app.llm.factory' has no attribute 'aclose_llm_client'
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_factory_async_shutdown_awaits_owned_model_resources
+1 failed, 6 deselected in 0.30s

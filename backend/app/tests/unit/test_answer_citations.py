@@ -82,7 +82,9 @@ def test_markdown_delimiters_in_source_url_cannot_break_out_of_link():
     from app.graph.planning.answer_citations import AnswerCitations
 
     render = AnswerCitations([{**SOURCES[0], "url": 'https://example.com/a b<q>"\\end'}]).render
-    assert render("source_1") == '[1](<https://example.com/a%20b%3Cq%3E%22%5Cend>)'
+    assert render("source_1") == '来源链接不可用'  # 含裸空白/反斜杠的歧义地址不再作为来源。
+    encoded = 'https://example.com/a%20b%3Cq%3E%22end'
+    assert AnswerCitations([{**SOURCES[0], "url": encoded}]).render("source_1") == f'[1](<{encoded}>)'
 
 
 def test_existing_links_code_and_other_identifiers_are_preserved():
@@ -167,7 +169,7 @@ def test_synthesizer_links_match_in_stream_and_final_answer(monkeypatch, new_flo
             response = ('{"action":"answer"}\n' if new_flow else "") + body
             for char in response:
                 kwargs["on_delta"](LlmStreamDelta(kind="content", delta=char))
-            assert any(event["type"] == "answer_delta" for event in events), "第一个完整段落应在模型返回前显示"
+            assert not any(event["type"] == "answer_delta" for event in events), "完整检查前不展示正文"
             assert "source_" not in "".join(event["content"] for event in events if event["type"] == "answer_delta")
             return LlmCompletionResult(content=response, model="fixture", provider="fixture")
 

@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from app.assets.errors import AssetNotReadyError
 from app.assets.schemas import AssetAttachment
 from app.graph.state import ImageAnalysisSummary
+from app.security.image_content import protect_image_payload
 from app.security.principal import Principal
 from app.vision.repository import SqlAlchemyVisionAnalysisRepository
 from app.vision.schemas import VisionAnalysis
@@ -57,7 +58,7 @@ class VisionAttachmentContextResolver:
             if record is None:
                 raise AssetNotReadyError("图片资产尚未生成分析结果。")
             try:
-                analysis = VisionAnalysis.model_validate(record.result_json)
+                analysis = VisionAnalysis.model_validate(protect_image_payload(record.result_json))
             except ValidationError as exc:
                 raise AssetNotReadyError("图片资产分析结果不可用。") from exc
             metrics = analysis.financial_metrics[: self._max_metrics]
@@ -90,6 +91,7 @@ class VisionAttachmentContextResolver:
                     "risk_flags": analysis.risk_flags,
                     "confidence": analysis.confidence,
                     "truncated": truncated,
+                    "source_trust": "untrusted_image_data",
                 }
             )
         return contexts

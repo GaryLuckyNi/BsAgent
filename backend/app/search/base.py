@@ -9,6 +9,7 @@ WEB_SEARCH_ERROR_MESSAGES = {
     "web_search_http_error": "联网搜索服务请求失败。",
     "web_search_unavailable": "联网搜索服务暂不可用。",
     "web_search_response_invalid": "联网搜索服务返回了无效响应。",
+    "web_search_response_limit_exceeded": "联网搜索响应超出读取限制。",
     "web_search_response_incomplete": "联网搜索会话未完成。",
     "web_search_no_results": "联网搜索未返回可验证来源。",
     "web_search_auth_failed": "联网搜索服务认证失败，请检查服务配置。",

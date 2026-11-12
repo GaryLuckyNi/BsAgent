@@ -38,8 +38,10 @@ class NodeRunner:
         handle_recoverable_errors: bool = False,
     ) -> dict[str, Any]:
         from app.conversations.execution import check_execution_cancelled
+        from app.security.run_budget import check_current_budget
 
         check_execution_cancelled()
+        check_current_budget()
         observation = self.observer.observe_start(node_name, state)
         try:
             result = node(state, runtime) if runtime_aware else node(state)

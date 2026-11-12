@@ -24,6 +24,7 @@ import {
 } from '../services/research-api'
 import { loadResearchHistoryPage } from '../services/research-history-pages'
 import { parseResearchSources } from '../services/research-sources'
+import { authorizedSubscriptionFetch, isRunSubscriptionAuthorizationError } from '../services/run-subscription-error'
 import {
   loadActiveRun, stopResearchRun, subscribeRunEvents,
   type ResearchRun, type RunStatus
@@ -103,6 +104,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
   const subscriptionRef = useRef<AbortController | null>(null)
   const [isRecovering, setIsRecovering] = useState(false)
   const recoveryBusyRef = useRef(false)
+  const authorizationStoppedRef = useRef(false)
   const [isStopping, setIsStopping] = useState(false)
   const [isInitializing, setIsInitializing] = useState(true)
   const initializationRef = useRef<Promise<void>>(Promise.resolve())
@@ -132,6 +134,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
   const transport = useMemo(
     () => new FetchStreamTransport<ResearchGraphState, ResearchStreamBag>({
       apiUrl: agentProtocolStreamUrl(sessionId),
+      fetch: authorizedSubscriptionFetch,
       defaultHeaders: agentRequestHeaders(identity)
     }),
     [identity, sessionId]
@@ -308,6 +311,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
   }, [])
 
   const recoverRun = useCallback(async (selected?: ResearchRun | null) => {
+    if (authorizationStoppedRef.current) return
     recoveryBusyRef.current = true
     setIsRecovering(true)
     subscriptionRef.current?.abort()
@@ -384,6 +388,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
           throw new Error('输出连接已断开，正在重连')
         } catch (caught) {
           if (!currentSubscription()) return
+          if (isRunSubscriptionAuthorizationError(caught)) throw caught
           failures += 1
           if (failures >= 5) throw caught
           await new Promise<void>((resolve) => {
@@ -394,6 +399,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
         }
       }
     } catch (caught) {
+      if (currentSubscription() && isRunSubscriptionAuthorizationError(caught)) authorizationStoppedRef.current = true
       if (currentSubscription()) setError(`${errorMessage(caught)}，请刷新重连；后台任务状态未被修改。`)
     } finally {
       if (currentSubscription()) {
@@ -414,6 +420,11 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
     onError: (caught) => {
       if (callbackContext.epoch !== interactionEpochRef.current || callbackContext.identityKey !== identityKeyRef.current) return
       if (activeRunRef.current?.terminal) return
+      if (isRunSubscriptionAuthorizationError(caught)) {
+        authorizationStoppedRef.current = true
+        setError(errorMessage(caught))
+        return
+      }
       const message = errorMessage(caught)
       setError(message)
       if (restorePendingInput()) return
@@ -434,6 +445,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
     },
     onFinish: () => {
       if (callbackContext.epoch !== interactionEpochRef.current || callbackContext.identityKey !== identityKeyRef.current) return
+      if (authorizationStoppedRef.current) return
       if ((activeRunRef.current && !activeRunRef.current.terminal) || !completedResponseRef.current) {
         void recoverRun()
         return
@@ -505,6 +517,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
       setIsStopping(false)
       setIsRecovering(false)
       recoveryBusyRef.current = false
+      authorizationStoppedRef.current = false
       oldestSequenceRef.current = undefined
       messagesRef.current = []
       setMessages([])
@@ -576,6 +589,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
     if (activeRunRef.current && !activeRunRef.current.terminal) return
     interactionEpochRef.current += 1
     callbackContext.epoch = interactionEpochRef.current
+    authorizationStoppedRef.current = false
     subscriptionRef.current?.abort()
     activeRunRef.current = null
     const requestId = `req_${crypto.randomUUID()}`
@@ -673,6 +687,7 @@ export function useResearchSession(identity: RequestIdentity, selectedSessionId?
 
     interactionEpochRef.current += 1
     const resumeEpoch = interactionEpochRef.current
+    authorizationStoppedRef.current = false
     pendingResumeRef.current = { messageId, input: userInput }
     callbackContext.epoch = interactionEpochRef.current
     expectedRequestRef.current = null

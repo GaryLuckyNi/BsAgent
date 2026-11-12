@@ -171,6 +171,10 @@ def _seed_interrupted_turn(
             ),
         ]
     )
+    db.flush()
+    from app.security.run_budget import initialize_budget
+    initialize_budget(db,handle=SimpleNamespace(run_id="run_1",session_id="session_1",request_id="request_1",replayed=False),
+        principal=Principal("tenant_1","user_1",("agent:invoke",)))
     db.commit()
     return checkpoint_thread_id
 

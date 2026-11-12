@@ -1,0 +1,17 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_financial_percent_and_citation_do_not_force_whole_answer_buffering ____
+
+    def test_financial_percent_and_citation_do_not_force_whole_answer_buffering():
+        text = "[1] 公司本期收入同比增长20%，成本同比降低5%。" * 8
+        guard = IncrementalTextGuard()
+        early = guard.feed(text)
+>       assert len(early) > len(text) // 2
+E       AssertionError: assert 0 > (216 // 2)
+E        +  where 0 = len('')
+E        +  and   216 = len('[1] 公司本期收入同比增长20%，成本同比降低5%。[1] 公司本期收入同比增长20%，成本同比降低5%。[1] 公司本期收入同比增长20%，成本同比降低5%。[1] 公司本期收入同比增长20%，成本同比降低5%。[1] 公司本期收入同比增长20%，成本同比降低5%。[1] 公司本期收入同比增长20%，成本同比降低5%。[1] 公司本期收入同比增长20%，成本同比降低5%。[1] 公司本期收入同比增长20%，成本同比降低5%。')
+
+backend/app/tests/unit/test_incremental_output_security.py:24: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_financial_percent_and_citation_do_not_force_whole_answer_buffering
+1 failed in 0.20s

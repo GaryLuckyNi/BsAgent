@@ -39,9 +39,18 @@ from app.intent.dependencies import get_business_intent_catalog
 from app.llm.factory import maybe_build_llm_client
 from app.memory.dependencies import get_memory_store
 from app.memory.synchronizer import sync_committed_run
+from app.operations.rate_limit import AGENT_INVOCATION_RATE_LIMIT, require_rate_limit
 from app.security.dependencies import require_permission
+from app.security.memory_candidate import MemoryCandidateConflict
 from app.security.principal import Principal
 from app.security.rbac import get_rbac_provider
+from app.security.run_authorization import (
+    RunAuthorizationDenied,
+    RunAuthorizationUnavailable,
+    authorized_graph,
+    refresh_run,
+)
+from app.security.run_budget import BudgetExhausted, BudgetExpired, RunBudgetError
 from app.storage.database import get_db
 from app.storage.models import AgentMessage, AgentRun, ApprovalRecord
 from app.storage.repositories import persist_agent_run
@@ -90,7 +99,7 @@ def list_pending_approvals(
     return {"items": [_approval_payload(record) for record in records]}
 
 
-@router.post("/{approval_id}/decision")
+@router.post("/{approval_id}/decision", dependencies=[Depends(require_rate_limit(AGENT_INVOCATION_RATE_LIMIT))])
 def decide_approval(
     approval_id: str,
     request: ApprovalDecisionRequest,
@@ -130,7 +139,7 @@ def _decide_approval(
         )
         if pending_record is None:
             raise ApprovalNotFoundError(f"Approval not found: {approval_id}")
-        permission_scopes = _resolve_resume_permission_scopes(pending_record)
+        permission_scopes = _resolve_resume_permission_scopes(pending_record, db=db)
         claim = repository.claim_resume(
             approval_id=approval_id,
             tenant_id=principal.tenant_id,
@@ -233,7 +242,9 @@ def _decide_approval(
             snapshot=resume_snapshot,
             timeout_seconds=settings.approval_resume_claim_timeout_seconds,
         ) as lease:
-            state = resume_question_answer_graph(
+            state = authorized_graph(
+                db, run_id=resume_snapshot.run_id, principal=None,
+                function=resume_question_answer_graph,
                 business_intent_catalog=business_intent_catalog,
                 checkpoint_thread_id=resume_snapshot.checkpoint_thread_id,
                 checkpoint_namespace=resume_snapshot.checkpoint_namespace,
@@ -283,7 +294,7 @@ def _decide_approval(
             failed=True,
         )
         _raise_persistence_unavailable(db, exc)
-    except AgentGraphExecutionError as exc:
+    except (AgentGraphExecutionError, RunAuthorizationDenied, RunAuthorizationUnavailable, RunBudgetError, MemoryCandidateConflict) as exc:
         try:
             _record_resume_failure(
                 db=db,
@@ -406,7 +417,7 @@ def _decide_approval(
             failed=True,
         )
         _raise_persistence_unavailable(db, exc)
-    except ApprovalResumeIdentityError as exc:
+    except (ApprovalResumeIdentityError, MemoryCandidateConflict) as exc:
         try:
             _record_resume_failure(
                 db=db,
@@ -487,6 +498,10 @@ def _record_resume_failure(
             claim_generation=snapshot.claim_generation,
             error=error,
         )
+        if isinstance(cause,(BudgetExhausted,BudgetExpired,MemoryCandidateConflict)):
+            from app.conversations.service import ConversationService
+            ConversationService(db).fail_turn(tenant_id=snapshot.tenant_id,
+                run_id=snapshot.run_id,error_code=cause.code)
         db.commit()
     except SQLAlchemyError:
         _rollback_safely(db)
@@ -631,6 +646,7 @@ def _resume_snapshot(
 
 def _resolve_resume_permission_scopes(
     record: ApprovalRecord,
+    *, db: Session | None = None,
 ) -> list[str]:
     try:
         provider = get_rbac_provider()
@@ -644,6 +660,8 @@ def _resolve_resume_permission_scopes(
         ):
             raise ValueError("RBAC principal identity mismatch")
         scopes = tuple(provider.tool_scopes(request_principal))
+        if db is not None:
+            scopes = refresh_run(db, run_id=record.run_id, principal=request_principal).scopes
     except Exception as exc:
         raise HTTPException(
             status_code=403,

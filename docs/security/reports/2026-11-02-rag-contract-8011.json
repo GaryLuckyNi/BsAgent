@@ -1,0 +1,76 @@
+{
+  "target_source": "用户明确提供",
+  "target": "http://localhost:8011",
+  "method": "仅GET健康与OpenAPI，不调用检索",
+  "results": [
+    {
+      "path": "/api/rag/health",
+      "status": 200
+    },
+    {
+      "path": "/openapi.json",
+      "status": 200,
+      "title": "Minimal RAG API",
+      "retrieve_operation_present": true,
+      "root_security": null,
+      "operation_security": null,
+      "security_schemes": {},
+      "request_schema": {
+        "$ref": "#/components/schemas/RagRetrieveApiRequest"
+      },
+      "schema_fields": {
+        "IntentUnderstandRequest": {
+          "required": [
+            "query"
+          ],
+          "fields": [
+            "query",
+            "conversation",
+            "queryUnderstanding"
+          ]
+        },
+        "RagFilters": {
+          "required": [],
+          "fields": [
+            "visibility",
+            "docType",
+            "partType",
+            "sourceType",
+            "authorityLevel",
+            "expired",
+            "effectiveDateFrom",
+            "effectiveDateTo"
+          ]
+        },
+        "RagRetrievalSettings": {
+          "required": [],
+          "fields": [
+            "topK",
+            "contextLimit",
+            "maxContextChars",
+            "hybrid",
+            "rerank",
+            "queryRewrite",
+            "graphRag"
+          ]
+        },
+        "RagRetrieveApiRequest": {
+          "required": [
+            "query"
+          ],
+          "fields": [
+            "query",
+            "conversation",
+            "queryUnderstanding",
+            "filters",
+            "retrieval",
+            "retrievalPreset",
+            "responseMode",
+            "requestId"
+          ]
+        }
+      },
+      "header_parameters": []
+    }
+  ]
+}

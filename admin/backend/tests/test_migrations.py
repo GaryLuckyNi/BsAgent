@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, inspect, text
 
 from alembic import command
 
-LATEST_REVISION = "20261012_0007"
+LATEST_REVISION = "20261102_0008"
 
 
 def test_skill_evidence_contract_migration_backfills_legacy_rows(tmp_path, monkeypatch):
@@ -502,3 +502,26 @@ def test_legacy_skill_tool_columns_are_removed_after_summary_backfill(tmp_path, 
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
     assert "mcp.local.stock.resolve_company" in summary
     assert version == LATEST_REVISION
+
+
+def test_admin_security_migration_starts_empty_and_round_trips(tmp_path, monkeypatch):
+    from app.models import Base
+    url = f"sqlite:///{tmp_path / 'security-migration.db'}"
+    engine = create_engine(url)
+    Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE admin_security_grant_events"))
+        connection.execute(text("DROP TABLE admin_security_grants"))
+    monkeypatch.setenv("ADMIN_DATABASE_URL", url)
+    backend = Path(__file__).resolve().parents[1]
+    config = Config(str(backend / "alembic.ini"))
+    command.stamp(config, "20261012_0007")
+    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        assert connection.scalar(text("SELECT COUNT(*) FROM admin_security_grants")) == 0
+        assert connection.scalar(text("SELECT COUNT(*) FROM admin_security_grant_events")) == 0
+    command.downgrade(config, "20261012_0007")
+    assert "admin_security_grants" not in inspect(engine).get_table_names()
+    command.upgrade(config, "head")
+    assert "admin_security_grants" in inspect(engine).get_table_names()
+    engine.dispose()

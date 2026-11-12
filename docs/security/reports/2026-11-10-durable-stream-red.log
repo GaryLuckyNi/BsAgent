@@ -1,0 +1,60 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_producer_publishes_checked_prefix_before_provider_finishes ________
+
+    def test_producer_publishes_checked_prefix_before_provider_finishes():
+        from app.conversations.execution import produce_frames
+        _app, factory = create_test_app_with_database()
+        with factory() as db:
+            handle = ConversationService(db).begin_turn(BeginTurn(
+                tenant_id="tenant_1", user_id="user_1", session_id="s1",
+                request_id="live-safe-stream", user_content="公开问题",
+            ))
+            DurableRunService(db).prepare(handle=handle, payload={})
+            db.commit()
+        text = "公开财报收入同比增长，现金流保持稳定。" * 8
+        observed = []
+        def source(db):
+            payload = [{"id": handle.assistant_message_id, "type": "ai", "content": text}, {}]
+            yield "event: messages\ndata: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+            subscription = subscribe_events(session_factory=factory, run_id=handle.run_id)
+            try:
+                for _ in range(3):
+                    frame = next(subscription)
+                    if 'event: messages' in frame:
+                        observed.append(frame)
+                        break
+                    if frame.startswith(":"):
+                        break
+            finally:
+                subscription.close()
+            ConversationService(db).complete_turn(tenant_id="tenant_1", run_id=handle.run_id, content=text)
+            db.commit()
+            yield 'event: custom\ndata: {"type":"final","response":{"content":' + json.dumps(text) + '}}\n\n'
+        produce_frames(session_factory=factory, run_id=handle.run_id, frames_factory=source)
+>       assert observed and "公开财报" in observed[0], "不能等producer_done才展示已检查正文"
+E       AssertionError: 不能等producer_done才展示已检查正文
+E       assert ([])
+
+backend/app/tests/unit/test_protocol_replay_security.py:101: AssertionError
+________ test_untrusted_persisted_metadata_cannot_claim_checked_content ________
+
+    def test_untrusted_persisted_metadata_cannot_claim_checked_content():
+        _app, factory, handle = seeded_run([SECRET], done=False)
+        with factory() as db:
+            execution = db.get(AgentRunExecution, handle.run_id)
+            from app.security.model_output import _output_policy
+            DurableRunService(db).append(handle.run_id, execution.owner_token, "messages", [
+                {"id": handle.assistant_message_id, "content": "公开事实"},
+                {"security_content_policy": _output_policy().version},
+            ])
+            db.commit()
+            row = DurableRunService(db).events(handle.run_id, after=2)[0]
+>           assert "security_content_policy" not in row.data[1]
+E           AssertionError: assert 'security_content_policy' not in {'security_content_policy': 'tool-content-v5:ca8e1212bb2d9505'}
+
+backend/app/tests/unit/test_protocol_replay_security.py:117: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_protocol_replay_security.py::test_producer_publishes_checked_prefix_before_provider_finishes
+FAILED backend/app/tests/unit/test_protocol_replay_security.py::test_untrusted_persisted_metadata_cannot_claim_checked_content
+2 failed in 3.48s

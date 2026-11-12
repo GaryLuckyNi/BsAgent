@@ -1,0 +1,48 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+________ test_graph_completion_crossing_deadline_cannot_publish[False] _________
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_5b41207739e641bc9a822e609dd7937f', assistant_message_id='msg_fb10fefaa45d4ce2bb9df66920371057', replayed=False))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ebaef50>
+streaming = False
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    def test_graph_completion_crossing_deadline_cannot_publish(env, monkeypatch, streaming):
+        from app.security import run_budget
+        binding=init(env)
+        clock=[binding.expires_at-timedelta(seconds=1)]
+        monkeypatch.setattr(run_budget,"utc_now",lambda:clock[0])
+        def finish():
+            clock[0]=binding.expires_at
+            return {"public":"late"}
+        def stream():
+            yield finish()
+>       with env[0]() as db,pytest.raises(BudgetExpired):
+E       Failed: DID NOT RAISE BudgetExpired
+
+backend/app/tests/unit/test_run_budget.py:556: Failed
+_________ test_graph_completion_crossing_deadline_cannot_publish[True] _________
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_a23ddb14beb24fa685f868652e3bbfd5', assistant_message_id='msg_bbec4a941a094c359621aa5f9393ccd7', replayed=False))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ebafd90>
+streaming = True
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    def test_graph_completion_crossing_deadline_cannot_publish(env, monkeypatch, streaming):
+        from app.security import run_budget
+        binding=init(env)
+        clock=[binding.expires_at-timedelta(seconds=1)]
+        monkeypatch.setattr(run_budget,"utc_now",lambda:clock[0])
+        def finish():
+            clock[0]=binding.expires_at
+            return {"public":"late"}
+        def stream():
+            yield finish()
+>       with env[0]() as db,pytest.raises(BudgetExpired):
+E       Failed: DID NOT RAISE BudgetExpired
+
+backend/app/tests/unit/test_run_budget.py:556: Failed
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_run_budget.py::test_graph_completion_crossing_deadline_cannot_publish[False]
+FAILED backend/app/tests/unit/test_run_budget.py::test_graph_completion_crossing_deadline_cannot_publish[True]
+2 failed, 34 deselected in 0.70s

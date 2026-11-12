@@ -303,6 +303,43 @@ def test_below_hard_watermark_returns_full_history_without_model_call(session_fa
     assert client.calls == []
 
 
+def test_disabled_compaction_still_bounds_twenty_long_history_messages(session_factory):
+    _seed_turns(session_factory, 10, size=220)
+    client = FakeClient()
+    service = _service(session_factory, client, config=_config(context_compaction_enabled=False))
+
+    context = _prepare(service)
+
+    assert context.status == "degraded"
+    assert context.projected_tokens <= service.policy.llm_context_window_tokens
+    assert len(context.messages) < 20
+    assert context.messages[-1].message_id == "message-20"
+    assert len(context.messages) % 2 == 0
+    assert client.calls == []
+
+
+@pytest.mark.parametrize("active_summary", [False, True])
+def test_request_without_generation_reads_validated_snapshot_once(
+    session_factory, monkeypatch, active_summary,
+):
+    _seed_turns(session_factory, 3, size=10)
+    if active_summary:
+        _activate_first_turn(session_factory)
+    service = _service(session_factory, FakeClient())
+    reads = []
+    original = service._read_snapshot
+
+    def read(**kwargs):
+        reads.append(kwargs)
+        return original(**kwargs)
+
+    monkeypatch.setattr(service, "_read_snapshot", read)
+    context = _prepare(service)
+
+    assert context.status == ("compacted" if active_summary else "full")
+    assert len(reads) == 1
+
+
 def test_hard_compaction_activates_summary_and_keeps_tail_without_current_message(
     session_factory,
 ):

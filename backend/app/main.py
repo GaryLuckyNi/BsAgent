@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from redis import Redis
 from sqlalchemy.orm import sessionmaker
 
@@ -21,7 +22,7 @@ from app.core.config import Settings, settings
 from app.graph.checkpoints import build_graph_checkpointer, close_graph_checkpointer
 from app.intent.dependencies import build_business_intent_catalog_runtime
 from app.intent.runtime import BusinessIntentCatalogRuntime
-from app.llm.factory import close_llm_client
+from app.llm.factory import aclose_llm_client
 from app.memory.runtime import PostgresStoreRuntime
 from app.memory.synchronizer import reconcile_memory_store
 from app.operations.health import ReadinessService, build_readiness_service
@@ -35,6 +36,8 @@ from app.operations.observability import (
     configure_telemetry,
 )
 from app.operations.rate_limit import build_rate_limit_service
+from app.security.memory_candidate import MemoryCandidateConflict
+from app.security.run_budget import RunBudgetError, RunBudgetPolicyMiddleware
 from app.storage.database import engine
 from app.tools.catalog_runtime import ToolCatalogRuntime
 from app.tools.default_registry import get_default_tool_catalog_runtime
@@ -181,9 +184,13 @@ def create_app(
                 await asyncio.to_thread(selected_business_intent_catalog.close)
             except Exception as exc:  # noqa: BLE001 - 其他资源仍需释放
                 intent_close_error = exc
+            try:
+                await aclose_llm_client()
+            except Exception as exc:  # noqa: BLE001 - 模型关闭失败不阻止其它资源释放。
+                if intent_close_error is None:
+                    intent_close_error = exc
             closers = [
                 close_graph_checkpointer,
-                close_llm_client,
                 selected_memory_runtime.close,
             ]
             if runtime.app_env == "production":
@@ -207,6 +214,16 @@ def create_app(
                 raise intent_close_error
 
     app = FastAPI(title=runtime.service_name, lifespan=lifespan)
+    app.add_middleware(RunBudgetPolicyMiddleware, config=runtime)
+
+    @app.exception_handler(MemoryCandidateConflict)
+    @app.exception_handler(RunBudgetError)
+    async def budget_error_handler(_request, error):
+        return JSONResponse(
+            status_code=error.http_status,
+            content={"detail": {"code": error.code, "message": error.message}},
+        )
+
     app.add_middleware(RequestContextMiddleware)
     telemetry_runtime = configure_telemetry(
         app=app,

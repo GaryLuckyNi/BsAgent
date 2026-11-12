@@ -10,6 +10,17 @@ def test_search_api_defaults_are_independent_of_model_configuration():
     assert _production_settings().web_search_provider == "deepseek_search_api"
 
 
+@pytest.mark.parametrize("overrides", [
+    {"auth_provider": "mock", "jwt_issuer": "https://identity.example.test"},
+    {"auth_provider": "jwt", "jwt_issuer": None},
+    {"auth_provider": "jwt", "jwt_issuer": " "},
+    {"auth_provider": "jwt", "jwt_issuer": "https://identity.example.test/" + "a" * 256},
+])
+def test_real_permission_directory_requires_jwt_and_bounded_issuer(overrides):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, rbac_backend="principal", **overrides)
+
+
 @pytest.mark.parametrize("value", ["file:///tmp/search", "https://user:password@example.com",
                                   "https://example.com?api_key=secret"])
 def test_search_api_rejects_invalid_or_secret_bearing_endpoint(value):
@@ -147,6 +158,7 @@ def _production_settings(**overrides):
         ({"database_url": "sqlite:///agent.db"}, "database_url"),
         ({"image_analysis_dispatcher_backend": "noop"}, "image_analysis_dispatcher_backend"),
         ({"rate_limit_backend": "none"}, "rate_limit_backend"),
+        ({"rate_limit_fail_closed": False}, "rate_limit_fail_closed"),
         ({"log_format": "console"}, "log_format"),
         ({"trace_backend": "memory"}, "trace_backend"),
         ({"otel_enabled": False}, "otel_enabled"),
@@ -158,6 +170,14 @@ def test_production_rejects_development_backends(overrides, expected_field):
         _production_settings(**overrides)
 
     assert expected_field in str(exc_info.value)
+
+
+def test_settings_validation_error_does_not_echo_credential_input():
+    canary = "CONFIG_SECRET_CANARY"
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=None, app_env="production", deepseek_api_key=canary)
+    exposed = canary in str(error.value)
+    assert not exposed, "配置错误展示反射了合成凭证。"
 
 
 @pytest.mark.parametrize(

@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.security.protocol_replay import sealed_message_condition
 from app.storage.models import AgentMessage, AgentRun, AgentSession
 
 
@@ -55,6 +56,7 @@ class ConversationRepository:
         matching_message = select(AgentMessage.message_id).where(
             AgentMessage.session_key == AgentSession.session_key,
             AgentMessage.deleted_at.is_(None),
+            sealed_message_condition(),
             func.lower(AgentMessage.content).contains(query.strip().lower(), autoescape=True),
         ).exists()
         return list(
@@ -80,7 +82,7 @@ class ConversationRepository:
         if not records:
             return {}
         first_question = (
-            select(func.substr(AgentMessage.content, 1, 160))
+            select(AgentMessage.content)
             .where(
                 AgentMessage.session_key == AgentSession.session_key,
                 AgentMessage.role == "user",
@@ -92,10 +94,11 @@ class ConversationRepository:
             .scalar_subquery()
         )
         latest_message = (
-            select(func.substr(AgentMessage.content, 1, 320))
+            select(AgentMessage.content)
             .where(
                 AgentMessage.session_key == AgentSession.session_key,
                 AgentMessage.deleted_at.is_(None),
+                sealed_message_condition(),
                 func.length(func.trim(AgentMessage.content)) > 0,
             )
             .order_by(AgentMessage.sequence_no.desc())
@@ -103,7 +106,7 @@ class ConversationRepository:
             .correlate(AgentSession)
             .scalar_subquery()
         )
-        # records 已由归属查询筛选；一次查询获取摘要，不逐会话读取完整消息。
+        # 完整检查发生在公共 DTO 中；不能在检查前截出半份凭证。
         rows = self._session.execute(
             select(AgentSession.session_key, first_question, latest_message)
             .where(AgentSession.session_key.in_([record.session_key for record in records]))
@@ -133,6 +136,7 @@ class ConversationRepository:
                 AgentMessage.user_id == user_id,
                 AgentMessage.deleted_at.is_(None),
                 AgentMessage.role.in_(("user", "assistant")),
+                sealed_message_condition(),
                 func.length(func.trim(AgentMessage.content)) > 0,
                 func.lower(AgentMessage.content).contains(query.lower(), autoescape=True),
             )

@@ -24,6 +24,7 @@ annotated-types==0.8.0
 anyio==4.14.2
     # via
     #   -c /private/tmp/bsagent-baseline-constraints.txt
+    #   bs-agent-service (pyproject.toml)
     #   httpx
     #   langsmith
     #   mcp

@@ -1,0 +1,27 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_incremental_cut_never_splits_a_closed_inline_code_unit __________
+
+    def test_incremental_cut_never_splits_a_closed_inline_code_unit():
+        from app.graph.planning.answer_citations import AnswerCitations
+        from app.graph.planning.synthesis_stream import SynthesisStream
+        events = []
+        render = AnswerCitations([{"source_id":"source_1","url":"https://example.invalid/report"}]).render
+        text = "公开资料" * 14 + " `source_1。仍是代码`" + " suffixword" * 15
+        stream = SynthesisStream(on_delta=events.append, transform=render)
+        for char in '{"action":"answer"}\n' + text:
+            stream(LlmStreamDelta(kind="content", delta=char))
+        stream.finish()
+>       assert ''.join(event.delta for event in events) == render(text)
+E       AssertionError: assert '公开资料公开资料公开资料...rd suffixword' == '公开资料公开资料公开资料...rd suffixword'
+E         
+E         Skipping 48 identical leading characters in diff, use -v to show
+E         - 公开资料公开资料 `source_1。仍是代码` suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword
+E         ?           ^^^^^ ^^
+E         + 公开资料公开资料 `[1](<https://example.invalid/report>)。仍是代码` suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword suffixword
+E         ?           ^^^^^^^^^^^^^ ^^^^^^^^^^^^^^^^^^^^^^^
+
+backend/app/tests/unit/test_synthesis_stream.py:135: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_synthesis_stream.py::test_incremental_cut_never_splits_a_closed_inline_code_unit
+1 failed, 32 deselected in 0.31s

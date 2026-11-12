@@ -17,6 +17,7 @@ from app.harness.capture_policy import (
 )
 from app.harness.trace_buffer import TraceArtifactDTO, TraceBuffer
 from app.harness.tracing import TraceEvent
+from app.security.observation import observation_view
 from app.storage.models import AgentRun, AgentTraceArtifact, AgentTraceEvent
 from app.tools.redaction import redact_sensitive_data, sanitize_trace_error
 
@@ -244,7 +245,7 @@ def _event_values(
     event: TraceEvent,
     capture_level: Literal["minimal", "detailed"],
 ) -> dict:
-    metadata = redact_sensitive_data(event.metadata)
+    metadata = redact_sensitive_data(observation_view(event.metadata))
     if not isinstance(metadata, dict):
         raise TracePersistenceError("trace_event_metadata_invalid")
     return {
@@ -255,7 +256,7 @@ def _event_values(
         "event_type": "node",
         "status": event.status,
         "latency_ms": event.latency_ms,
-        "error": sanitize_trace_error(event.error),
+        "error": sanitize_trace_error(observation_view(event.error)),
         "metadata_json": metadata,
         "capture_level": capture_level,
     }

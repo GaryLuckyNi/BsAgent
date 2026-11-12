@@ -4,14 +4,13 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
-
 from app.security.jwt_provider import (
     JwtAuthenticationError,
     JwtConfigurationError,
     JwtPrincipalProvider,
 )
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 
 def test_jwt_provider_module_is_available():
@@ -73,8 +72,16 @@ def test_jwt_provider_returns_immutable_trusted_principal(rsa_keys):
     assert principal.scopes == ("agent:invoke", "rag:retrieve")
     assert principal.roles == ("analyst",)
     assert principal.token_id == "token-1"
+    assert principal.expires_at > datetime.now(UTC).timestamp()
     with pytest.raises(FrozenInstanceError):
         principal.user_id = "attacker"
+
+
+@pytest.mark.parametrize("expiry", [float("inf"), 10**500, "9999999999"])
+def test_jwt_deadline_rejects_non_finite_or_non_numeric_dates(rsa_keys, expiry):
+    private_key, public_key = rsa_keys
+    with pytest.raises(JwtAuthenticationError):
+        _provider(public_key).authenticate(_token(private_key, claims=_claims(exp=expiry)))
 
 
 @pytest.mark.parametrize(
@@ -116,7 +123,7 @@ def test_jwt_provider_rejects_malformed_scopes(rsa_keys, scope):
 
 def test_jwt_provider_rejects_algorithm_outside_allowlist(rsa_keys):
     _, public_key = rsa_keys
-    token = jwt.encode(_claims(), "shared-secret", algorithm="HS256")
+    token = jwt.encode(_claims(), "test-only-shared-secret-at-least-32-bytes", algorithm="HS256")
 
     with pytest.raises(JwtAuthenticationError):
         _provider(public_key).authenticate(token)

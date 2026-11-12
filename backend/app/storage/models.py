@@ -7,6 +7,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Float,
+    ForeignKey,
     ForeignKeyConstraint,
     Index,
     Integer,
@@ -325,6 +326,58 @@ class AgentRun(Base):
     risk_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
     graph_version: Mapped[str] = mapped_column(String(64), default="agentic-rag-core-v1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+
+
+class SecurityRunAuthorizationRecord(Base):
+    """首次请求创建的任务权限上限；不随执行 payload 或 checkpoint 更新。"""
+
+    __tablename__ = "security_run_authorizations"
+
+    run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("agent_runs.run_id", ondelete="CASCADE"), primary_key=True,
+    )
+    issuer: Mapped[str] = mapped_column(String(256))
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    user_id: Mapped[str] = mapped_column(String(64))
+    session_id: Mapped[str] = mapped_column(String(64))
+    request_id: Mapped[str] = mapped_column(String(64))
+    permission_scopes_json: Mapped[list] = mapped_column(TRACE_JSON, nullable=False)
+
+
+class SecurityRunBudgetRecord(Base):
+    """首次请求冻结的资源上限及只增的已用/授予额度。"""
+
+    __tablename__ = "security_run_budgets"
+    __table_args__ = (CheckConstraint("state IN ('active', 'exhausted')", name="ck_run_budget_state"),) + tuple(
+        CheckConstraint(f"{limit} > 0 AND {used} >= 0 AND {used} <= {limit}", name=f"ck_run_budget_{used}")
+        for limit, used in (
+            ("model_limit", "model_used"), ("tool_limit", "tool_used"),
+            ("http_limit", "http_used"), ("request_byte_limit", "request_bytes_used"),
+            ("wire_byte_limit", "wire_bytes_reserved"), ("decoded_byte_limit", "decoded_bytes_reserved"),
+        )
+    )
+    run_id: Mapped[str] = mapped_column(String(64), ForeignKey("agent_runs.run_id", ondelete="CASCADE"), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(64))
+    user_id: Mapped[str] = mapped_column(String(64))
+    session_id: Mapped[str] = mapped_column(String(64))
+    request_id: Mapped[str] = mapped_column(String(64))
+    policy_version: Mapped[str] = mapped_column(String(96))
+    state: Mapped[str] = mapped_column(String(16), default="active", server_default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    lifetime_seconds: Mapped[int] = mapped_column(Integer)
+    model_limit: Mapped[int] = mapped_column(BigInteger)
+    tool_limit: Mapped[int] = mapped_column(BigInteger)
+    http_limit: Mapped[int] = mapped_column(BigInteger)
+    request_byte_limit: Mapped[int] = mapped_column(BigInteger)
+    wire_byte_limit: Mapped[int] = mapped_column(BigInteger)
+    decoded_byte_limit: Mapped[int] = mapped_column(BigInteger)
+    model_used: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
+    tool_used: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
+    http_used: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
+    request_bytes_used: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
+    wire_bytes_reserved: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
+    decoded_bytes_reserved: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text("0"))
 
 
 class AgentRunExecution(Base):
@@ -721,3 +774,54 @@ class ToolDocumentationRecord(Base):
     payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     lease: Mapped[str | None] = mapped_column(String(64), nullable=True)
     expires_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
+class SecuritySubjectRecord(Base):
+    __tablename__ = "security_subjects"
+    __table_args__ = (UniqueConstraint("issuer", "external_subject",
+                                      name="uq_security_subjects_external"),)
+
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    issuer: Mapped[str] = mapped_column(String(256), nullable=False)
+    external_subject: Mapped[str] = mapped_column(String(256), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, onupdate=_utc_now,
+    )
+
+
+class SecurityMembershipRecord(Base):
+    __tablename__ = "security_memberships"
+    __table_args__ = (
+        ForeignKeyConstraint(["user_id"], ["security_subjects.user_id"],
+                             name="fk_security_memberships_subject", ondelete="RESTRICT"),
+        CheckConstraint("revision >= 1", name="ck_security_memberships_revision"),
+    )
+
+    tenant_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    roles_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    permission_scopes_json: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utc_now, onupdate=_utc_now,
+    )
+
+
+class SecurityDirectoryEventRecord(Base):
+    __tablename__ = "security_directory_events"
+    __table_args__ = (
+        ForeignKeyConstraint(["user_id"], ["security_subjects.user_id"],
+                             name="fk_security_directory_events_subject", ondelete="RESTRICT"),
+        Index("ix_security_directory_events_subject_created", "user_id", "created_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    tenant_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actor_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    changes_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)

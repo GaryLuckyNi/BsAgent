@@ -15,6 +15,18 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => { cleanup() }); vi.restoreAllMocks() })
 const source = { id: 'source_7', index: 7, url: 'https://example.com/report', title: '年度报告', summary: '报告摘要', publishedAt: '2025-04-29' }
 
+it('远程图片、原始 HTML、来源 favicon 均不自动创建请求目标', () => {
+  render(<ResearchMarkdown mode="static" isAnimating={false} sources={[source]}>{'![外部截图](https://image.example/pixel?data=synthetic)\n\n<img src="https://raw.example/pixel" /><iframe src="https://frame.example/" /><style>body{background:url(https://css.example/pixel)}</style>\n\n[7](https://example.com/report)'}</ResearchMarkdown>)
+  fireEvent.focus(screen.getByRole('link', { name: '引用来源 7' }))
+  expect(document.querySelector('img,iframe,video,audio,object,embed,style')).toBeNull()
+  expect(screen.getByRole('link', { name: /打开图片/ }).getAttribute('href')).toBe('https://image.example/pixel?data=synthetic')
+})
+
+it('危险地址保持不可点击，不向 DOM 转交 ping 或凭证地址', () => {
+  render(<ResearchMarkdown mode="static" isAnimating={false}>{'[凭证](https://example.com/?token=PUBLIC_URL_CREDENTIAL_CANARY) [本地](http://127.0.0.1/) [危险](javascript:alert(1))\n\n<a href="https://example.com" ping="https://other.example/ping">HTML</a>'}</ResearchMarkdown>)
+  expect(document.querySelector('a[href],a[ping],img[src]')).toBeNull()
+})
+
 it('正文不变时新到的来源元数据仍更新预览，不重编号', () => {
   const { rerender } = render(<ResearchMarkdown mode="static" isAnimating={false} sources={[]}>依据 [7](https://example.com/report)。</ResearchMarkdown>)
   const link = screen.getByRole('link', { name: '引用来源 7' })
@@ -23,9 +35,7 @@ it('正文不变时新到的来源元数据仍更新预览，不重编号', () =
   fireEvent.focus(link)
   expect(screen.getByText('年度报告')).toBeTruthy()
   expect(screen.getByText('报告摘要')).toBeTruthy()
-  const icon = document.querySelector('.citation-source-icon img')!
-  expect(icon.getAttribute('src')).toBe('https://example.com/favicon.ico')
-  fireEvent.error(icon)
+  expect(document.querySelector('.citation-source-icon svg')).not.toBeNull()
   expect(document.querySelector('.citation-source-icon img')).toBeNull()
 })
 

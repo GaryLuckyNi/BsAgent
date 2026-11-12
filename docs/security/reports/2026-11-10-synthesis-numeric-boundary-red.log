@@ -1,0 +1,26 @@
+........F...............                                                 [100%]
+=================================== FAILURES ===================================
+_______ test_incremental_cut_checks_number_and_currency_unit_together[8] _______
+
+offset = 8
+
+    @pytest.mark.parametrize("offset", range(24))
+    def test_incremental_cut_checks_number_and_currency_unit_together(offset):
+        from app.graph.planning.synthesis_stream import SynthesisStream
+        events = []
+        stream = SynthesisStream(on_delta=events.append, validate=lambda text: '999亿元' not in text)
+        text = '公开资料' * 20 + '补' * offset + '成交额为999亿元' + '后续公开分析' * 12
+        for char in '{"action":"answer"}\n' + text:
+            stream(LlmStreamDelta(kind="content", delta=char))
+        stream.finish()
+>       assert '999' not in ''.join(event.delta for event in events)
+E       AssertionError: assert '999' not in '公开资料公开资料公开资...补补补补成交额为999亿'
+E         
+E         '999' is contained here:
+E           补补补补补补成交额为999亿
+E         ?           +++
+
+backend/app/tests/unit/test_synthesis_stream.py:159: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_synthesis_stream.py::test_incremental_cut_checks_number_and_currency_unit_together[8]
+1 failed, 23 passed, 34 deselected in 0.40s

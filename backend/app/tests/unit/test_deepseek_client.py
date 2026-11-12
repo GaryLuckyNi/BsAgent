@@ -10,6 +10,7 @@ import pytest
 from app.llm import deepseek as deepseek_module
 from app.llm.deepseek import DeepSeekClient, LlmConfigurationError, LlmProviderError
 from app.operations.langfuse_observability import configure_langfuse
+from app.security.prompt_injection import system_boundary
 
 
 def test_deepseek_client_sends_openai_compatible_chat_completion_request():
@@ -206,14 +207,11 @@ def test_tool_binding_uses_deterministic_temperature_and_disables_thinking():
 def test_deepseek_callback_completion_enables_thinking_for_graph_stream(monkeypatch):
     captured = {}
 
-    class FakeResponse:
-        content = "最终内容"
-        usage_metadata: ClassVar = {"output_tokens": 4}
-
     class FakeBoundModel:
-        def invoke(self, messages):
+        def invoke(self, messages, config=None):
+            from langchain_core.messages import AIMessage
             captured["messages"] = messages
-            return FakeResponse()
+            return AIMessage(content="最终内容", usage_metadata={"input_tokens": 0, "output_tokens": 4, "total_tokens": 4})
 
     class FakeChatOpenAI:
         def __init__(self, **_kwargs):
@@ -278,7 +276,7 @@ def test_deepseek_client_streams_openai_compatible_chat_completion_tokens():
 
     chunks = asyncio.run(run_stream())
 
-    assert chunks == ["我先", "分析"]
+    assert chunks == ["我先分析"]
     assert captured["authorization"] == "Bearer test_key"
     assert captured["path"] == "/chat/completions"
     assert captured["stream"] is True
@@ -323,8 +321,7 @@ def test_deepseek_client_streams_reasoning_and_answer_as_distinct_events():
     events = asyncio.run(run_stream())
 
     assert [(event.kind, event.delta) for event in events] == [
-        ("reasoning", "先核对公司主体。"),
-        ("reasoning", "再分析证据。"),
+        ("reasoning", "先核对公司主体。再分析证据。"),
         ("content", "## 结论"),
     ]
     assert captured["payload"]["thinking"] == {"type": "enabled"}
@@ -369,8 +366,7 @@ def test_deepseek_streamed_completion_aggregates_answer_and_forwards_deltas():
     assert result.reasoning_content == "先查找证据。"
     assert [(delta.kind, delta.delta) for delta in deltas] == [
         ("reasoning", "先查找证据。"),
-        ("content", "## 结论\n\n"),
-        ("content", "证据支持该判断。"),
+        ("content", "## 结论\n\n证据支持该判断。"),
     ]
 
 
@@ -411,9 +407,7 @@ def test_deepseek_streamed_completion_preserves_length_finish_reason():
     assert result.content == ""
     assert result.reasoning_content == "继续规划。"
     assert result.finish_reason == "length"
-    assert [(delta.kind, delta.delta) for delta in deltas] == [
-        ("reasoning", "继续规划。"),
-    ]
+    assert deltas == []  # 长度截断结果保留 finish_reason，正文留给调用方重试决策。
 
 
 def test_stream_packet_preserves_both_fields_and_finish():
@@ -536,12 +530,12 @@ def test_direct_completion_records_only_model_parameters_and_usage(monkeypatch):
             },
             "metadata": {
                 "request_mode": "non_streaming",
-                "system_prompt_chars": 20,
+                "system_prompt_chars": len(system_boundary("secret system prompt")),
                 "user_prompt_chars": 18,
-                "input_chars": 38,
+                "input_chars": len(system_boundary("secret system prompt"))+18,
                 "timeout_seconds": 30.0,
             },
-            "system_prompt": "secret system prompt",
+            "system_prompt": system_boundary("secret system prompt"),
             "user_prompt": "secret user prompt",
         }
     ]
@@ -551,9 +545,9 @@ def test_direct_completion_records_only_model_parameters_and_usage(monkeypatch):
             {
                 "metadata": {
                     "request_mode": "non_streaming",
-                    "system_prompt_chars": 20,
+                    "system_prompt_chars": len(system_boundary("secret system prompt")),
                     "user_prompt_chars": 18,
-                    "input_chars": 38,
+                    "input_chars": len(system_boundary("secret system prompt"))+18,
                     "timeout_seconds": 30.0,
                     "response_chars": 4,
                     "finish_reason": None,
@@ -646,9 +640,9 @@ def test_streamed_completion_requests_and_records_usage_without_forwarding_it(
     assert updates[1][1] == {
             "metadata": {
                 "request_mode": "streaming",
-                "system_prompt_chars": 6,
+                "system_prompt_chars": len(system_boundary("system")),
                 "user_prompt_chars": 4,
-                "input_chars": 10,
+                "input_chars": len(system_boundary("system"))+4,
                 "timeout_seconds": 30.0,
                 "first_token_received": True,
                 "content_chars": 2,
@@ -713,9 +707,9 @@ def test_streamed_timeout_records_phase_and_whether_first_token_arrived(monkeypa
                 "status_message": "llm_timeout:read:before_first_token",
                 "metadata": {
                     "request_mode": "streaming",
-                    "system_prompt_chars": 6,
+                    "system_prompt_chars": len(system_boundary("system")),
                     "user_prompt_chars": 4,
-                    "input_chars": 10,
+                    "input_chars": len(system_boundary("system"))+4,
                     "timeout_seconds": 30.0,
                     "first_token_received": False,
                     "content_chars": 0,
@@ -756,8 +750,10 @@ def test_direct_completion_records_only_stable_provider_error_code(monkeypatch):
                 http_client=http_client,
             ).complete(system_prompt="system", user_prompt="user")
 
-    with pytest.raises(LlmProviderError, match="provider-secret-error"):
+    with pytest.raises(LlmProviderError, match="模型服务请求失败。") as caught:
         asyncio.run(run_completion())
+    assert caught.value.__context__ is None
+    assert "provider-secret-error" not in str(caught.value)
 
     assert updates == [
         (

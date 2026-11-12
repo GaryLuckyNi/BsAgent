@@ -51,7 +51,7 @@ def test_escaped_goal_is_decoded_and_small_updates_are_batched():
 
 
 @pytest.mark.parametrize("worker", ["router", "planner", "review"])
-def test_nodes_publish_public_fields_before_model_returns(monkeypatch, business_intent_catalog, worker):
+def test_nodes_publish_public_fields_only_after_model_returns(monkeypatch, business_intent_catalog, worker):
     from app.graph import public_events
     from app.graph.nodes.intent_router import build_intent_router_node
     from app.graph.nodes.planner_agent import build_planner_agent_node
@@ -80,9 +80,7 @@ def test_nodes_publish_public_fields_before_model_returns(monkeypatch, business_
             assert kwargs["thinking"] is False
             kwargs["on_delta"](LlmStreamDelta(kind="reasoning", delta="不得公开的思维链"))
             kwargs["on_delta"](LlmStreamDelta(kind="content", delta=prefix))
-            assert emitted, "必须在整个模型调用结束之前发布公开字段"
-            assert emitted[-1]["kind"] == ("goal" if worker == "router" else "plan")
-            assert emitted[-1]["status"] == "started"
+            assert emitted == [], "未完成统一检查前不展示模型生成的字段"
             assert "不得公开" not in json.dumps(emitted, ensure_ascii=False)
             return LlmCompletionResult(content=json.dumps(response), model="fake", provider="fake")
 
@@ -92,11 +90,13 @@ def test_nodes_publish_public_fields_before_model_returns(monkeypatch, business_
     else:
         build_planner_agent_node(llm_client=Client())(state)
         assert state["plan"]["tasks"][0]["task_goal"] == "取得公告全文并核对关键数字。"
+    assert any(event["kind"] == ("goal" if worker == "router" else "plan") for event in emitted)
+    assert "不得公开" not in json.dumps(emitted, ensure_ascii=False)
+    assert "正在安排" not in json.dumps(emitted, ensure_ascii=False)
 
 
 @pytest.mark.parametrize("worker", ["router", "planner", "review"])
-def test_failed_generation_replaces_preview_with_failed_public_event(monkeypatch, business_intent_catalog, worker):
-    from app.api.sessions import _collect_research_process_event
+def test_failed_generation_does_not_publish_unchecked_preview(monkeypatch, business_intent_catalog, worker):
     from app.graph import public_events
     from app.graph.nodes.intent_router import build_intent_router_node
     from app.graph.nodes.planner_agent import build_planner_agent_node
@@ -124,14 +124,4 @@ def test_failed_generation_replaces_preview_with_failed_public_event(monkeypatch
             build_intent_router_node(catalog=business_intent_catalog, llm_client=Client())(state)
         else:
             build_planner_agent_node(llm_client=Client())(state)
-    assert len(emitted) == 2
-    assert emitted[1]["id"] == emitted[0]["id"]
-    assert emitted[1]["kind"] == emitted[0]["kind"]
-    assert emitted[1]["status"] == "failed"
-    assert "草稿" not in emitted[1]["message"]
-    saved = []
-    for event in emitted:
-        _collect_research_process_event(saved, event)
-    assert len(saved) == 1
-    assert saved[0]["status"] == "failed"
-    assert "草稿" not in saved[0]["message"]
+    assert emitted == []

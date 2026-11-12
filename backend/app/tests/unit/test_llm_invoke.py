@@ -89,7 +89,7 @@ def test_invoke_llm_completion_prefers_native_stream_when_handler_is_present():
     )
 
     assert result.content == "native"
-    assert received == ["native-delta"]
+    assert [(delta.kind, delta.delta) for delta in received] == [("content", "native")]
     assert client.kwargs["thinking"] is True
 
 
@@ -118,7 +118,7 @@ def test_invoke_llm_completion_prefers_sync_native_stream_without_event_loop_bri
     )
 
     assert result.content == "sync"
-    assert received == ["sync-delta"]
+    assert [(delta.kind, delta.delta) for delta in received] == [("content", "sync")]
     assert client.kwargs["thinking"] is True
 
 
@@ -142,7 +142,8 @@ def test_thinking_request_asks_model_to_keep_raw_reasoning_in_chinese():
     )
 
     assert "reasoning_content" in client.system_prompt
-    assert client.system_prompt.startswith("【推理语言硬性要求】")
+    assert client.system_prompt.startswith("【宿主安全边界】")
+    assert "【推理语言硬性要求】" in client.system_prompt
     assert client.system_prompt.count("【推理语言硬性要求】") == 1
     assert json.loads(client.user_prompt) == {"question": "分析问题"}
 
@@ -185,7 +186,7 @@ def test_invoke_llm_completion_retries_partial_length_output_without_streaming_d
     )
 
     assert result.content == "完整回答"
-    assert received == ["partial-delta"]
+    assert [(delta.kind, delta.delta) for delta in received] == [("content", "完整回答")]
     assert client.stream_calls == 1
     assert [call["thinking"] for call in client.complete_calls] == [False]
 

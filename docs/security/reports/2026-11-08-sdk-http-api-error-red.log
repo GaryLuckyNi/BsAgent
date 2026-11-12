@@ -1,0 +1,215 @@
+....FFFF..FF                                                             [100%]
+=================================== FAILURES ===================================
+_ test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body[{"choices":[],"error":{"message":"SDK_PRIVATE_CANARY","password":"secret-canary"}}-sync] _
+backend/app/tests/unit/test_sdk_http_budgets.py:491: in test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body
+    model.bind_tools([], tool_choice="auto").invoke([HumanMessage(content="公开")])
+backend/app/llm/input_guard.py:133: in invoke
+    result = bound.invoke(protect_model_messages(input), config, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py:6002: in invoke
+    return self.bound.invoke(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:476: in invoke
+    self.generate_prompt(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1849: in generate_prompt
+    return self.generate(prompt_messages, stop=stop, callbacks=callbacks, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1656: in generate
+    self._generate_with_cache(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1994: in _generate_with_cache
+    result = self._generate(
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1678: in _generate
+    return self._create_chat_result(response, generation_info)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1746: in _create_chat_result
+    raise ValueError(response_dict.get("error"))
+E   ValueError: {'message': 'SDK_PRIVATE_CANARY', 'password': 'secret-canary'}
+_ test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body[{"choices":[],"error":{"message":"SDK_PRIVATE_CANARY","password":"secret-canary"}}-async] _
+backend/app/tests/unit/test_sdk_http_budgets.py:506: in test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body
+    error = asyncio.run(run())
+            ^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:500: in run
+    await model.bind_tools([], tool_choice="auto").ainvoke(
+backend/app/llm/input_guard.py:145: in ainvoke
+    result = await bound.ainvoke(protect_model_messages(input), config, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py:6015: in ainvoke
+    return await self.bound.ainvoke(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:499: in ainvoke
+    llm_result = await self.agenerate_prompt(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1860: in agenerate_prompt
+    return await self.agenerate(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1818: in agenerate
+    raise exceptions[0]
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:2151: in _agenerate_with_cache
+    result = await self._agenerate(
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1948: in _agenerate
+    return await run_in_executor(
+.venv/lib/python3.11/site-packages/langchain_core/runnables/config.py:707: in run_in_executor
+    return await asyncio.get_running_loop().run_in_executor(
+../../.pyenv/versions/3.11.7/lib/python3.11/concurrent/futures/thread.py:58: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_core/runnables/config.py:698: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1746: in _create_chat_result
+    raise ValueError(response_dict.get("error"))
+E   ValueError: {'message': 'SDK_PRIVATE_CANARY', 'password': 'secret-canary'}
+_ test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body[\xff{"password":"SDK_PRIVATE_CANARY"}-sync] _
+backend/app/tests/unit/test_sdk_http_budgets.py:491: in test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body
+    model.bind_tools([], tool_choice="auto").invoke([HumanMessage(content="公开")])
+backend/app/llm/input_guard.py:133: in invoke
+    result = bound.invoke(protect_model_messages(input), config, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py:6002: in invoke
+    return self.bound.invoke(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:476: in invoke
+    self.generate_prompt(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1849: in generate_prompt
+    return self.generate(prompt_messages, stop=stop, callbacks=callbacks, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1656: in generate
+    self._generate_with_cache(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1994: in _generate_with_cache
+    result = self._generate(
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1671: in _generate
+    raise e
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1663: in _generate
+    response = raw_response.parse()
+               ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/openai/_legacy_response.py:138: in parse
+    parsed = self._parse(to=to)
+             ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/openai/_legacy_response.py:337: in _parse
+    data = response.json()
+           ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/httpx/_models.py:832: in json
+    return jsonlib.loads(self.content, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/json/__init__.py:341: in loads
+    s = s.decode(detect_encoding(s), 'surrogatepass')
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+_ test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body[\xff{"password":"SDK_PRIVATE_CANARY"}-async] _
+backend/app/tests/unit/test_sdk_http_budgets.py:506: in test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body
+    error = asyncio.run(run())
+            ^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:500: in run
+    await model.bind_tools([], tool_choice="auto").ainvoke(
+backend/app/llm/input_guard.py:145: in ainvoke
+    result = await bound.ainvoke(protect_model_messages(input), config, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py:6015: in ainvoke
+    return await self.bound.ainvoke(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:499: in ainvoke
+    llm_result = await self.agenerate_prompt(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1860: in agenerate_prompt
+    return await self.agenerate(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:1818: in agenerate
+    raise exceptions[0]
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:2151: in _agenerate_with_cache
+    result = await self._agenerate(
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1941: in _agenerate
+    raise e
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1933: in _agenerate
+    response = raw_response.parse()
+               ^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/openai/_legacy_response.py:138: in parse
+    parsed = self._parse(to=to)
+             ^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/openai/_legacy_response.py:337: in _parse
+    data = response.json()
+           ^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/httpx/_models.py:832: in json
+    return jsonlib.loads(self.content, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/json/__init__.py:341: in loads
+    s = s.decode(detect_encoding(s), 'surrogatepass')
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0: invalid start byte
+____ test_real_native_sse_error_object_does_not_escape_fixed_boundary[sync] ____
+backend/app/tests/unit/test_sdk_http_budgets.py:659: in test_real_native_sse_error_object_does_not_escape_fixed_boundary
+    list(model.bind_tools([],tool_choice="auto").stream([HumanMessage(content="公开")]))
+backend/app/llm/input_guard.py:158: in stream
+    for chunk in bound.stream(protect_model_messages(input), config, **kwargs):
+.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py:6179: in stream
+    yield from self.bound.stream(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:778: in stream
+    for chunk in self._stream(input_messages, stop=stop, **kwargs):
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1612: in _stream
+    _handle_openai_api_error(e)
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1589: in _stream
+    for chunk in response:
+.venv/lib/python3.11/site-packages/openai/_streaming.py:49: in __iter__
+    for item in self._iterator:
+.venv/lib/python3.11/site-packages/openai/_streaming.py:95: in __stream__
+    raise APIError(
+E   openai.APIError: SDK_PRIVATE_CANARY
+___ test_real_native_sse_error_object_does_not_escape_fixed_boundary[async] ____
+backend/app/tests/unit/test_sdk_http_budgets.py:670: in test_real_native_sse_error_object_does_not_escape_fixed_boundary
+    error = asyncio.run(run())
+            ^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:667: in run
+    _ = [message async for message in model.bind_tools([],tool_choice="auto").astream([HumanMessage(content="公开")])]
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:667: in <listcomp>
+    _ = [message async for message in model.bind_tools([],tool_choice="auto").astream([HumanMessage(content="公开")])]
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/app/llm/input_guard.py:172: in astream
+    async for chunk in bound.astream(protect_model_messages(input), config, **kwargs):
+.venv/lib/python3.11/site-packages/langchain_core/runnables/base.py:6192: in astream
+    async for item in self.bound.astream(
+.venv/lib/python3.11/site-packages/langchain_core/language_models/chat_models.py:907: in astream
+    async for chunk in self._astream(
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:3373: in _astream
+    async for chunk in super()._astream(*args, **kwargs):
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1877: in _astream
+    _handle_openai_api_error(e)
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/base.py:1850: in _astream
+    async for chunk in _astream_with_chunk_timeout(
+.venv/lib/python3.11/site-packages/langchain_openai/chat_models/_client_utils.py:650: in _astream_with_chunk_timeout
+    chunk = await asyncio.wait_for(it.__anext__(), timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/tasks.py:489: in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/openai/_streaming.py:158: in __aiter__
+    async for item in self._iterator:
+.venv/lib/python3.11/site-packages/openai/_streaming.py:205: in __stream__
+    raise APIError(
+E   openai.APIError: SDK_PRIVATE_CANARY
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body[{"choices":[],"error":{"message":"SDK_PRIVATE_CANARY","password":"secret-canary"}}-sync]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body[{"choices":[],"error":{"message":"SDK_PRIVATE_CANARY","password":"secret-canary"}}-async]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body[\xff{"password":"SDK_PRIVATE_CANARY"}-sync]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_sdk_response_parse_errors_are_fixed_and_do_not_expose_body[\xff{"password":"SDK_PRIVATE_CANARY"}-async]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_native_sse_error_object_does_not_escape_fixed_boundary[sync]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_native_sse_error_object_does_not_escape_fixed_boundary[async]
+6 failed, 6 passed, 36 deselected in 4.43s

@@ -46,6 +46,52 @@ def test_stream_publishes_a_sentence_without_waiting_for_paragraph_or_finish():
     assert ''.join(e.delta for e in events) == "第一句已经有依据。"
 
 
+def test_long_sentence_is_checked_and_published_incrementally_before_punctuation():
+    from app.graph.planning.synthesis_stream import SynthesisStream
+    events = []
+    stream = SynthesisStream(on_delta=events.append)
+    text = "公开财报显示营业收入增长且经营现金流保持稳定" * 8
+    for char in '{"action":"answer"}\n' + text:
+        stream(LlmStreamDelta(kind="content", delta=char))
+    early = ''.join(event.delta for event in events)
+    assert early and text.startswith(early)
+    stream.finish()
+    assert ''.join(event.delta for event in events) == text
+
+
+def test_leading_whitespace_is_consistent_with_complete_decision_parser():
+    from app.graph.planning.synthesis_stream import SynthesisStream
+    events = []
+    text = "公开财报显示经营现金流保持稳定" * 8
+    stream = SynthesisStream(on_delta=events.append)
+    for char in '\n {"action":"answer"}\n' + text:
+        stream(LlmStreamDelta(kind="content", delta=char))
+    assert events
+    stream.finish()
+    assert ''.join(event.delta for event in events) == text
+
+
+def test_synthesizer_emits_safe_body_while_model_is_still_generating(monkeypatch):
+    from app.graph import public_events
+    from app.graph.nodes.synthesizer import build_synthesizer_node
+    from app.graph.state import create_initial_state
+    from app.llm.schemas import LlmCompletionResult
+    events = []
+    monkeypatch.setattr(public_events, "get_stream_writer", lambda: events.append)
+    text = "公开财报显示营业收入增长且经营现金流保持稳定" * 8
+    class Client:
+        def complete_streamed_sync(self, **kwargs):
+            kwargs["on_delta"](LlmStreamDelta(kind="content", delta='{"action":"answer"}\n'))
+            kwargs["on_delta"](LlmStreamDelta(kind="content", delta=text))
+            body = ''.join(event.get('content', '') for event in events if event['type'] == 'answer_delta')
+            assert body and text.startswith(body), "合成模型未结束时必须已发布正文"
+            return LlmCompletionResult(content='{"action":"answer"}\n' + text, model="fake", provider="fake")
+    state = create_initial_state(session_id="s", tenant_id="t", user_id="u", user_message="分析")
+    state.update(request_flow_version="context-routing-v1", intent={"intent_type":"financial_research", "goal":"分析"})
+    build_synthesizer_node(llm_client=Client())(state)
+    assert ''.join(event['content'] for event in events if event['type'] == 'answer_delta') == text
+
+
 def test_model_fragments_do_not_generate_outgoing_event_timing(monkeypatch):
     from app.graph import public_events
     from app.graph.nodes.synthesizer import build_synthesizer_node
@@ -86,6 +132,31 @@ def test_inline_code_and_link_with_punctuation_are_not_split_for_transforms():
         stream(LlmStreamDelta(kind="content", delta=char))
     stream.finish()
     assert ''.join(e.delta for e in events) == render(text)
+
+
+def test_incremental_cut_never_splits_a_closed_inline_code_unit():
+    from app.graph.planning.answer_citations import AnswerCitations
+    from app.graph.planning.synthesis_stream import SynthesisStream
+    events = []
+    render = AnswerCitations([{"source_id":"source_1","url":"https://example.invalid/report"}]).render
+    text = "公开资料" * 14 + " `source_1。仍是代码`" + " suffixword" * 15
+    stream = SynthesisStream(on_delta=events.append, transform=render)
+    for char in '{"action":"answer"}\n' + text:
+        stream(LlmStreamDelta(kind="content", delta=char))
+    stream.finish()
+    assert ''.join(event.delta for event in events) == render(text)
+
+
+@pytest.mark.parametrize("offset", range(24))
+def test_incremental_cut_checks_number_and_currency_unit_together(offset):
+    from app.graph.planning.synthesis_stream import SynthesisStream
+    events = []
+    stream = SynthesisStream(on_delta=events.append, validate=lambda text: '999亿元' not in text)
+    text = '公开资料' * 20 + '补' * offset + '成交额为999亿元' + '后续公开分析' * 12
+    for char in '{"action":"answer"}\n' + text:
+        stream(LlmStreamDelta(kind="content", delta=char))
+    stream.finish()
+    assert '999' not in ''.join(event.delta for event in events)
 
 
 @pytest.mark.parametrize("text", [
@@ -163,7 +234,7 @@ def test_crlf_paragraphs_stream_without_losing_characters():
     assert ''.join(e.delta for e in events) == "第一段。\r\n\r\n"
 
 
-def test_repair_cannot_switch_to_replan_after_answer_header():
+def test_repair_can_replan_when_truncated_answer_has_not_been_published():
     from app.graph.nodes.synthesizer import build_synthesizer_node
     from app.graph.state import create_initial_state
     from app.llm.schemas import LlmCompletionResult
@@ -176,8 +247,8 @@ def test_repair_cannot_switch_to_replan_after_answer_header():
 
         async def complete(self, **kwargs):
             payload = json.loads(kwargs['user_prompt'])
-            assert payload['allow_replan'] is False
-            assert 'request_replan' not in payload['required_schema']
+            assert payload['allow_replan'] is True
+            assert 'request_replan' in payload['required_schema']
             return LlmCompletionResult(content=json.dumps({
                 'action': 'request_replan', 'replan_request': {
                     'reason_type': 'missing_task', 'affected_goal': '查询',
@@ -192,9 +263,8 @@ def test_repair_cannot_switch_to_replan_after_answer_header():
                  plan={"tasks": [{"id": "facts", "task_goal": "查询"}]},
                  task_results=[{"task_id": "facts", "status": "success", "content": "已有数据"}])
     build_synthesizer_node(llm_client=Client())(value)
-    assert value.get('pending_replan') is None
-    assert value['draft_answer'] is not None
-    assert value['replan_stop_reason'] == 'synthesis_decision_invalid'
+    assert value.get('pending_replan') is not None
+    assert value.get('draft_answer') is None
 
 
 @pytest.mark.parametrize("repair_truncated", [False, True])
@@ -249,7 +319,7 @@ def test_node_streams_verified_sentences_and_withholds_conflicting_numbers(monke
             callback(LlmStreamDelta(kind="content", delta='{"action":"answer"}\n'))
             assert events == []
             callback(LlmStreamDelta(kind="content", delta=sentence))
-            assert bool(events) is (not numeric or not conflict)
+            assert events == []  # 完整结果通过检查后才允许正文展示。
             callback(LlmStreamDelta(kind="content", delta="\n\n"))
             callback(LlmStreamDelta(kind="content", delta="其他信息。"))
             return LlmCompletionResult(content='{"action":"answer"}\n' + answer,
@@ -316,7 +386,8 @@ def test_graph_retries_only_before_any_answer_content_has_been_published(publish
         events.extend(graph.compile().stream(state, stream_mode="custom"))
     except (runtime.AgentGraphExecutionError, LlmProviderError) as exc:
         error = exc
-    assert client.calls == (1 if published else 2)
-    assert bool(error) is published
+    assert client.calls == 2
+    assert error is None
     body = ''.join(event.get("content", "") for event in events if event.get("type") == "answer_delta")
-    assert not ("第一轮" in body and "第二轮" in body)
+    assert "第一轮" not in body
+    assert "第二轮正确结论。" in body

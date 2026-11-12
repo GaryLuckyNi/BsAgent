@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 
 from app.conversations.durable import DurableRunService, RunOwnershipLost, TurnCancelled
 from app.schemas.tools import ToolCallResult
+from app.security.run_authorization import RunAuthorizationDenied, RunAuthorizationUnavailable
 from app.storage.models import (
     AgentMessage,
     AgentRun,
@@ -408,6 +409,8 @@ def _restore_public_event_timing(db, run_id):
 
 
 def produce_frames(*, session_factory, run_id, frames_factory):
+    from app.security.protocol_replay import CheckedProtocolWriter
+    content_writer = CheckedProtocolWriter()
     with session_factory() as db:
         owner = DurableRunService(db).claim(run_id)
         db.commit()
@@ -431,21 +434,34 @@ def produce_frames(*, session_factory, run_id, frames_factory):
                     # 订阅事件使用独立事务；请求 DB session 从未跨线程传递。
                     with session_factory() as event_db:
                         service = DurableRunService(event_db)
-                        answer_timing = timing.observe(event, data)
-                        if answer_timing is not None:
-                            service.append(run_id, owner, "custom", {**answer_timing, "run_id": run_id})
-                        service.append(run_id, owner, event, data)
+                        for safe_event, safe_data, checked in content_writer.project(event, data):
+                            answer_timing = timing.observe(safe_event, safe_data)
+                            if answer_timing is not None:
+                                service.append(run_id, owner, "custom", {**answer_timing, "run_id": run_id})
+                            service.append(run_id, owner, safe_event, safe_data, content_checked=checked)
                         event_db.commit()
                     control.guard()
+                with session_factory() as event_db:
+                    service = DurableRunService(event_db)
+                    for safe_event, safe_data, checked in content_writer.finish():
+                        service.append(run_id, owner, safe_event, safe_data, content_checked=checked)
+                    event_db.commit()
                 _finish_producer(control, error_code="agent_stream_incomplete")
             except TurnCancelled:
                 db.rollback()
                 with session_factory() as event_db:
-                    DurableRunService(event_db).finish_cancelled(run_id, owner)
+                    service = DurableRunService(event_db)
+                    # 停止后只封口已接收尾部，不再推进源或执行工具。
+                    for safe_event, safe_data, checked in content_writer.finish():
+                        service.append(run_id, owner, safe_event, safe_data, content_checked=checked)
+                    service.finish_cancelled(run_id, owner)
                     event_db.commit()
             except RunOwnershipLost:
                 db.rollback()
                 logger.warning("turn_owner_fenced run_id=%s", run_id)
+            except (RunAuthorizationDenied, RunAuthorizationUnavailable) as exc:
+                db.rollback()
+                _finish_producer(control, error_code=exc.code)
             except Exception:
                 db.rollback()
                 logger.exception("turn_producer_failed run_id=%s", run_id)
@@ -504,19 +520,49 @@ def parse_frame(frame):
 
 
 def subscribe_events(*, session_factory, run_id, after=0):
+    from app.security.protocol_replay import (
+        completed_replay_bodies,
+        is_checked_stream,
+        public_protocol_data,
+    )
+
     cursor = after
+    scan_cursor = after
+    waiting_for_body = False
+    bodies = None
     last_heartbeat = monotonic()
     while True:
         with session_factory() as db:
             execution = db.get(AgentRunExecution, run_id)
             done = execution is None or execution.producer_done
-            events = DurableRunService(db).events(run_id, after=cursor)
+            if done:
+                through = execution.last_sequence if execution is not None else db.scalar(
+                    select(AgentRunProtocolEvent.sequence).where(
+                        AgentRunProtocolEvent.run_id == run_id,
+                    ).order_by(AgentRunProtocolEvent.sequence.desc()).limit(1)
+                ) or 0
+                if bodies is None or bodies.through < through:
+                    bodies = completed_replay_bodies(db, run_id, through)
+            if waiting_for_body and done:
+                scan_cursor = cursor
+                waiting_for_body = False
+            events = DurableRunService(db).events(run_id, after=scan_cursor)
             # 在连接持有期间不保留事务/连接或生产者资源。
             frames = [(event.sequence, event.event, event.data) for event in events]
         for sequence, event, data in frames:
+            scan_cursor = sequence
+            if event == "messages" and not is_checked_stream(data) and (bodies is None or sequence > bodies.through):
+                waiting_for_body = True
+            if waiting_for_body:
+                # 进度不推进重连游标，避免断线后跳过尚未检查/发送的正文。
+                if event == "custom" and isinstance(data, dict) and data.get("type") in {"progress", "answer_sources"}:
+                    safe = public_protocol_data(event, data)
+                    yield f"event: {event}\ndata: {json.dumps(safe, ensure_ascii=False)}\n\n"
+                continue
             cursor = sequence
-            yield f"event: {event}\nid: {sequence}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-        if done and len(frames) < 200:
+            safe = public_protocol_data(event, data, sequence=sequence, bodies=bodies)
+            yield f"event: {event}\nid: {sequence}\ndata: {json.dumps(safe, ensure_ascii=False)}\n\n"
+        if done and len(frames) < 200 and not waiting_for_body:
             return
         if not frames:
             if monotonic() - last_heartbeat >= 1:

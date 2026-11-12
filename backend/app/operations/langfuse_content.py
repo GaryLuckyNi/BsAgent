@@ -7,6 +7,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from app.security.observation import observation_view
+
 _SENSITIVE_PARTS = (
     "authorization",
     "cookie",
@@ -23,7 +25,7 @@ _URL_QUERY_SECRET = re.compile(
 )
 _BEARER_CREDENTIAL = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.IGNORECASE)
 _PREFIXED_CREDENTIAL = re.compile(
-    r"(?<![A-Za-z0-9])(?:sk|pk)-[A-Za-z0-9][A-Za-z0-9_-]{3,}", re.IGNORECASE
+    r"(?<![A-Za-z0-9])(?:sk|pk)-[A-Za-z0-9][A-Za-z0-9_-]{19,}", re.IGNORECASE
 )
 
 
@@ -59,7 +61,7 @@ class LangfuseContentPolicy:
             raise ValueError("max_chars must be positive")
 
     def sanitize_text(self, value: str) -> str | dict[str, Any]:
-        sanitized = _redact_text_secrets(value)
+        sanitized = _redact_text_secrets(observation_view(value))
         if len(sanitized) <= self.max_chars:
             return sanitized
         return {
@@ -88,10 +90,14 @@ class LangfuseContentPolicy:
             if isinstance(item, (bytes, bytearray, memoryview)):
                 return f"[binary omitted type={type(item).__name__} length={len(item)} bytes]"
             if callable(getattr(item, "read", None)):
-                return _redact_text_secrets(_safe_file_description(item))
+                return self.sanitize_text(_safe_file_description(item))
             return item
 
-        return clean(value)
+        # 递归/第三方对象转换失败时扣留；不把异常或对象 repr 送到观测端。
+        try:
+            return observation_view(clean(value))
+        except Exception:  # noqa: BLE001
+            return {"content_withheld": True}
 
 
 def sanitize_content(

@@ -3,10 +3,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from math import isfinite
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote_plus, urlsplit
 
 from pydantic import BaseModel
-
 
 SENSITIVE_TOKEN_SEQUENCES = {
     ("access", "token"),
@@ -42,6 +41,15 @@ JWT_PATTERN = re.compile(
 )
 URL_CANDIDATE_PATTERN = re.compile(
     r"\b[a-z][a-z0-9+.-]*://[^\s<>\"']+",
+    re.IGNORECASE,
+)
+# 这些名字只在 URL 参数中视为凭证，普通业务 JSON 的 key/auth 不因此变敏感。
+URL_CREDENTIAL_KEYS = frozenset({"auth", "key", "signature", "cookie", "passwd"})
+URL_CREDENTIAL_ASSIGNMENT_PATTERN = re.compile(
+    r"(?:^|[?&#\s\"'\\{,])"
+    r"(?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|"
+    r"password|passwd|secret|token|signature|authorization|auth|key|cookie)"
+    r"[\\\"']*\s*[:=]",
     re.IGNORECASE,
 )
 AUTHORIZATION_HEADER_PATTERN = re.compile(
@@ -520,17 +528,32 @@ def _contains_credential_text(value: str) -> bool:
 def _contains_url_credentials(value: str) -> bool:
     for match in URL_CANDIDATE_PATTERN.finditer(value):
         candidate = match.group(0).rstrip(".,);]")
-        try:
-            parsed = urlsplit(candidate)
-        except ValueError:
-            continue
-        if parsed.username is not None or parsed.password is not None:
-            return True
-        try:
-            query_items = parse_qsl(parsed.query, keep_blank_values=True)
-        except ValueError:
-            continue
-        if any(_is_sensitive_key(key) for key, _ in query_items):
+        for _round in range(4):
+            if URL_CREDENTIAL_ASSIGNMENT_PATTERN.search(candidate):
+                return True
+            try:
+                parsed = urlsplit(candidate)
+                if parsed.username is not None or parsed.password is not None:
+                    return True
+                for parameters in (
+                    parsed.query,
+                    parsed.fragment,
+                    parsed.fragment.partition("?")[2],
+                ):
+                    if any(
+                        _is_sensitive_key(key) or key.casefold() in URL_CREDENTIAL_KEYS
+                        for key, _ in parse_qsl(parameters, keep_blank_values=True)
+                    ):
+                        return True
+                decoded = unquote_plus(candidate, errors="strict")
+            except (ValueError, UnicodeError):
+                # 无法完成 URL 凭证检查时，不能声称原文不含凭证。
+                return True
+            if decoded == candidate:
+                break
+            candidate = decoded
+        else:
+            # 解码深度有界；更深的输入不能绕过共同底线。
             return True
     return False
 

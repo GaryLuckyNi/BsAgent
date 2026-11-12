@@ -4,7 +4,6 @@ import hashlib
 import json
 import logging
 import re
-import sys
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -25,6 +24,8 @@ from app.operations.langfuse_langchain_content import (
     sanitized_content_json,
     sanitized_langchain_io,
 )
+from app.operations.safe_exporter import fixed_error_status, should_export_langfuse_span
+from app.security.observation import observation_view
 from langfuse import Langfuse, propagate_attributes
 
 logger = logging.getLogger("bs_agent.langfuse")
@@ -155,6 +156,7 @@ def configure_langfuse(
         environment=config.app_env,
         sample_rate=config.langfuse_sample_rate,
         tracer_provider=provider,
+        should_export_span=should_export_langfuse_span,
         mask_otel_spans=lambda *, params: mask_langfuse_otel_spans(
             params=params,
             content_policy=content_policy,
@@ -218,10 +220,15 @@ def mask_langfuse_otel_spans(
         except Exception as exc:  # noqa: BLE001 - 转换故障时仍删除原始内容
             _log_runtime_failure("langfuse_callback_content_failed", exc)
             safe_io = {}
-        if deleted or safe_io:
+        retained = {key: value for key, value in span.attributes.items() if key not in deleted}
+        checked = observation_view({**retained, **safe_io})
+        if checked != retained or deleted:
+            removed = tuple(key for key in span.attributes if key not in checked or key in deleted)
+            updates = {key: value for key, value in checked.items()
+                       if key in safe_io or key not in retained or value != retained[key]}
             # SDK 先删除再覆盖；不标记原始正文为可信，只放行转换后的导出副本。
             patches[identifier] = OtelSpanPatch(
-                delete_attributes=deleted, set_attributes=safe_io,
+                delete_attributes=removed, set_attributes=updates,
             )
     return MaskOtelSpansResult(span_patches=patches)
 
@@ -316,10 +323,10 @@ def langfuse_agent_run(
             observation=observation,
             content_policy=runtime.content_policy,
         )
-    except BaseException:
-        exc_info = sys.exc_info()
-        _safe_context_exit(propagation_manager, exc_info)
-        _safe_context_exit(observation_manager, exc_info)
+    except BaseException as exc:
+        update_langfuse_observation(observation, level="ERROR", status_message=fixed_error_status(exc))
+        _safe_context_exit(propagation_manager, (None, None, None))
+        _safe_context_exit(observation_manager, (None, None, None))
         raise
     else:
         _safe_context_exit(propagation_manager, (None, None, None))
@@ -374,9 +381,9 @@ def langfuse_generation(
 
     try:
         yield generation
-    except BaseException:
-        exc_info = sys.exc_info()
-        _safe_context_exit(manager, exc_info)
+    except BaseException as exc:
+        update_langfuse_generation(generation, level="ERROR", status_message=fixed_error_status(exc))
+        _safe_context_exit(manager, (None, None, None))
         raise
     else:
         _safe_context_exit(manager, (None, None, None))
@@ -454,8 +461,9 @@ def langfuse_observation(
         return
     try:
         yield observation
-    except BaseException:
-        _safe_context_exit(manager, sys.exc_info())
+    except BaseException as exc:
+        update_langfuse_observation(observation, level="ERROR", status_message=fixed_error_status(exc))
+        _safe_context_exit(manager, (None, None, None))
         raise
     else:
         _safe_context_exit(manager, (None, None, None))

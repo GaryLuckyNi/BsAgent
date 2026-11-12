@@ -1,0 +1,108 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___________ test_callback_cancellation_closes_provider_source[False] ___________
+
+async_mode = False
+
+    @pytest.mark.parametrize("async_mode", [False, True])
+    def test_callback_cancellation_closes_provider_source(async_mode):
+        closed = []
+        client = object.__new__(DeepSeekClient)
+        client._model, client._timeout_seconds = "test", 5
+        def callback(event):
+            raise asyncio.CancelledError
+        def chunks():
+            try:
+                yield LlmStreamDelta(kind="content", delta=PUBLIC)
+                yield LlmStreamDelta(kind="content", delta="后文。")
+            finally:
+                closed.append(True)
+        async def async_chunks():
+            try:
+                yield LlmStreamDelta(kind="content", delta=PUBLIC)
+                yield LlmStreamDelta(kind="content", delta="后文。")
+            finally:
+                closed.append(True)
+        if async_mode:
+            async def run():
+                source = async_chunks()
+                client.stream_complete_events = lambda *args, **kwargs: source
+                try:
+                    with pytest.raises(asyncio.CancelledError):
+                        await client.complete_streamed(system_prompt="公开研究", user_prompt="公开问题", on_delta=callback)
+                    assert closed
+                finally:
+                    await source.aclose()
+            asyncio.run(run())
+        else:
+            source = chunks()
+            client._stream_events_sync = lambda *args, **kwargs: source
+            try:
+                with pytest.raises(asyncio.CancelledError):
+                    client.complete_streamed_sync(system_prompt="公开研究", user_prompt="公开问题", on_delta=callback)
+>               assert closed
+E               assert []
+
+backend/app/tests/unit/test_stream_close_security.py:109: AssertionError
+___________ test_callback_cancellation_closes_provider_source[True] ____________
+
+async_mode = True
+
+    @pytest.mark.parametrize("async_mode", [False, True])
+    def test_callback_cancellation_closes_provider_source(async_mode):
+        closed = []
+        client = object.__new__(DeepSeekClient)
+        client._model, client._timeout_seconds = "test", 5
+        def callback(event):
+            raise asyncio.CancelledError
+        def chunks():
+            try:
+                yield LlmStreamDelta(kind="content", delta=PUBLIC)
+                yield LlmStreamDelta(kind="content", delta="后文。")
+            finally:
+                closed.append(True)
+        async def async_chunks():
+            try:
+                yield LlmStreamDelta(kind="content", delta=PUBLIC)
+                yield LlmStreamDelta(kind="content", delta="后文。")
+            finally:
+                closed.append(True)
+        if async_mode:
+            async def run():
+                source = async_chunks()
+                client.stream_complete_events = lambda *args, **kwargs: source
+                try:
+                    with pytest.raises(asyncio.CancelledError):
+                        await client.complete_streamed(system_prompt="公开研究", user_prompt="公开问题", on_delta=callback)
+                    assert closed
+                finally:
+                    await source.aclose()
+>           asyncio.run(run())
+
+backend/app/tests/unit/test_stream_close_security.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def run():
+        source = async_chunks()
+        client.stream_complete_events = lambda *args, **kwargs: source
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await client.complete_streamed(system_prompt="公开研究", user_prompt="公开问题", on_delta=callback)
+>           assert closed
+E           assert []
+
+backend/app/tests/unit/test_stream_close_security.py:99: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_stream_close_security.py::test_callback_cancellation_closes_provider_source[False]
+FAILED backend/app/tests/unit/test_stream_close_security.py::test_callback_cancellation_closes_provider_source[True]
+2 failed, 4 deselected in 0.27s

@@ -1,0 +1,108 @@
+FFF....F                                                                 [100%]
+=================================== FAILURES ===================================
+_ test_selected_app_config_controls_entry_limit_instead_of_import_time_default _
+backend/app/tests/unit/test_entry_budget_security.py:35: in test_selected_app_config_controls_entry_limit_instead_of_import_time_default
+    assert [client.post("/spend").status_code for _ in range(3)] == [200,200,429]
+E   assert [200, 200, 200] == [200, 200, 429]
+E     
+E     At index 2 diff: 200 != 429
+E     Use -v to get more diff
+----------------------------- Captured stdout call -----------------------------
+2026-11-06 11:31:55,990 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:55,995 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,006 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+________ test_two_apps_share_the_same_actor_budget_in_the_same_backend _________
+backend/app/tests/unit/test_entry_budget_security.py:44: in test_two_apps_share_the_same_actor_budget_in_the_same_backend
+    assert a.post("/spend").status_code == b.post("/spend").status_code == 429
+E   AssertionError: assert 200 == 429
+E    +  where 200 = <Response [200 OK]>.status_code
+E    +    where <Response [200 OK]> = post('/spend')
+E    +      where post = <starlette.testclient.TestClient object at 0x119e98290>.post
+----------------------------- Captured stdout call -----------------------------
+2026-11-06 11:31:56,262 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,266 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,274 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,278 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+------------------------------ Captured log call -------------------------------
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+__________ test_parallel_requests_do_not_exceed_selected_actor_limit ___________
+backend/app/tests/unit/test_entry_budget_security.py:53: in test_parallel_requests_do_not_exceed_selected_actor_limit
+    assert statuses.count(200) == 5 and statuses.count(429) == 19
+E   assert (20 == 5)
+E    +  where 20 = <built-in method count of list object at 0x119f87040>(200)
+E    +    where <built-in method count of list object at 0x119f87040> = [200, 200, 200, 200, 200, 200, ...].count
+----------------------------- Captured stdout call -----------------------------
+2026-11-06 11:31:56,314 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,314 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,317 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,317 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,317 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,317 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,318 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,318 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,357 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,359 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,361 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,364 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,366 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,367 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,369 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,372 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,390 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,393 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 429 Too Many Requests"
+2026-11-06 11:31:56,394 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 429 Too Many Requests"
+2026-11-06 11:31:56,395 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,395 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,395 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 429 Too Many Requests"
+2026-11-06 11:31:56,396 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+2026-11-06 11:31:56,399 INFO httpx2 HTTP Request: POST http://testserver/spend "HTTP/1.1 429 Too Many Requests"
+------------------------------ Captured log call -------------------------------
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 429 Too Many Requests"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 429 Too Many Requests"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 429 Too Many Requests"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/spend "HTTP/1.1 429 Too Many Requests"
+_ test_invocation_routes_do_not_bypass_budget_or_reach_approval_lookup[/api/approvals/no-existing/decision-payload4] _
+backend/app/tests/unit/test_entry_budget_security.py:74: in test_invocation_routes_do_not_bypass_budget_or_reach_approval_lookup
+    assert response.status_code == 429, response.text
+E   AssertionError: {"detail":{"code":"approval_not_found"}}
+E   assert 404 == 429
+E    +  where 404 = <Response [404 Not Found]>.status_code
+----------------------------- Captured stdout call -----------------------------
+2026-11-06 11:31:56,769 INFO bs_agent.access http_request_completed
+2026-11-06 11:31:56,770 INFO httpx2 HTTP Request: POST http://testserver/api/approvals/no-existing/decision "HTTP/1.1 404 Not Found"
+------------------------------ Captured log call -------------------------------
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/approvals/no-existing/decision "HTTP/1.1 404 Not Found"
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_entry_budget_security.py::test_selected_app_config_controls_entry_limit_instead_of_import_time_default
+FAILED backend/app/tests/unit/test_entry_budget_security.py::test_two_apps_share_the_same_actor_budget_in_the_same_backend
+FAILED backend/app/tests/unit/test_entry_budget_security.py::test_parallel_requests_do_not_exceed_selected_actor_limit
+FAILED backend/app/tests/unit/test_entry_budget_security.py::test_invocation_routes_do_not_bypass_budget_or_reach_approval_lookup[/api/approvals/no-existing/decision-payload4]
+4 failed, 4 passed in 4.52s

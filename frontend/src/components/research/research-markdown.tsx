@@ -10,7 +10,7 @@ import { SiteIcon } from './site-icon'
 const EMPTY_SOURCES: EvidenceSource[] = []
 const SourcesContext = createContext<EvidenceSource[]>(EMPTY_SOURCES)
 
-function CitationLink({ href, children, node, ...props }: ComponentProps<'a'> & { node?: unknown }) {
+function CitationLink({ href, children, node, className, title }: ComponentProps<'a'> & { node?: unknown }) {
   void node
   const sources = useContext(SourcesContext)
   const label = Children.toArray(children).map((child) => typeof child === 'string' || typeof child === 'number' ? String(child) : '').join('')
@@ -28,13 +28,14 @@ function CitationLink({ href, children, node, ...props }: ComponentProps<'a'> & 
     cancelTimer()
     timer.current = setTimeout(() => setOpen(value), delay)
   }
-  if (!isCitation || !url) return <a {...props} href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+  if (!url) return <span className={className}>{children}</span>
+  if (!isCitation) return <a className={className} title={title} href={url} target="_blank" rel="noopener noreferrer">{children}</a>
   const parsed = new URL(url)
   const source = sources.find((item) => item.index === Number(label) && webSourceUrl(item.url) === url)
   const date = source?.publishedAt?.replace(/^(\d{4})-(\d{2})-(\d{2}).*$/, '$1/$2/$3')
   return <Popover.Root open={open} onOpenChange={setOpen} modal={false}>
     <Popover.Anchor asChild>
-      <a {...props} ref={citationRef} href={url} className="research-citation" target="_blank" rel="noopener noreferrer"
+      <a ref={citationRef} title={title} href={url} className="research-citation" target="_blank" rel="noopener noreferrer"
         aria-label={`引用来源 ${label}`} data-active={open || undefined}
         onPointerEnter={() => schedule(true, 200)} onPointerLeave={() => schedule(false, 220)}
         onFocus={() => { cancelTimer(); if (returningFocus.current) { returningFocus.current = false; return } setOpen(true) }}
@@ -74,8 +75,16 @@ function CitationLink({ href, children, node, ...props }: ComponentProps<'a'> & 
   </Popover.Root>
 }
 
-const components = { a: CitationLink }
+function ManualImage({ src, alt }: ComponentProps<'img'>) {
+  const url = webSourceUrl(src)
+  return <span className="research-image-link">{alt || '图片'}{url && <> · <a href={url} target="_blank" rel="noopener noreferrer">打开图片</a></>}</span>
+}
+
+const components = { a: CitationLink, img: ManualImage }
+const safeTags = ['p', 'a', 'span', 'div', 'br', 'strong', 'em', 'b', 'i', 'del', 's', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'pre', 'code', 'hr', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'sup', 'sub', 'img']
+const safeUrl = (value: string) => webSourceUrl(value) || ''
 
 export function ResearchMarkdown({ sources = EMPTY_SOURCES, ...props }: MessageResponseProps & { sources?: EvidenceSource[] }) {
-  return <SourcesContext.Provider value={sources}><MessageResponse {...props} components={components} /></SourcesContext.Provider>
+  return <SourcesContext.Provider value={sources}><MessageResponse {...props} components={components} urlTransform={safeUrl}
+    skipHtml={true} remarkRehypeOptions={{ allowDangerousHtml: false }} allowedElements={safeTags} /></SourcesContext.Provider>
 }

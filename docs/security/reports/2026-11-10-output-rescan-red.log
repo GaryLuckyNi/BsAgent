@@ -1,0 +1,52 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_credential_only_exits_do_not_repeat_unused_injection_classification[app.security.public_output-public_text] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x111187190>
+module_name = 'app.security.public_output', function_name = 'public_text'
+
+    @pytest.mark.parametrize("module_name,function_name", [
+        ("app.security.public_output", "public_text"),
+        ("app.security.observation", "observation_view"),
+    ])
+    def test_credential_only_exits_do_not_repeat_unused_injection_classification(monkeypatch, module_name, function_name):
+        import importlib
+        import app.security.tool_content as policy_module
+        def unavailable(text):
+            raise AssertionError("已处理资料的展示不应再次运行外部指令分类")
+        monkeypatch.setattr(policy_module, "detect_prompt_injection", unavailable)
+        adapter = getattr(importlib.import_module(module_name), function_name)
+>       assert adapter(PUBLIC) == PUBLIC
+E       AssertionError: assert '[内容已扣留]' == '公开财报显示营业收入增长...增长，经营现金流保持稳定。'
+E         
+E         - 公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。
+E         + [内容已扣留]
+
+backend/app/tests/unit/test_incremental_output_security.py:100: AssertionError
+_ test_credential_only_exits_do_not_repeat_unused_injection_classification[app.security.observation-observation_view] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1111a3fd0>
+module_name = 'app.security.observation', function_name = 'observation_view'
+
+    @pytest.mark.parametrize("module_name,function_name", [
+        ("app.security.public_output", "public_text"),
+        ("app.security.observation", "observation_view"),
+    ])
+    def test_credential_only_exits_do_not_repeat_unused_injection_classification(monkeypatch, module_name, function_name):
+        import importlib
+        import app.security.tool_content as policy_module
+        def unavailable(text):
+            raise AssertionError("已处理资料的展示不应再次运行外部指令分类")
+        monkeypatch.setattr(policy_module, "detect_prompt_injection", unavailable)
+        adapter = getattr(importlib.import_module(module_name), function_name)
+>       assert adapter(PUBLIC) == PUBLIC
+E       AssertionError: assert '[观测内容已扣留]' == '公开财报显示营业收入增长...增长，经营现金流保持稳定。'
+E         
+E         - 公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。
+E         + [观测内容已扣留]
+
+backend/app/tests/unit/test_incremental_output_security.py:100: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_credential_only_exits_do_not_repeat_unused_injection_classification[app.security.public_output-public_text]
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_credential_only_exits_do_not_repeat_unused_injection_classification[app.security.observation-observation_view]
+2 failed, 18 deselected in 0.31s

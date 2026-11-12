@@ -19,6 +19,7 @@ class Tool(ABC, Generic[InputT]):
     permission_scope: ClassVar[list[str]] = []
     risk_level: Literal["low", "medium", "high"] = "low"
     effect_type: Literal["read_only", "write", "unknown"] = "unknown"
+    outbound_context_fields: ClassVar[list[Literal["research_context", "research_context.original_question"]]] = []
     server_injected_fields: ClassVar[list[str]] = []
     requires_explicit_execution_binding: ClassVar[bool] = False
 
@@ -36,6 +37,7 @@ class Tool(ABC, Generic[InputT]):
             risk_level=self.risk_level,
             effect_type=self.effect_type,
             server_injected_fields=self.server_injected_fields,
+            outbound_context_fields=self.outbound_context_fields,
         )
 
     @abstractmethod

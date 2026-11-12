@@ -1,14 +1,32 @@
+import json
 from dataclasses import dataclass
 from hashlib import sha256
-import json
 from typing import Protocol
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.assets.object_store import ObjectNotFoundError, ObjectStore, ObjectStoreError
-from app.assets.object_store import validate_object_key
+from app.assets.object_store import (
+    ObjectNotFoundError,
+    ObjectStore,
+    ObjectStoreError,
+    validate_object_key,
+)
 from app.assets.repository import SqlAlchemyAssetRepository
 from app.assets.schemas import AssetStatus
+from app.security.asset_authorization import (
+    AssetAuthorizationDenied,
+    AssetAuthorizationUnavailable,
+    authorized_image_processing,
+    check_active_asset_authorization,
+    require_queued_asset_authorization,
+)
+from app.security.image_content import (
+    ImageContentRejected,
+    ImageContentUnavailable,
+    protect_image_payload,
+    protect_image_result,
+)
 from app.storage.models import AssetAnalysisRecord
 from app.vision.coordinator import AnalysisCacheIdentity, ImageAnalysisUnavailableError
 from app.vision.repository import SqlAlchemyVisionAnalysisRepository
@@ -62,12 +80,50 @@ class VisionAnalysisProcessor:
         self,
         request: VisionTaskRequest,
     ) -> AssetAnalysisRecord:
-        asset = self._assets.get(
-            request.asset_id,
-            tenant_id=request.tenant_id,
-        )
+        failure = None
+        content_failure = False
+        try:
+            with authorized_image_processing(lambda: self._authorized_asset(request)):
+                return self._process(request)
+        except (ImageContentRejected, ImageContentUnavailable) as exc:
+            failure = (exc.code, exc.retryable)
+            content_failure = True
+        except (
+            AssetAuthorizationDenied,
+            AssetAuthorizationUnavailable,
+            VisionProcessingError,
+        ) as exc:
+            failure = (exc.code, exc.retryable)
+        if content_failure:
+            try:
+                asset = self._authorized_asset(request)
+                if asset.status == AssetStatus.PROCESSING:
+                    self._mark_failed(
+                        asset_id=asset.asset_id, tenant_id=asset.tenant_id, code=failure[0]
+                    )
+            except (
+                AssetAuthorizationDenied,
+                AssetAuthorizationUnavailable,
+                VisionProcessingError,
+            ) as exc:
+                failure = (exc.code, exc.retryable)
+        raise VisionProcessingError(code=failure[0], retryable=failure[1])
+
+    def _authorized_asset(self, request):
+        failed = False
+        try:
+            asset = self._assets.get(request.asset_id, tenant_id=request.tenant_id)
+        except SQLAlchemyError:
+            failed = True
+        if failed:
+            raise AssetAuthorizationUnavailable
         if asset is None:
             raise VisionProcessingError(code="asset_not_found", retryable=False)
+        require_queued_asset_authorization(asset, request)
+        return asset
+
+    def _process(self, request):
+        asset = self._authorized_asset(request)
 
         existing = self._analyses.get_latest(
             asset_id=asset.asset_id,
@@ -99,22 +155,28 @@ class VisionAnalysisProcessor:
             if reused is not None:
                 return reused
 
+        check_active_asset_authorization()
         try:
             image = self._object_store.get(asset.object_key)
         except ObjectNotFoundError as exc:
-            self._mark_failed(asset_id=asset.asset_id, tenant_id=asset.tenant_id, code="asset_object_missing")
+            self._mark_failed(
+                asset_id=asset.asset_id, tenant_id=asset.tenant_id, code="asset_object_missing"
+            )
             raise VisionProcessingError(
                 code="asset_object_missing",
                 retryable=False,
             ) from exc
         except ObjectStoreError as exc:
-            self._mark_failed(asset_id=asset.asset_id, tenant_id=asset.tenant_id, code="asset_store_unavailable")
+            self._mark_failed(
+                asset_id=asset.asset_id, tenant_id=asset.tenant_id, code="asset_store_unavailable"
+            )
             raise VisionProcessingError(
                 code="asset_store_unavailable",
                 retryable=True,
             ) from exc
 
         try:
+            check_active_asset_authorization()
             result = self._analysis_coordinator.analyze(
                 image,
                 media_type=asset.media_type,
@@ -131,6 +193,8 @@ class VisionAnalysisProcessor:
                 retryable=exc.retryable,
             ) from exc
 
+        check_active_asset_authorization()
+        result = protect_image_result(result)
         target_status = AssetStatus(result.status)
         artifact_storage_key = self._artifact_storage_key(
             tenant_id=asset.tenant_id,
@@ -191,9 +255,7 @@ class VisionAnalysisProcessor:
     @staticmethod
     def _artifact_storage_key(*, tenant_id: str, analysis_id: str) -> str:
         tenant_namespace = sha256(tenant_id.encode("utf-8")).hexdigest()[:24]
-        return validate_object_key(
-            f"tenants/{tenant_namespace}/analysis/{analysis_id}.json"
-        )
+        return validate_object_key(f"tenants/{tenant_namespace}/analysis/{analysis_id}.json")
 
     def _mark_failed(self, *, asset_id: str, tenant_id: str, code: str) -> None:
         try:
@@ -217,11 +279,14 @@ class VisionAnalysisProcessor:
         if not callable(cache_identity):
             return None
         identity = cache_identity(tenant_id=asset.tenant_id)
-        return self._analyses.find_cached(
-            tenant_id=asset.tenant_id,
-            image_sha256=asset.sha256,
-            identity=identity,
-        )
+        try:
+            return self._analyses.find_cached(
+                tenant_id=asset.tenant_id,
+                image_sha256=asset.sha256,
+                identity=identity,
+            )
+        except ImageContentRejected:
+            return None  # 旧缓存格式坏或超限可重算；检查器故障不作为 cache miss。
 
     def _reuse_cached(
         self,
@@ -233,13 +298,22 @@ class VisionAnalysisProcessor:
     ) -> AssetAnalysisRecord | None:
         if not source.artifact_storage_key:
             return None
+        check_active_asset_authorization()
         try:
             artifact = json.loads(
                 self._object_store.get(source.artifact_storage_key).decode("utf-8")
             )
             artifact["analysis_id"] = analysis_id
             artifact["asset_id"] = asset_id
-        except (ObjectStoreError, UnicodeDecodeError, json.JSONDecodeError, TypeError):
+            artifact = protect_image_payload(artifact)
+        except (
+            ObjectStoreError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            TypeError,
+            RecursionError,
+            ImageContentRejected,
+        ):
             return None
 
         target_key = self._artifact_storage_key(
@@ -247,6 +321,7 @@ class VisionAnalysisProcessor:
             analysis_id=analysis_id,
         )
         written = False
+        check_active_asset_authorization()
         try:
             self._object_store.put(
                 target_key,
@@ -277,11 +352,13 @@ class VisionAnalysisProcessor:
             )
             self._session.commit()
             return cloned
-        except Exception:
+        except Exception as exc:  # 缓存 IO 补偿；强制内容检查故障继续抛出。
             self._session.rollback()
             if written:
                 try:
                     self._object_store.delete(target_key)
                 except ObjectStoreError:
                     pass
+            if isinstance(exc, (ImageContentRejected, ImageContentUnavailable)):
+                raise
             return None

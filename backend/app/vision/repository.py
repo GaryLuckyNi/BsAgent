@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.security.image_content import protect_image_record, protect_image_result
 from app.storage.models import AssetAnalysisRecord, AssetRecord
 from app.vision.coordinator import AnalysisCacheIdentity
 from app.vision.schemas import CoordinatedImageAnalysisResult, VisionAnalysisResult
@@ -21,6 +22,7 @@ class SqlAlchemyVisionAnalysisRepository:
         result: VisionAnalysisResult | CoordinatedImageAnalysisResult,
         artifact_storage_key: str | None = None,
     ) -> AssetAnalysisRecord:
+        result = protect_image_result(result)
         analysis = result.analysis
         coordinated = (
             result if isinstance(result, CoordinatedImageAnalysisResult) else None
@@ -60,7 +62,7 @@ class SqlAlchemyVisionAnalysisRepository:
         asset_id: str,
         tenant_id: str,
     ) -> AssetAnalysisRecord | None:
-        return self._session.scalar(
+        record = self._session.scalar(
             select(AssetAnalysisRecord)
             .where(
                 AssetAnalysisRecord.asset_id == asset_id,
@@ -72,6 +74,7 @@ class SqlAlchemyVisionAnalysisRepository:
             )
             .limit(1)
         )
+        return protect_image_record(record) if record is not None else None
 
     def find_cached(
         self,
@@ -81,7 +84,7 @@ class SqlAlchemyVisionAnalysisRepository:
         identity: AnalysisCacheIdentity,
     ) -> AssetAnalysisRecord | None:
         expected_vision_status = "success" if identity.vision_required else "skipped"
-        return self._session.scalar(
+        record = self._session.scalar(
             select(AssetAnalysisRecord)
             .join(AssetRecord, AssetRecord.asset_id == AssetAnalysisRecord.asset_id)
             .where(
@@ -100,6 +103,7 @@ class SqlAlchemyVisionAnalysisRepository:
             .order_by(AssetAnalysisRecord.completed_at.desc())
             .limit(1)
         )
+        return protect_image_record(record) if record is not None else None
 
     def clone_cached(
         self,
@@ -109,6 +113,7 @@ class SqlAlchemyVisionAnalysisRepository:
         asset_id: str,
         artifact_storage_key: str,
     ) -> AssetAnalysisRecord:
+        source = protect_image_record(source)
         record = AssetAnalysisRecord(
             analysis_id=analysis_id,
             asset_id=asset_id,

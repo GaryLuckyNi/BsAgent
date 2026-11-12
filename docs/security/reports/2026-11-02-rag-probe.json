@@ -1,0 +1,122 @@
+{
+  "probe": "RT-15",
+  "layer": "whitebox_fixture_and_mock_http",
+  "results": [
+    {
+      "context_tenant": "rt-tenant-b",
+      "argument_tenant": "rt-tenant-b",
+      "status": "success",
+      "private_b_marker_returned": true,
+      "error_code": null
+    },
+    {
+      "context_tenant": "rt-tenant-a",
+      "argument_tenant": "rt-tenant-a",
+      "status": "success",
+      "private_b_marker_returned": true,
+      "error_code": null
+    },
+    {
+      "context_tenant": "rt-tenant-a",
+      "argument_tenant": "rt-tenant-b",
+      "status": "success",
+      "private_b_marker_returned": true,
+      "error_code": null
+    }
+  ],
+  "captured_requests": [
+    {
+      "path": "/api/rag/retrieve",
+      "payload": {
+        "query": "内部测试资料",
+        "filters": {},
+        "retrieval": {
+          "topK": 8,
+          "contextLimit": 8,
+          "hybrid": true,
+          "rerank": true,
+          "queryRewrite": true,
+          "graphRag": false
+        },
+        "responseMode": {
+          "includeText": true,
+          "includeGraph": true,
+          "includeScores": true,
+          "includeDebug": false
+        }
+      },
+      "headers": {
+        "host": "rag.invalid",
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate, zstd",
+        "connection": "keep-alive",
+        "user-agent": "python-httpx/0.28.1",
+        "content-length": "246",
+        "content-type": "application/json"
+      }
+    },
+    {
+      "path": "/api/rag/retrieve",
+      "payload": {
+        "query": "内部测试资料",
+        "filters": {},
+        "retrieval": {
+          "topK": 8,
+          "contextLimit": 8,
+          "hybrid": true,
+          "rerank": true,
+          "queryRewrite": true,
+          "graphRag": false
+        },
+        "responseMode": {
+          "includeText": true,
+          "includeGraph": true,
+          "includeScores": true,
+          "includeDebug": false
+        }
+      },
+      "headers": {
+        "host": "rag.invalid",
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate, zstd",
+        "connection": "keep-alive",
+        "user-agent": "python-httpx/0.28.1",
+        "content-length": "246",
+        "content-type": "application/json"
+      }
+    },
+    {
+      "path": "/api/rag/retrieve",
+      "payload": {
+        "query": "内部测试资料",
+        "filters": {},
+        "retrieval": {
+          "topK": 8,
+          "contextLimit": 8,
+          "hybrid": true,
+          "rerank": true,
+          "queryRewrite": true,
+          "graphRag": false
+        },
+        "responseMode": {
+          "includeText": true,
+          "includeGraph": true,
+          "includeScores": true,
+          "includeDebug": false
+        }
+      },
+      "headers": {
+        "host": "rag.invalid",
+        "accept": "*/*",
+        "accept-encoding": "gzip, deflate, zstd",
+        "connection": "keep-alive",
+        "user-agent": "python-httpx/0.28.1",
+        "content-length": "246",
+        "content-type": "application/json"
+      }
+    }
+  ],
+  "wire_payloads_equal": true,
+  "limitation": "上游是故意返回 B 文档的 mock；不能据此断言真实 RAG ACL 已被突破。",
+  "blocked_network_events": []
+}

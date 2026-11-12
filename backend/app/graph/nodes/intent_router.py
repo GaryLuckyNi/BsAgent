@@ -65,9 +65,14 @@ def _context_summary(state: AgentState) -> dict | None:
     return None
 
 
-def _recent_conversation_history(state: AgentState, *, limit: int = 8) -> list[dict]:
+def _recent_conversation_history(
+    state: AgentState, *, limit: int = 8, char_budget: int = 8000,
+) -> list[dict]:
+    # 路由只需要理解本轮目标；长报告按视图节选，原始消息仍供后续分析使用。
     history: list[dict] = []
     for message in reversed(state["messages"]):
+        if len(history) >= limit or char_budget <= 0:
+            break
         if is_context_compaction_message(message) or isinstance(message, ToolMessage):
             continue
         if isinstance(message, AIMessage) and (
@@ -80,8 +85,19 @@ def _recent_conversation_history(state: AgentState, *, limit: int = 8) -> list[d
         ):
             continue
         if isinstance(message, (HumanMessage, AIMessage)):
-            history.append({"ref": f"message:{message.id}", "role": message.type, "content": str(message.content)})
-        if len(history) >= limit:
-            break
+            content = str(message.content)
+            budget = min(4000, char_budget)
+            item = {"ref": f"message:{message.id}", "role": message.type, "content": content}
+            if len(content) > budget:
+                marker = "\n[…历史内容已节选…]\n"
+                if budget > len(marker):
+                    retained = budget - len(marker)
+                    head = retained * 3 // 4
+                    item["content"] = content[:head] + marker + content[-(retained - head):]
+                else:
+                    item["content"] = content[:budget]
+                item["truncated"] = True
+            history.append(item)
+            char_budget -= len(item["content"])
     history.reverse()
     return history

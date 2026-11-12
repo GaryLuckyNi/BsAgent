@@ -18,6 +18,8 @@ from app.search.schemas import (
     WebSearchResponse,
     WebSearchResult,
 )
+from app.security.http_response import HttpResponseBudgetError, async_bounded_request
+from app.security.tool_outbound import require_credential_free_payload
 
 
 class DeepSeekSearchApiClient:
@@ -58,6 +60,7 @@ class DeepSeekSearchApiClient:
         payload = {"query": query, "count": max_results, "need_content": False}
         if context and context.original_question:
             payload["ori_question"] = context.original_question
+        require_credential_free_payload(payload)
         started = perf_counter()
         with langfuse_observation(
             as_type="span",
@@ -106,34 +109,35 @@ class DeepSeekSearchApiClient:
             return result
 
     async def _request(self, client: httpx.AsyncClient, payload: dict) -> Any:
+        failure = None
         try:
-            response = await client.post(
-                self._endpoint,
-                json=payload,
+            response = await async_bounded_request(
+                client, "POST", self._endpoint, json=payload,
                 headers={"Authorization": f"Bearer {self._api_key}"},
-                timeout=self._timeout_seconds,
+                timeout_seconds=self._timeout_seconds,
             )
             response.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise _error("web_search_timeout", retryable=True) from exc
+        except HttpResponseBudgetError as error:
+            expired = error.code == "http_response_deadline"
+            failure = _error("web_search_timeout" if expired else "web_search_response_limit_exceeded", retryable=expired)
+        except httpx.TimeoutException:
+            failure = _error("web_search_timeout", retryable=True)
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
-            code = {
-                401: "web_search_auth_failed",
-                402: "web_search_insufficient_balance",
-                408: "web_search_timeout",
-                429: "web_search_rate_limited",
-                504: "web_search_timeout",
-            }.get(status, "web_search_http_error")
-            raise _error(
-                code, retryable=status in {408, 429} or status >= 500, status_code=status
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise _error("web_search_unavailable", retryable=True) from exc
+            code = {401:"web_search_auth_failed",402:"web_search_insufficient_balance",
+                    408:"web_search_timeout",429:"web_search_rate_limited",504:"web_search_timeout"}.get(status,"web_search_http_error")
+            failure = _error(code, retryable=status in {408,429} or status >= 500, status_code=status)
+        except httpx.HTTPError:
+            failure = _error("web_search_unavailable", retryable=True)
+        if failure is not None:
+            raise failure
         try:
-            return response.json()
-        except ValueError as exc:
-            raise _error("web_search_response_invalid", status_code=response.status_code) from exc
+            data = response.json()
+        except (ValueError, RecursionError):
+            failure = _error("web_search_response_invalid", status_code=response.status_code)
+        if failure is not None:
+            raise failure
+        return data
 
 
 def _error(code: str, *, retryable: bool = False, status_code: int | None = None):

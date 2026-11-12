@@ -1,12 +1,12 @@
 from collections.abc import Iterable, Iterator
 
-from ag_ui.core import BaseEvent, Interrupt, ResumeEntry, RunAgentInput
+from ag_ui.core import BaseEvent, Interrupt, ResumeEntry, RunAgentInput, RunErrorEvent
 from ag_ui.encoder import EventEncoder
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from langgraph.store.base import BaseStore
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.api import approvals as approval_api
 from app.api import sessions as session_api
@@ -15,16 +15,15 @@ from app.intent.catalog import BusinessIntentCatalog
 from app.intent.dependencies import get_business_intent_catalog
 from app.memory.dependencies import get_memory_store
 from app.operations.rate_limit import require_rate_limit
+from app.protocols.ag_ui import (
+    adapt_approval_resume_to_ag_ui,
+    adapt_session_sse_to_ag_ui,
+)
 from app.security.dependencies import require_permission
 from app.security.principal import Principal
 from app.storage.database import get_db
 from app.storage.models import AgentRun, ApprovalRecord
 from app.vision.context import VisionAttachmentContextResolver
-from app.protocols.ag_ui import (
-    adapt_approval_resume_to_ag_ui,
-    adapt_session_sse_to_ag_ui,
-)
-
 
 router = APIRouter(prefix="/api", tags=["ag-ui"])
 
@@ -48,6 +47,27 @@ def run_ag_ui_agent(
     ),
     memory_store: BaseStore = Depends(get_memory_store),
 ) -> StreamingResponse:
+    from app.security.stream_authorization import (
+        StreamAccessError,
+        StreamAuthorization,
+        authorized_event_stream,
+    )
+
+    authorization = None
+    def authorize_approval(record):
+        nonlocal authorization
+        authorization = StreamAuthorization(
+            session_factory=sessionmaker(bind=db.get_bind(), autoflush=False),
+            principal=principal, session_id=input_data.thread_id, run_id=record.run_id,
+            resource_owner_id=record.requested_by,
+            permissions=("agent:invoke", "approval:decide"),
+        )
+        try:
+            authorization.check()
+        except StreamAccessError as exc:
+            raise HTTPException(status_code=exc.http_status,
+                                detail={"code": exc.code, "message": exc.message}) from None
+
     if input_data.resume:
         events = _resume_ag_ui_agent(
             input_data=input_data,
@@ -55,8 +75,14 @@ def run_ag_ui_agent(
             principal=principal,
             db=db,
             memory_store=memory_store,
+            before_resume=authorize_approval,
         )
     else:
+        authorization = StreamAuthorization(
+            session_factory=sessionmaker(bind=db.get_bind(), autoflush=False),
+            principal=principal, session_id=input_data.thread_id,
+            permissions=("agent:invoke",), allow_new_session=True,
+        )
         message = _latest_user_text(input_data)
         attachments = _attachment_ids(input_data)
         source = session_api._stream_agent_message(
@@ -85,7 +111,10 @@ def run_ag_ui_agent(
         )
     encoder = EventEncoder(accept=request.headers.get("accept"))
     return StreamingResponse(
-        session_api._closeable_async_stream(_encode_events(events, encoder=encoder)),
+        session_api._closeable_async_stream(authorized_event_stream(
+            _encode_events(events, encoder=encoder), authorization=authorization,
+            error_encoder=lambda error: encoder.encode(RunErrorEvent(message=error.message, code=error.code)),
+        )),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -101,6 +130,7 @@ def _resume_ag_ui_agent(
     principal: Principal,
     db: Session,
     memory_store: BaseStore,
+    before_resume=None,
 ) -> Iterable[BaseEvent]:
     _require_scope(principal, "approval:decide")
     entry = _single_resume_entry(input_data)
@@ -115,6 +145,8 @@ def _resume_ag_ui_agent(
         thread_id=input_data.thread_id,
         record=record,
     )
+    if before_resume is not None:
+        before_resume(record)
     result = approval_api.decide_approval(
         approval_id=record.approval_id,
         request=approval_api.ApprovalDecisionRequest(

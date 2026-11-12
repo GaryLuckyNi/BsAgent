@@ -1,7 +1,7 @@
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _LANGFUSE_LOCAL_ALLOWED_HOSTS = frozenset(
@@ -10,6 +10,9 @@ _LANGFUSE_LOCAL_ALLOWED_HOSTS = frozenset(
 
 
 class Settings(BaseSettings):
+    tool_outbound_rules: list[dict] = Field(default_factory=list)
+    tool_content_rules: list[dict] = Field(default_factory=list)
+    tool_content_injection_action: Literal["flag", "withhold"] = "withhold"
     service_name: str = "bs-agent-service"
     app_env: Literal["local", "test", "production"] = "local"
     recover_orphaned_runs_on_startup: bool = False
@@ -30,6 +33,12 @@ class Settings(BaseSettings):
     runtime_capability_recovery_enabled: bool = False
     permission_recovery_source_policy: Literal["unknown", "public_supplement_only"] = "unknown"
     admin_base_url: str = "http://localhost:8002"
+    admin_auth_mode: Literal["mock", "client_credentials"] = "mock"
+    admin_service_token_url: str = ""
+    admin_service_client_id: str = ""
+    admin_service_client_secret: SecretStr = SecretStr("")
+    admin_service_scope: str = ""
+    admin_service_audience: str = ""
     skill_registry_base_url: str = "http://localhost:8010"
     intent_catalog_refresh_seconds: int = Field(default=30, ge=5, le=3600)
     market_data_provider_refresh_seconds: int = Field(default=30, ge=5, le=3600)
@@ -146,6 +155,13 @@ class Settings(BaseSettings):
     agent_rate_limit_per_minute: int = Field(default=20, ge=1, le=10_000)
     image_upload_rate_limit_per_minute: int = Field(default=10, ge=1, le=10_000)
     rate_limit_fail_closed: bool = True
+    run_budget_model_calls: int = Field(default=32, ge=1, le=4096)
+    run_budget_tool_calls: int = Field(default=64, ge=1, le=8192)
+    run_budget_http_requests: int = Field(default=512, ge=1, le=65536)
+    run_budget_request_bytes: int = Field(default=16*1024*1024, ge=1, le=2**40)
+    run_budget_response_wire_bytes: int = Field(default=128*1024*1024, ge=1, le=2**40)
+    run_budget_response_decoded_bytes: int = Field(default=128*1024*1024, ge=1, le=2**40)
+    run_budget_lifetime_seconds: int = Field(default=1800, ge=1, le=31*86400)
     log_format: Literal["console", "json"] = "console"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     otel_enabled: bool = False
@@ -263,6 +279,16 @@ class Settings(BaseSettings):
             raise ValueError(
                 "tool_search_top_k 不能大于 tool_search_max_disclosed_tools"
             )
+        from app.security.tool_content import ToolContentPolicy
+        from app.security.tool_outbound import ToolOutboundPolicy
+
+        ToolOutboundPolicy(rules=self.tool_outbound_rules)
+        ToolContentPolicy(rules=self.tool_content_rules, injection_action=self.tool_content_injection_action)
+        if self.rbac_backend == "principal" and (
+            self.auth_provider != "jwt" or not _has_text(self.jwt_issuer)
+            or len(self.jwt_issuer) > 256
+        ):
+            raise ValueError("真实权限目录要求 auth_provider=jwt 和不超过 256 字符的 jwt_issuer")
         if self.app_env != "production":
             return self
 
@@ -275,6 +301,8 @@ class Settings(BaseSettings):
             invalid.append("database_url")
         if self.rate_limit_backend != "redis":
             invalid.append("rate_limit_backend")
+        if not self.rate_limit_fail_closed:
+            invalid.append("rate_limit_fail_closed")
         if self.log_format != "json":
             invalid.append("log_format")
         if self.trace_backend != "database":
@@ -347,7 +375,7 @@ class Settings(BaseSettings):
             raise ValueError(f"生产环境配置不完整或不安全: {fields}")
         return self
 
-    model_config = SettingsConfigDict(env_prefix="BS_AGENT_", extra="ignore")
+    model_config = SettingsConfigDict(env_prefix="BS_AGENT_", extra="ignore", hide_input_in_errors=True)
 
 
 def _has_text(value: str | None) -> bool:

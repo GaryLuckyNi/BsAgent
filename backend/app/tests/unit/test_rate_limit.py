@@ -1,7 +1,5 @@
 import pytest
-from fastapi import Depends, FastAPI
-from fastapi.testclient import TestClient
-
+from app.core.config import Settings
 from app.operations.rate_limit import (
     RateLimitExceeded,
     RateLimitPolicy,
@@ -10,8 +8,9 @@ from app.operations.rate_limit import (
     build_rate_limit_service,
     require_rate_limit,
 )
-from app.core.config import Settings
 from app.security.principal import Principal
+from fastapi import Depends, FastAPI
+from fastapi.testclient import TestClient
 
 
 class FakeLimiter:
@@ -86,6 +85,7 @@ def test_rate_limit_storage_failure_is_fail_closed_when_configured():
 
     assert "secret" not in str(exc_info.value)
     assert "redis.internal" not in str(exc_info.value)
+    assert exc_info.value.__cause__ is None and exc_info.value.__context__ is None
 
 
 def test_rate_limit_storage_failure_can_fail_open_outside_production():
@@ -169,3 +169,119 @@ def test_rate_limit_factory_uses_injected_limiter_for_redis_policy():
         policy=RateLimitPolicy(name="agent_invocation", requests_per_minute=20),
     )
     assert limiter.identifiers[0] == "agent_invocation"
+
+
+def test_production_factory_cannot_enable_fail_open_through_unvalidated_copy():
+    runtime = Settings(_env_file=None).model_copy(
+        update={
+            "app_env": "production",
+            "rate_limit_backend": "redis",
+            "rate_limit_fail_closed": False,
+        }
+    )
+    service = build_rate_limit_service(
+        config=runtime, redis_client=object(), limiter=FakeLimiter(fail=True)
+    )
+    with pytest.raises(RateLimitUnavailable):
+        service.consume(
+            principal=_principal(), policy=RateLimitPolicy(name="test", requests_per_minute=1)
+        )
+
+
+@pytest.mark.parametrize("mode", ["production", "configured_local"])
+def test_required_service_missing_does_not_execute_endpoint(mode):
+    app = FastAPI()
+    app.state.config = Settings(_env_file=None).model_copy(
+        update={
+            "app_env": "production" if mode == "production" else "local",
+            "rate_limit_backend": "redis",
+        }
+    )
+    calls = []
+
+    @app.post(
+        "/limited",
+        dependencies=[
+            Depends(require_rate_limit(RateLimitPolicy(name="test", requests_per_minute=1)))
+        ],
+    )
+    def limited():
+        calls.append(True)
+        return {"ok": True}
+
+    response = TestClient(app).post(
+        "/limited",
+        json={"rate_limit_backend": "none", "rate_limit_fail_closed": False},
+        headers={"X-Tenant-ID": "tenant-1", "X-User-ID": "user-1"},
+    )
+    assert response.status_code == 503 and not calls
+    assert response.json()["detail"]["code"] == "rate_limit_unavailable"
+
+
+@pytest.mark.parametrize(
+    "allowed,stats",
+    [
+        ("yes", (1900000030.0, 0)),
+        (False, (float("nan"), 0)),
+        (False, (1900000030.0, "bad")),
+        (True, (True, 0)),
+        (True, (1900000030.0, -1)),
+        (True, (1900000030.0, 2)),
+    ],
+)
+def test_invalid_limiter_results_fail_closed_with_safe_error(allowed, stats):
+    class InvalidLimiter:
+        def hit(self, *args, **kwargs):
+            return allowed
+
+        def get_window_stats(self, *args, **kwargs):
+            return stats
+
+    service = RateLimitService(limiter=InvalidLimiter(), now=lambda: 1900000000.0)
+    with pytest.raises(RateLimitUnavailable) as error:
+        service.consume(
+            principal=_principal(), policy=RateLimitPolicy(name="test", requests_per_minute=1)
+        )
+    assert error.value.__cause__ is None and error.value.__context__ is None
+
+
+def test_production_factory_rejects_disabled_backend_even_in_unvalidated_copy():
+    runtime = Settings(_env_file=None).model_copy(update={"app_env": "production"})
+    with pytest.raises(ValueError, match="Redis"):
+        build_rate_limit_service(config=runtime, redis_client=None)
+
+
+def test_explicit_local_disabled_backend_keeps_normal_request_path():
+    app = FastAPI()
+    app.state.config = Settings(_env_file=None, rate_limit_backend="none")
+
+    @app.get("/limited", dependencies=[Depends(require_rate_limit(RateLimitPolicy("test", 1)))])
+    def limited():
+        return {"ok": True}
+
+    response = TestClient(app).get("/limited", headers={"X-Tenant-ID": "t", "X-User-ID": "u"})
+    assert response.status_code == 200
+
+
+def test_public_dependency_error_does_not_keep_original_credential_exception():
+    app = FastAPI()
+    app.state.rate_limit_service = RateLimitService(limiter=FakeLimiter(fail=True))
+    from fastapi import HTTPException
+    from starlette.requests import Request
+
+    dependency = require_rate_limit(RateLimitPolicy("test", 1))
+    with pytest.raises(HTTPException) as error:
+        dependency(Request({"type": "http", "app": app}), _principal())
+    assert error.value.__cause__ is None and error.value.__context__ is None
+
+
+@pytest.mark.parametrize("reset,expected", [(1900001000.0, 60), (1899999999.0, 1)])
+def test_retry_after_is_bounded_by_one_minute(reset, expected):
+    limiter = FakeLimiter(allowed=False)
+    limiter.get_window_stats = lambda *args: (reset, 0)
+    with pytest.raises(RateLimitExceeded) as error:
+        RateLimitService(limiter=limiter, now=lambda: 1900000000.0).consume(
+            principal=_principal(),
+            policy=RateLimitPolicy("test", 1),
+        )
+    assert error.value.retry_after_seconds == expected

@@ -1,0 +1,16 @@
+
+==================================== ERRORS ====================================
+____ ERROR collecting backend/app/tests/unit/test_http_response_budgets.py _____
+ImportError while importing test module '/Users/myfolder/前端学习项目/BsAgent/backend/app/tests/unit/test_http_response_budgets.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../.pyenv/versions/3.11.7/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_http_response_budgets.py:12: in <module>
+    from app.security.http_response import (
+E   ModuleNotFoundError: No module named 'app.security.http_response'
+=========================== short test summary info ============================
+ERROR backend/app/tests/unit/test_http_response_budgets.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.38s

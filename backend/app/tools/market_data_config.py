@@ -17,13 +17,15 @@ class AdminMarketDataConfigClient:
         base_url: str,
         timeout_seconds: float = 5.0,
         client: httpx.Client | None = None,
+        auth: httpx.Auth | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
         self._client = client
+        self._auth = auth
 
     def get_active_mcp_config(self) -> McpServerConfig | None:
-        client = self._client or httpx.Client(timeout=self._timeout_seconds)
+        client = self._client or httpx.Client(timeout=self._timeout_seconds, auth=self._auth, follow_redirects=False)
         try:
             try:
                 response = client.get(f"{self._base_url}{_ACTIVE_MCP_CONNECTION_PATH}")

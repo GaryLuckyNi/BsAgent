@@ -164,6 +164,8 @@ const services = {
     ],
     cwd: 'admin/backend',
     env: {
+      ADMIN_APP_ENV: process.env.ADMIN_APP_ENV || 'local',
+      ADMIN_AUTH_MODE: process.env.ADMIN_AUTH_MODE || 'mock',
       ADMIN_DATABASE_URL: 'sqlite:///./admin_config.db',
       ADMIN_MCP_SERVER_NAME: 'local'
     },
@@ -197,7 +199,9 @@ const services = {
       '--strictPort'
     ],
     cwd: '.',
-    env: {},
+    env: {
+      VITE_ADMIN_AUTH_MODE: process.env.VITE_ADMIN_AUTH_MODE || 'mock'
+    },
     port: ports['admin-frontend']
   }
 }

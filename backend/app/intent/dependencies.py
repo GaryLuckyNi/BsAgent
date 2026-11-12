@@ -8,7 +8,7 @@ from app.intent.runtime import (
     BusinessIntentCatalogRuntime,
     BusinessIntentCatalogUnavailableError,
 )
-
+from app.security.admin_service_auth import build_admin_service_auth
 
 _ADMIN_INTENT_TIMEOUT_SECONDS = 5.0
 
@@ -18,6 +18,8 @@ def build_business_intent_catalog_runtime(
     config: Settings,
 ) -> BusinessIntentCatalogRuntime:
     client = httpx.Client(
+        auth=build_admin_service_auth(config),
+        follow_redirects=False,
         base_url=config.skill_registry_base_url,
         timeout=httpx.Timeout(_ADMIN_INTENT_TIMEOUT_SECONDS),
     )

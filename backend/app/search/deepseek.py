@@ -4,13 +4,15 @@ from typing import Any
 import httpx
 
 from app.operations.langfuse_observability import langfuse_generation, update_langfuse_observation
-from app.search.base import WebSearchProviderError
+from app.search.base import WEB_SEARCH_ERROR_MESSAGES, WebSearchProviderError
 from app.search.schemas import (
     EvidenceCoverage,
     SearchResearchContext,
     WebSearchResponse,
     WebSearchResult,
 )
+from app.security.http_response import HttpResponseBudgetError, async_bounded_request
+from app.security.tool_outbound import require_credential_free_payload
 
 
 class DeepSeekWebSearchClient:
@@ -133,6 +135,7 @@ class DeepSeekWebSearchClient:
         client: httpx.AsyncClient,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        require_credential_free_payload(payload)
         with langfuse_generation(
             name="deepseek.web_search.turn", model=self._model,
             model_parameters={"max_tokens": payload.get("max_tokens"), "thinking": False},
@@ -180,9 +183,12 @@ class DeepSeekWebSearchClient:
     async def _request_json(
         self, client: httpx.AsyncClient, payload: dict[str, Any],
     ) -> dict[str, Any]:
+        failure = None
         try:
-            response = await client.post(
-                "/anthropic/v1/messages",
+            response = await async_bounded_request(
+                client, "POST", "/anthropic/v1/messages",
+                budget_kind="model",
+                timeout_seconds=self._timeout_seconds,
                 json=payload,
                 headers={
                     "x-api-key": self._api_key,
@@ -190,34 +196,42 @@ class DeepSeekWebSearchClient:
                 },
             )
             response.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise WebSearchProviderError(
+        except HttpResponseBudgetError as error:
+            expired = error.code == "http_response_deadline"
+            code = "web_search_timeout" if expired else "web_search_response_limit_exceeded"
+            failure = WebSearchProviderError(code=code, message=WEB_SEARCH_ERROR_MESSAGES[code], retryable=expired)
+        except httpx.TimeoutException:
+            failure = WebSearchProviderError(
                 code="web_search_timeout",
                 message="联网搜索服务响应超时。",
                 retryable=True,
-            ) from exc
+            )
         except httpx.HTTPStatusError as exc:
             retryable = exc.response.status_code == 429 or exc.response.status_code >= 500
-            raise WebSearchProviderError(
+            failure = WebSearchProviderError(
                 code="web_search_http_error",
                 message="联网搜索服务请求失败。",
                 retryable=retryable,
                 status_code=exc.response.status_code,
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise WebSearchProviderError(
+            )
+        except httpx.HTTPError:
+            failure = WebSearchProviderError(
                 code="web_search_unavailable",
                 message="联网搜索服务暂不可用。",
                 retryable=True,
-            ) from exc
+            )
+        if failure is not None:
+            raise failure
         try:
             data = response.json()
-        except ValueError as exc:
-            raise WebSearchProviderError(
+        except (ValueError, RecursionError):
+            failure = WebSearchProviderError(
                 code="web_search_response_invalid",
                 message="联网搜索服务返回了无效响应。",
                 retryable=False,
-            ) from exc
+            )
+        if failure is not None:
+            raise failure
         if not isinstance(data, dict):
             raise WebSearchProviderError(
                 code="web_search_response_invalid",

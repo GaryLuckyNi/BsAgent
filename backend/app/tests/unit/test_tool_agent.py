@@ -144,9 +144,9 @@ def test_gateway_cleans_tool_observation_output_with_content_policy(monkeypatch)
     )
 
     assert result.status == "success"
-    assert result.result["token"] == "secret-value"
+    assert result.result["token"] == "***"
     assert "token" not in captured["output"]["result"]
-    assert captured["output"]["result"]["text"] == "[REDACTED]"
+    assert captured["output"]["result"]["text"] == "Bearer ***"
     assert captured["metadata"]["content_policy_applied"] is True
 
 

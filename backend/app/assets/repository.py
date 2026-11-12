@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.assets.schemas import AssetCreate, AssetStatus
 from app.storage.models import AssetAnalysisRecord, AssetRecord
 
-
 ALLOWED_STATUS_TRANSITIONS: dict[AssetStatus, frozenset[AssetStatus]] = {
     AssetStatus.UPLOADING: frozenset(
         {AssetStatus.PROCESSING, AssetStatus.FAILED, AssetStatus.DELETED}
@@ -65,7 +64,7 @@ class SqlAlchemyAssetRepository:
         )
         if not include_deleted:
             statement = statement.where(AssetRecord.status != AssetStatus.DELETED.value)
-        return self._session.scalar(statement)
+        return self._session.scalar(statement.execution_options(populate_existing=True))
 
     def find_by_sha256(
         self,

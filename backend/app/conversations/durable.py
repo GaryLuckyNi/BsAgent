@@ -136,8 +136,16 @@ class DurableRunService:
             self.db.rollback()
             raise RunOwnershipLost(run_id)
 
-    def append(self, run_id: str, owner: str, event: str, data: dict | list) -> None:
+    def append(self, run_id: str, owner: str, event: str, data: dict | list, *, content_checked=False) -> None:
         execution = self.owned(run_id, owner)
+        if event == "messages" and isinstance(data, list) and data:
+            # 检查声明只能来自生产者的独立参数，不能信任外部事件中的同名字段。
+            metadata = dict(data[1]) if len(data) > 1 and isinstance(data[1], dict) else {}
+            metadata.pop("security_content_policy", None)
+            if content_checked:
+                from app.security.model_output import _output_policy
+                metadata["security_content_policy"] = _output_policy().version
+            data = [data[0], metadata]
         self._event(execution, event, data)
         if event == "messages" and isinstance(data, list) and data:
             chunk = data[0]

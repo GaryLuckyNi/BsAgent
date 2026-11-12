@@ -1,0 +1,160 @@
+..FFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/list-json] _
+.venv/lib/python3.11/site-packages/anyio/streams/memory.py:118: in receive
+    return self.receive_nowait()
+           ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/anyio/streams/memory.py:113: in receive_nowait
+    raise WouldBlock
+E   anyio.WouldBlock
+
+During handling of the above exception, another exception occurred:
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/tasks.py:500: in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+backend/app/tools/mcp_http.py:100: in discover
+    page = await session.list_tools(cursor=cursor)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/mcp/client/session.py:547: in list_tools
+    result = await self.send_request(
+.venv/lib/python3.11/site-packages/mcp/shared/session.py:292: in send_request
+    response_or_error = await response_stream_reader.receive()
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/anyio/streams/memory.py:126: in receive
+    await receive_event.wait()
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/locks.py:213: in wait
+    await fut
+E   asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+backend/app/tests/unit/test_sdk_http_budgets.py:142: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:132: in run
+    await client.list_tools(server_name="synthetic")
+backend/app/tools/mcp_http.py:110: in list_tools
+    discovered = await asyncio.wait_for(discover(), timeout=self._timeout_seconds)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/tasks.py:502: in wait_for
+    raise exceptions.TimeoutError() from exc
+E   TimeoutError
+------------------------------ Captured log call -------------------------------
+ERROR    mcp.client.streamable_http:streamable_http.py:394 Error parsing JSON response
+Traceback (most recent call last):
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/mcp/client/streamable_http.py", line 385, in _handle_json_response
+    message = JSONRPCMessage.model_validate_json(content)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/pydantic/main.py", line 782, in model_validate_json
+    return cls.__pydantic_validator__.validate_json(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for JSONRPCMessage
+  Invalid JSON: expected value at line 1 column 1 [type=json_invalid, input_value=b'xxxxxxxxxxxxxxxxxxxxxxx...xxxxxxxxxxxxxxxxxxxxxxx', input_type=bytes]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/list-sse] _
+.venv/lib/python3.11/site-packages/anyio/streams/memory.py:118: in receive
+    return self.receive_nowait()
+           ^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/anyio/streams/memory.py:113: in receive_nowait
+    raise WouldBlock
+E   anyio.WouldBlock
+
+During handling of the above exception, another exception occurred:
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/tasks.py:500: in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+backend/app/tools/mcp_http.py:100: in discover
+    page = await session.list_tools(cursor=cursor)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/mcp/client/session.py:547: in list_tools
+    result = await self.send_request(
+.venv/lib/python3.11/site-packages/mcp/shared/session.py:292: in send_request
+    response_or_error = await response_stream_reader.receive()
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.11/site-packages/anyio/streams/memory.py:126: in receive
+    await receive_event.wait()
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/locks.py:213: in wait
+    await fut
+E   asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+backend/app/tests/unit/test_sdk_http_budgets.py:142: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:132: in run
+    await client.list_tools(server_name="synthetic")
+backend/app/tools/mcp_http.py:110: in list_tools
+    discovered = await asyncio.wait_for(discover(), timeout=self._timeout_seconds)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/tasks.py:502: in wait_for
+    raise exceptions.TimeoutError() from exc
+E   TimeoutError
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/call-json] _
+backend/app/tests/unit/test_sdk_http_budgets.py:142: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:138: in run
+    assert result.error.code == "mcp_response_limit_exceeded"
+E   AssertionError: assert 'mcp_tool_timeout' == 'mcp_response_limit_exceeded'
+E     
+E     - mcp_response_limit_exceeded
+E     + mcp_tool_timeout
+------------------------------ Captured log call -------------------------------
+ERROR    mcp.client.streamable_http:streamable_http.py:394 Error parsing JSON response
+Traceback (most recent call last):
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/mcp/client/streamable_http.py", line 385, in _handle_json_response
+    message = JSONRPCMessage.model_validate_json(content)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/pydantic/main.py", line 782, in model_validate_json
+    return cls.__pydantic_validator__.validate_json(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+pydantic_core._pydantic_core.ValidationError: 1 validation error for JSONRPCMessage
+  Invalid JSON: expected value at line 1 column 1 [type=json_invalid, input_value=b'xxxxxxxxxxxxxxxxxxxxxxx...xxxxxxxxxxxxxxxxxxxxxxx', input_type=bytes]
+    For further information visit https://errors.pydantic.dev/2.13/v/json_invalid
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/call-sse] _
+backend/app/tests/unit/test_sdk_http_budgets.py:142: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:138: in run
+    assert result.error.code == "mcp_response_limit_exceeded"
+E   AssertionError: assert 'mcp_tool_timeout' == 'mcp_response_limit_exceeded'
+E     
+E     - mcp_response_limit_exceeded
+E     + mcp_tool_timeout
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/list-json]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/list-sse]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/call-json]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/call-sse]
+4 failed, 2 passed, 7 deselected in 21.54s

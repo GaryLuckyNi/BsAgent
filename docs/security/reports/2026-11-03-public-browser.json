@@ -1,0 +1,13 @@
+{
+  "date": "2026-11-03",
+  "environment": "隔离真实浏览器、合成素材、本地请求记录器",
+  "forbiddenElements": 0,
+  "unsafeLinks": [],
+  "manualImageLink": true,
+  "violations": [],
+  "controlLoaded": true,
+  "scriptExecuted": false,
+  "automaticRequests": [],
+  "positiveControlRequests": 1,
+  "passed": true
+}

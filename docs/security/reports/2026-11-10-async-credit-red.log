@@ -1,0 +1,73 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_async_response_credit_does_not_block_other_tasks _____________
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_24d543bebd9d42fc82402eedd81aed60', assistant_message_id='msg_25a915d7fd79423ab62920b99e7c1e8f', replayed=False))
+
+    def test_async_response_credit_does_not_block_other_tasks(env):
+        import asyncio
+        import time
+        import httpx
+        from sqlalchemy import event
+        from app.security.http_response import HttpResponseReader, HttpResponseLimits
+        binding = init(env)
+        engine = env[0].kw["bind"]
+        def slow_update(conn, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().startswith("UPDATE"):
+                time.sleep(.04)
+        event.listen(engine, "before_cursor_execute", slow_update)
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"public"
+        async def run():
+            ticks = []
+            async def ticker():
+                for _ in range(20):
+                    ticks.append(1)
+                    await asyncio.sleep(.002)
+            tick = asyncio.create_task(ticker())
+            await asyncio.sleep(0)
+            with bind_run_budget(binding):
+                response = httpx.Response(200, stream=Body())
+                reader = HttpResponseReader(response, HttpResponseLimits(), time.monotonic() + 10)
+                data = [chunk async for chunk in reader.aiter_bytes()]
+            assert data == [b"public"] and len(ticks) >= 5
+            await tick
+        try:
+>           asyncio.run(run())
+
+backend/app/tests/unit/test_run_budget.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def run():
+        ticks = []
+        async def ticker():
+            for _ in range(20):
+                ticks.append(1)
+                await asyncio.sleep(.002)
+        tick = asyncio.create_task(ticker())
+        await asyncio.sleep(0)
+        with bind_run_budget(binding):
+            response = httpx.Response(200, stream=Body())
+            reader = HttpResponseReader(response, HttpResponseLimits(), time.monotonic() + 10)
+            data = [chunk async for chunk in reader.aiter_bytes()]
+>       assert data == [b"public"] and len(ticks) >= 5
+E       AssertionError: assert ([b'public'] == [b'public']
+E         
+E         Use -v to get more diff and 1 >= 5)
+E        +  where 1 = len([1])
+
+backend/app/tests/unit/test_run_budget.py:125: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_run_budget.py::test_async_response_credit_does_not_block_other_tasks
+1 failed in 0.74s

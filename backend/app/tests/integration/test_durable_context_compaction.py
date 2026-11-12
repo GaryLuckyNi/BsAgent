@@ -123,13 +123,15 @@ def test_old_payload_executes_with_default_compaction_metadata(monkeypatch):
     app, factory = create_test_app_with_database()
     # 返回空订阅只用于捕获原始 payload，随后使用真实 producer 执行。
     from app.api import runs
-    monkeypatch.setattr(runs, "_response", lambda *_: {"queued": True})
+    monkeypatch.setattr(runs, "_response", lambda *_args, **_kwargs: {"queued": True})
     assert _submit(TestClient(app)).status_code == 200
     with factory() as db:
         execution = db.scalar(select(AgentRunExecution))
         payload = dict(execution.payload)
         for field in ("context_compaction_id", "context_status", "projected_context_tokens"):
             payload.pop(field, None)
+        payload["principal"] = dict(payload["principal"])
+        payload["principal"].pop("expires_at", None)
         execution.payload = payload
         db.commit()
         run_id = execution.run_id
@@ -141,11 +143,71 @@ def test_old_payload_executes_with_default_compaction_metadata(monkeypatch):
 
 
 @pytest.mark.parametrize("enabled", [False, True])
+def test_twenty_long_history_messages_respect_budget_and_stream_compaction_notice(monkeypatch, enabled):
+    import json
+
+    from app.context_compaction.policy import ConservativeTokenEstimator
+    from app.conversations.service import BeginTurn, ConversationService
+    from app.llm.schemas import LlmCompletionResult
+
+    monkeypatch.setattr(sessions, "CONVERSATION_HISTORY_LIMIT", 20)
+    monkeypatch.setattr(sessions.settings, "context_compaction_enabled", enabled)
+    monkeypatch.setattr(sessions.settings, "llm_context_window_tokens", 8192)
+    monkeypatch.setattr(sessions.settings, "context_non_history_reserve_tokens", 1024)
+    monkeypatch.setattr(sessions.settings, "context_compaction_summary_max_tokens", 300)
+
+    class SummaryClient(WorkflowTestLlm):
+        async def complete(self, **kwargs):
+            assert "上下文摘要器" in kwargs["system_prompt"]
+            summary = {
+                "goal": "继续分析公司经营情况", "constraints": [], "decisions": [],
+                "open_items": [], "facts": ["已完成历史分析"], "evidence_refs": [],
+                "user_preferences": [], "superseded": [],
+            }
+            return LlmCompletionResult(content=json.dumps(summary, ensure_ascii=False), model="test", provider="test")
+
+    monkeypatch.setattr(sessions, "maybe_build_llm_client", SummaryClient)
+    app, factory = create_test_app_with_database()
+    with factory() as db:
+        service = ConversationService(db)
+        for number in range(10):
+            handle = service.begin_turn(BeginTurn(
+                tenant_id="tenant_1", user_id="user_1", session_id="s1",
+                request_id=f"long-history-{number}", user_content="分析公司经营情况",
+            ))
+            service.complete_turn(tenant_id="tenant_1", run_id=handle.run_id,
+                                  content="历史分析结论。" * 160)
+        db.commit()
+    histories = []
+
+    def graph(**kwargs):
+        history = kwargs["history"]
+        histories.append(history)
+        estimator = ConservativeTokenEstimator()
+        projected = sum(estimator.message_tokens(m.role, m.content) for m in history) + 1100
+        assert projected <= 8192, "未压缩的长历史进入了模型执行链路"
+        yield _completed_graph_state(kwargs)
+
+    monkeypatch.setattr(sessions, "stream_question_answer_graph", graph)
+    response = _submit(TestClient(app), "after-twenty", "继续分析")
+    events = _events(response.text)
+    assert events[-1]["status"] == "completed", response.text
+    assert histories and len(histories[0]) < 20
+    notices = [event for event in events if isinstance(event, dict) and event.get("stage") == "compacting_context"]
+    assert bool(notices) is enabled
+    if enabled:
+        assert histories[0][0].metadata.get("context_compaction") is True
+        assert notices[0]["message"] == "正在压缩上下文"
+        run_id = events[0]["run_id"]
+        assert "compacting_context" in TestClient(app).get(f"/api/sessions/s1/runs/{run_id}/events").text
+
+
+@pytest.mark.parametrize("enabled", [False, True])
 def test_history_limit_zero_preserves_cancelled_handoff_with_compaction(monkeypatch, enabled):
     from app.conversations.service import BeginTurn, ConversationService
 
     monkeypatch.setattr(sessions.settings, "context_compaction_enabled", enabled)
-    assert sessions.CONVERSATION_HISTORY_LIMIT == 0
+    monkeypatch.setattr(sessions, "CONVERSATION_HISTORY_LIMIT", 0)
     app, factory = create_test_app_with_database()
     with factory() as db:
         handle = ConversationService(db).begin_turn(BeginTurn(

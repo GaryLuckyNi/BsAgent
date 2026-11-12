@@ -201,6 +201,30 @@ def test_out_of_scope_is_represented_by_null_taxonomy(
     assert result.goal is None
 
 
+def test_intent_history_has_character_budget_without_mutating_stored_messages():
+    state = create_initial_state(
+        session_id="s", tenant_id="t", user_id="u", request_id="current",
+        user_message="继续分析",
+        history=[
+            Message(message_id=f"m{i}", role="user" if i % 2 == 0 else "assistant",
+                    content=("历史报告开头。" + "公司经营分析。" * 1200 + "历史报告结尾。")
+                    if i % 2 else f"历史问题{i}")
+            for i in range(20)
+        ],
+    )
+    original = [(message.id, message.content) for message in state["messages"]]
+
+    history = intent_router_module._recent_conversation_history(state)
+
+    assert sum(len(item["content"]) for item in history) <= 8000
+    assert history[-1]["ref"] == "message:m19"
+    assert "历史问题18" in [item["content"] for item in history]
+    assert any(item.get("truncated") is True for item in history)
+    assert history[-1]["content"].startswith("历史报告开头。")
+    assert history[-1]["content"].endswith("历史报告结尾。")
+    assert [(message.id, message.content) for message in state["messages"]] == original
+
+
 @pytest.mark.parametrize(
     "payload",
     [

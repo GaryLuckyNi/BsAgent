@@ -189,10 +189,11 @@ def _memory_recall_failure_trace_callback(
 
 
 def final_response_node(state: AgentState) -> AgentState:
+    from app.security.public_output import public_text
     draft = state["draft_answer"]
     approval_status = state["approval_status"]
     state["final_response"] = {
-        "content": draft["content"] if draft else "没有生成答案。",
+        "content": public_text(draft["content"]) if draft else "没有生成答案。",
         "trace_id": state["trace_id"],
         "cited_evidence_ids": draft.get("cited_evidence_ids", []) if draft else [],
         "approval_status": approval_status.status if approval_status else "not_required",

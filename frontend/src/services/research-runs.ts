@@ -1,4 +1,5 @@
 import { agentRequestHeaders, type RequestIdentity } from './research-api'
+import { isStreamAccessCode, RunSubscriptionAuthorizationError } from './run-subscription-error'
 
 export type RunStatus = 'running' | 'stop_requested' | 'cancelled' | 'completed' | 'failed' | 'rejected' | 'interrupted'
 export type ResearchRun = {
@@ -10,7 +11,7 @@ export type ResearchRun = {
   last_event_sequence: number
   replay_after?: number
 }
-export type RunEvent = { sequence: number; event: string; data: unknown }
+export type RunEvent = { sequence: number; event: string; data: unknown; transient?: boolean }
 
 const baseUrl = typeof import.meta.env.VITE_AGENT_API_BASE_URL === 'string'
   ? import.meta.env.VITE_AGENT_API_BASE_URL.trim().replace(/\/$/, '') : ''
@@ -23,7 +24,12 @@ async function readResponse<T>(response: Response): Promise<T> {
   const body = await response.json()
   if (!response.ok) {
     const detail = body?.detail
-    throw new Error(typeof detail === 'string' ? detail : detail?.code || `请求失败 · HTTP ${response.status}`)
+    const code = typeof detail?.code === 'string' ? detail.code : `HTTP_${response.status}`
+    const message = typeof detail === 'string' ? detail : detail?.message || detail?.code || `请求失败 · HTTP ${response.status}`
+    if ([401,403,404].includes(response.status) || isStreamAccessCode(code) || code === 'permission_directory_unavailable') {
+      throw new RunSubscriptionAuthorizationError(message, code)
+    }
+    throw new Error(message)
   }
   return body as T
 }
@@ -56,15 +62,28 @@ export async function subscribeRunEvents(
   let cursor = after
   const consume = (frame: string) => {
     let event = 'message'
-    let sequence = 0
+    let sequence: number | undefined
     const data: string[] = []
     for (const line of frame.split('\n')) {
       if (line.startsWith('event:')) event = line.slice(6).trim()
       if (line.startsWith('id:')) sequence = Number(line.slice(3).trim())
       if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
     }
-    if (!data.length || !Number.isSafeInteger(sequence) || sequence <= cursor) return
+    if (!data.length) return
+    if (sequence !== undefined && (!Number.isSafeInteger(sequence) || sequence <= cursor)) return
     const payload: unknown = JSON.parse(data.join('\n'))
+    if (event === 'error' && payload && typeof payload === 'object' && 'code' in payload && isStreamAccessCode(payload.code)) {
+      const message = 'message' in payload && typeof payload.message === 'string' ? payload.message : '当前订阅已停止，请确认权限后重连。'
+      throw new RunSubscriptionAuthorizationError(message, payload.code)
+    }
+    if (sequence === undefined) {
+      // 检查前的进度预览不推进恢复游标，正文和终态只能来自正式有序事件。
+      const type = payload && typeof payload === 'object' && 'type' in payload ? payload.type : undefined
+      if (event === 'custom' && (type === 'progress' || type === 'answer_sources')) {
+        onEvent({ sequence: cursor, event, data: payload, transient: true })
+      }
+      return
+    }
     onEvent({ sequence, event, data: payload })
     cursor = sequence
   }

@@ -1,0 +1,39 @@
+npm warn Unknown user config "home". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> bs-agent-frontend@0.1.0 build
+> tsc -b && vite build
+
+vite v6.4.3 building for production...
+transforming...
+node_modules/zod/v4/core/util.js (330:0): A comment
+
+"// Wrapped in a `@__PURE__` IIFE: esbuild never tree-shakes a top-level initializer that contains a member access on `Number`, so the bare object literal survived into every bundle."
+
+in "node_modules/zod/v4/core/util.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+node_modules/zod/v4/core/regexes.js (70:0): A comment
+
+"/** Anchors a pattern source. The interpolation lives here rather than at the call site because
+ * esbuild will not drop a `@__PURE__` call whose own argument interpolates a variable, but it
+ * will drop `anchor(dateSource)`. Keeping it inline pinned `date` into every bundle. */"
+
+in "node_modules/zod/v4/core/regexes.js" contains an annotation that Rollup cannot interpret due to the position of the comment. The comment will be removed to avoid issues.
+✓ 3138 modules transformed.
+Circular chunk: vendor-markdown -> vendor-ui -> vendor-markdown. Please adjust the manual chunk logic for these chunks.
+rendering chunks...
+computing gzip size...
+dist/index.html                              1.17 kB │ gzip:   0.50 kB
+dist/assets/index-B1cq6yjO.css              93.64 kB │ gzip:  18.25 kB
+dist/assets/vendor-icons-BLYTyJJJ.js        18.00 kB │ gzip:   4.18 kB
+dist/assets/vendor-auth-BEd7Wibi.js         68.24 kB │ gzip:  17.39 kB
+dist/assets/vendor-primitives-CR29ubU9.js   72.18 kB │ gzip:  22.03 kB
+dist/assets/vendor-router-B9YF8Qxx.js       92.56 kB │ gzip:  31.26 kB
+dist/assets/index-BlKTZGWT.js               95.97 kB │ gzip:  31.78 kB
+dist/assets/vendor-react-BL3TTwfC.js       194.24 kB │ gzip:  60.66 kB
+dist/assets/vendor-markdown-C6q9fXC7.js    300.31 kB │ gzip:  91.26 kB
+dist/assets/vendor-ui-Bhw9WBDh.js          666.66 kB │ gzip: 200.77 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 5.16s

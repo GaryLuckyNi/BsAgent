@@ -28,7 +28,7 @@ class AdminBusinessIntentProvider:
     def list_profiles(self) -> list[BusinessIntentProfile]:
         try:
             response = self._client.get(
-                "/api/business-intents",
+                "/api/runtime/business-intents",
                 params={"enabled": "true"},
             )
             response.raise_for_status()

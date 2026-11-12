@@ -1,6 +1,10 @@
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.schemas.memory import MemoryCandidate
+from app.security.context_content import require_safe_context_content
+from app.security.memory_candidate import MemoryCandidateConflict, require_candidate_binding
 from app.storage.models import MemoryCandidateRecord
 
 
@@ -18,8 +22,30 @@ class MemoryCandidateRepository:
         user_id: str,
         run_id: str,
     ) -> MemoryCandidateRecord:
-        existing = self._session.get(MemoryCandidateRecord, candidate.candidate_id)
+        require_safe_context_content(candidate.model_dump(mode="json"))
+        conflict = False
+        try:
+            return self._save_locked(candidate, tenant_id=tenant_id, user_id=user_id, run_id=run_id)
+        except IntegrityError:
+            conflict = True
+        if conflict:
+            raise MemoryCandidateConflict()
+
+    def _save_locked(self, candidate, *, tenant_id, user_id, run_id):
+        # UPDATE先取得PG行锁/SQLite写锁，再刷新已有值；不能用缓存中的pending决策。
+        self._session.execute(
+            update(MemoryCandidateRecord)
+            .where(
+                MemoryCandidateRecord.candidate_id == candidate.candidate_id,
+            )
+            .values(candidate_id=MemoryCandidateRecord.candidate_id)
+            .execution_options(synchronize_session=False)
+        )
+        existing = self._session.get(
+            MemoryCandidateRecord, candidate.candidate_id, populate_existing=True
+        )
         if existing is not None:
+            require_candidate_binding(existing, candidate, tenant_id=tenant_id, user_id=user_id)
             memory_key = candidate.memory_key or candidate.candidate_id
             confidence = max(existing.confidence, candidate.confidence)
             sensitivity = _higher_sensitivity(

@@ -289,6 +289,10 @@ def add_approval_resume_fixture(
             ),
         ]
     )
+    db.flush()
+    from app.security.run_budget import initialize_budget
+    initialize_budget(db,handle=SimpleNamespace(run_id=run_id,session_id="session_1",request_id=request_id,replayed=False),
+        principal=Principal("tenant_1","user_1",("agent:invoke",)))
     return expected_thread_id
 
 
@@ -2849,7 +2853,14 @@ def test_agent_protocol_stream_projects_progress_and_message_tokens(monkeypatch)
     assert response.status_code == 200
     assert "event: custom" in response.text
     assert '"type": "progress"' in response.text
-    assert response.text.count("event: messages") == 2
+    # 检查尾部会合并短片，协议契约是内容与顺序，不固定提供方chunk数量。
+    assert response.text.count("event: messages") >= 1
+    message_parts = []
+    for frame in response.text.split("\n\n"):
+        if frame.startswith("event: messages\n"):
+            data = next(line.removeprefix("data: ") for line in frame.splitlines() if line.startswith("data: "))
+            message_parts.append(json.loads(data)[0]["content"])
+    assert "".join(message_parts) == "第一段第二段"
     assert '"id": "assistant-message-1"' in response.text
     assert "第一段" in response.text
     assert '"type": "final"' in response.text
@@ -2976,6 +2987,8 @@ def test_agent_protocol_resume_uses_active_run_and_server_checkpoint_identity(mo
                 user_content="分析长鑫存储",
             )
         )
+        from app.security.run_budget import initialize_budget
+        initialize_budget(db,handle=handle,principal=Principal("tenant_1","user_1",("agent:invoke",)))
         ConversationService(db).interrupt_turn(
             tenant_id="tenant_1",
             run_id=handle.run_id,
@@ -3139,10 +3152,6 @@ def test_ag_ui_endpoint_streams_official_typed_events(monkeypatch):
 def test_ag_ui_endpoint_resumes_existing_interrupt_with_canonical_payload(monkeypatch):
     captured = {}
 
-    def seed_resume(db):
-        add_approval_resume_fixture(db)
-        db.flush()
-
     def fake_decide_approval(**kwargs):
         captured.update(kwargs)
         return {
@@ -3156,9 +3165,11 @@ def test_ag_ui_endpoint_resumes_existing_interrupt_with_canonical_payload(monkey
         }
 
     monkeypatch.setattr(approvals, "decide_approval", fake_decide_approval)
-    app, _ = create_test_app_with_database(
-        on_session=seed_resume,
-    )
+    app, factory = create_test_app_with_database()
+    # 订阅持续授权使用独立读取连接，审批与运行必须是请求前已提交的资源。
+    with factory() as db:
+        add_approval_resume_fixture(db)
+        db.commit()
 
     response = TestClient(app).post(
         "/api/ag-ui",

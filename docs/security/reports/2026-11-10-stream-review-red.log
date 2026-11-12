@@ -1,0 +1,186 @@
+FF...........FFF                                                         [100%]
+=================================== FAILURES ===================================
+_______ test_cancel_before_dispatch_settles_not_started_receipt[refresh] _______
+
+environment = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_b0eddc5396ff4deab61652631b4f4879', assistant_message_id='msg_4ba669417e004fa5ac2c978b44631218', replayed=False))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1079bf050>
+phase = 'refresh'
+
+    @pytest.mark.parametrize("phase", ["refresh", "charge"])
+    def test_cancel_before_dispatch_settles_not_started_receipt(environment, monkeypatch, phase):
+        import app.tools.execution_gateway as gateway
+        initialize(environment)
+        control = control_for(environment)
+        registry, calls = ToolRegistry(), []
+        class Counting(EchoTool):
+            async def run(self, data):
+                calls.append(data.text)
+                return await super().run(data)
+        registry.register(Counting())
+        entered, release = threading.Event(), threading.Event()
+        original, seen = gateway.refresh_tool_context, []
+        def refresh(context):
+            seen.append(1)
+            if phase == "refresh" and len(seen) == 2:
+                entered.set()
+                assert release.wait(5)
+            return original(context)
+        original_charge = gateway.charge
+        def charge(*args, **kwargs):
+            if phase == "charge":
+                entered.set()
+                assert release.wait(5)
+            return original_charge(*args, **kwargs)
+        monkeypatch.setattr(gateway, "refresh_tool_context", refresh)
+        monkeypatch.setattr(gateway, "charge", charge)
+        async def run():
+            with execution_control(control):
+                task = asyncio.create_task(ToolExecutionGateway(registry).execute(
+                    ToolCallRequest(tool_name="echo", arguments={"text": "公开数据"}, purpose="测试"),
+                    trace_id=environment[4].trace_id, context=binding_context(environment)))
+                try:
+                    async with asyncio.timeout(5):
+                        while not entered.is_set():
+                            await asyncio.sleep(.001)
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+                finally:
+                    release.set()
+        asyncio.run(run())
+        assert calls == []
+        with environment[0]() as db:
+            receipt = db.scalar(select(AgentRunToolReceipt))
+>           assert receipt.status == "settled"
+E           AssertionError: assert 'running' == 'settled'
+E             
+E             - settled
+E             + running
+
+backend/app/tests/unit/test_tool_predispatch_cancel.py:64: AssertionError
+_______ test_cancel_before_dispatch_settles_not_started_receipt[charge] ________
+
+environment = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_6071f51ca2464b4781a859b57d8da9e5', assistant_message_id='msg_360a9b9ed1084f7db222bb1931c0f474', replayed=False))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107b5e9d0>
+phase = 'charge'
+
+    @pytest.mark.parametrize("phase", ["refresh", "charge"])
+    def test_cancel_before_dispatch_settles_not_started_receipt(environment, monkeypatch, phase):
+        import app.tools.execution_gateway as gateway
+        initialize(environment)
+        control = control_for(environment)
+        registry, calls = ToolRegistry(), []
+        class Counting(EchoTool):
+            async def run(self, data):
+                calls.append(data.text)
+                return await super().run(data)
+        registry.register(Counting())
+        entered, release = threading.Event(), threading.Event()
+        original, seen = gateway.refresh_tool_context, []
+        def refresh(context):
+            seen.append(1)
+            if phase == "refresh" and len(seen) == 2:
+                entered.set()
+                assert release.wait(5)
+            return original(context)
+        original_charge = gateway.charge
+        def charge(*args, **kwargs):
+            if phase == "charge":
+                entered.set()
+                assert release.wait(5)
+            return original_charge(*args, **kwargs)
+        monkeypatch.setattr(gateway, "refresh_tool_context", refresh)
+        monkeypatch.setattr(gateway, "charge", charge)
+        async def run():
+            with execution_control(control):
+                task = asyncio.create_task(ToolExecutionGateway(registry).execute(
+                    ToolCallRequest(tool_name="echo", arguments={"text": "公开数据"}, purpose="测试"),
+                    trace_id=environment[4].trace_id, context=binding_context(environment)))
+                try:
+                    async with asyncio.timeout(5):
+                        while not entered.is_set():
+                            await asyncio.sleep(.001)
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+                finally:
+                    release.set()
+        asyncio.run(run())
+        assert calls == []
+        with environment[0]() as db:
+            receipt = db.scalar(select(AgentRunToolReceipt))
+>           assert receipt.status == "settled"
+E           AssertionError: assert 'running' == 'settled'
+E             
+E             - settled
+E             + running
+
+backend/app/tests/unit/test_tool_predispatch_cancel.py:64: AssertionError
+____________ test_mixed_text_blocks_do_not_repeat_published_prefix _____________
+
+    def test_mixed_text_blocks_do_not_repeat_published_prefix():
+        from app.security.model_output import IncrementalMessages
+        from langchain_core.messages import AIMessageChunk
+        guard = IncrementalMessages()
+        early = guard.add(AIMessageChunk(content=PUBLIC))
+        guard.add(AIMessageChunk(content=[{"type": "text", "text": "后续结论。"}]))
+        output = early + guard.finish()
+        def text(content):
+            if isinstance(content, str):
+                return content
+            return "".join(item if isinstance(item, str) else item.get("text", "") for item in content)
+>       assert "".join(text(chunk.content) for chunk in output) == PUBLIC + "后续结论。"
+E       AssertionError: assert '公开财报显示营业收入增长...现金流保持稳定。后续结论。' == '公开财报显示营业收入增长...现金流保持稳定。后续结论。'
+E         
+E         Skipping 150 identical leading characters in diff, use -v to show
+E         - ，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。后续结论。
+E         + ，经营现金流保持稳定公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。后续结论。
+
+backend/app/tests/unit/test_incremental_output_security.py:100: AssertionError
+______________ test_unbroken_token_does_not_rescan_growing_prefix ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107ca2810>
+
+    def test_unbroken_token_does_not_rescan_growing_prefix(monkeypatch):
+        guard = IncrementalTextGuard()
+        pattern = guard._risk
+        scanned = []
+        class Counted:
+            def search(self, text):
+                scanned.append(len(text))
+                return pattern.search(text)
+        monkeypatch.setattr(guard, "_risk", Counted())
+        for _ in range(1000):
+            guard.feed("x" * 32)
+>       assert sum(scanned) < 1_000_000
+E       assert 16016000 < 1000000
+E        +  where 16016000 = sum([32, 64, 96, 128, 160, 192, ...])
+
+backend/app/tests/unit/test_incremental_output_security.py:114: AssertionError
+_________ test_empty_and_length_retry_flags_publish_final_result_once __________
+
+    def test_empty_and_length_retry_flags_publish_final_result_once():
+        got, calls = [], []
+        class Client:
+            def complete_streamed_sync(self, **kwargs):
+                calls.append(1)
+                text = "" if len(calls) == 1 else "安全公开结果。"
+                if text:
+                    kwargs["on_delta"](LlmStreamDelta(kind="content", delta=text))
+                return LlmCompletionResult(content=text, model="test", provider="test", finish_reason="stop")
+        result = invoke_llm_completion(Client(), system_prompt="公开研究", user_prompt="公开查询", on_delta=got.append,
+            retry_without_thinking_on_empty=True, retry_without_thinking_on_length=True)
+>       assert "".join(x.delta for x in got if x.kind == "content") == result.content
+E       AssertionError: assert '安全公开结果。安全公开结果。' == '安全公开结果。'
+E         
+E         - 安全公开结果。
+E         + 安全公开结果。安全公开结果。
+
+backend/app/tests/unit/test_incremental_output_security.py:128: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_tool_predispatch_cancel.py::test_cancel_before_dispatch_settles_not_started_receipt[refresh]
+FAILED backend/app/tests/unit/test_tool_predispatch_cancel.py::test_cancel_before_dispatch_settles_not_started_receipt[charge]
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_mixed_text_blocks_do_not_repeat_published_prefix
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_unbroken_token_does_not_rescan_growing_prefix
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_empty_and_length_retry_flags_publish_final_result_once
+5 failed, 11 passed in 3.03s

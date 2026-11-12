@@ -1,0 +1,76 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_revoke_during_budget_wait_is_checked_before_dispatch ___________
+
+environment = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_41e439aed11146a2aa751051b4392b11', assistant_message_id='msg_d24fd6cc8e0c4797ba628a4176e03dce', replayed=False))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x12133ddd0>
+
+    def test_revoke_during_budget_wait_is_checked_before_dispatch(environment, monkeypatch):
+        import app.tools.execution_gateway as gateway
+        initialize(environment)
+        control = control_for(environment)
+        registry, calls = ToolRegistry(), []
+        class Counting(EchoTool):
+            async def run(self, data):
+                calls.append(data.text)
+                return await super().run(data)
+        registry.register(Counting())
+        entered, release = threading.Event(), threading.Event()
+        original = gateway.charge
+        def charge(*args, **kwargs):
+            entered.set()
+            assert release.wait(5)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(gateway, "charge", charge)
+        async def run():
+            with execution_control(control):
+                task = asyncio.create_task(ToolExecutionGateway(registry).execute(
+                    ToolCallRequest(tool_name="echo", arguments={"text": "公开数据"}, purpose="测试"),
+                    trace_id=environment[4].trace_id, context=binding_context(environment)))
+                try:
+                    async with asyncio.timeout(5):
+                        while not entered.is_set():
+                            await asyncio.sleep(.001)
+                    environment[1].revoke_membership(tenant_id="t", user_id=environment[3].user_id, actor_ref="test")
+                finally:
+                    release.set()
+                result = await task
+                assert result.status == "denied"
+>       asyncio.run(run())
+
+backend/app/tests/unit/test_tool_predispatch_cancel.py:97: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def run():
+        with execution_control(control):
+            task = asyncio.create_task(ToolExecutionGateway(registry).execute(
+                ToolCallRequest(tool_name="echo", arguments={"text": "公开数据"}, purpose="测试"),
+                trace_id=environment[4].trace_id, context=binding_context(environment)))
+            try:
+                async with asyncio.timeout(5):
+                    while not entered.is_set():
+                        await asyncio.sleep(.001)
+                environment[1].revoke_membership(tenant_id="t", user_id=environment[3].user_id, actor_ref="test")
+            finally:
+                release.set()
+            result = await task
+>           assert result.status == "denied"
+E           AssertionError: assert 'success' == 'denied'
+E             
+E             - denied
+E             + success
+
+backend/app/tests/unit/test_tool_predispatch_cancel.py:96: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_tool_predispatch_cancel.py::test_revoke_during_budget_wait_is_checked_before_dispatch
+1 failed in 1.04s

@@ -1,9 +1,9 @@
 import re
-from hashlib import sha256
 
 from app.memory.sensitivity import detect_sensitivity
 from app.schemas.memory import MemoryCandidate
-from app.tools.redaction import contains_inline_credentials
+from app.security.context_content import context_content_is_safe
+from app.security.memory_candidate import candidate_identity
 
 
 def propose_explicit_preference_candidates(
@@ -13,26 +13,21 @@ def propose_explicit_preference_candidates(
     for statement in _explicit_preference_statements(user_message):
         content = _extract_preference_content(statement)
         memory_key = _preference_key(statement, content)
-        if not content or memory_key is None or contains_inline_credentials(content):
+        if not content or memory_key is None or not context_content_is_safe(content):
             continue
         sensitivity = detect_sensitivity(content)
-        candidates.append(
-            MemoryCandidate(
-                candidate_id=_candidate_id(
-                    tenant_id=tenant_id,
-                    user_id=user_id,
-                    memory_key=memory_key,
-                    content=content,
-                ),
-                memory_type="user_preference",
-                memory_key=memory_key,
-                content=content,
-                confidence=0.9,
-                approval_status="pending" if sensitivity in {"medium", "high"} else "not_required",
-                sensitivity=sensitivity,
-                source="user_explicit_preference",
-            )
+        candidate = MemoryCandidate(
+            candidate_id="",
+            memory_type="user_preference",
+            memory_key=memory_key,
+            content=content,
+            confidence=0.9,
+            approval_status="pending" if sensitivity in {"medium", "high"} else "not_required",
+            sensitivity=sensitivity,
+            source="user_explicit_preference",
         )
+        candidate.candidate_id = candidate_identity(candidate, tenant_id=tenant_id, user_id=user_id)
+        candidates.append(candidate)
     return _deduplicate_candidates(candidates)
 
 
@@ -42,11 +37,7 @@ def _explicit_preference_statements(user_message: str) -> list[str]:
         for statement in re.split(r"[\n；;]+", user_message)
         if statement.strip()
     ]
-    return [
-        statement
-        for statement in statements
-        if _is_explicit_preference_statement(statement)
-    ]
+    return [statement for statement in statements if _is_explicit_preference_statement(statement)]
 
 
 def _is_explicit_preference_statement(statement: str) -> bool:
@@ -79,7 +70,10 @@ def _preference_key(statement: str, content: str) -> str | None:
     combined = f"{statement} {content}".lower()
     if any(term in combined for term in ("语言", "中文", "英文", "chinese", "english")):
         return "language"
-    if any(term in combined for term in ("简洁", "简短", "详细", "展开", "回答偏好", "concise", "detail")):
+    if any(
+        term in combined
+        for term in ("简洁", "简短", "详细", "展开", "回答偏好", "concise", "detail")
+    ):
         return "response_detail"
     if any(term in combined for term in ("关注", "行业", "领域", "focus domain")):
         return "focus_domain"
@@ -88,28 +82,8 @@ def _preference_key(statement: str, content: str) -> str | None:
     return None
 
 
-def _candidate_id(*, tenant_id: str, user_id: str, memory_key: str, content: str) -> str:
-    fingerprint = sha256(
-        f"{memory_key}:{_normalize_candidate_content(content)}".encode("utf-8")
-    ).hexdigest()[:16]
-    return f"memcand_{tenant_id}_{user_id}_user_preference_{fingerprint}"
-
-
 def _deduplicate_candidates(candidates: list[MemoryCandidate]) -> list[MemoryCandidate]:
-    merged: dict[tuple[str, str], MemoryCandidate] = {}
+    merged: dict[str, MemoryCandidate] = {}
     for candidate in candidates:
-        key = (candidate.memory_key or "", _normalize_candidate_content(candidate.content))
-        existing = merged.get(key)
-        if existing is None or _sensitivity_rank(candidate.sensitivity) > _sensitivity_rank(
-            existing.sensitivity
-        ):
-            merged[key] = candidate
+        merged.setdefault(candidate.candidate_id, candidate)
     return list(merged.values())
-
-
-def _normalize_candidate_content(content: str) -> str:
-    return re.sub(r"\s+", "", content.strip().lower())
-
-
-def _sensitivity_rank(sensitivity: str) -> int:
-    return {"low": 1, "medium": 2, "high": 3}[sensitivity]

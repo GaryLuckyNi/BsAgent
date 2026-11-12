@@ -8,11 +8,14 @@ from typing import Any, Literal
 from langchain_core.messages import AIMessage, AnyMessage, SystemMessage, ToolMessage
 
 from app.llm.factory import ToolCallingLlmClient, invoke_llm_completion
+from app.llm.input_guard import protect_model_messages
 from app.llm.prompts import BUSINESS_LANGUAGE_INSTRUCTION
 from app.schemas.tools import ToolSpec
+from app.security.model_input import check_tool_definitions
+from app.security.tool_content import get_tool_content_policy
+from app.security.tool_content_adapter import project_tool_message
 from app.tool_documentation.metadata import model_description
 from app.tools.input_schema import model_input_schema
-from app.tools.redaction import redact_sensitive_data
 from app.tools.source_plan import parse_plan, plan_schema
 
 _VALID_TOOL_NAME = re.compile(r"[^a-zA-Z0-9_-]+")
@@ -61,8 +64,9 @@ def create_tool_call_plan(*, llm_client, messages, tool_specs, source_ids) -> Na
         + json.dumps(source_ids, ensure_ascii=False) + "\n" + BUSINESS_LANGUAGE_INSTRUCTION
     ))
     schema, slots = plan_schema(tool_specs, source_ids)
+    check_tool_definitions([schema])
     bound = llm_client.bind_tools([schema], tool_choice="auto")
-    response = bound.invoke([contract, *messages])
+    response = bound.invoke(protect_model_messages([contract, *messages]))
     if not isinstance(response, AIMessage):
         raise TypeError("Tool calling model must return AIMessage.")
     calls = parse_plan(response, slots, api_names, source_ids)
@@ -97,8 +101,10 @@ def create_tool_call_message(
     api_names = {_api_tool_name(spec.name): spec for spec in specs}
     if len(api_names) != len(specs):
         raise ValueError("Tool candidate API names must be unique.")
+    definitions = [_openai_tool_schema(spec, api_name=api_name) for api_name, spec in api_names.items()]
+    check_tool_definitions(definitions)
     bound_model = llm_client.bind_tools(
-        [_openai_tool_schema(spec, api_name=api_name) for api_name, spec in api_names.items()],
+        definitions,
         tool_choice=tool_choice,
     )
     call_requirement = (
@@ -116,7 +122,7 @@ def create_tool_call_message(
             f"\n\n{BUSINESS_LANGUAGE_INSTRUCTION}"
         )
     )
-    response = bound_model.invoke([contract, *messages])
+    response = bound_model.invoke(protect_model_messages([contract, *messages]))
     if not isinstance(response, AIMessage):
         raise TypeError("Tool calling model must return AIMessage.")
     if not response.tool_calls:
@@ -141,11 +147,18 @@ def create_tool_result_message(
     content: str,
     artifact: Any = None,
 ) -> ToolMessage:
+    try:
+        policy = get_tool_content_policy()
+    except Exception:  # noqa: BLE001 - 不能将配置故障变成原始工具文本旁路。
+        policy = None
+    content, artifact, metadata = project_tool_message(content=content, artifact=artifact,
+        tool_name=tool_name, policy=policy)
     return ToolMessage(
         content=content,
         tool_call_id=tool_call_id,
         name=tool_name,
-        artifact=redact_sensitive_data(artifact),
+        artifact=artifact,
+        additional_kwargs={"tool_content_boundary": metadata},
     )
 
 

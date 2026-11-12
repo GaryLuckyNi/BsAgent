@@ -1,5 +1,7 @@
 # ruff: noqa: BLE001
 
+import asyncio
+import logging
 from dataclasses import asdict, dataclass
 from fnmatch import fnmatchcase
 from time import perf_counter
@@ -19,6 +21,15 @@ from app.schemas.approvals import ApprovedToolCall
 from app.schemas.tools import ToolCallRequest, ToolCallResult, ToolError, ToolSpec
 from app.search.base import WEB_SEARCH_ERROR_MESSAGES
 from app.search.schemas import SearchResearchContext
+from app.security.run_authorization import (
+    RunAuthorizationDenied,
+    RunAuthorizationUnavailable,
+    refresh_tool_context,
+)
+from app.security.run_budget import RunBudgetError, charge
+from app.security.tool_content import get_tool_content_policy
+from app.security.tool_content_adapter import diagnostic_without_payload, project_tool_result
+from app.security.tool_outbound import get_tool_outbound_policy
 from app.tools.fingerprints import tool_call_fingerprint
 from app.tools.redaction import redact_sensitive_data, sanitize_untrusted_details
 from app.tools.registry import ToolRegistry
@@ -30,6 +41,15 @@ from app.tools.runtime_capabilities import (
 )
 
 SAFE_TOOL_ERROR_MESSAGES = {
+    "tool_outbound_denied": "工具外发内容受限。",
+    "tool_outbound_policy_unavailable": "工具外发检查暂不可用。",
+    "tool_content_policy_unavailable": "工具内容策略暂不可用，本次调用未执行。",
+    "rag_authorization_unavailable": "检索授权服务暂不可用。",
+    "rag_authorization_denied": "当前任务不允许检索。",
+    "rag_context_identity_mismatch": "检索身份与受信任务不一致。",
+    "rag_authorization_context_required": "检索缺少受信任务上下文。",
+    "run_authorization_denied": "任务当前身份或权限不允许执行。",
+    "run_authorization_unavailable": "任务授权服务暂不可用。",
     "tool_execution_context_required": "缺少工具执行上下文。",
     "tool_not_found": "工具未注册。",
     "tool_catalog_changed": "工具契约或执行绑定已变化，本次调用未执行；请选择其他可用工具或调整计划。",
@@ -183,6 +203,10 @@ class ToolExecutionGateway:
 
         check_execution_cancelled()
         start = perf_counter()
+        try:
+            content_policy = get_tool_content_policy()
+        except Exception:
+            return self._failure(request, trace_id=trace_id, code="tool_content_policy_unavailable", status="denied", start=start)
         if context is None:
             return self._failure(
                 request,
@@ -191,6 +215,11 @@ class ToolExecutionGateway:
                 status="denied",
                 start=start,
             )
+        try:
+            context = await asyncio.to_thread(refresh_tool_context, context)
+        except (RunAuthorizationDenied, RunAuthorizationUnavailable) as exc:
+            return self._failure(request, trace_id=trace_id, code=exc.code,
+                                 status="denied", start=start)
         if not self._registry.has(request.tool_name):
             return self._failure(
                 request,
@@ -261,6 +290,11 @@ class ToolExecutionGateway:
                 start=start,
             )
 
+        failure = self._outbound_failure(request=request, trace_id=trace_id,
+            entry=entry, input_data=input_data, context=context, start=start)
+        if failure is not None:
+            return failure
+
         observation_input = {
             "arguments": redact_sensitive_data(
                 request.arguments,
@@ -283,16 +317,50 @@ class ToolExecutionGateway:
                 entry=entry,
                 input_data=input_data,
                 start=start,
+                content_policy=content_policy,
             )
+            if result.content_policy is None:
+                result = project_tool_result(result, policy=content_policy, tool_name=request.tool_name,
+                    sink="workflow", context=context, binding_digest=entry.execution_binding_digest)
+            trace_view = project_tool_result(result, policy=content_policy, tool_name=request.tool_name,
+                sink="trace", context=context, binding_digest=entry.execution_binding_digest, preserve_host_metadata=True)
             update_langfuse_observation(
                 observation,
-                output=result.model_dump(mode="json"),
+                output=trace_view.model_dump(mode="json"),
                 metadata={
                     "status": result.status,
                     "error_code": result.error.code if result.error else None,
                 },
             )
             return result
+
+    def _outbound_failure(self, *, request, trace_id, entry, input_data, context, start):
+        try:
+            outbound_policy = get_tool_outbound_policy()
+            checks = [(request.arguments, entry.spec.input_schema),
+                      (input_data.model_dump(mode="json"), entry.spec.input_schema)]
+            for field in entry.spec.outbound_context_fields:
+                root, *nested = field.split(".")
+                value = getattr(context, root)
+                value = value.model_dump(mode="json") if isinstance(value, BaseModel) else value
+                for key in nested:
+                    value = value.get(key) if isinstance(value, dict) else None
+                for key in reversed(nested):
+                    value = {key: value}
+                checks.append(({root: value}, None))
+            for value, schema in checks:
+                decision = outbound_policy.evaluate(value, tool_name=request.tool_name, schema=schema,
+                    tenant_id=context.tenant_id, scopes=context.permission_scopes)
+                if not decision.allowed:
+                    failure = self._failure(request, trace_id=trace_id, code=decision.code,
+                        status="denied", start=start)
+                    failure.error.details = {"policy_version": decision.policy_version, "rule_ids": list(decision.rule_ids)}
+                    return failure
+        except Exception:
+            return self._failure(request, trace_id=trace_id, code="tool_outbound_policy_unavailable",
+                status="denied", start=start)
+
+        return None
 
     async def _execute_validated(
         self,
@@ -303,6 +371,7 @@ class ToolExecutionGateway:
         entry: Any,
         input_data: Any,
         start: float,
+        content_policy,
     ) -> ToolCallResult:
         from app.conversations.execution import UnresolvedToolEffect, current_execution
 
@@ -350,7 +419,8 @@ class ToolExecutionGateway:
                 record_recovery_event("recovery_dispatch", **_trace_fields(request, context), budget_disposition=claim.disposition,
                     route_reason="permission_recovery" if context.recovery_batch_id else "ordinary_search")
                 if claim.disposition == "reuse":
-                    return claim.result
+                    return project_tool_result(claim.result, policy=content_policy, tool_name=request.tool_name,
+                        sink="workflow", context=context, schema=entry.spec.output_schema, binding_digest=entry.execution_binding_digest, preserve_host_metadata=True)
                 if claim.disposition in {"blocked", "exhausted"}:
                     return self._failure(
                         request, trace_id=trace_id, start=start, status="denied",
@@ -370,6 +440,51 @@ class ToolExecutionGateway:
                 request, trace_id=trace_id,
                 code=exc.code, status="denied", start=start,
             )
+        def cancel_before_dispatch():
+            if control and receipt_id:
+                try:
+                    control.tool_finished(receipt_id, {
+                        "status": "denied", "execution_state": "not_started",
+                        "error": {"code": "tool_dispatch_cancelled"},
+                    }, uncertain=False)
+                except Exception:
+                    # tool_finished已登记待补写；不能将取消变成未决的远端副作用。
+                    logging.getLogger(__name__).warning("tool_dispatch_cancel_receipt_pending")
+
+        try:
+            await asyncio.to_thread(charge, tools=1)
+        except RunBudgetError as error:
+            if control:
+                control.tool_finished(receipt_id,{"status":"denied","execution_state":"not_started",
+                    "error":{"code":error.code}},uncertain=False)
+            raise
+        except asyncio.CancelledError:
+            cancel_before_dispatch()
+            raise
+        # 可用性检查和回执预留期间也可能撤权；实际外发前再次核对。
+        outbound_failure = None
+        try:
+            context = await asyncio.to_thread(refresh_tool_context, context)
+            policy_error = _policy_error(
+                request=request, tool_risk_level=entry.spec.risk_level,
+                required_permission_scopes=entry.spec.permission_scope, context=context,
+            )
+            code = policy_error[0] if policy_error else None
+            if code is None:
+                outbound_failure = self._outbound_failure(request=request, trace_id=trace_id,
+                    entry=entry, input_data=input_data, context=context, start=start)
+                code = outbound_failure.error.code if outbound_failure else None
+        except (RunAuthorizationDenied, RunAuthorizationUnavailable) as exc:
+            code = exc.code
+        except asyncio.CancelledError:
+            cancel_before_dispatch()
+            raise
+        if code is not None:
+            failure = outbound_failure or self._failure(request, trace_id=trace_id, code=code,
+                                    status="denied", start=start)
+            if control:
+                control.tool_finished(receipt_id, failure.model_dump(mode="json"), uncertain=False)
+            return failure
         try:
             if entry.execution_binding.provider not in {"local", "rag"}:
                 raw_result = await entry.executor.run(input_data)
@@ -379,18 +494,38 @@ class ToolExecutionGateway:
                     raw_result = await contextual_runner(input_data, context=context)
                 else:
                     raw_result = await entry.executor.run(input_data)
+        except RunBudgetError:
+            if control:
+                control.tool_finished(receipt_id,{"status":"unknown","execution_state":"uncertain",
+                    "error":{"code":"run_budget_interrupted"}},uncertain=entry.spec.effect_type != "read_only")
+            raise
         except Exception as exc:
+            from app.tools.rag_search import RagAuthorizationError, RagSearchTool
+
+            # 内置 RAG 的这些异常只在 HTTP 外发前产生；不按任意工具的错误码推断状态。
+            authorization_denied = (
+                type(entry.executor) is RagSearchTool
+                and entry.execution_binding.provider == "rag"
+                and isinstance(exc, (
+                    RagAuthorizationError, RunAuthorizationDenied, RunAuthorizationUnavailable,
+                ))
+            )
             failure = self._failure(
                 request,
                 trace_id=trace_id,
                 code=_exception_error_code(exc),
-                execution_state="uncertain",
+                status="denied" if authorization_denied else "failed",
+                execution_state="not_started" if authorization_denied else "uncertain",
                 start=start,
             )
+            failure = project_tool_result(failure, policy=content_policy, tool_name=request.tool_name,
+                sink="workflow", context=context, binding_digest=entry.execution_binding_digest)
             _trace_classified(request, failure, context)
             if control:
+                receipt_view = project_tool_result(failure, policy=content_policy, tool_name=request.tool_name,
+                    sink="receipt", context=context, binding_digest=entry.execution_binding_digest, preserve_host_metadata=True)
                 control.tool_finished(
-                    receipt_id, failure.model_dump(mode="json"),
+                    receipt_id, receipt_view.model_dump(mode="json"),
                     uncertain=execution_is_uncertain(
                         failure, risk_level=entry.spec.risk_level, effect_type=entry.spec.effect_type,
                     ),
@@ -410,16 +545,16 @@ class ToolExecutionGateway:
             raise
 
         def settle(result: ToolCallResult) -> ToolCallResult:
+            result = project_tool_result(result, policy=content_policy, tool_name=request.tool_name,
+                sink="workflow", context=context, schema=entry.spec.output_schema, binding_digest=entry.execution_binding_digest)
             _trace_classified(request, result, context)
             if control:
-                summary = result.model_dump(mode="json")
+                receipt_view = project_tool_result(result, policy=content_policy, tool_name=request.tool_name,
+                    sink="receipt", context=context, binding_digest=entry.execution_binding_digest, preserve_host_metadata=True)
+                summary = receipt_view.model_dump(mode="json")
                 if result.status != "success":
-                    # 返回契约无效不能证明写入未发生，保存原始摘要并阻止盲重试。
-                    raw = (
-                        raw_result.model_dump(mode="json")
-                        if isinstance(raw_result, BaseModel) else raw_result
-                    )
-                    summary["raw_result"] = raw if isinstance(raw, dict) else str(raw)
+                    # 保留不确定执行状态，但原始正文不能绕过策略进入回执。
+                    summary["raw_result"] = diagnostic_without_payload(raw_result)
                 control.tool_finished(
                     receipt_id, summary,
                     uncertain=execution_is_uncertain(

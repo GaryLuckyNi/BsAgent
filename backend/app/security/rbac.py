@@ -4,7 +4,6 @@ from typing import Protocol
 from app.core.config import settings
 from app.security.principal import Principal
 
-
 BASE_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     "analyst": frozenset(
         {
@@ -37,6 +36,8 @@ BASE_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
 
 
 class RbacProvider(Protocol):
+    def resolve_authenticated_principal(self, principal: Principal) -> Principal: ...
+
     def resolve_principal(self, *, tenant_id: str, user_id: str) -> Principal: ...
 
     def has_permission(self, principal: Principal, permission: str) -> bool: ...
@@ -80,12 +81,20 @@ class MockRbacProvider:
     def has_permission(self, principal: Principal, permission: str) -> bool:
         return "*" in principal.permissions or permission in principal.permissions
 
+    def resolve_authenticated_principal(self, principal: Principal) -> Principal:
+        return principal
+
     def tool_scopes(self, principal: Principal) -> tuple[str, ...]:
         return principal.permissions
 
 
 @lru_cache(maxsize=1)
 def get_rbac_provider() -> RbacProvider:
+    if settings.rbac_backend == "principal":
+        from app.security.directory import DirectoryRbacProvider, PermissionDirectory
+        from app.storage.database import SessionLocal
+
+        return DirectoryRbacProvider(PermissionDirectory(SessionLocal), issuer=settings.jwt_issuer)
     return MockRbacProvider(
         approver_user_ids=settings.mock_rbac_approver_user_ids,
         admin_user_ids=settings.mock_rbac_admin_user_ids,

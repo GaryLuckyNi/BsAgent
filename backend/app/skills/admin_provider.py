@@ -38,7 +38,7 @@ class AdminSkillDefinitionProvider:
         self._client = client
 
     def list_cards(self) -> list[SkillCard]:
-        response = self._client.get("/api/skills", params={"enabled": "true"})
+        response = self._client.get("/api/runtime/skills", params={"enabled": "true"})
         response.raise_for_status()
         payload = _validate_response_payload(response, _AdminSkillListPayload)
         return [
@@ -89,7 +89,7 @@ class AdminSkillDefinitionProvider:
         )
 
     def _get_skill(self, name: str) -> _AdminSkillPayload:
-        response = self._client.get(f"/api/skills/{name}")
+        response = self._client.get(f"/api/runtime/skills/{name}")
         response.raise_for_status()
         item = _validate_response_payload(response, _AdminSkillPayload)
         if item.enabled is False:

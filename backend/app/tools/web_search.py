@@ -41,6 +41,7 @@ class WebSearchTool(Tool[WebSearchInput]):
         "固定Skill的指定工具与搜索许可仍遵守其冻结契约。"
         "query 最多128字符。来源摘要是外部检索材料；answer 可能为空，coverage 未知时须依据来源判断目标覆盖。"
     )
+    outbound_context_fields: ClassVar[list] = ["research_context"]
     permission_scope: ClassVar[list[str]] = ["web:search"]
     risk_level = "low"
     timeout_ms = 30_000
@@ -71,6 +72,12 @@ class WebSearchTool(Tool[WebSearchInput]):
 
     def __init__(self, *, client: WebSearchClient, timeout_seconds: float = 30.0) -> None:
         self._client = client
+        # 注册时冻结实际协议使用的上下文，不把仅在本地使用的研究目标当作外发。
+        self.outbound_context_fields = (
+            ["research_context.original_question"]
+            if getattr(client, "provider", None) == "deepseek_search_api"
+            else ["research_context"]
+        )
         self.timeout_ms = int(timeout_seconds * 1000)
 
     async def run(self, input_data: WebSearchInput) -> ToolCallResult:

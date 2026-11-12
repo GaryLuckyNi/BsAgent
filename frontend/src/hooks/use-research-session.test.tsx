@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import type { Message } from '@langchain/langgraph-sdk'
-import { act, renderHook } from '@testing-library/react'
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { PersistedConversationMessage } from '../conversation-session'
+import { RunSubscriptionAuthorizationError } from '../services/run-subscription-error'
+import { ResearchMarkdown } from '../components/research/research-markdown'
 import { useResearchSession } from './use-research-session'
 
 const sdk = vi.hoisted(() => ({
@@ -63,6 +65,79 @@ function persisted(sequence: number): PersistedConversationMessage {
 }
 
 describe('useResearchSession', () => {
+  it('真实SSE解析在final之前持续展示已检查的合成正文', async () => {
+    const { subscribeRunEvents } = await vi.importActual<typeof import('../services/research-runs')>('../services/research-runs')
+    let writer!: ReadableStreamDefaultController<Uint8Array>
+    const body = new ReadableStream<Uint8Array>({ start(controller) { writer = controller } })
+    const fetcher = vi.fn().mockResolvedValue(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }))
+    vi.stubGlobal('fetch', fetcher)
+    runs.active.mockResolvedValue({ run_id: 'live-synthesis', message_id: 'a1', status: 'running', content: '', last_event_sequence: 0 })
+    runs.subscribe.mockImplementationOnce((session, run, identity, after, signal, onEvent) =>
+      subscribeRunEvents(session, run, identity as Parameters<typeof subscribeRunEvents>[2], after, signal, onEvent)
+    )
+    function View() {
+      const state = useResearchSession({ tenantId: 't', userId: 'u' }, 'live-synthesis-session')
+      const message = state.messages.at(-1)
+      return <article data-testid="live-answer" data-status={message?.status}>
+        <ResearchMarkdown isAnimating={message?.status === 'streaming'}>{message?.content || ''}</ResearchMarkdown>
+      </article>
+    }
+    const view = render(<View />)
+    const send = (sequence: number, event: string, data: unknown) => writer.enqueue(new TextEncoder().encode(
+      `event: ${event}\nid: ${sequence}\ndata: ${JSON.stringify(data)}\n\n`
+    ))
+    try {
+      await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+      await act(async () => send(1, 'messages', [{ id: 'a1', type: 'ai', content: '尚未结束的合成正文' }, {}]))
+      await waitFor(() => expect(screen.getByTestId('live-answer').textContent).toContain('尚未结束的合成正文'))
+      expect(screen.getByTestId('live-answer').getAttribute('data-status')).toBe('streaming')
+      await act(async () => send(2, 'messages', [{ id: 'a1', type: 'ai', content: '继续追加下一段' }, {}]))
+      await waitFor(() => expect(screen.getByTestId('live-answer').textContent).toContain('尚未结束的合成正文继续追加下一段'))
+      expect(screen.getByTestId('live-answer').getAttribute('data-status')).toBe('streaming')
+      await act(async () => {
+        send(3, 'custom', { type: 'final', response: { content: '尚未结束的合成正文继续追加下一段' } })
+        send(4, 'custom', { type: 'run_status', status: 'completed' })
+        writer.close()
+      })
+      await waitFor(() => expect(screen.getByTestId('live-answer').getAttribute('data-status')).toBe('complete'))
+      expect(screen.getByTestId('live-answer').textContent).toBe('尚未结束的合成正文继续追加下一段')
+    } finally {
+      view.unmount()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('收到上下文压缩进度后显示提示，压缩结束后切换为规划状态', async () => {
+    const { result } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
+    await act(async () => { await result.current.sendMessage('继续分析') })
+    act(() => sdk.options?.onCustomEvent?.({
+      type: 'progress', stage: 'compacting_context', message: '正在压缩上下文'
+    }))
+    expect(result.current.messages.at(-1)?.processStatus).toBe('正在压缩上下文')
+    act(() => sdk.options?.onCustomEvent?.({
+      type: 'progress', stage: 'planning', message: '正在规划分析范围'
+    }))
+    expect(result.current.messages.at(-1)?.processStatus).toBe('正在规划分析范围')
+  })
+
+  it('订阅撤权停止自动重连，保留安全正文和真实任务状态', async () => {
+    vi.useFakeTimers()
+    try {
+      runs.history.mockResolvedValueOnce([
+        { message_id:'a1', run_id:'r1', role:'assistant', status:'streaming', content:'已检查的部分', sequence_no:1, metadata:{} }
+      ])
+      runs.active.mockResolvedValue({ run_id:'r1', message_id:'a1', status:'running', content:'', last_event_sequence:0 })
+      runs.subscribe.mockRejectedValue(new RunSubscriptionAuthorizationError('当前订阅已无有效授权', 'stream_access_denied'))
+      const { result, unmount } = renderHook(() => useResearchSession({ tenantId:'t', userId:'u' }, 's'))
+      await act(async () => { await Promise.resolve(); await Promise.resolve() })
+      await act(async () => { await vi.advanceTimersByTimeAsync(15000) })
+      expect(runs.subscribe).toHaveBeenCalledTimes(1)
+      expect(result.current.error).toContain('当前订阅已无有效授权')
+      expect(result.current.messages.at(-1)).toMatchObject({ content:'已检查的部分', status:'streaming' })
+      expect(sdk.submit).not.toHaveBeenCalled()
+      unmount()
+    } finally { vi.useRealTimers() }
+  })
   it('来源先于正文到达时保留稳定编号，最终响应更新资料而不生成虚假引用', async () => {
     const { result, rerender } = renderHook(() => useResearchSession({ tenantId: 't', userId: 'u' }, 's'))
     await act(async () => { await result.current.sendMessage('分析') })

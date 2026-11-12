@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Industrial Agentic RAG service"
 requires-python = ">=3.11"
 dependencies = [
+  "anyio>=4.5,<5.0",
   "ag-ui-protocol>=0.1.22,<0.2.0",
   "alembic>=1.13.2",
   "bm25s>=0.3.9,<0.4.0",

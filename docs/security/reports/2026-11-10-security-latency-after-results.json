@@ -1,0 +1,177 @@
+{
+  "scope": "synthetic_cpu_temporary_sqlite_no_network",
+  "results": [
+    {
+      "name": "detector_financial_4096_chars",
+      "median_ms": 2.489,
+      "max_ms": 2.749,
+      "repeats": 3
+    },
+    {
+      "name": "tool_projection_financial_4096_chars",
+      "median_ms": 4.411,
+      "max_ms": 5.559,
+      "repeats": 3
+    },
+    {
+      "name": "detector_financial_32768_chars",
+      "median_ms": 22.162,
+      "max_ms": 22.564,
+      "repeats": 3
+    },
+    {
+      "name": "tool_projection_financial_32768_chars",
+      "median_ms": 37.238,
+      "max_ms": 41.813,
+      "repeats": 3
+    },
+    {
+      "name": "detector_financial_64000_chars",
+      "median_ms": 42.26,
+      "max_ms": 44.834,
+      "repeats": 3
+    },
+    {
+      "name": "tool_projection_financial_64000_chars",
+      "median_ms": 67.515,
+      "max_ms": 79.175,
+      "repeats": 3
+    },
+    {
+      "name": "detector_contiguous_ascii_64000_chars",
+      "median_ms": 26.43,
+      "max_ms": 27.858,
+      "repeats": 3
+    },
+    {
+      "name": "detector_contiguous_ascii_250000_chars",
+      "median_ms": 85.038,
+      "max_ms": 92.137,
+      "repeats": 3
+    },
+    {
+      "name": "model_input_financial_64000_chars",
+      "median_ms": 26.047,
+      "max_ms": 26.522,
+      "repeats": 3
+    },
+    {
+      "name": "protect_messages_financial_64000_chars",
+      "median_ms": 23.38,
+      "max_ms": 24.511,
+      "repeats": 3
+    },
+    {
+      "name": "model_input_financial_250000_chars",
+      "median_ms": 90.192,
+      "max_ms": 102.874,
+      "repeats": 3
+    },
+    {
+      "name": "protect_messages_financial_250000_chars",
+      "median_ms": 73.208,
+      "max_ms": 74.22,
+      "repeats": 3
+    },
+    {
+      "name": "model_input_financial_1000000_chars",
+      "median_ms": 357.248,
+      "max_ms": 401.863,
+      "repeats": 3
+    },
+    {
+      "name": "protect_messages_financial_1000000_chars",
+      "median_ms": 344.621,
+      "max_ms": 363.105,
+      "repeats": 3
+    },
+    {
+      "name": "message_buffer_100_chunks",
+      "median_ms": 0.959,
+      "max_ms": 1.497,
+      "repeats": 3
+    },
+    {
+      "name": "message_buffer_1000_chunks",
+      "median_ms": 10.653,
+      "max_ms": 11.072,
+      "repeats": 3
+    },
+    {
+      "name": "message_buffer_4000_chunks",
+      "median_ms": 52.525,
+      "max_ms": 56.208,
+      "repeats": 3
+    },
+    {
+      "name": "fake_model_unprotected_first_item",
+      "first_ms": 30.507,
+      "first_chars": 4
+    },
+    {
+      "name": "fake_model_protected_first_item",
+      "first_ms": 158.724,
+      "first_chars": 20
+    },
+    {
+      "name": "fake_80_fragments_full_buffer_simulation",
+      "first_ms": 2557.076,
+      "first_chars": 320
+    },
+    {
+      "name": "fake_80_fragments_incremental",
+      "first_ms": 225.442,
+      "first_chars": 4
+    },
+    {
+      "name": "sse_authorization_100_frames",
+      "simulated_per_sql_commit_ms": 0,
+      "total_ms": 215.06,
+      "sql_counts": {
+        "SELECT": 201
+      }
+    },
+    {
+      "name": "budgeted_call_100_frames",
+      "simulated_per_sql_commit_ms": 0,
+      "total_ms": 274.286,
+      "sql_counts": {
+        "SELECT": 205
+      }
+    },
+    {
+      "name": "response_meter_1MiB_wire_and_decoded",
+      "simulated_per_sql_commit_ms": 0,
+      "total_ms": 88.937,
+      "sql_counts": {
+        "UPDATE": 32,
+        "COMMIT": 32
+      }
+    },
+    {
+      "name": "sse_authorization_100_frames",
+      "simulated_per_sql_commit_ms": 2.0,
+      "total_ms": 913.263,
+      "sql_counts": {
+        "SELECT": 201
+      }
+    },
+    {
+      "name": "budgeted_call_100_frames",
+      "simulated_per_sql_commit_ms": 2.0,
+      "total_ms": 987.625,
+      "sql_counts": {
+        "SELECT": 205
+      }
+    },
+    {
+      "name": "response_meter_1MiB_wire_and_decoded",
+      "simulated_per_sql_commit_ms": 2.0,
+      "total_ms": 253.92,
+      "sql_counts": {
+        "UPDATE": 32,
+        "COMMIT": 32
+      }
+    }
+  ]
+}

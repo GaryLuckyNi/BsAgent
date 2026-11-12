@@ -7,7 +7,7 @@ from langgraph.store.base import Item
 
 from app.core.config import settings
 from app.graph.state import AgentState
-
+from app.security.context_content import context_content_is_safe
 
 logger = logging.getLogger(__name__)
 _PREFERENCE_MEMORY_TYPE = "user_preference"
@@ -35,6 +35,8 @@ def decode_user_preference(item: Item) -> UserPreference | None:
         return None
     if not isinstance(memory_key, str) or not memory_key.strip():
         return None
+    if not context_content_is_safe({"memory_key": memory_key, "content": content}):
+        return None
     return UserPreference(memory_key=memory_key, content=content.strip())
 
 
@@ -61,7 +63,7 @@ def recall_user_preferences(
             if preference is not None:
                 preferences.append(preference)
         return preferences
-    except Exception:
+    except Exception:  # noqa: BLE001 - 召回故障降级为空，不记录原始异常。
         _record_recall_failure(state, on_failure=on_failure, reason="store_read_failed")
         return []
 

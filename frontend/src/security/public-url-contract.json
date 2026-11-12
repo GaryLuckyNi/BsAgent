@@ -1,0 +1,218 @@
+[
+  {
+    "url": "https://example.com/report?date=2026-11-03&amount=100#note",
+    "allowed": true
+  },
+  {
+    "url": "https://example.com/report?payload=%7B%22symbol%22%3A%22600519.SH%22%7D",
+    "allowed": true
+  },
+  {
+    "url": "https://example.com/Annual%20Report.pdf",
+    "allowed": true
+  },
+  {
+    "url": "https://www.sse.com.cn/disclosure/listedinfo/announcement/",
+    "allowed": true
+  },
+  {
+    "url": "https://8.8.8.8/report",
+    "allowed": true
+  },
+  {
+    "url": "https://[2001:4860:4860::8888]/report",
+    "allowed": true
+  },
+  {
+    "url": "https://example.com/?api_key=PUBLIC_URL_CREDENTIAL_CANARY",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?%2561pi_key=PUBLIC_URL_CREDENTIAL_CANARY",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/#token=PUBLIC_URL_CREDENTIAL_CANARY",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?payload=%7B%22password%22%3A%22PUBLIC_URL_CREDENTIAL_CANARY%22%7D",
+    "allowed": false
+  },
+  {
+    "url": "https://user:PUBLIC_URL_CREDENTIAL_CANARY@example.com/",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/sk-PUBLIC_URL_CREDENTIAL_CANARY",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?q=Bearer%20PUBLIC_URL_CREDENTIAL_CANARY",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/\nreport",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com\\@127.0.0.1/",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com:65536/",
+    "allowed": false
+  },
+  {
+    "url": "http://localhost/",
+    "allowed": false
+  },
+  {
+    "url": "http://localhost./",
+    "allowed": false
+  },
+  {
+    "url": "http://x.local/",
+    "allowed": false
+  },
+  {
+    "url": "http://intranet/",
+    "allowed": false
+  },
+  {
+    "url": "http://127.0.0.1/",
+    "allowed": false
+  },
+  {
+    "url": "http://127.1/",
+    "allowed": false
+  },
+  {
+    "url": "http://2130706433/",
+    "allowed": false
+  },
+  {
+    "url": "http://0x7f000001/",
+    "allowed": false
+  },
+  {
+    "url": "http://10.0.0.1/",
+    "allowed": false
+  },
+  {
+    "url": "http://169.254.169.254/",
+    "allowed": false
+  },
+  {
+    "url": "http://224.0.0.1/",
+    "allowed": false
+  },
+  {
+    "url": "http://[::1]/",
+    "allowed": false
+  },
+  {
+    "url": "http://[::ffff:127.0.0.1]/",
+    "allowed": false
+  },
+  {
+    "url": "http://[fc00::1]/",
+    "allowed": false
+  },
+  {
+    "url": "http://[fe80::1]/",
+    "allowed": false
+  },
+  {
+    "url": "javascript:alert(1)",
+    "allowed": false
+  },
+  {
+    "url": "data:text/html,test",
+    "allowed": false
+  },
+  {
+    "url": "file:///private/example",
+    "allowed": false
+  },
+  {
+    "url": "//example.com/report",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?auth=PUBLIC_URL_CREDENTIAL_CANARY",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?key=PUBLIC_URL_CREDENTIAL_CANARY",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?signature=PUBLIC_URL_CREDENTIAL_CANARY",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?payload=%7B%22%5Cu0070assword%22%3A%22PUBLIC_URL_CREDENTIAL_CANARY%22%7D",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?payload=%7B%22credentials%22%3A%22PUBLIC_URL_CREDENTIAL_CANARY%22%7D",
+    "allowed": false
+  },
+  {
+    "url": "https://example.com/?payload=%7B%22database_url%22%3A%22postgres%3A%2F%2Fu%3APUBLIC_URL_CREDENTIAL_CANARY%40db%2Fx%22%7D",
+    "allowed": false
+  },
+  {
+    "url": "http://localhost。/",
+    "allowed": false
+  },
+  {
+    "url": "http://10。0。0。1。/",
+    "allowed": false
+  },
+  {
+    "url": "http://x。internal。/",
+    "allowed": false
+  },
+  {
+    "url": "http://2130706433。/",
+    "allowed": false
+  },
+  {
+    "url": "http://localhost．/",
+    "allowed": false
+  },
+  {
+    "url": "http://10．0．0．1．/",
+    "allowed": false
+  },
+  {
+    "url": "http://x．internal．/",
+    "allowed": false
+  },
+  {
+    "url": "http://2130706433．/",
+    "allowed": false
+  },
+  {
+    "url": "http://localhost｡/",
+    "allowed": false
+  },
+  {
+    "url": "http://10｡0｡0｡1｡/",
+    "allowed": false
+  },
+  {
+    "url": "http://x｡internal｡/",
+    "allowed": false
+  },
+  {
+    "url": "http://2130706433｡/",
+    "allowed": false
+  },
+  {
+    "url": "https://例子.公司.cn/财报.pdf",
+    "allowed": true
+  }
+]

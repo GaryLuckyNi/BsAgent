@@ -21,6 +21,7 @@ from app.assets.image_security import (
 from app.assets.object_store import ObjectStore, ObjectStoreError, validate_object_key
 from app.assets.repository import SqlAlchemyAssetRepository
 from app.assets.schemas import AssetAttachment, AssetCreate, AssetStatus
+from app.security.asset_authorization import require_asset_owner
 from app.security.principal import Principal
 from app.storage.models import AssetRecord
 
@@ -191,6 +192,7 @@ class AssetService:
         record = self._uow.assets.get(asset_id, tenant_id=principal.tenant_id)
         if record is None:
             raise AssetNotFoundError("图片资产不存在。")
+        require_asset_owner(record, principal, operation="read")
         if self._as_utc(record.expires_at) <= self._as_utc(self._now()):
             status = AssetStatus(record.status)
             if status != AssetStatus.EXPIRED:
@@ -212,6 +214,7 @@ class AssetService:
         )
         if record is None or record.status == AssetStatus.DELETED:
             return False
+        require_asset_owner(record, principal, operation="delete")
         try:
             deleted = self._uow.assets.soft_delete(
                 asset_id=asset_id,

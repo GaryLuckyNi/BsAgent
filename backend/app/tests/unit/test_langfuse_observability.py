@@ -292,15 +292,15 @@ def test_observation_update_sanitizes_io_and_metadata_and_marks_policy():
     assert client.observations[0]["updates"] == [
         {
             "input": {
-                "prompt": "send https://example.test/?token=[REDACTED]"
+                "prompt": "***"
             },
             "output": {"result": "done"},
             "metadata": {
                 "tool_result": "ordinary result",
-                "auth": "[REDACTED]",
+                "auth": "Bearer ***",
                 "content_policy_applied": True,
             },
-            "status_message": "completed using [REDACTED]",
+            "status_message": "completed using Bearer ***",
         }
     ]
     runtime.shutdown()

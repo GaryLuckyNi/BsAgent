@@ -53,7 +53,7 @@ def test_admin_provider_requests_enabled_profiles_and_parses_response() -> None:
     expected = _profile()
 
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/api/business-intents"
+        assert request.url.path == "/api/runtime/business-intents"
         assert dict(request.url.params) == {"enabled": "true"}
         return httpx.Response(200, json={"items": [_admin_item(expected)], "total": 1})
 

@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 
 class FinancialMetric(BaseModel):
@@ -46,6 +46,8 @@ class VisionAnalysisResult(BaseModel):
 
 class OcrExtractionResult(BaseModel):
     model_config = ConfigDict(frozen=True)
+    # 仅由本地检查器赋值，不从 OCR HTTP JSON 接收，也不序列化成可伪造控制字段。
+    _content_restricted: bool = PrivateAttr(default=False)
 
     text: str = Field(max_length=200000)
     tables: list[dict] = Field(default_factory=list, max_length=100)

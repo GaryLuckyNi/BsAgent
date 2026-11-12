@@ -12,6 +12,7 @@ def summarize_image_analyses(
             "entities": analysis["entities"],
             "warnings": analysis["risk_flags"],
             "confidence": analysis["confidence"],
+            "source_trust": "untrusted_image_data",
         }
         for analysis in analyses
     ]

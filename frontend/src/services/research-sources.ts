@@ -1,13 +1,9 @@
 import type { EvidenceSource } from '@/domain/research'
 import { fromMarkdown } from 'mdast-util-from-markdown'
+import { publicWebUrl } from '@/security/public-url'
 
 export function webSourceUrl(value: unknown): string | undefined {
-  if (typeof value !== 'string' || /[\u0000-\u001f\u007f]/.test(value)) return
-  try {
-    const url = new URL(value)
-    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) return
-    return url.href
-  } catch { return }
+  return publicWebUrl(value)
 }
 
 export function parseResearchSources(value: unknown): EvidenceSource[] {

@@ -19,8 +19,11 @@ def test_integrated_migration_has_one_head_with_both_existing_parents():
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "alembic"))
     scripts = ScriptDirectory.from_config(config)
-    assert scripts.get_heads() == ["20261030_0016"]
-    assert scripts.get_revision("head").down_revision == "20261022_0015"
+    assert scripts.get_heads() == ["20261108_0019"]
+    assert scripts.get_revision("head").down_revision == "20261102_0018"
+    assert scripts.get_revision("20261102_0018").down_revision == "20261102_0017"
+    assert scripts.get_revision("20261102_0017").down_revision == "20261030_0016"
+    assert scripts.get_revision("20261030_0016").down_revision == "20261022_0015"
     assert set(scripts.get_revision("20261022_0015").down_revision) == {
         "20261010_0014", "20261021_0014",
     }

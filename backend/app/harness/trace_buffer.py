@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from app.core.config import settings
 from app.harness.tracing import TraceEvent
+from app.security.observation import observation_view
 from app.tools.redaction import redact_sensitive_data
 
 _ERROR_STATUSES = {"error", "handled_error"}
@@ -163,7 +164,7 @@ class TraceArtifactPayload:
         try:
             if not _within_structure_budget(summary):
                 return None
-            redacted_summary = redact_sensitive_data(summary)
+            redacted_summary = observation_view(redact_sensitive_data(summary))
             canonical_summary = _canonical_summary(redacted_summary)
             if canonical_summary is None or not _is_safe_artifact_value(
                 canonical_summary

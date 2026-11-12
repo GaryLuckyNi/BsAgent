@@ -4,9 +4,12 @@ from collections.abc import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 from app.graph.planning.answer_citations import AnswerCitations
+from app.security.public_output import public_text, public_web_url
 
 
 def _url_key(value: str) -> str | None:
+    if not public_web_url(value):
+        return None
     try:
         parsed = urlsplit(value)
         if (parsed.scheme not in {"http", "https"} or not parsed.hostname
@@ -56,7 +59,7 @@ def collect_search_sources(state: Mapping, citation_sources=()) -> list[dict]:
                 for field, limit in (("title", 500), ("snippet", 2000), ("published_at", 100)):
                     value = item.get(field)
                     if not source.get(field) and isinstance(value, str) and value.strip():
-                        source[field] = value.strip()[:limit]
+                        source[field] = public_text(value).strip()[:limit]
             if key not in ordered_urls:
                 ordered_urls.append(key)
     ordered_urls.extend(key for key in by_url if key not in ordered_urls)

@@ -47,12 +47,14 @@ flowchart LR
 | `iss` | 必须等于 `JWT_ISSUER` |
 | `aud` | 必须严格等于 `JWT_AUDIENCE` |
 | `exp` | 令牌过期时间 |
-| `sub` | 用户标识 |
+| `sub` | 外部用户标识；principal 模式按 issuer/sub 显式映射内部 user_id |
 | `tenant_id` | 租户边界 |
-| `scope` 或 `scopes` | 空格分隔字符串或字符串数组 |
+| `scope` 或 `scopes` | 空格分隔字符串或字符串数组；principal 模式不将其作为业务授权来源 |
 | `jti` | 可选，用于审计和撤销关联 |
 
-普通分析师通常需要 `agent:invoke`、`rag:retrieve`、`asset:write`、`asset:read`、`asset:delete` 和 `trace:read`。工具所需 scope 由动态发现的工具定义决定。管理员可使用 `*`，但不应向普通用户签发通配权限。
+普通分析师通常需要 `agent:invoke`、`rag:retrieve`、`asset:write`、`asset:read`、`asset:delete` 和 `trace:read`。`rbac_backend=principal` 通过当前权限目录解析这些能力，JWT 内的角色或 `*` 不能直接授予业务权限。工具所需 scope 由可信工具契约决定，目录只接受显式精确权限，不自动授予动态工具权限。
+
+当前权限目录及任务上限迁移为 `20261102_0017`、`20261102_0018`，初始为空，必须显式登记 issuer/sub、租户与业务授权，不能把开发固定用户自动绑定给真实用户。启用步骤和离线管理命令见 [当前权限目录说明](security/current-permission-directory.md)。已在本地验证普通请求、Agent turn worker、工具派发和用户选择/审批恢复的当前权限与初始上限。principal 模式不恢复缺少上限记录的历史任务，应重新发起；不要从旧 payload 补授予。Admin 用户与运行配置服务身份已完成本地实现，启用配置见 [Admin 鉴权说明](security/admin-authorization.md)；真实部署、RAG 身份协议及其他后台服务身份仍需后续验收，不能仅凭 JWT 配置宣称全链路授权完成。
 
 在身份服务登记以下回调：
 
@@ -60,7 +62,7 @@ flowchart LR
 - 退出回调：`${PUBLIC_BASE_URL}/`
 - Allowed Web Origins：`PUBLIC_BASE_URL`
 
-`OIDC_CONNECT_SRC` 必须是身份服务的纯 origin，并进入前端 CSP 白名单。`OIDC_SCOPE` 应配置为身份服务中能够产生上述 API scopes 的授权范围。
+`OIDC_CONNECT_SRC` 必须是身份服务的纯 origin，并进入前端 CSP 白名单。`OIDC_SCOPE` 使用身份服务登记的 OIDC 范围，例如 openid/profile；principal 模式的业务权限来自应用目录，不依赖该字段授予。
 
 ## 4. 配置 Secret
 
@@ -80,7 +82,9 @@ Tushare 官方 Streamable HTTP MCP 完整 URL 由管理员在 Admin 的“市场
 
 `BS_AGENT_MCP_SERVER_URL`、`BS_AGENT_MCP_SERVER_NAME`、`MCP_SERVER_REVISION` 和 `MCP_CONFIG_REVISION` 只用于额外的通用 MCP Server。未配置通用 MCP 时 URL 保持为空，其 revision 可以保留默认值；一旦配置生产通用 MCP，revision 必须改为可审计的非开发版本。
 
-Admin Backend 的内部接口会向 Agent 返回完整 MCP URL，因此必须只在服务网络内开放。面向浏览器的 Admin 列表和详情接口返回脱敏地址。
+Admin Backend 的内部接口会向 Agent 返回完整 MCP URL，现要求服务 audience 和显式 connection:read；浏览器配置用户不能调用它。面向浏览器的 Admin 列表和详情接口继续脱敏，要求当前配置权限。Admin 仍建议限制服务网络入口，并在生产通过受信 HTTPS origin 提供服务。主应用 Compose 已强制注入 ADMIN_SERVICE_TOKEN_URL、CLIENT_ID、CLIENT_SECRET 等配置；Admin 自己的 0008 迁移、用户/服务客户端及授权需按 [说明](security/admin-authorization.md)单独完成。
+
+任务预算迁移0019新增独立账本，不自动回填历史任务。启用前安排旧任务结束或按现有停止/副作用核实流程处理；旧无预算任务只能读取历史结果，不能恢复并自动获得新额度。`BS_AGENT_RUN_BUDGET_*`默认模型32次、工具64次、HTTP512信用、请求正文16MiB、原始/解压各128MiB信用、期限1800秒；Compose向API及worker传递同一配置。新建时冻结，配置调整不修改旧run，审批等待计时。多轮HTTP认证和事件hook在绑定run时拒绝，None/Basic及普通授权头仍支持。范围、正常回归和真实PostgreSQL/部署待验收项见 [验收记录](security/reports/2026-11-08-run-budget-implementation.md)。本地测试不代表该迁移已在生产执行。
 
 ## 5. 构建与启动
 

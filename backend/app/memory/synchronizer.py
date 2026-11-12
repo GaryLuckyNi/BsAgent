@@ -8,6 +8,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.memory.preferences import experience_namespace
+from app.security.context_content import ContextContentRejected, require_safe_context_content
+from app.security.memory_candidate import memory_approval_required
 from app.storage.models import MemoryCandidateRecord
 
 logger = logging.getLogger(__name__)
@@ -94,6 +96,12 @@ class MemoryStoreSynchronizer:
                     MemoryCandidateRecord.memory_type == "user_preference",
                     MemoryCandidateRecord.approval_status.in_(_ELIGIBLE_APPROVAL_STATUSES),
                     MemoryCandidateRecord.store_sync_status.in_(sync_statuses),
+                    (
+                        MemoryCandidateRecord.store_sync_error.is_(None)
+                        | MemoryCandidateRecord.store_sync_error.not_in(
+                            ("memory_content_rejected", "memory_approval_required")
+                        )
+                    ),
                 )
                 .order_by(MemoryCandidateRecord.created_at, MemoryCandidateRecord.candidate_id)
                 .limit(1)
@@ -111,9 +119,21 @@ class MemoryStoreSynchronizer:
             if candidate is None:
                 return None, False
             candidate_id = candidate.candidate_id
-            candidate.store_sync_status = "syncing"
-            candidate.store_sync_attempts += 1
             try:
+                candidate.store_sync_status = "syncing"
+                candidate.store_sync_attempts += 1
+                require_safe_context_content(
+                    {
+                        "content": candidate.content,
+                        "memory_key": candidate.memory_key,
+                        "source": candidate.source,
+                    }
+                )
+                if memory_approval_required(candidate):
+                    candidate.store_sync_status = "failed"
+                    candidate.store_sync_error = "memory_approval_required"
+                    session.commit()
+                    return candidate_id, False
                 self._store.put(
                     experience_namespace(candidate.tenant_id, candidate.user_id),
                     candidate.memory_key,
@@ -126,10 +146,15 @@ class MemoryStoreSynchronizer:
                     },
                 )
                 candidate.store_sync_status = "synced"
-                candidate.store_synced_at = _utc_now()
                 candidate.store_sync_error = None
+                candidate.store_synced_at = _utc_now()
                 session.commit()
                 return candidate_id, True
+            except ContextContentRejected:
+                candidate.store_sync_status = "failed"
+                candidate.store_sync_error = "memory_content_rejected"
+                session.commit()
+                return candidate_id, False
             except Exception as exc:  # noqa: BLE001 - Store 实现可抛出任意外部异常
                 session.rollback()
                 self._mark_failed(candidate_id, exc)

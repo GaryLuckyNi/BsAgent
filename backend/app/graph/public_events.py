@@ -8,6 +8,7 @@ from langgraph.config import get_stream_writer
 
 from app.graph.recovery.search import recovery_failure_message
 from app.llm.schemas import LlmStreamDelta
+from app.security.public_output import public_progress, public_sources, public_text, public_web_url
 from app.tools.redaction import sanitize_untrusted_details
 
 _STAGE_LABELS = {
@@ -22,6 +23,7 @@ _PUBLIC_CONTENT_BATCH_CHARS = 24
 
 
 def emit_answer_sources(sources: list[dict]) -> None:
+    sources = public_sources(sources)
     if not sources:
         return
     try:
@@ -61,7 +63,7 @@ def emit_public_progress(
         "message": message,
     }
     event.update(_tool_activity_metadata(node_name, state, status=public_status))
-    writer(event)
+    writer(public_progress(event))
 
 
 def _task_stage(task: dict) -> str:
@@ -126,7 +128,7 @@ def build_public_field_stream(node_name: str, state: dict[str, Any], *, feedback
             writer({
                 "type": "progress", "kind": kind, "id": event_id, "stage": node_name,
                 "label": "研究目标" if kind == "goal" else "研究计划",
-                "status": status, "message": text,
+                "status": status, "message": public_text(text),
             })
 
     return ProgressFieldStream(
@@ -272,7 +274,7 @@ def _progress_message(
 
 
 def _safe_task_goal(value: object, *, max_chars: int | None = 200) -> str:
-    text = str(value or "当前子任务")
+    text = public_text(str(value or "当前子任务"))
     text = re.sub(
         r"(?i)\b(?:web_search|search_tool|required_schema|tool_name|skill_name|mcp\.[a-z0-9_.-]+)\b",
         "",
@@ -379,11 +381,11 @@ def _tool_activity_metadata(
             answer = payload.get("answer")
             if isinstance(answer, str) and answer.strip():
                 metadata["answer"] = sanitize_untrusted_details(
-                    {"answer": answer.strip()[:4000]}, max_string_length=4000,
+                    {"answer": public_text(answer).strip()[:4000]}, max_string_length=4000,
                 )["answer"][:4000]
             raw_query = payload.get("query")
             if isinstance(raw_query, str) and raw_query.strip():
-                query = raw_query.strip()[:500]
+                query = public_text(raw_query).strip()[:500]
             raw_results = payload.get("results")
             if isinstance(raw_results, list):
                 for item in raw_results:
@@ -401,7 +403,7 @@ def _tool_activity_metadata(
 
 
 def _normalize_public_url(value: object) -> str | None:
-    if not isinstance(value, str):
+    if not public_web_url(value):
         return None
     normalized, _fragment = urldefrag(value.strip())
     if urlsplit(normalized).scheme.lower() not in {"http", "https"}:

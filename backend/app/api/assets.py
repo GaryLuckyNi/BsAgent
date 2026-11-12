@@ -1,5 +1,5 @@
-from typing import Annotated
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import (
     APIRouter,
@@ -28,6 +28,11 @@ from app.assets.service import AssetService
 from app.core.config import settings
 from app.operations.rate_limit import RateLimitPolicy, require_rate_limit
 from app.security.dependencies import require_permission
+from app.security.image_content import (
+    ImageContentRejected,
+    ImageContentUnavailable,
+    protect_image_payload,
+)
 from app.security.principal import Principal
 from app.storage.database import get_db
 from app.vision.factory import build_image_analysis_dispatcher
@@ -38,6 +43,7 @@ router = APIRouter(prefix="/api/assets", tags=["assets"])
 IMAGE_UPLOAD_RATE_LIMIT = RateLimitPolicy(
     name="image_upload",
     requests_per_minute=settings.image_upload_rate_limit_per_minute,
+    config_key="image_upload_rate_limit_per_minute",
 )
 
 
@@ -117,7 +123,7 @@ def upload_image(
 @router.get("/{asset_id}", response_model=AssetResponse)
 def get_asset(
     asset_id: str,
-    principal: Principal = Depends(require_permission("asset:read")),
+    principal: Principal = Depends(require_permission("asset:read", alternatives=("asset:read:any",))),
     service: AssetService = Depends(get_asset_service),
 ) -> AssetResponse:
     try:
@@ -130,7 +136,7 @@ def get_asset(
 @router.get("/{asset_id}/analysis", response_model=AssetAnalysisResponse)
 def get_asset_analysis(
     asset_id: str,
-    principal: Principal = Depends(require_permission("asset:read")),
+    principal: Principal = Depends(require_permission("asset:read", alternatives=("asset:read:any",))),
     service: AssetService = Depends(get_asset_service),
     repository: SqlAlchemyVisionAnalysisRepository = Depends(
         get_vision_analysis_repository
@@ -144,12 +150,13 @@ def get_asset_analysis(
         )
         if record is None:
             raise AssetNotReadyError("图片资产尚未完成分析。")
+        content = protect_image_payload({"provider": record.provider, "model": record.model, "analysis": record.result_json})
         return AssetAnalysisResponse(
             asset_id=record.asset_id,
             schema_version=record.schema_version,
-            provider=record.provider,
-            model=record.model,
-            analysis=VisionAnalysis.model_validate(record.result_json),
+            provider=content["provider"],
+            model=content["model"],
+            analysis=VisionAnalysis.model_validate(content["analysis"]),
             created_at=record.created_at,
         )
     except Exception as exc:
@@ -159,7 +166,7 @@ def get_asset_analysis(
 @router.delete("/{asset_id}", status_code=204)
 def delete_asset(
     asset_id: str,
-    principal: Principal = Depends(require_permission("asset:delete")),
+    principal: Principal = Depends(require_permission("asset:delete", alternatives=("asset:delete:any",))),
     service: AssetService = Depends(get_asset_service),
 ) -> Response:
     try:
@@ -170,6 +177,9 @@ def delete_asset(
 
 
 def to_asset_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, (ImageContentRejected, ImageContentUnavailable)):
+        return HTTPException(status_code=409 if isinstance(exc, ImageContentRejected) else 503,
+                             detail={"code": exc.code, "message": str(exc)})
     if isinstance(exc, AssetValidationError):
         status_code = {
             "asset_too_large": 413,

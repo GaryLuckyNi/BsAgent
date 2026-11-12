@@ -5,8 +5,11 @@ from typing import Any, Protocol
 
 from app.core.config import settings
 from app.llm.deepseek import DeepSeekClient, LlmConfigurationError
+from app.llm.errors import PROVIDER_TRANSPORT_ERRORS, normalized_provider_error
 from app.llm.prompts import BUSINESS_LANGUAGE_INSTRUCTION
 from app.llm.schemas import LlmCompletionResult, LlmStreamDelta
+from app.security.model_input import protect_model_prompts
+from app.security.model_output import IncrementalOutput, emit_completion, protect_completion
 
 _REASONING_LANGUAGE_INSTRUCTION = (
     "【推理语言硬性要求】reasoning_content 的自然语言句子必须全程使用简体中文，"
@@ -68,11 +71,12 @@ def invoke_llm_completion(
         max_tokens=max_tokens,
         thinking=thinking,
         on_delta=on_delta,
+        defer_output=retry_without_thinking_on_length,
     )
     retry_empty = retry_without_thinking_on_empty and not result.content.strip()
     retry_length = retry_without_thinking_on_length and result.finish_reason == "length"
     if thinking and (retry_empty or retry_length):
-        return _invoke_llm_completion_once(
+        result = _invoke_llm_completion_once(
             llm_client,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -80,7 +84,10 @@ def invoke_llm_completion(
             max_tokens=max_tokens,
             thinking=False,
             on_delta=on_delta if retry_empty else None,
+            defer_output=retry_without_thinking_on_length,
         )
+    if retry_without_thinking_on_length:
+        emit_completion(result, on_delta)
     return result
 
 
@@ -95,7 +102,43 @@ def _localized_reasoning_prompts(
     return f"{_REASONING_LANGUAGE_INSTRUCTION}\n\n{system_prompt}", user_prompt
 
 
-def _invoke_llm_completion_once(
+def _invoke_llm_completion_once(llm_client, *, on_delta=None, defer_output=False, **kwargs):
+    buffer = IncrementalOutput()
+    received = False
+    published = {"content": [], "reasoning": []}
+    def forward(event):
+        nonlocal received
+        received = True
+        if defer_output:
+            return
+        for checked in buffer.add(event):
+            if checked.kind in published:
+                published[checked.kind].append(checked.delta)
+            on_delta(checked)
+    failure = None
+    try:
+        result = _dispatch_llm_completion_once(llm_client,
+            on_delta=forward if on_delta is not None else None, **kwargs)
+    except PROVIDER_TRANSPORT_ERRORS as error:
+        failure = normalized_provider_error(error)
+    if failure is not None:
+        raise failure
+    result = protect_completion(result)
+    if on_delta is not None and not defer_output and result.finish_reason != "length":
+        if received:
+            from app.security.model_output import ModelOutputRejected
+            for kind, field in (("reasoning", "reasoning_content"), ("content", "content")):
+                prefix, final = "".join(published[kind]), getattr(result, field)
+                if not final.startswith(prefix):
+                    raise ModelOutputRejected
+                if final[len(prefix):]:
+                    on_delta(LlmStreamDelta(kind=kind, delta=final[len(prefix):]))
+        else:
+            emit_completion(result, on_delta)
+    return result
+
+
+def _dispatch_llm_completion_once(
     llm_client: LlmClient,
     *,
     system_prompt: str,
@@ -105,6 +148,7 @@ def _invoke_llm_completion_once(
     thinking: bool,
     on_delta: Callable[[LlmStreamDelta], None] | None,
 ) -> LlmCompletionResult:
+    system_prompt, user_prompt = protect_model_prompts(system_prompt, user_prompt)
     system_prompt = f"{system_prompt}\n\n{BUSINESS_LANGUAGE_INSTRUCTION}"
     sync_native_stream_completion = getattr(
         llm_client,
@@ -182,6 +226,22 @@ def maybe_build_llm_client() -> LlmClient:
 def close_llm_client() -> None:
     with _client_lock:
         _close_cached_client()
+
+
+async def aclose_llm_client() -> None:
+    global _cached_client, _cached_client_fingerprint
+    with _client_lock:
+        client = _cached_client
+        _cached_client = None
+        _cached_client_fingerprint = None
+    if client is not None:
+        closer = getattr(client, "aclose", None)
+        if callable(closer):
+            await closer()
+        else:
+            close = getattr(client, "close", None)
+            if callable(close):
+                close()
 
 
 def _close_cached_client() -> None:

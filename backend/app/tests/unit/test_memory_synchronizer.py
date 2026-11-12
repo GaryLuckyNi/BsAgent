@@ -54,19 +54,13 @@ def test_sync_run_writes_committed_eligible_candidate_with_stable_key():
         assert candidate.store_sync_status == "synced"
         assert candidate.store_sync_attempts == 1
         assert candidate.store_sync_error is None
-    assert store.calls == [
-        (
-            ("tenants", "tenant_1", "users", "user_1", "experiences"),
-            "language",
-            {
-                "memory_type": "user_preference",
-                "memory_key": "language",
-                "content": "所有回答使用中文",
-                "confidence": 0.9,
-                "source": "user_explicit_preference",
-            },
-        )
-    ]
+    assert store.calls == [(
+        ("tenants", "tenant_1", "users", "user_1", "experiences"),
+        "language",
+        {"memory_type": "user_preference", "memory_key": "language",
+         "content": "所有回答使用中文", "confidence": 0.9, "source": "user_explicit_preference"},
+    )]
+
 
 
 def test_sync_run_does_not_write_pending_or_rejected_candidates():

@@ -15,7 +15,7 @@ def test_removes_sensitive_keys_case_insensitively(key):
 def test_recursively_sanitizes_without_mutating_original_containers():
     original = {"items": [{"TOKEN": "secret", "value": "ok"}], "tuple": ("safe",)}
     result = sanitize_content(original)
-    assert result == {"items": [{"value": "ok"}], "tuple": ("safe",)}
+    assert result == {"items": [{"value": "ok"}], "tuple": ["safe"]}
     assert original["items"][0]["TOKEN"] == "secret"
 
 
@@ -55,22 +55,21 @@ def test_sanitizes_strings_recursively_and_preserves_input():
     [
         (
             "Fetch https://example.test/path?token=secret&keep=visible",
-            "Fetch https://example.test/path?token=[REDACTED]&keep=visible",
+            "***",
         ),
         (
             "https://example.test/?api_key=secret&signature=sig&password=pw&auth=a",
             (
-                "https://example.test/?api_key=[REDACTED]&signature=[REDACTED]"
-                "&password=[REDACTED]&auth=[REDACTED]"
+                "***"
             ),
         ),
         (
             '{"url":"https://example.test/?token=secret","ok":"visible"}',
-            '{"url":"https://example.test/?token=[REDACTED]","ok":"visible"}',
+            '{"url": "***", "ok": "visible"}',
         ),
         (
-            "Authorization: Bearer abc.def_123 and key sk-1234567890 pk-abcdefghij",
-            "Authorization: [REDACTED] and key [REDACTED] [REDACTED]",
+            "Authorization: Bearer abc.def_123 and key sk-1234567890longsyntheticvalue pk-abcdefghijlongsyntheticvalue",
+            "Authorization: *** and key *** [REDACTED]",
         ),
         (
             "The business tokenization key is useful; skincare is a product line.",

@@ -64,3 +64,28 @@ class MarketDataProviderConfigRecord(Base):
         default=_utc_now,
         onupdate=_utc_now,
     )
+
+
+class SecurityGrantRecord(Base):
+    """Admin 全局配置权限；用户与服务按主体类型隔离。"""
+    __tablename__ = "admin_security_grants"
+
+    issuer: Mapped[str] = mapped_column(String(256), primary_key=True)
+    subject: Mapped[str] = mapped_column(String(256), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), primary_key=True)
+    permissions: Mapped[list] = mapped_column(JSON, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)
+
+
+class SecurityGrantEventRecord(Base):
+    __tablename__ = "admin_security_grant_events"
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    issuer: Mapped[str] = mapped_column(String(256))
+    subject: Mapped[str] = mapped_column(String(256))
+    kind: Mapped[str] = mapped_column(String(16))
+    actor_ref: Mapped[str] = mapped_column(String(128))
+    action: Mapped[str] = mapped_column(String(16))
+    changes: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utc_now)

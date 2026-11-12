@@ -28,10 +28,17 @@ def execute_local_turn(*, session_factory, run_id, memory_store):
         from app.intent.schemas import BusinessIntentProfile
         from app.schemas.messages import Message
         from app.security.principal import Principal
+        from app.security.run_authorization import RunAuthorizationDenied, refresh_run
+        from app.storage.models import AgentRun
 
         payload = db.get(AgentRunExecution, run_id).payload
         handle = TurnHandle.model_validate(payload["handle"])
         principal = Principal(**payload["principal"])
+        principal = refresh_run(db, run_id=run_id, principal=principal)
+        run = db.get(AgentRun, run_id)
+        if (handle.run_id != run_id or handle.session_id != run.session_id
+                or handle.session_key != run.session_key):
+            raise RunAuthorizationDenied
         catalog = BusinessIntentCatalog(
             BusinessIntentProfile.model_validate(profile) for profile in payload["catalog"]
         )

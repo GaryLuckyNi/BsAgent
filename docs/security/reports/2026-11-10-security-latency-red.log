@@ -1,0 +1,70 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+______________________ test_binding_recheck_is_one_query _______________________
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_b19d6b583d9447a9b0c2f2f24725820b', assistant_message_id='msg_bc87dc789ba34622a504933504fe7ea9', replayed=False))
+
+    def test_binding_recheck_is_one_query(env):
+        from sqlalchemy import event
+        binding = init(env)
+        statements = []
+        engine = env[0].kw["bind"]
+        def record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            charge(binding)
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+>       assert len(statements) == 1
+E       AssertionError: assert 2 == 1
+E        +  where 2 = len(['SELECT security_run_budgets.run_id AS security_run_budgets_run_id, security_run_budgets.tenant_id AS security_run_bu...nt_runs_graph_version, agent_runs.created_at AS agent_runs_created_at \nFROM agent_runs \nWHERE agent_runs.run_id = ?'])
+
+backend/app/tests/unit/test_run_budget.py:79: AssertionError
+________ test_response_credit_regular_reservation_is_one_atomic_update _________
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_35707789d25b40e585fa5fbb4c519152', assistant_message_id='msg_1d3308d7025948eb9749486f725dce92', replayed=False))
+
+    def test_response_credit_regular_reservation_is_one_atomic_update(env):
+        from sqlalchemy import event
+        from app.security.run_budget import reserve_response_credit
+        binding = init(env)
+        statements = []
+        engine = env[0].kw["bind"]
+        def record(conn, cursor, statement, parameters, context, executemany):
+            statements.append(statement)
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            assert reserve_response_credit(binding, "wire") == 65536
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+>       assert len(statements) == 1 and statements[0].lstrip().startswith("UPDATE")
+E       AssertionError: assert (6 == 1)
+E        +  where 6 = len(['SELECT security_run_budgets.run_id AS security_run_budgets_run_id, security_run_budgets.tenant_id AS security_run_bu... agent_runs.run_id = ?', 'UPDATE security_run_budgets SET wire_bytes_reserved=? WHERE security_run_budgets.run_id = ?'])
+
+backend/app/tests/unit/test_run_budget.py:95: AssertionError
+__ test_plain_model_input_does_not_repeat_external_instruction_classification __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x118922cd0>
+
+    def test_plain_model_input_does_not_repeat_external_instruction_classification(monkeypatch):
+        import app.security.tool_content as module
+        from app.security.model_input import model_input_view
+        calls = []
+        def detect(text):
+            calls.append(text)
+            return frozenset()
+        monkeypatch.setattr(module, "detect_prompt_injection", detect)
+        assert model_input_view(PUBLIC) == PUBLIC
+>       assert calls == []
+E       AssertionError: assert ['公开财报显示营业收入增...长，经营现金流保持稳定。'] == []
+E         
+E         Left contains one more item: '公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金流保持稳定。'
+E         Use -v to get more diff
+
+backend/app/tests/unit/test_incremental_output_security.py:76: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_run_budget.py::test_binding_recheck_is_one_query
+FAILED backend/app/tests/unit/test_run_budget.py::test_response_credit_regular_reservation_is_one_atomic_update
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_plain_model_input_does_not_repeat_external_instruction_classification
+3 failed in 0.89s

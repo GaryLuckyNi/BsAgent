@@ -2,7 +2,10 @@
 
 import re
 from collections.abc import Iterable, Mapping
-from urllib.parse import quote, urlsplit
+from itertools import islice
+from urllib.parse import quote
+
+from app.security.public_output import public_sources, public_text, public_web_url
 
 _SOURCE = r"source\\?_[1-9]\d*"
 _PART = re.compile(
@@ -19,29 +22,17 @@ _PART = re.compile(
 
 class AnswerCitations:
     def __init__(self, sources: Iterable[Mapping[str, str]]):
-        self._urls = {source["source_id"]: source.get("url", "") for source in sources}
+        self._urls = {source["source_id"]: public_web_url(source.get("url")) or ""
+                      for source in islice(sources,200) if isinstance(source,Mapping)
+                      and isinstance(source.get("source_id"),str)}
 
     def render(self, content: str) -> str:
-        return _PART.sub(self._replace, content)
+        return public_text(_PART.sub(self._replace, content))
 
     @staticmethod
     def previews(sources: Iterable[Mapping]) -> list[dict]:
         """只公开已取得的来源信息，保留原始编号，不派生或补造网页内容。"""
-        result = []
-        for source in sources:
-            identity = source.get("source_id", "")
-            if not isinstance(identity, str) or not re.fullmatch(r"source_[1-9]\d*", identity):
-                continue
-            url = source.get("url", "")
-            if not isinstance(url, str) or not _web_url(url):
-                continue
-            item = {"source_id": identity, "index": int(identity.removeprefix("source_")), "url": url}
-            for key, limit in (("title", 500), ("snippet", 2000), ("published_at", 100)):
-                value = source.get(key)
-                if isinstance(value, str) and value.strip():
-                    item[key] = value.strip()[:limit]
-            result.append(item)
-        return result
+        return public_sources([dict(source) for source in islice(sources,200) if isinstance(source,Mapping)])
 
     def _replace(self, match: re.Match) -> str:
         if match["protected"] is not None:
@@ -59,10 +50,4 @@ class AnswerCitations:
 
 
 def _web_url(url: str) -> bool:
-    if not url or any(ord(char) < 32 or ord(char) == 127 for char in url):
-        return False
-    try:
-        parsed = urlsplit(url)
-        return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
-    except ValueError:
-        return False
+    return public_web_url(url) is not None

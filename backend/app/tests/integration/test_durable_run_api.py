@@ -93,7 +93,8 @@ def test_http_stop_keeps_partial_answer_replays_without_rerun_and_next_turn_work
     try:
         active = client.get("/api/sessions/s1/runs/active").json()["run"]
         assert active["status"] == "running"
-        assert active["content"] == "部分正文"
+        # 运行仍开放时正文未完成重放检查；结束/取消后的完整部分正文仍须保留。
+        assert active["content"] == ""
         assert active["request_id"] == "durable-1"
         run_id = active["run_id"]
         assert (
@@ -214,6 +215,9 @@ def test_resume_new_phase_does_not_replay_prior_interrupted_terminal(monkeypatch
                 user_content="选择",
             )
         )
+        from app.security.run_budget import initialize_budget
+        from app.security.principal import Principal
+        initialize_budget(db,handle=handle,principal=Principal("tenant_1","user_1",("agent:invoke",)))
         durable = DurableRunService(db)
         durable.prepare(handle=handle, payload={})
         owner = durable.claim(handle.run_id)
@@ -279,6 +283,9 @@ def _pending_input_turn(database):
             tenant_id="tenant_1", user_id="user_1", session_id="s1",
             request_id="pending-input", user_content="选择数据来源",
         ))
+        from app.security.run_budget import initialize_budget
+        from app.security.principal import Principal
+        initialize_budget(db,handle=handle,principal=Principal("tenant_1","user_1",("agent:invoke",)))
         durable = DurableRunService(db)
         durable.prepare(handle=handle, payload={})
         owner = durable.claim(handle.run_id)
