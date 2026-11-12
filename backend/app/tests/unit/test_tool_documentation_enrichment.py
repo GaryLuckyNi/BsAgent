@@ -55,10 +55,14 @@ def test_rejects_unsubstantiated_extraction(bad):
     value = meaning("经营活动产生的现金流量净额")
     value["evidence"][0]["quote"] = "n_cashflow_act：经营活动产生的现金流量净额。"
     key = "n_cashflow_act"
-    if bad == "quote": value["evidence"][0]["quote"] = "文档不存在的内容"
-    if bad == "url": value["evidence"][0]["url"] = "https://evil.example/cashflow"
-    if bad == "field": key = "made_up_field"
-    if bad == "unit": value["unit"] = "亿元"
+    if bad == "quote":
+        value["evidence"][0]["quote"] = "文档不存在的内容"
+    if bad == "url":
+        value["evidence"][0]["url"] = "https://evil.example/cashflow"
+    if bad == "field":
+        key = "made_up_field"
+    if bad == "unit":
+        value["unit"] = "亿元"
     with pytest.raises(ValueError):
         run({"output_fields": {key: value}})
 

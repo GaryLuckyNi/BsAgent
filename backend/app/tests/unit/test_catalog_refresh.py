@@ -167,7 +167,10 @@ def test_graph_build_failure_does_not_leave_run_binding(monkeypatch):
     from app.graph import runtime
 
     catalog = ToolCatalogRuntime(registry_factory=ToolRegistry)
-    factory = lambda: catalog.snapshot()
+
+    def factory():
+        return catalog.snapshot()
+
     monkeypatch.setattr(runtime, "get_default_tool_catalog_runtime", lambda: catalog)
     monkeypatch.setattr(runtime, "get_default_tool_registry", factory)
     monkeypatch.setattr(runtime, "_DEFAULT_TOOL_REGISTRY_FACTORY", factory)

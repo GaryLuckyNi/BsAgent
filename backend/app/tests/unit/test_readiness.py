@@ -294,9 +294,11 @@ def test_default_intent_catalog_runtime_reuses_admin_base_url_and_bounded_timeou
             }
 
     class Client:
-        def __init__(self, *, base_url, timeout):
+        def __init__(self, *, base_url, timeout, auth, follow_redirects):
             captured["base_url"] = base_url
             captured["timeout"] = timeout
+            captured["auth"] = auth
+            captured["follow_redirects"] = follow_redirects
             captured["closed"] = False
 
         def get(self, path, *, params):
@@ -323,10 +325,12 @@ def test_default_intent_catalog_runtime_reuses_admin_base_url_and_bounded_timeou
     ]
     assert runtime.refresh_seconds == 45
     assert captured["base_url"] == "https://admin.example.test"
+    assert captured["auth"] is None
+    assert captured["follow_redirects"] is False
     assert captured["timeout"].connect == 5
     assert captured["timeout"].read == 5
     assert captured["request"] == (
-        "/api/business-intents",
+        "/api/runtime/business-intents",
         {"enabled": "true"},
     )
     assert captured["closed"] is True

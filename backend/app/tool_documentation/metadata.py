@@ -109,9 +109,11 @@ def synthesis_semantics(semantics, content):
     def visit(value):
         if isinstance(value, dict):
             names.update(value)
-            for nested in value.values(): visit(nested)
+            for nested in value.values():
+                visit(nested)
         elif isinstance(value, list):
-            for nested in value: visit(nested)
+            for nested in value:
+                visit(nested)
     visit(data)
     doc = semantics.get("documentation", {})
     return {"status": doc.get("status", "server_contract"),

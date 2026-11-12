@@ -38,7 +38,10 @@ def main():
 
     # 只比较删除该字段本身，不把 Pydantic 默认字段展开误计为性能差异。
     without_summary = {key: value for key, value in old_plan.items() if key != "public_summary"}
-    compact = lambda value: json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+    def compact(value):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
     record = {
         "trace_id": "e63644e40326c60cd3b2c2ab910d5ad8",
         "old_summary_chars": len(old_plan["public_summary"]),

@@ -675,15 +675,19 @@ def test_session_message_trace_can_be_queried(monkeypatch, fake_business_intent_
 
 
 def test_trace_cannot_be_read_across_tenants(monkeypatch, fake_business_intent_catalog_runtime):
+    monkeypatch.setattr(sessions.settings, "trace_success_sample_ratio", 1)
     store = get_trace_store()
     store.clear()
     app = create_test_app_with_database(fake_business_intent_catalog_runtime)
     client = TestClient(app)
     session_response = client.post(
         "/api/sessions/tenant_trace/messages",
-        json={"message": "分析一下银之杰"},
+        json={"message": "你好"},
+        headers={"X-Tenant-ID": "tenant_1", "X-User-ID": "user_1"},
     )
+    assert session_response.status_code == 200, session_response.text
     trace_id = session_response.json()["trace_id"]
+    assert client.get(f"/api/traces/{trace_id}").status_code == 200
     app.dependency_overrides[get_current_principal] = lambda: Principal(
         tenant_id="tenant_2",
         user_id="user_2",

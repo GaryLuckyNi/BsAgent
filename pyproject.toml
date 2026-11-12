@@ -72,3 +72,23 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint.per-file-ignores]
+# 这些脚本需要先配置导入路径或安装网络拦截，再导入项目模块。
+"docs/acceptance/2026-10-24-live-regression-50/audit_state.py" = ["E402"]
+"docs/acceptance/2026-10-24-live-regression-50/build_artifacts.py" = ["E402"]
+"docs/acceptance/2026-10-24-live-regression-50/run_cases.py" = ["E402"]
+"docs/acceptance/2026-10-25-admin-skill-repair/repair.py" = ["E402"]
+"docs/acceptance/2026-10-25-existing-session-recovery/run.py" = ["E402"]
+"docs/acceptance/answer_requirement_replay_probe.py" = ["E402"]
+"docs/acceptance/answer_source_links_probe.py" = ["E402"]
+"docs/acceptance/goal_based_progress_probe.py" = ["E402"]
+"docs/security/probes/security_latency.py" = ["E402"]
+"scripts/evaluator_calibration.py" = ["E402"]
+"scripts/langfuse_examples.py" = ["E402"]
+"scripts/offline_answer_baseline.py" = ["E402"]
+"scripts/publish_offline_baseline.py" = ["E402"]
+"scripts/real_eval_dataset.py" = ["E402"]
+"scripts/replay_synthesis_baseline.py" = ["E402"]
+"scripts/synthesis_evidence_experiment.py" = ["E402"]
+"scripts/synthesis_prompt_experiment.py" = ["E402"]

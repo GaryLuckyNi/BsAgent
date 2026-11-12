@@ -125,11 +125,13 @@ with tempfile.TemporaryDirectory(prefix="bsagent-security-latency-") as temp:
     @event.listens_for(engine, "before_cursor_execute")
     def before_sql(conn, cursor, statement, parameters, context, executemany):
         counters[statement.lstrip().split()[0].upper()] += 1
-        if delay[0]: time.sleep(delay[0])
+        if delay[0]:
+            time.sleep(delay[0])
     @event.listens_for(engine, "commit")
     def before_commit(conn):
         counters["COMMIT"] += 1
-        if delay[0]: time.sleep(delay[0])
+        if delay[0]:
+            time.sleep(delay[0])
     settings.rbac_backend, settings.auth_provider, settings.jwt_issuer = "principal", "mock", issuer
     rbac.get_rbac_provider = lambda: provider
     def meter_one_mib():

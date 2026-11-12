@@ -3,7 +3,6 @@ import json
 from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
-from typing import ClassVar
 
 import httpx
 import pytest

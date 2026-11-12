@@ -9,6 +9,7 @@ from app.llm.deepseek import DeepSeekClient
 from app.llm.errors import LlmProviderError
 from app.security.sdk_http import BoundedAsyncClient, BoundedClient
 from app.tests.unit.test_http_response_budgets import AsyncBytes, SyncBytes
+from langchain_core.messages import HumanMessage
 
 
 @pytest.fixture(autouse=True)
@@ -21,9 +22,6 @@ def forbid_default_httpx_network(monkeypatch):
 
     monkeypatch.setattr(httpx.HTTPTransport, "handle_request", blocked)
     monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", async_blocked)
-
-
-from langchain_core.messages import HumanMessage
 
 
 @pytest.mark.parametrize("mode", ["sync", "async"])
@@ -71,11 +69,14 @@ def test_real_native_model_sdk_is_bounded_before_parsing(mode, status):
 def test_sdk_wrapper_preserves_headers_normal_json_and_borrowed_client(mode):
     body = json.dumps({"text": "公开正常"}, ensure_ascii=False).encode()
     stream = (SyncBytes if mode == "sync" else AsyncBytes)([body])
-    handler = lambda _: httpx.Response(
-        200,
-        stream=stream,
-        headers={"Content-Type": "application/json", "x-request-id": "public-id"},
-    )
+
+    def handler(_request):
+        return httpx.Response(
+            200,
+            stream=stream,
+            headers={"Content-Type": "application/json", "x-request-id": "public-id"},
+        )
+
     if mode == "sync":
         with httpx.Client(
             transport=httpx.MockTransport(handler), headers={"x-custom": "kept"}

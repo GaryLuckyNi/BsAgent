@@ -48,7 +48,6 @@ from langgraph.types import Interrupt
 from sqlalchemy import create_engine, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 TEST_MEMORY_STORE = object()
 EMPTY_BUSINESS_INTENT_CATALOG = BusinessIntentCatalog([])

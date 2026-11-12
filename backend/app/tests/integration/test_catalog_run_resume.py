@@ -27,7 +27,10 @@ def test_input_resume_keeps_run_snapshot_or_reports_expiration_to_model(
     catalog = ToolCatalogRuntime(registry_factory=lambda: current[0], search_service_factory=lambda registry:
         ToolSearchService(registry=registry, index=ToolSearchIndex.build(
             specs=registry.specs(), catalog_digest=registry.catalog_digest), candidate_k=20))
-    factory = lambda: catalog.snapshot()
+
+    def factory():
+        return catalog.snapshot()
+
     monkeypatch.setattr(runtime, "get_default_tool_registry", factory)
     monkeypatch.setattr(runtime, "_DEFAULT_TOOL_REGISTRY_FACTORY", factory)
     monkeypatch.setattr(runtime, "get_default_tool_catalog_runtime", lambda: catalog)

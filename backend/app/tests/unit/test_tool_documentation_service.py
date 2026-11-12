@@ -41,7 +41,8 @@ def test_discovery_enqueues_once_and_future_snapshot_reads_ready_cache(request):
     assert fresh.spec.documentation["output_fields"]["income"]["description"] == "营业收入"
     assert tool.spec.documentation["status"] == "missing"
     changed = Source(tool.name, [])
-    different = config(); different.config_revision = "v2"
+    different = config()
+    different.config_revision = "v2"
     service.prepare([changed], different)
     assert len(queued) == 2 and changed.spec.documentation["status"] == "missing"
 

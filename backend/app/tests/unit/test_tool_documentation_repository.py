@@ -30,7 +30,7 @@ def test_duplicate_reservation_delivery_and_stale_lease_are_safe(repository):
     assert next_job is not None
     assert not repository.finish("a" * 64, job["lease"], {"status": "missing"}, now=later)
     assert repository.finish("a" * 64, next_job["lease"], {"status": "partial"}, now=later)
-    assert repository.ready("a" * 64) == {"status": "partial"}
+    assert repository.ready("a" * 64, now=later) == {"status": "partial"}
 
 
 def test_failure_cooldown_and_contract_versions_do_not_mix(repository):

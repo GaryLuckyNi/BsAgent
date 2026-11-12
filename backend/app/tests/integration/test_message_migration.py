@@ -19,6 +19,7 @@ from app.core.config import settings
 
 
 LEGACY_SQLITE_HEAD = "20260802_0012"
+MESSAGE_MIGRATION_REVISION = "20260731_0011"
 
 
 _SESSION_KEY_NAMESPACE = UUID("5d1f4f7a-b6c3-5e22-9a3d-58a676d13f91")
@@ -625,7 +626,7 @@ def test_live_postgres_message_migration_contract(monkeypatch):
         with engine.begin() as connection:
             _insert_legacy_records(connection)
 
-        command.upgrade(config, "head")
+        command.upgrade(config, MESSAGE_MIGRATION_REVISION)
         inspector = inspect_database(engine)
         assert inspector.get_pk_constraint("agent_sessions")[
             "constrained_columns"
@@ -826,7 +827,7 @@ def test_live_postgres_message_migration_recovers_partial_upgrade(monkeypatch):
             )
             AgentMessage.__table__.create(connection)
 
-        command.upgrade(config, "head")
+        command.upgrade(config, MESSAGE_MIGRATION_REVISION)
         inspector = inspect_database(engine)
         assert inspector.get_pk_constraint("agent_sessions")[
             "constrained_columns"
@@ -854,7 +855,7 @@ def test_live_postgres_message_migration_recovers_partial_downgrade(monkeypatch)
         monkeypatch,
         "message_partial_downgrade",
     ) as (config, engine):
-        command.upgrade(config, "head")
+        command.upgrade(config, MESSAGE_MIGRATION_REVISION)
         with engine.begin() as connection:
             connection.execute(
                 text(
@@ -909,4 +910,4 @@ def test_live_postgres_message_migration_rejects_incomplete_message_table(
             )
 
         with pytest.raises(RuntimeError, match="agent_messages.*不完整"):
-            command.upgrade(config, "head")
+            command.upgrade(config, MESSAGE_MIGRATION_REVISION)

@@ -6,12 +6,14 @@ import pytest
 from app.conversations.execution import execution_control
 from app.schemas.tools import ToolCallRequest
 from app.storage.models import AgentRunToolReceipt
+from app.tests.unit import test_run_authorization
 from app.tests.unit.test_run_authorization import binding_context, control_for, initialize
-from app.tests.unit.test_run_authorization import environment as environment  # noqa: PLC0414
 from app.tests.unit.test_tool_agent import EchoTool
 from app.tools.execution_gateway import ToolExecutionGateway
 from app.tools.registry import ToolRegistry
 from sqlalchemy import select
+
+environment = test_run_authorization.environment
 
 
 @pytest.mark.parametrize("phase", ["refresh", "charge"])

@@ -18,6 +18,9 @@ from app.security.http_response import (
 )
 
 
+_UPSTREAM_MARKER = b"RT_HTTP_BODY_DO_NOT_EXPOSE_71A6"
+
+
 class SyncBytes(httpx.SyncByteStream):
     def __init__(self, chunks):
         self.chunks = chunks
@@ -155,19 +158,19 @@ def test_normal_utf8_json_and_compression_are_preserved(mode, encoding, compress
 @pytest.mark.parametrize(
     "headers,chunks",
     [
-        ({"Content-Length": "10000"}, [b"private"]),
-        ({"Content-Length": "-1"}, [b"private"]),
-        ({"Content-Encoding": "br"}, [b"private"]),
-        ({"Content-Encoding": "gzip, gzip"}, [b"private"]),
-        ({"Content-Encoding": "gzip"}, [b"invalid-private"]),
+        ({"Content-Length": "10000"}, [_UPSTREAM_MARKER]),
+        ({"Content-Length": "-1"}, [_UPSTREAM_MARKER]),
+        ({"Content-Encoding": "br"}, [_UPSTREAM_MARKER]),
+        ({"Content-Encoding": "gzip, gzip"}, [_UPSTREAM_MARKER]),
+        ({"Content-Encoding": "gzip"}, [b"invalid-" + _UPSTREAM_MARKER]),
         ({"Content-Encoding": "gzip"}, [gzip.compress(b"ok")[:-3]]),
-        ({"Content-Encoding": "gzip"}, [gzip.compress(b"ok") + b"trailing-private"]),
+        ({"Content-Encoding": "gzip"}, [gzip.compress(b"ok") + b"trailing-" + _UPSTREAM_MARKER]),
     ],
 )
 def test_invalid_length_encoding_and_compression_fail_with_fixed_error(mode, headers, chunks):
     result, stream, _ = request(mode, chunks, headers=headers)
     assert isinstance(result, HttpResponseBudgetError) and stream.closed
-    assert "private" not in "".join(traceback.format_exception(result))
+    assert _UPSTREAM_MARKER.decode() not in "".join(traceback.format_exception(result))
     assert result.__cause__ is None and result.__context__ is None
 
 

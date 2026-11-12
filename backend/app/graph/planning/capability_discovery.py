@@ -20,6 +20,9 @@ class CapabilitySearchRequest(BaseModel):
         values = [" ".join(query.split()) for query in queries]
         if any(not value or len(value) > 512 for value in values) or len(set(values)) != len(values):
             raise ValueError("能力检索词须为1至3条不重复的非空短句，每条最多512字符。")
+        # 模型输出检查会先将凭证替换为掩码，含掩码的检索词仍应拒绝。
+        if any("***" in value for value in values):
+            raise ValueError("能力检索词不得包含已脱敏的内容。")
         reject_inline_credentials(values)
         return values
 

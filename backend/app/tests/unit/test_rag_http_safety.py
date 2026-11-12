@@ -6,8 +6,10 @@ import traceback
 
 import httpx
 import pytest
-from app.tests.unit.test_rag_authorization import trusted_rag_run  # noqa: F401
+from app.tests.unit import test_rag_authorization
 from app.tools.rag_search import RagSearchError, RagSearchInput, RagSearchTool
+
+trusted_rag_run = test_rag_authorization.trusted_rag_run
 
 MARKER = "RT_UPSTREAM_PRIVATE_DIAGNOSTIC_20261102"
 

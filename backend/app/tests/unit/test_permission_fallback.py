@@ -4,21 +4,6 @@ import json
 from typing import ClassVar
 
 import pytest
-
-
-def test_compressed_fallback_retains_source_date_and_summary_without_answer():
-    from app.graph.nodes.permission_fallback import _search_content
-    from app.schemas.tools import ToolCallResult
-
-    result = ToolCallResult(tool_call_id="search", tool_name="web_search", status="success",
-                            trace_id="trace", result={"answer": "", "results": [{
-                                "title": f"公告{index}", "url": f"https://example.com/{index}",
-                                "snippet": "字" * 4000, "published_at": "2026-10-23T02:00:00Z",
-                            } for index in range(5)], "coverage": {"status": "unknown"}})
-    content = json.loads(_search_content(result))
-    assert content["truncated"] is True
-    assert content["search_result"]["results"][0]["snippet"]
-    assert content["search_result"]["results"][0]["published_at"] == "2026-10-23T02:00:00Z"
 from app.graph.nodes.tool_agent import build_tool_agent_node
 from app.graph.state import create_initial_state, merge_tool_call_records
 from app.schemas.tools import ToolCallResult, ToolError
@@ -30,6 +15,20 @@ from app.tools.registry import ToolRegistry
 from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
+
+
+def test_compressed_fallback_retains_source_date_and_summary_without_answer():
+    from app.graph.nodes.permission_fallback import _search_content
+
+    result = ToolCallResult(tool_call_id="search", tool_name="web_search", status="success",
+                            trace_id="trace", result={"answer": "", "results": [{
+                                "title": f"公告{index}", "url": f"https://example.com/{index}",
+                                "snippet": "字" * 4000, "published_at": "2026-10-23T02:00:00Z",
+                            } for index in range(5)], "coverage": {"status": "unknown"}})
+    content = json.loads(_search_content(result))
+    assert content["truncated"] is True
+    assert content["search_result"]["results"][0]["snippet"]
+    assert content["search_result"]["results"][0]["published_at"] == "2026-10-23T02:00:00Z"
 
 
 class EmptyInput(BaseModel):
