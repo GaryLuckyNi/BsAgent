@@ -1,0 +1,328 @@
+{
+  "case_id": "049",
+  "run": {
+    "run_id": "run_321f22ba2682bd1110ac0608954614ad6d41083aa821317918ed18dfa823",
+    "session_id": "live50-20261024-a-049",
+    "session_key": "sess_bf1f715b954a41959c08717ffc7201aa",
+    "trace_id": "trace_fd5044ada9b64399a679c082409cc0b0",
+    "status": "completed",
+    "created_at": "2026-10-24 14:48:38.399630+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 25,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:48:38.418185+00:00",
+    "ended_at": "2026-10-24 14:48:55.264279+00:00",
+    "events": 25
+  },
+  "receipts": [
+    {
+      "receipt_id": "a6626768b7e7434a8fe8b8a3091ee956",
+      "tool_name": "mcp.tushare.stock_basic",
+      "call_id": "call_e124b0a4adf957457f201aa83247627e",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_timeout",
+          "details": {},
+          "message": "MCP 工具执行超时。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "timeout",
+        "trace_id": "trace_fd5044ada9b64399a679c082409cc0b0",
+        "tool_name": "mcp.tushare.stock_basic",
+        "latency_ms": 5137,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_timeout",
+            "details": {},
+            "message": "MCP tool call timed out.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "timeout",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.stock_basic",
+          "latency_ms": 5003,
+          "tool_call_id": "tool_aaade09a135d45c8a092751427a4c0f8",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_6429384e09c34c609ad2ea925fa4fff7",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.stock_basic",
+            "request_id": "live50-20261024-a-049",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "521dcd2c9c3add6baa55cb3e2ffb50d2b7649fcee53afdfc959f289feb4d6ad7",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "dcd150a0fbc52374d0138e573f32fecc3191e39b9720463bfd057859f7754183"
+        }
+      },
+      "created_at": "2026-10-24 14:48:49.411072+00:00",
+      "completed_at": "2026-10-24 14:48:54.425807+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "按yzj_reasearch技能分析银之杰管理层薪酬和持股情况，优先采用最新年度数据，缺失信息显示为未披露，不允许自行补造。",
+      "confidence": 0.95,
+      "source_constraint": "unclear"
+    },
+    "tool_selection_contexts": {
+      "call_e124b0a4adf957457f201aa83247627e": {
+        "request_id": "live50-20261024-a-049",
+        "task": {
+          "id": "sw_7aa963ab9380593cccbf5960ea546dd5",
+          "task_goal": "调用 stock_basic 查询银之杰，只保留 ts_code。",
+          "execution_type": "tool",
+          "completion_criteria": [],
+          "tool_search_query": null,
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "unclear"
+        },
+        "call_id": "call_e124b0a4adf957457f201aa83247627e",
+        "request_fingerprint": "dcd150a0fbc52374d0138e573f32fecc3191e39b9720463bfd057859f7754183",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:fixed-skill"
+          ]
+        },
+        "dispatch_batch_id": null,
+        "as_of": "2026-10-24T22:48:38+08:00",
+        "fixed_skill": true,
+        "candidates": [
+          {
+            "name": "mcp.tushare.stock_basic",
+            "version": "mcp-http-v1",
+            "binding": "521dcd2c9c3add6baa55cb3e2ffb50d2b7649fcee53afdfc959f289feb4d6ad7"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_29eb6533992d49b9097531363e4bb3be": {
+        "dispatch_batch_id": "dispatch_29eb6533992d49b9097531363e4bb3be",
+        "run_identity": "f153bd548642cea10f447cc87619eb6c777a86e8ed652e949b0e81fbfa56e8f3",
+        "plan_digest": "3b1ca42d4c825a5d3f41a61fb31f5a192350ddb6271e90e9dae1f5207f13fd7e",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "get_ts_code"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "planner_decision": {},
+    "plan_history": [],
+    "plan": {
+      "public_summary": "按 yzj_reasearch 技能流程，先查询银之杰股票代码，再获取管理层薪酬与持股数据，优先采用最新年度报告期，缺失项标注未披露，最后整理为表格。",
+      "tasks": [
+        {
+          "id": "get_ts_code",
+          "task_goal": "查询银之杰的股票基本信息，取得其 ts_code，用于后续薪酬持股数据查询。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回银之杰对应的 ts_code",
+            "仅保留 ts_code 用于后续查询"
+          ],
+          "tool_search_query": "股票基本信息查询 股票代码 ts_code",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": "yzj_reasearch",
+          "source_requirement": "original_data"
+        },
+        {
+          "id": "get_stk_rewards",
+          "task_goal": "使用银之杰 ts_code 查询管理层薪酬与持股数据，保留 end_date、name、title、reward、hold_vol 字段，优先选择最新年度报告期，同一人员同一报告期去重，空值标注未披露。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得银之杰管理层薪酬持股记录",
+            "字段包含 end_date、name、title、reward、hold_vol",
+            "优先采用最新年度报告期数据",
+            "reward 或 hold_vol 为空时标注未披露，不补造"
+          ],
+          "tool_search_query": "上市公司管理层薪酬持股 董监高薪酬 持股数量",
+          "evidence_task_ids": [],
+          "depends_on": [
+            "get_ts_code"
+          ],
+          "skill_name": "yzj_reasearch",
+          "source_requirement": "original_data"
+        },
+        {
+          "id": "format_rewards_table",
+          "task_goal": "依据查询结果整理银之杰管理层薪酬与持股表格，列为姓名、职务、报告期、薪酬、持股数量，缺失信息显示未披露，不输出原始 JSON。",
+          "execution_type": "analysis",
+          "completion_criteria": [
+            "输出表格包含姓名、职务、报告期、薪酬、持股数量五列",
+            "优先展示最新年度报告期",
+            "缺失值显示未披露",
+            "不包含完整原始 JSON"
+          ],
+          "tool_search_query": null,
+          "evidence_task_ids": [],
+          "depends_on": [
+            "get_stk_rewards"
+          ],
+          "skill_name": null,
+          "source_requirement": "unclear"
+        }
+      ]
+    },
+    "skill_workflows": {
+      "get_ts_code": {
+        "parent_task_id": "get_ts_code",
+        "skill_name": "yzj_reasearch",
+        "skill_version": "1.0.0",
+        "definition_hash": "7c4045ff5663d1af104678e4c22695c2c19b655436304c8798ee1066fd1a62ca",
+        "summary": "当用户分析银之杰管理层薪酬和持股时使用。\n\n第一步：\n调用 stock_basic 查询银之杰，只保留 ts_code。\n\n第二步：\n使用第一步的 ts_code 调用 stk_rewards。\n只保留以下字段：\n- end_date：报告期\n- name：姓名\n- title：职务\n- reward：薪酬\n- hold_vol：持股数量\n\n数据处理要求：\n- 优先选择最新年度报告期，因为半年报的 reward 可能为空；\n- 同一人员同一报告期只保留一条；\n- reward 或 hold_vol 为空时显示“未披露”，不得自行补全；\n- 不要输出工具返回的完整原始 JSON。\n\n输出规范：\n用表格展示，列为：姓名、职务、报告期、薪酬、持股数量。",
+        "output_requirement": "只保留以下字段：\n- end_date：报告期\n- name：姓名\n- title：职务\n- reward：薪酬\n- hold_vol：持股数量\n\n数据处理要求：\n- 优先选择最新年度报告期，因为半年报的 reward 可能为空；\n- 同一人员同一报告期只保留一条；\n- reward 或 hold_vol 为空时显示“未披露”，不得自行补全；\n- 不要输出工具返回的完整原始 JSON。\n\n输出规范：\n用表格展示，列为：姓名、职务、报告期、薪酬、持股数量。",
+        "steps": [
+          {
+            "instruction": "调用 stock_basic 查询银之杰，只保留 ts_code。",
+            "source": "调用 stock_basic 查询银之杰，只保留 ts_code。",
+            "tool_name": "mcp.tushare.stock_basic",
+            "required_fields": [
+              "ts_code"
+            ],
+            "completion_criteria": [],
+            "missing_policy": "stop",
+            "missing_policy_source": null,
+            "task_id": "sw_7aa963ab9380593cccbf5960ea546dd5",
+            "tool_version": "mcp-http-v1"
+          },
+          {
+            "instruction": "使用第一步的 ts_code 调用 stk_rewards。",
+            "source": "使用第一步的 ts_code 调用 stk_rewards。",
+            "tool_name": "mcp.tushare.stk_rewards",
+            "required_fields": [
+              "ts_code"
+            ],
+            "completion_criteria": [],
+            "missing_policy": "stop",
+            "missing_policy_source": null,
+            "task_id": "sw_a15fe3d86b013aebf142dafa59c750c7",
+            "tool_version": "mcp-http-v1"
+          }
+        ],
+        "checked_steps": [],
+        "status": "failed"
+      }
+    },
+    "task_results": [
+      {
+        "task_id": "sw_7aa963ab9380593cccbf5960ea546dd5",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_timeout\",\"message\":\"MCP 工具执行超时。\",\"status\":\"timeout\"}",
+        "error_code": "mcp_tool_timeout",
+        "tool_name": "mcp.tushare.stock_basic"
+      },
+      {
+        "task_id": "get_ts_code",
+        "status": "terminal_failure",
+        "content": "Skill 在步骤失败后停止：{\"error_code\":\"mcp_tool_timeout\",\"message\":\"MCP 工具执行超时。\",\"status\":\"timeout\"}",
+        "error_code": "mcp_tool_timeout"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_e124b0a4adf957457f201aa83247627e' request=ToolCallRequest(call_id='call_e124b0a4adf957457f201aa83247627e', tool_name='mcp.tushare.stock_basic', tool_version='mcp-http-v1', arguments={'name': '银之杰', 'fields': ['ts_code']}, purpose='调用 stock_basic 查询银之杰，只保留 ts_code。', approval_required=False) result=ToolCallResult(tool_call_id='tool_6429384e09c34c609ad2ea925fa4fff7', tool_name='mcp.tushare.stock_basic', status='timeout', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_timeout', message='MCP 工具执行超时。', details={}, retryable=False), latency_ms=5137, trace_id='trace_fd5044ada9b64399a679c082409cc0b0')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- Skill 在步骤失败后停止：{\"error_code\":\"mcp_tool_timeout\",\"message\":\"MCP 工具执行超时。\",\"status\":\"timeout\"}",
+      "trace_id": "trace_fd5044ada9b64399a679c082409cc0b0",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "mcp_tool_timeout"
+    },
+    "errors": []
+  }
+}

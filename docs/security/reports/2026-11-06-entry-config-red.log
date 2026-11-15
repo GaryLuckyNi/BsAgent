@@ -1,0 +1,9 @@
+......F....                                                              [100%]
+=================================== FAILURES ===================================
+_ test_production_rejects_development_backends[overrides6-rate_limit_fail_closed] _
+backend/app/tests/unit/test_config.py:169: in test_production_rejects_development_backends
+    with pytest.raises(ValidationError) as exc_info:
+E   Failed: DID NOT RAISE ValidationError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_config.py::test_production_rejects_development_backends[overrides6-rate_limit_fail_closed]
+1 failed, 10 passed, 115 deselected in 0.30s

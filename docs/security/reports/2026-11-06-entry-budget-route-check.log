@@ -1,0 +1,7 @@
+2026-11-06 22:30:22,504 INFO bs_agent.access http_request_completed
+2026-11-06 22:30:22,505 INFO httpx2 HTTP Request: POST http://testserver/api/ag-ui "HTTP/1.1 200 OK"
+2026-11-06 22:30:22,537 INFO bs_agent.access http_request_completed
+2026-11-06 22:30:22,539 INFO httpx2 HTTP Request: POST http://testserver/api/approvals/no-existing/decision "HTTP/1.1 404 Not Found"
+2026-11-06 22:30:22,541 INFO bs_agent.access http_request_completed
+2026-11-06 22:30:22,544 INFO httpx2 HTTP Request: POST http://testserver/api/ag-ui "HTTP/1.1 429 Too Many Requests"
+[200, 404, 429]

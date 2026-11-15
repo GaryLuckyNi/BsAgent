@@ -1,0 +1,392 @@
+{
+  "case_id": "040",
+  "run": {
+    "run_id": "run_ea221f07d2d9a7acd8bf2958268525576120a665a4c619ff051d5c9d1a91",
+    "session_id": "live50-20261024-a-040",
+    "session_key": "sess_8f3cd25b86894612836809cea541f48e",
+    "trace_id": "trace_a6b6d67f3dd8487784c03a411f3b1052",
+    "status": "completed",
+    "created_at": "2026-10-24 14:46:22.757449+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 23,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:46:22.775899+00:00",
+    "ended_at": "2026-10-24 14:46:38.471192+00:00",
+    "events": 23
+  },
+  "receipts": [
+    {
+      "receipt_id": "88af9cadc4dd451c8c16bda53855bd11",
+      "tool_name": "mcp.tushare.limit_list_ths",
+      "call_id": "call_1bfc1008e40f34c78c0639cd59f4e67f",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_a6b6d67f3dd8487784c03a411f3b1052",
+        "tool_name": "mcp.tushare.limit_list_ths",
+        "latency_ms": 1610,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.limit_list_ths",
+          "latency_ms": 1096,
+          "tool_call_id": "tool_19730b5974854ca8a3ee22a3efd1f841",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_913720cdbf754ff89b0808f8b2e71add",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.limit_list_ths",
+            "request_id": "live50-20261024-a-040",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "2f7893a5056e74be834fa81744f7e96499746f2092dbb2d397dfc8bcbe11bf29",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "481b8a0ea42c70b58ff77b4ea6dc0a53b808b8d58b6035895e2331a63970b9c2"
+        }
+      },
+      "created_at": "2026-10-24 14:46:28.154353+00:00",
+      "completed_at": "2026-10-24 14:46:29.416247+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_1bfc1008e40f34c78c0639cd59f4e67f": {
+        "request_id": "live50-20261024-a-040",
+        "task": {
+          "id": "fetch_tushare_limit_up_pool",
+          "task_goal": "调用TuShare涨停池接口，获取2025年9月1日（trade_date=20250901）的原始涨停池数据，保留接口返回的原始记录及字段；若调用失败、无权限或返回为空，需明确记录失败原因或数据缺口，不得用新闻摘要替代。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得TuShare涨停池接口针对20250901的原始返回数据，或明确记录调用失败/无权限/空结果的具体原因",
+            "输出中区分原始数据与缺口说明，未使用新闻摘要替代"
+          ],
+          "tool_search_query": "TuShare 涨停池 接口 原始数据 按交易日查询",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_1bfc1008e40f34c78c0639cd59f4e67f",
+        "request_fingerprint": "481b8a0ea42c70b58ff77b4ea6dc0a53b808b8d58b6035895e2331a63970b9c2",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_b4c38c1a794c4212e905267cf7747fe1",
+        "as_of": "2026-10-24T22:46:22+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.limit_list_ths",
+            "version": "mcp-http-v1",
+            "binding": "2f7893a5056e74be834fa81744f7e96499746f2092dbb2d397dfc8bcbe11bf29"
+          },
+          {
+            "name": "mcp.tushare.suspend_d",
+            "version": "mcp-http-v1",
+            "binding": "98cf06af1630fc9b438620b6f6330d17e749c9e7540f5dbef7e01bf6d7388c09"
+          },
+          {
+            "name": "mcp.tushare.dc_index",
+            "version": "mcp-http-v1",
+            "binding": "1f7abb2b6c726a5f1cef17b5f189336502dc6ebd933684fdb74aa6c72a0a3aef"
+          },
+          {
+            "name": "mcp.tushare.yc_cb",
+            "version": "mcp-http-v1",
+            "binding": "a91b57787c72d162e2027c794a2ad2b5d66b947e25d44a4bf32f0d3596fc8993"
+          },
+          {
+            "name": "mcp.tushare.daily_basic",
+            "version": "mcp-http-v1",
+            "binding": "3a1462c0108d6b265fa4365b81b44838464ff521777ce7ec8aa3094b8692d9fb"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_d264caf345172474b64ce3f91cf94b97": {
+        "request_id": "live50-20261024-a-040",
+        "task": {
+          "id": "r1_fetch_tushare_limit_list_d_20250901",
+          "task_goal": "调用TuShare涨停池接口 limit_list_d，参数 trade_date=20250901，获取2025年9月1日的原始涨停池记录及字段；若调用失败、无权限或返回为空，明确记录具体原因与数据缺口，不得用新闻摘要替代。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得 limit_list_d 针对20250901的原始返回数据，或明确记录调用失败/无权限/空结果的具体原因",
+            "输出中区分原始数据与缺口说明，未使用新闻摘要替代"
+          ],
+          "tool_search_query": "TuShare limit_list_d 涨停池 按交易日查询 原始数据",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_d264caf345172474b64ce3f91cf94b97",
+        "request_fingerprint": "14ee3af6dae8d4652638bef00f5570e895c71299d6f7d768178a6eb76a760066",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_61ecfd9d4963e20f7f39e46a957e699b",
+        "as_of": "2026-10-24T22:46:22+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.limit_list_ths",
+            "version": "mcp-http-v1",
+            "binding": "2f7893a5056e74be834fa81744f7e96499746f2092dbb2d397dfc8bcbe11bf29"
+          },
+          {
+            "name": "mcp.tushare.limit_list_d",
+            "version": "mcp-http-v1",
+            "binding": "2898d009edd7175522232802ee511fb0a183e68977884aed398e9d20b521dd19"
+          },
+          {
+            "name": "mcp.tushare.suspend_d",
+            "version": "mcp-http-v1",
+            "binding": "98cf06af1630fc9b438620b6f6330d17e749c9e7540f5dbef7e01bf6d7388c09"
+          },
+          {
+            "name": "mcp.tushare.dc_index",
+            "version": "mcp-http-v1",
+            "binding": "1f7abb2b6c726a5f1cef17b5f189336502dc6ebd933684fdb74aa6c72a0a3aef"
+          },
+          {
+            "name": "mcp.tushare.yc_cb",
+            "version": "mcp-http-v1",
+            "binding": "a91b57787c72d162e2027c794a2ad2b5d66b947e25d44a4bf32f0d3596fc8993"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_b4c38c1a794c4212e905267cf7747fe1": {
+        "dispatch_batch_id": "dispatch_b4c38c1a794c4212e905267cf7747fe1",
+        "run_identity": "6dd0fd67132960e57ccd8d4bc5b13390f693120f181daef2355517f6da972b33",
+        "plan_digest": "f02c7d9158aa3321ad34858c36e682434a96a2885e3f6fa51ae2590577d2b6b3",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "fetch_tushare_limit_up_pool"
+        ]
+      },
+      "dispatch_61ecfd9d4963e20f7f39e46a957e699b": {
+        "dispatch_batch_id": "dispatch_61ecfd9d4963e20f7f39e46a957e699b",
+        "run_identity": "6dd0fd67132960e57ccd8d4bc5b13390f693120f181daef2355517f6da972b33",
+        "plan_digest": "1fe898d06bf78f3dc911dda33b97bace2072c4308625d2579a9169ef94578f58",
+        "observations_digest": "648503684efd703e9100eb4557795b98cc9cdc901e304df424eacceb38437c56",
+        "members": [
+          "r1_fetch_tushare_limit_list_d_20250901"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {
+      "call_d264caf345172474b64ce3f91cf94b97": {
+        "task_id": "r1_fetch_tushare_limit_list_d_20250901",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_61ecfd9d4963e20f7f39e46a957e699b"
+      }
+    },
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "获取TuShare的原始涨停池数据，日期为2025年9月1日；不要用新闻摘要代替，访问失败时保留明确缺口。",
+      "confidence": 0.93,
+      "source_constraint": "original_only"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "涨停池专用接口 limit_list_d 的调用因工具副作用未核实而未派发，limit_list_ths 调用已终端失败；无成功原始数据，修订次数已用尽，按用户要求保留明确缺口，不以新闻摘要替代。",
+      "unresolved_questions": [
+        "TuShare limit_list_d 对 trade_date=20250901 的原始涨停池数据未能取得：一次调用因工具副作用未核实而未派发，另一次 limit_list_ths 调用终端失败，具体失败原因（权限、接口限制或服务异常）未确认。",
+        "2025年9月1日的原始涨停池记录及字段内容仍缺失。"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "计划直接调用TuShare涨停池接口，获取2025年9月1日的原始数据；若接口不可用或权限不足，将明确记录缺口，不以新闻摘要替代。",
+          "tasks": [
+            {
+              "id": "fetch_tushare_limit_up_pool",
+              "task_goal": "调用TuShare涨停池接口，获取2025年9月1日（trade_date=20250901）的原始涨停池数据，保留接口返回的原始记录及字段；若调用失败、无权限或返回为空，需明确记录失败原因或数据缺口，不得用新闻摘要替代。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "取得TuShare涨停池接口针对20250901的原始返回数据，或明确记录调用失败/无权限/空结果的具体原因",
+                "输出中区分原始数据与缺口说明，未使用新闻摘要替代"
+              ],
+              "tool_search_query": "TuShare 涨停池 接口 原始数据 按交易日查询",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "改用TuShare涨停池专用接口（limit_list_d，trade_date=20250901）获取原始数据；若仍失败或无权限，明确记录缺口，不以新闻摘要替代。",
+      "tasks": [
+        {
+          "id": "r1_fetch_tushare_limit_list_d_20250901",
+          "task_goal": "调用TuShare涨停池接口 limit_list_d，参数 trade_date=20250901，获取2025年9月1日的原始涨停池记录及字段；若调用失败、无权限或返回为空，明确记录具体原因与数据缺口，不得用新闻摘要替代。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得 limit_list_d 针对20250901的原始返回数据，或明确记录调用失败/无权限/空结果的具体原因",
+            "输出中区分原始数据与缺口说明，未使用新闻摘要替代"
+          ],
+          "tool_search_query": "TuShare limit_list_d 涨停池 按交易日查询 原始数据",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "fetch_tushare_limit_up_pool",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.limit_list_ths"
+      },
+      {
+        "task_id": "r1_fetch_tushare_limit_list_d_20250901",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.limit_list_d"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_1bfc1008e40f34c78c0639cd59f4e67f' request=ToolCallRequest(call_id='call_1bfc1008e40f34c78c0639cd59f4e67f', tool_name='mcp.tushare.limit_list_ths', tool_version='mcp-http-v1', arguments={'trade_date': 20250901, 'limit_type': '涨停池'}, purpose='调用TuShare涨停池接口，获取2025年9月1日（trade_date=20250901）的原始涨停池数据，保留接口返回的原始记录及字段；若调用失败、无权限或返回为空，需明确记录失败原因或数据缺口，不得用新闻摘要替代。', approval_required=False) result=ToolCallResult(tool_call_id='tool_913720cdbf754ff89b0808f8b2e71add', tool_name='mcp.tushare.limit_list_ths', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=1610, trace_id='trace_a6b6d67f3dd8487784c03a411f3b1052')",
+      "call_id='call_d264caf345172474b64ce3f91cf94b97' request=ToolCallRequest(call_id='call_d264caf345172474b64ce3f91cf94b97', tool_name='mcp.tushare.limit_list_d', tool_version='mcp-http-v1', arguments={'trade_date': 20250901, 'limit_type': 'U'}, purpose='调用TuShare涨停池接口 limit_list_d，参数 trade_date=20250901，获取2025年9月1日的原始涨停池记录及字段；若调用失败、无权限或返回为空，明确记录具体原因与数据缺口，不得用新闻摘要替代。', approval_required=False) result=ToolCallResult(tool_call_id='tool_b276b3bcb1534220a821a45c2f03107b', tool_name='mcp.tushare.limit_list_d', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=45, trace_id='trace_a6b6d67f3dd8487784c03a411f3b1052')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+      "trace_id": "trace_a6b6d67f3dd8487784c03a411f3b1052",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "tool_side_effects_unresolved"
+    },
+    "errors": []
+  }
+}

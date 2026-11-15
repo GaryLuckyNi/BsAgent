@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>InvestWise · 研究来源设计</title>
+  <style>
+    :root { font-family: Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif; color:#17283f; background:#f6f7f9; --ink:#17283f; --muted:#8893a2; --line:#e6eaf0; --gold:#a27c47; }
+    * { box-sizing:border-box; } body { margin:0; } [hidden] { display:none!important; }
+    button,input { font:inherit; } button { cursor:pointer; } button,a,input { -webkit-tap-highlight-color:transparent; }
+    button:focus-visible,a:focus-visible,input:focus-visible { outline:2px solid #ad8957; outline-offset:3px; }
+    svg { width:20px; height:20px; stroke:currentColor; stroke-width:1.6; fill:none; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+    .symbols { display:none; } button { color:inherit; } a { color:inherit; }
+    .design-bar { height:58px; padding:0 25px; background:#0d1a2e; color:#fff; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .design-bar strong { font:600 19px Georgia,serif; } .design-bar span { color:#a5afbd; font-size:11px; padding-left:12px; }
+    .modes { display:flex; background:#1c2a3d; padding:3px; gap:3px; border-radius:7px; }
+    .modes button { background:transparent; color:#aeb8c6; border:0; border-radius:5px; padding:6px 13px; font-size:12px; }
+    .modes button[aria-pressed="true"] { background:#fff; color:#25374d; }
+    .stage { height:calc(100dvh - 58px); display:flex; justify-content:center; overflow:hidden; padding:0; }
+    .stage.mobile { padding:16px; background:#e9edf2; } iframe { width:100%; height:100%; border:0; background:#fff; }
+    .stage.mobile iframe { width:390px; border-radius:18px; border:1px solid #d3dae3; box-shadow:0 12px 36px #16283e18; }
+    .app { height:100dvh; display:grid; grid-template-columns:220px 1fr; background:#fff; }
+    .sidebar { padding:25px 16px; background:#f7f8fa; border-right:1px solid var(--line); }
+    .brand { font:600 23px Georgia,serif; padding:0 12px; margin:0 0 29px; letter-spacing:-.5px; }
+    .brand span { color:var(--gold); }
+    .new { display:flex; align-items:center; justify-content:center; gap:8px; height:43px; width:100%; border:0; border-radius:8px; background:#152942; color:#fff; font-size:14px; }
+    .sidebar-label { margin:28px 12px 13px; color:#8c96a4; font-size:12px; }
+    .session { padding:16px 12px; color:#5f6d7e; font-size:13px; } .session small { display:block; margin-top:9px; color:#9aa3af; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .session.active { background:#fff; border:1px solid #dde4ed; border-radius:9px; color:#24374f; }
+    .main { overflow:auto; } .page-header { padding:27px 46px 23px; border-bottom:1px solid #edf0f4; }
+    .eyebrow { font-size:11px; color:var(--gold); display:flex; gap:7px; align-items:center; margin-bottom:10px; } .eyebrow svg { width:15px; height:15px; }
+    .page-header h1 { font-family:Georgia,"Songti SC",serif; font-weight:600; font-size:27px; margin:0; letter-spacing:.5px; }
+    .conversation { max-width:850px; margin:auto; padding:28px 46px 70px; }
+    .question { margin:0 0 28px auto; max-width:540px; padding:15px 20px; background:#f3f5f8; border-radius:14px 14px 3px 14px; color:#42526a; font-size:14px; line-height:1.8; }
+    .assistant-header { display:flex; gap:9px; align-items:center; font-size:12px; font-weight:600; margin-bottom:14px; }
+    .assistant-header .mark { width:29px; height:29px; border:1px solid #d7c6aa; border-radius:8px; color:var(--gold); display:grid; place-items:center; background:#faf7f1; }
+    .assistant-header .mark svg { width:17px; height:17px; } .assistant-header small { color:#9da6b2; font-weight:400; margin-left:6px; }
+    .progress { color:#8b95a2; font-size:12px; margin:0 0 27px 38px; }
+    .article { margin-left:38px; font-size:16px; line-height:1.95; color:#485465; }
+    .article h2 { font-size:20px; color:#17283f; font-weight:700; line-height:1.5; margin:0 0 17px; }
+    .article h3 { font-size:20px; color:#26364c; font-weight:700; margin:25px 0 12px; }
+    .article p { margin:0 0 19px; } .article strong { font-weight:700; color:#14243b; }
+    .citation { display:inline-flex; height:19px; min-width:19px; align-items:center; justify-content:center; font-size:11px; line-height:1; color:#63748a; background:#f0f3f7; border:1px solid #e2e7ef; border-radius:5px; vertical-align:.1em; padding:0 4px; margin:0 3px; text-decoration:none; cursor:pointer; }
+    .article ul { margin:0 0 18px; padding-left:20px; } .article li { margin:7px 0; padding-left:3px; } .article li::marker { color:#9ba6b4; }
+    .entry { display:flex; align-items:center; gap:12px; width:min(365px,100%); min-height:64px; padding:12px 15px; margin:27px 0 17px; border:1px solid #e1e6ed; border-radius:11px; background:#fff; text-align:left; transition:border-color .18s,background .18s,box-shadow .18s; }
+    .entry:hover { border-color:#cab48f; background:#fcfaf7; box-shadow:0 3px 12px #a27c4708; }
+    .entry-icon { height:34px; width:34px; border:1px solid #e7ddce; background:#faf7f1; color:#a27c47; border-radius:8px; display:grid; place-items:center; flex:none; }
+    .entry-title { display:block; color:#26384f; font-size:13px; font-weight:600; line-height:1.6; } .entry-sub { color:#8f99a6; font-size:11px; line-height:1.6; display:block; }
+    .entry-arrow { margin-left:auto; color:#95a0ae; width:16px; height:16px; } .actions { display:flex; gap:16px; color:#9da6b2; }
+    .actions svg { width:16px; height:16px; } .example { border-left:2px solid #d9c9b1; padding:7px 12px; margin-top:23px; color:#9ba3af; font-size:12px; line-height:1.7; }
+    .backdrop { position:fixed; inset:0; background:#12243b12; z-index:10; animation:fade .2s ease; }
+    .panel { position:fixed; right:0; top:0; height:100dvh; width:min(445px,100vw); background:#fff; border-left:1px solid #dfe5ed; box-shadow:-12px 0 42px #17283f0d; display:flex; flex-direction:column; z-index:11; animation:slide .24s cubic-bezier(.2,.8,.2,1); }
+    .handle { display:none; } .panel-head { padding:28px 27px 19px; flex:none; }
+    .heading-row { display:flex; align-items:center; justify-content:space-between; gap:18px; }
+    .panel-head .eyebrow { margin:0 0 8px; color:#a48a65; letter-spacing:.08em; font-size:10px; }
+    .panel h2 { font-size:22px; letter-spacing:-.4px; margin:0; font-weight:650; color:#182b43; }
+    .close { display:grid; place-items:center; width:36px; height:36px; border:0; border-radius:8px; background:transparent; color:#8994a3; margin-right:-6px; }
+    .close:hover { background:#f0f3f7; color:#324860; } .close svg { width:19px; height:19px; }
+    .description { font-size:12px; line-height:1.8; color:#8b96a5; margin:9px 0 0; }
+    .filters { padding:0 27px 17px; flex:none; border-bottom:1px solid #e9edf2; }
+    .search { position:relative; display:flex; align-items:center; gap:9px; border:1px solid #e5e9f0; border-radius:8px; background:#f7f9fb; padding:0 11px; height:37px; margin-bottom:15px; color:#9ca6b3; }
+    .search svg { width:15px; height:15px; } .search input { border:0; outline:0; background:transparent; min-width:0; width:100%; font-size:12px; color:#30455e; height:100%; }
+    .search input::placeholder { color:#a0aab7; } .search:focus-within { border-color:#c6ad87; background:#fff; }
+    .search input:focus-visible { outline:0; } .tabs { display:flex; align-items:center; gap:22px; }
+    .tabs button { border:0; background:none; padding:3px 0; font-size:12px; color:#919ba8; position:relative; display:flex; gap:7px; align-items:center; min-height:26px; }
+    .tabs button span { color:#9da6b2; font-size:11px; font-variant-numeric:tabular-nums; }
+    .tabs button[aria-selected="true"] { color:#344a65; font-weight:600; }
+    .tabs button[aria-selected="true"]::after { content:""; position:absolute; left:0; right:0; bottom:-8px; height:2px; background:#a3855b; border-radius:2px; }
+    .source-list { overflow:auto; overscroll-behavior:contain; padding:7px 14px 14px 20px; flex:1; min-height:0; scrollbar-width:thin; scrollbar-color:#ccd4de transparent; }
+    .source-list::-webkit-scrollbar { width:5px; } .source-list::-webkit-scrollbar-thumb { background:#c8d1dc; border-radius:8px; }
+    .source { padding:20px 8px 19px; border-bottom:1px solid #edf0f4; border-radius:0; position:relative; }
+    .source:last-child { border-bottom:0; } .source:hover { background:#f8f9fb; border-radius:8px; }
+    .source-meta { display:flex; gap:8px; align-items:center; margin-bottom:10px; font-size:12px; color:#8792a0; }
+    .favicon { width:19px; height:19px; display:grid; place-items:center; flex:none; color:#9ba6b4; } .favicon img { width:17px; height:17px; object-fit:contain; }
+    .favicon svg { width:16px; height:16px; } .publisher { max-width:150px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .source-meta time { border-left:1px solid #e2e6ec; padding-left:8px; color:#a0a9b5; font-size:11px; }
+    .source-number { margin-left:auto; color:#98a3b1; font-size:10px; padding:2px 5px; background:#f4f6f9; border:1px solid #e9edf3; border-radius:4px; }
+    .source h3 { margin:0 0 9px; font-size:16px; line-height:1.7; font-weight:600; color:#26394f; }
+    .source h3 a { text-decoration:none; display:block; } .source h3 a:hover { color:#9a743e; }
+    .source h3 svg { height:12px; width:12px; display:inline; color:#a6afbb; margin-left:4px; vertical-align:0; }
+    .source p { font-size:13px; line-height:1.85; color:#8692a1; margin:0; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .source-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:11px; }
+    .domain { color:#a5aeb9; font-size:11px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .cited { flex:none; color:#9a7c51; background:#faf6ef; font-size:10px; border-radius:4px; padding:3px 7px; }
+    .panel-foot { border-top:1px solid #e9edf2; padding:13px 27px max(13px,env(safe-area-inset-bottom)); color:#9ba5b2; font-size:10px; line-height:1.8; display:flex; align-items:center; gap:7px; flex:none; background:#fcfdfe; }
+    .panel-foot svg { height:13px; width:13px; } .empty { color:#99a3b0; text-align:center; margin:50px 10px; font-size:13px; line-height:2; }
+    @keyframes fade { from { opacity:0; } to { opacity:1; } } @keyframes slide { from { transform:translateX(24px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+    @media(max-width:700px) {
+      .design-bar { padding:0 14px; height:52px; } .design-bar strong { font-size:17px; } .design-bar span { display:none; } .stage { height:calc(100dvh - 52px); } .stage.mobile { padding:0; } .stage.mobile iframe { width:100%; border:0; border-radius:0; }
+      .app { grid-template-columns:1fr; } .sidebar { display:none; } .page-header { padding:22px 22px 19px; } .page-header h1 { font-size:23px; } .conversation { padding:23px 20px 40px; }
+      .question { font-size:13px; margin-bottom:26px; } .article { margin-left:0; font-size:16px; } .article h2, .article h3 { font-size:20px; } .progress { margin-left:0; } .assistant-header { margin-bottom:17px; }
+      .panel { top:auto; bottom:0; width:100%; height:min(83dvh,860px); border:1px solid #e1e6ed; border-bottom:0; border-radius:22px 22px 0 0; box-shadow:0 -12px 48px #17283f1c; animation:rise .24s ease-out; }
+      .backdrop { background:#12243b30; } .handle { display:block; width:35px; height:4px; border-radius:8px; background:#d6dce4; margin:10px auto 0; flex:none; }
+      .panel-head { padding:13px 22px 15px; } .panel-head .eyebrow { display:none; } .panel h2 { font-size:21px; } .description { margin-top:6px; font-size:11px; }
+      .filters { padding:0 22px 14px; } .search { height:36px; margin-bottom:12px; } .source-list { padding:4px 14px 12px; } .source { padding:18px 8px; } .source h3 { font-size:14px; } .panel-foot { padding-left:22px; font-size:10px; }
+      @keyframes rise { from { transform:translateY(30px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+    }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; } }
+  </style>
+</head>
+<body>
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+  <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+  <symbol id="external" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6L9 15M10 5H5a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1v-5"/></symbol>
+  <symbol id="pages" viewBox="0 0 24 24"><path d="M8 4h12v15H8zM4 8v13h12M11 8h6m-6 4h6m-6 4h4"/></symbol>
+  <symbol id="globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z"/></symbol>
+  <symbol id="compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m16 8-2 6-6 2 2-6Z"/></symbol>
+  <symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M15 4H5a1 1 0 0 0-1 1v10"/></symbol>
+  <symbol id="like" viewBox="0 0 24 24"><path d="M7 10h-3v10h3m0-10 5-7c2 0 2 2 1 6h6c1 0 2 1 1 3l-2 7c0 1-1 1-2 1H7Z"/></symbol>
+  <symbol id="edit" viewBox="0 0 24 24"><path d="m16 3 5 5L9 20H4v-5Z"/></symbol>
+</defs></svg>
+<div id="board">
+  <div class="design-bar"><div><strong>InvestWise</strong><span>研究来源 · 交互设计示例</span></div><div class="modes" aria-label="预览尺寸"><button data-mode="desktop" aria-pressed="true">桌面端</button><button data-mode="mobile" aria-pressed="false">移动端</button></div></div>
+  <div class="stage" id="stage"><iframe id="preview" title="研究来源交互原型"></iframe></div>
+</div>
+<div class="app" id="app" hidden>
+  <aside class="sidebar"><div class="brand">Invest<span>Wise</span></div><button class="new"><svg><use href="#edit"/></svg>新建研究</button><div class="sidebar-label">最近研究</div><div class="session active">公司盈利与现金流分析<small>财务表现、经营质量与风险</small></div><div class="session">存储产业链跟踪<small>产品结构与行业景气变化</small></div><div class="session">管理层薪酬与持股<small>年度披露与激励安排</small></div></aside>
+  <main class="main" id="main"><header class="page-header"><div class="eyebrow"><svg><use href="#compass"/></svg>AI 研究</div><h1>公司盈利与现金流分析</h1></header>
+    <div class="conversation"><div class="question">结合已披露的财务数据，分析公司的盈利变化、现金流质量与主要风险。</div><div class="assistant-header"><span class="mark"><svg><use href="#compass"/></svg></span>InvestWise 研究助手<small>研究完成</small></div><div class="progress">研究进展已收起 · 以下内容为设计示例</div>
+      <article class="article"><h2>盈利承压，关注经营性现金流</h2><p>本期利润同比下降，核心原因需要放在<strong>收入结构、毛利率与费用变化</strong>中理解。经营性现金流与净利润的变化方向不同，提示利润与实际回款之间仍需结合报告口径观察。<button class="citation" data-citation="1">1</button><button class="citation" data-citation="4">4</button></p><h3>如何看待当前变化</h3><ul><li><strong>先看经营表现：</strong>结合主营业务收入、成本与产品结构，识别盈利变动的来源。<button class="citation" data-citation="2">2</button></li><li><strong>再看现金质量：</strong>关注回款、应收账款及存货的变化，而非仅依赖单期利润。<button class="citation" data-citation="6">6</button></li></ul><p>后续重点跟踪<strong>主营业务修复的持续性与营运资金占用</strong>。行业新闻可补充外部背景，具体财务口径以公司披露为准。<button class="citation" data-citation="7">7</button></p>
+        <button class="entry" id="source-entry" aria-haspopup="dialog" aria-expanded="false" aria-controls="source-panel"><span class="entry-icon"><svg><use href="#pages"/></svg></span><span><span class="entry-title">研究来源</span><span class="entry-sub">12 篇网页 · 来自 6 个网站</span></span><svg class="entry-arrow"><use href="#arrow"/></svg></button>
+        <div class="actions" aria-hidden="true"><svg><use href="#copy"/></svg><svg><use href="#like"/></svg></div><div class="example">所有研究内容、标题、日期与摘要均为设计示例，仅用于确认布局与交互。</div>
+      </article>
+    </div>
+  </main>
+</div>
+<div class="backdrop" id="backdrop" hidden></div>
+<section class="panel" id="source-panel" role="dialog" aria-modal="true" aria-labelledby="panel-title" aria-describedby="panel-description" hidden tabindex="-1">
+  <div class="handle" aria-hidden="true"></div><header class="panel-head"><div class="eyebrow">RESEARCH SOURCES</div><div class="heading-row"><h2 id="panel-title">研究来源</h2><button class="close" id="close-panel" aria-label="关闭研究来源"><svg><use href="#close"/></svg></button></div><p class="description" id="panel-description">本次搜索找到 12 篇网页，正文引用了其中 5 篇。</p></header>
+  <div class="filters"><label class="search"><svg aria-hidden="true"><use href="#search"/></svg><input type="search" id="source-filter" placeholder="搜索标题、摘要或网站" aria-label="搜索本次来源" autocomplete="off"></label><div class="tabs" role="tablist" aria-label="来源范围"><button id="tab-all" role="tab" aria-selected="true" aria-controls="sources" tabindex="0" data-filter="all">全部网页<span>12</span></button><button id="tab-cited" role="tab" aria-selected="false" aria-controls="sources" tabindex="-1" data-filter="cited">正文引用<span>5</span></button></div></div>
+  <div class="source-list" id="sources" role="tabpanel" aria-labelledby="tab-all"></div><footer class="panel-foot"><svg><use href="#external"/></svg>展示搜索摘要，点击标题可在新标签页查看原文</footer>
+</section>
+<script>
+  const isEmbedded = new URLSearchParams(location.search).has('embed');
+  if (!isEmbedded) {
+    document.getElementById('app').remove();
+    const preview = document.getElementById('preview');
+    const integrated = new URLSearchParams(location.search).has('integrated');
+    preview.src = integrated ? 'markdown-integrated.html' : `${location.pathname}?embed`;
+    if (integrated) document.querySelector('.design-bar span').textContent = '正式来源组件验收 · 示例资料';
+    document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-mode]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      document.getElementById('stage').classList.toggle('mobile', button.dataset.mode === 'mobile');
+    }));
+  } else {
+    document.getElementById('board').remove(); document.getElementById('app').hidden = false;
+    const data = [
+      [1,'上海证券交易所','https://www.sse.com.cn','2026/04/29','年度报告：主要会计数据与财务指标','年度财务报告汇总营业收入、利润与现金流等主要指标，并列示报告期内的变化。',true],
+      [2,'新浪财经','https://finance.sina.com.cn','2026/04/30','公司业绩解读：主营业务与盈利变化','结合年度报告披露，梳理主营业务变化、盈利表现及相关行业背景。',true],
+      [3,'东方财富','https://www.eastmoney.com','2026/05/06','行业观察：需求变化与产品结构调整','终端需求与产品结构调整共同影响行业盈利表现，企业经营策略各有侧重。',false],
+      [4,'巨潮资讯','https://www.cninfo.com.cn','2026/04/29','财务报表附注：经营活动现金流与营运资金','附注列示经营活动现金流构成，以及应收账款、存货与合同负债等项目的变化。',true],
+      [5,'证券时报','https://www.stcn.com','2026/05/08','产业跟踪：下游客户需求与经营节奏','近期行业交流涉及下游需求及客户采购节奏，为公司经营分析补充背景。',false],
+      [6,'巨潮资讯','https://www.cninfo.com.cn','2026/04/29','年度报告：应收账款与存货项目说明','说明期末应收账款的账龄结构、坏账准备及存货构成与减值情况。',true],
+      [7,'中国证券报','https://www.cs.com.cn','2026/05/09','经营分析：回款与现金流表现','报道关注经营回款、现金流与利润的关系，提供报告期内的经营背景。',true],
+      [8,'东方财富','https://www.eastmoney.com','2026/05/10','行业跟踪：价格与供需变化','汇总近期价格走势与供需变化，说明上下游经营环境的影响。',false],
+      [9,'新浪财经','https://finance.sina.com.cn','2026/05/12','公司动态：产品结构与市场拓展','关注产品组合、主要客户与市场开拓方面的近期动态。',false],
+      [10,'证券时报','https://www.stcn.com','2026/05/13','产业观察：订单与产能进度','围绕产业链近期变化，梳理订单与产能方面的公开信息。',false],
+      [11,'上海证券交易所','https://www.sse.com.cn','2026/04/30','公司公告：年度经营情况说明','补充年度经营情况、重要事项与相关披露文件的阅读线索。',false],
+      [12,'中国证券报','https://www.cs.com.cn','2026/05/16','行业研究：景气度与竞争格局','讨论行业景气变化与竞争环境，为后续观察提供公开背景。',false]
+    ];
+    const panel = document.getElementById('source-panel'), backdrop = document.getElementById('backdrop'), entry = document.getElementById('source-entry'), list = document.getElementById('sources'), input = document.getElementById('source-filter'), app = document.getElementById('app');
+    let filter = 'all', returnTarget = entry;
+    const svg = name => { const el = document.createElementNS('http://www.w3.org/2000/svg','svg'); const use = document.createElementNS('http://www.w3.org/2000/svg','use'); use.setAttribute('href',`#${name}`); el.append(use); return el; };
+    function render() {
+      list.replaceChildren();
+      const query = input.value.trim().toLocaleLowerCase();
+      const results = data.filter(item => (filter === 'all' || item[6]) && `${item[1]} ${item[2]} ${item[4]} ${item[5]}`.toLocaleLowerCase().includes(query));
+      results.forEach(([number,publisher,url,date,title,summary,cited]) => {
+        const item = document.createElement('article'); item.className = 'source'; item.id = `web-${number}`;
+        const meta = document.createElement('div'); meta.className = 'source-meta';
+        const icon = document.createElement('span'); icon.className = 'favicon'; icon.append(svg('globe'));
+        const image = document.createElement('img'); image.src = `${url}/favicon.ico`; image.referrerPolicy = 'no-referrer'; image.alt = ''; image.hidden = true;
+        image.onload = () => { image.hidden = false; icon.querySelector('svg')?.setAttribute('hidden',''); }; image.onerror = () => image.remove(); icon.append(image);
+        const name = document.createElement('span'); name.className = 'publisher'; name.textContent = publisher;
+        const time = document.createElement('time'); time.textContent = date;
+        const index = document.createElement('span'); index.className = 'source-number'; index.textContent = number; index.setAttribute('aria-label',`来源 ${number}`);
+        meta.append(icon,name,time,index);
+        const heading = document.createElement('h3'), link = document.createElement('a'); link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = title; link.append(svg('external')); heading.append(link);
+        const paragraph = document.createElement('p'); paragraph.textContent = summary;
+        const foot = document.createElement('div'); foot.className = 'source-foot'; const domain = document.createElement('span'); domain.className = 'domain'; domain.textContent = new URL(url).hostname; foot.append(domain);
+        if (cited) { const badge = document.createElement('span'); badge.className = 'cited'; badge.textContent = '正文已引用'; foot.append(badge); }
+        item.append(meta,heading,paragraph,foot); list.append(item);
+      });
+      if (!results.length) { const empty = document.createElement('p'); empty.className = 'empty'; empty.textContent = '没有找到匹配的网页\n换个关键词试试'; list.append(empty); }
+    }
+    function select(value) {
+      filter = value;
+      document.querySelectorAll('[data-filter]').forEach(tab => { tab.setAttribute('aria-selected',String(tab.dataset.filter === value)); tab.tabIndex = tab.dataset.filter === value ? 0 : -1; });
+      list.setAttribute('aria-labelledby',`tab-${value}`); list.scrollTop = 0; render();
+    }
+    function open(target = entry, number) {
+      returnTarget = target; input.value = ''; select('all'); panel.hidden = false; backdrop.hidden = false; app.inert = true; document.getElementById('main').style.overflow = 'hidden'; entry.setAttribute('aria-expanded','true'); panel.focus({preventScroll:true});
+      if (number) document.getElementById(`web-${number}`)?.scrollIntoView({block:'center'});
+    }
+    function close() { panel.hidden = true; backdrop.hidden = true; app.inert = false; document.getElementById('main').style.removeProperty('overflow'); entry.setAttribute('aria-expanded','false'); returnTarget.focus({preventScroll:true}); }
+    entry.addEventListener('click',() => open()); document.getElementById('close-panel').addEventListener('click',close); backdrop.addEventListener('click',close);
+    document.querySelectorAll('[data-citation]').forEach(button => {
+      const link = document.createElement('a'); link.className = 'citation'; link.textContent = button.textContent;
+      link.href = data.find(item => item[0] === Number(button.dataset.citation))[2]; link.target = '_blank'; link.rel = 'noopener noreferrer';
+      link.setAttribute('aria-label',`引用来源 ${button.dataset.citation}`); button.replaceWith(link);
+    });
+    input.addEventListener('input',() => { render(); list.scrollTop = 0; });
+    document.querySelectorAll('[data-filter]').forEach(tab => { tab.addEventListener('click',() => select(tab.dataset.filter)); tab.addEventListener('keydown',event => { if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) { event.preventDefault(); select(event.key === 'Home' ? 'all' : event.key === 'End' ? 'cited' : filter === 'all' ? 'cited' : 'all'); document.querySelector('[aria-selected="true"]').focus(); } }); });
+    panel.addEventListener('keydown',event => {
+      if (event.key === 'Escape') { event.preventDefault(); close(); }
+      if (event.key === 'Tab') {
+        const controls = [...panel.querySelectorAll('button:not([tabindex="-1"]),input,a[href]')]; const first = controls[0], last = controls.at(-1);
+        if (event.shiftKey && [first,panel].includes(document.activeElement)) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    });
+    render();
+  }
+</script>
+</body>
+</html>

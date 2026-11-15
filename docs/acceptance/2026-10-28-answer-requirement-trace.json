@@ -1,0 +1,29 @@
+{
+  "trace_id": "df0dff78b8193725361d5ea122c8f8ba",
+  "original_query": "今天创业板指涨了3个多点，你认为这次是反转还是反弹",
+  "router_added_northbound": true,
+  "planner_criteria": [
+    "返回当日主力资金与北向资金净流入方向及规模（若北向数据已停止披露则标注）"
+  ],
+  "search_query": "2026年10月28日 创业板指 涨3% 领涨板块 个股 涨跌家数 主力资金 北向资金",
+  "source_count": 29,
+  "synthesis_data_limitations": [],
+  "task_statuses": [
+    {
+      "task_id": "verify_chinext_move",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "task_id": "breadth_and_flows",
+      "status": "success",
+      "error_code": null
+    },
+    {
+      "task_id": "policy_liquidity_context",
+      "status": "success",
+      "error_code": null
+    }
+  ],
+  "finding": "本例是模型将自拟辅助维度的未取得信息写成回答缺陷，非data_limitations列表或确定性兜底附加。"
+}

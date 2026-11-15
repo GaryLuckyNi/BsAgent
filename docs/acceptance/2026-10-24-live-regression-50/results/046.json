@@ -1,0 +1,390 @@
+{
+  "case_id": "046",
+  "category": "Skill边界",
+  "question": "请使用公司速览工作流company_snapshot生成贵州茅台的公司基础资料、行情和公告速览，缺失字段不要补造。",
+  "session_id": "live50-20261024-a-046",
+  "request_id": "live50-20261024-a-046",
+  "started_at": "2026-10-24T14:48:07.740010+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "message_id": "msg_05bfd6b12e7e4664ba803129f632b42d",
+      "request_id": "live50-20261024-a-046"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "completed",
+      "message": "调用公司速览工作流获取贵州茅台的公司基础资料、行情与公告信息，按工作流输出整理；缺失字段标注未披露，不做补造。"
+    },
+    {
+      "id": "tool_agent:company_snapshot_moutai",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "started",
+      "message": "正在获取研究证据：使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。",
+      "task_id": "company_snapshot_moutai",
+      "group_id": "evidence:1",
+      "task_label": "使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:company_snapshot_moutai",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "completed",
+      "message": "已取得研究证据：使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。",
+      "task_id": "company_snapshot_moutai",
+      "group_id": "evidence:1",
+      "task_label": "使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "completed",
+      "message": "在已获取的贵州茅台公司基础资料基础上，补充最新行情与近期公告速览，缺失字段标注未披露、不补造。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "tool_agent:r1_moutai_quote",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "started",
+      "message": "正在获取研究证据：获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。",
+      "task_id": "r1_moutai_quote",
+      "group_id": "evidence:2",
+      "task_label": "获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:r1_moutai_announcements",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "started",
+      "message": "正在获取研究证据：获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。",
+      "task_id": "r1_moutai_announcements",
+      "group_id": "evidence:2",
+      "task_label": "获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:r1_moutai_quote",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "completed",
+      "message": "已取得研究证据：获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。",
+      "task_id": "r1_moutai_quote",
+      "group_id": "evidence:2",
+      "task_label": "获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:r1_moutai_announcements",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "failed",
+      "message": "获取研究证据未完成：获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。",
+      "task_id": "r1_moutai_announcements",
+      "group_id": "evidence:2",
+      "task_label": "获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:2",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:2",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "completed",
+      "message": "在已获取的贵州茅台公司基础资料基础上，补充最新行情与近期公告速览，缺失字段标注未披露、不补造。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    [
+      {
+        "id": "msg_05bfd6b12e7e4664ba803129f632b42d",
+        "type": "ai",
+        "content": "## 本次执行未完成\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_05bfd6b12e7e4664ba803129f632b42d",
+        "type": "ai",
+        "content": "- MCP 工具执行失败"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_05bfd6b12e7e4664ba803129f632b42d",
+        "type": "ai",
+        "content": "。\n- 存在尚未核实的工"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_05bfd6b12e7e4664ba803129f632b42d",
+        "type": "ai",
+        "content": "具执行，未派发本项调用；"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_05bfd6b12e7e4664ba803129f632b42d",
+        "type": "ai",
+        "content": "请核实已有结果。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "type": "final",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "response": {
+        "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+        "content": "## 本次执行未完成\n\n- MCP 工具执行失败。\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "trace_id": "trace_3fb06e7169ca45b4b6f129cabe998639",
+        "message_id": "msg_05bfd6b12e7e4664ba803129f632b42d",
+        "request_id": "live50-20261024-a-046",
+        "response_type": "execution_error_response",
+        "approval_status": "not_required",
+        "cited_evidence_ids": [],
+        "business_error_code": "mcp_tool_execution_failed"
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_61b0d5e1a5864825b54b3212d8929873",
+        "request_id": "live50-20261024-a-046",
+        "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+        "role": "user",
+        "status": "completed",
+        "content": "请使用公司速览工作流company_snapshot生成贵州茅台的公司基础资料、行情和公告速览，缺失字段不要补造。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:48:07.819120Z",
+        "completed_at": "2026-10-24T14:48:07.815160Z"
+      },
+      {
+        "message_id": "msg_05bfd6b12e7e4664ba803129f632b42d",
+        "request_id": "live50-20261024-a-046",
+        "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 本次执行未完成\n\n- MCP 工具执行失败。\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "execution_error_response",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "调用公司速览工作流获取贵州茅台的公司基础资料、行情与公告信息，按工作流输出整理；缺失字段标注未披露，不做补造。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:company_snapshot_moutai",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。",
+              "task_id": "company_snapshot_moutai",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "在已获取的贵州茅台公司基础资料基础上，补充最新行情与近期公告速览，缺失字段标注未披露、不补造。",
+              "sequence": 2
+            },
+            {
+              "id": "tool_agent:r1_moutai_quote",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。",
+              "task_id": "r1_moutai_quote",
+              "group_id": "evidence:2",
+              "sequence": 3,
+              "task_label": "获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "tool_agent:r1_moutai_announcements",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "failed",
+              "message": "获取研究证据未完成：获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。",
+              "task_id": "r1_moutai_announcements",
+              "group_id": "evidence:2",
+              "sequence": 4,
+              "task_label": "获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:2",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "在已获取的贵州茅台公司基础资料基础上，补充最新行情与近期公告速览，缺失字段标注未披露、不补造。",
+              "sequence": 5
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": "mcp_tool_execution_failed"
+        },
+        "created_at": "2026-10-24T14:48:07.819126Z",
+        "completed_at": "2026-10-24T14:48:26.781470Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:48:27.465552+00:00",
+  "elapsed_seconds": 19.725
+}

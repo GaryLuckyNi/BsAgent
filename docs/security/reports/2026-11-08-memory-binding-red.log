@@ -1,0 +1,308 @@
+FFFFFFFFFFFFFFFF                                                         [100%]
+=================================== FAILURES ===================================
+_ test_distinct_approval_content_has_distinct_candidate_identity[\u6211\u7684\u8054\u7cfb\u90ae\u7bb1\u662f Team@example.invalid-\u6211\u7684\u8054\u7cfb\u90ae\u7bb1\u662f team@example.invalid] _
+
+first = '我的联系邮箱是 Team@example.invalid', second = '我的联系邮箱是 team@example.invalid'
+
+    @pytest.mark.parametrize("first,second",[
+        ("我的联系邮箱是 Team@example.invalid","我的联系邮箱是 team@example.invalid"),
+        ("我的联系邮箱是 team@example.invalid","我的联系邮箱是 team @example.invalid"),
+    ])
+    def test_distinct_approval_content_has_distinct_candidate_identity(first,second):
+        left,right=proposal(first),proposal(second)
+        assert left.content!=right.content
+>       assert left.candidate_id!=right.candidate_id
+E       AssertionError: assert 'memcand_t_u_user_preference_c7c9c29fa1dcf4f4' != 'memcand_t_u_user_preference_c7c9c29fa1dcf4f4'
+E        +  where 'memcand_t_u_user_preference_c7c9c29fa1dcf4f4' = MemoryCandidate(candidate_id='memcand_t_u_user_preference_c7c9c29fa1dcf4f4', memory_type='user_preference', memory_key...eam@example.invalid', confidence=0.9, approval_status='pending', sensitivity='high', source='user_explicit_preference').candidate_id
+E        +  and   'memcand_t_u_user_preference_c7c9c29fa1dcf4f4' = MemoryCandidate(candidate_id='memcand_t_u_user_preference_c7c9c29fa1dcf4f4', memory_type='user_preference', memory_key...eam@example.invalid', confidence=0.9, approval_status='pending', sensitivity='high', source='user_explicit_preference').candidate_id
+
+backend/app/tests/unit/test_memory_candidate_binding.py:35: AssertionError
+_ test_distinct_approval_content_has_distinct_candidate_identity[\u6211\u7684\u8054\u7cfb\u90ae\u7bb1\u662f team@example.invalid-\u6211\u7684\u8054\u7cfb\u90ae\u7bb1\u662f team @example.invalid] _
+
+first = '我的联系邮箱是 team@example.invalid', second = '我的联系邮箱是 team @example.invalid'
+
+    @pytest.mark.parametrize("first,second",[
+        ("我的联系邮箱是 Team@example.invalid","我的联系邮箱是 team@example.invalid"),
+        ("我的联系邮箱是 team@example.invalid","我的联系邮箱是 team @example.invalid"),
+    ])
+    def test_distinct_approval_content_has_distinct_candidate_identity(first,second):
+        left,right=proposal(first),proposal(second)
+        assert left.content!=right.content
+>       assert left.candidate_id!=right.candidate_id
+E       AssertionError: assert 'memcand_t_u_user_preference_c7c9c29fa1dcf4f4' != 'memcand_t_u_user_preference_c7c9c29fa1dcf4f4'
+E        +  where 'memcand_t_u_user_preference_c7c9c29fa1dcf4f4' = MemoryCandidate(candidate_id='memcand_t_u_user_preference_c7c9c29fa1dcf4f4', memory_type='user_preference', memory_key...eam@example.invalid', confidence=0.9, approval_status='pending', sensitivity='high', source='user_explicit_preference').candidate_id
+E        +  and   'memcand_t_u_user_preference_c7c9c29fa1dcf4f4' = MemoryCandidate(candidate_id='memcand_t_u_user_preference_c7c9c29fa1dcf4f4', memory_type='user_preference', memory_key...example.invalid', confidence=0.9, approval_status='not_required', sensitivity='low', source='user_explicit_preference').candidate_id
+
+backend/app/tests/unit/test_memory_candidate_binding.py:35: AssertionError
+_________ test_subject_identity_is_not_ambiguous_string_concatenation __________
+
+    def test_subject_identity_is_not_ambiguous_string_concatenation():
+        left=proposal("以后回答使用中文",tenant="a_b",user="c")
+        right=proposal("以后回答使用中文",tenant="a",user="b_c")
+>       assert left.candidate_id!=right.candidate_id
+E       AssertionError: assert 'memcand_a_b_c_user_preference_dc48d4f885fb9b14' != 'memcand_a_b_c_user_preference_dc48d4f885fb9b14'
+E        +  where 'memcand_a_b_c_user_preference_dc48d4f885fb9b14' = MemoryCandidate(candidate_id='memcand_a_b_c_user_preference_dc48d4f885fb9b14', memory_type='user_preference', memory_k...ntent='以后回答使用中文', confidence=0.9, approval_status='not_required', sensitivity='low', source='user_explicit_preference').candidate_id
+E        +  and   'memcand_a_b_c_user_preference_dc48d4f885fb9b14' = MemoryCandidate(candidate_id='memcand_a_b_c_user_preference_dc48d4f885fb9b14', memory_type='user_preference', memory_k...ntent='以后回答使用中文', confidence=0.9, approval_status='not_required', sensitivity='low', source='user_explicit_preference').candidate_id
+
+backend/app/tests/unit/test_memory_candidate_binding.py:42: AssertionError
+_____ test_existing_candidate_cannot_be_updated_by_other_subject[other-u] ______
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_existing_candidate_cannot0/memory.db), autoflush=True, expire_on_commit=False)
+tenant = 'other', user = 'u'
+
+    @pytest.mark.parametrize("tenant,user",[("other","u"),("t","other")])
+    def test_existing_candidate_cannot_be_updated_by_other_subject(database,tenant,user):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            row=repository.save_candidate(_candidate(),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError) as caught:
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:52: Failed
+_____ test_existing_candidate_cannot_be_updated_by_other_subject[t-other] ______
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_existing_candidate_cannot1/memory.db), autoflush=True, expire_on_commit=False)
+tenant = 't', user = 'other'
+
+    @pytest.mark.parametrize("tenant,user",[("other","u"),("t","other")])
+    def test_existing_candidate_cannot_be_updated_by_other_subject(database,tenant,user):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            row=repository.save_candidate(_candidate(),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError) as caught:
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:52: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes0-approved] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun0/memory.db), autoflush=True, expire_on_commit=False)
+status = 'approved', changes = {'content': '更改正文'}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes0-rejected] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun1/memory.db), autoflush=True, expire_on_commit=False)
+status = 'rejected', changes = {'content': '更改正文'}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes1-approved] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun2/memory.db), autoflush=True, expire_on_commit=False)
+status = 'approved', changes = {'memory_key': 'contact'}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes1-rejected] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun3/memory.db), autoflush=True, expire_on_commit=False)
+status = 'rejected', changes = {'memory_key': 'contact'}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes2-approved] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun4/memory.db), autoflush=True, expire_on_commit=False)
+status = 'approved', changes = {'confidence': 0.95}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes2-rejected] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun5/memory.db), autoflush=True, expire_on_commit=False)
+status = 'rejected', changes = {'confidence': 0.95}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes3-approved] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun6/memory.db), autoflush=True, expire_on_commit=False)
+status = 'approved', changes = {'sensitivity': 'high'}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes3-rejected] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun7/memory.db), autoflush=True, expire_on_commit=False)
+status = 'rejected', changes = {'sensitivity': 'high'}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes4-approved] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun8/memory.db), autoflush=True, expire_on_commit=False)
+status = 'approved', changes = {'source': 'different_source'}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+___ test_terminal_approval_is_bound_to_immutable_payload[changes4-rejected] ____
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_terminal_approval_is_boun9/memory.db), autoflush=True, expire_on_commit=False)
+status = 'rejected', changes = {'source': 'different_source'}
+
+    @pytest.mark.parametrize("status",["approved","rejected"])
+    @pytest.mark.parametrize("changes",[
+        {"content":"更改正文"}, {"memory_key":"contact"}, {"confidence":0.95},
+        {"sensitivity":"high"}, {"source":"different_source"},
+    ])
+    def test_terminal_approval_is_bound_to_immutable_payload(database,status,changes):
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(_candidate(approval_status=status),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+>           with pytest.raises(RuntimeError):
+E           Failed: DID NOT RAISE RuntimeError
+
+backend/app/tests/unit/test_memory_candidate_binding.py:69: Failed
+_______ test_case_changed_sensitive_preference_does_not_inherit_approval _______
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-667/test_case_changed_sensitive_pr0/memory.db), autoflush=True, expire_on_commit=False)
+
+    def test_case_changed_sensitive_preference_does_not_inherit_approval(database):
+        first=proposal("我的联系邮箱是 Team@example.invalid")
+        replacement=proposal("我的联系邮箱是 team@example.invalid")
+        with database() as db:
+            repository=MemoryCandidateRepository(db)
+            repository.save_candidate(first.model_copy(update={"approval_status":"approved"}),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+            repository.save_candidate(replacement,tenant_id="t",user_id="u",run_id="r2")
+            db.commit()
+        store=RecordingStore()
+        assert MemoryStoreSynchronizer(session_factory=database,store=store).sync_run("r2")==0
+        assert store.calls==[]
+        with database() as db:
+            rows=list(db.scalars(select(MemoryCandidateRecord)))
+>           assert len(rows)==2
+E           assert 1 == 2
+E            +  where 1 = len([<app.storage.models.MemoryCandidateRecord object at 0x116d5fa50>])
+
+backend/app/tests/unit/test_memory_candidate_binding.py:90: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_distinct_approval_content_has_distinct_candidate_identity[\u6211\u7684\u8054\u7cfb\u90ae\u7bb1\u662f Team@example.invalid-\u6211\u7684\u8054\u7cfb\u90ae\u7bb1\u662f team@example.invalid]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_distinct_approval_content_has_distinct_candidate_identity[\u6211\u7684\u8054\u7cfb\u90ae\u7bb1\u662f team@example.invalid-\u6211\u7684\u8054\u7cfb\u90ae\u7bb1\u662f team @example.invalid]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_subject_identity_is_not_ambiguous_string_concatenation
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_existing_candidate_cannot_be_updated_by_other_subject[other-u]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_existing_candidate_cannot_be_updated_by_other_subject[t-other]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes0-approved]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes0-rejected]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes1-approved]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes1-rejected]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes2-approved]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes2-rejected]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes3-approved]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes3-rejected]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes4-approved]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_terminal_approval_is_bound_to_immutable_payload[changes4-rejected]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_case_changed_sensitive_preference_does_not_inherit_approval
+16 failed in 1.90s

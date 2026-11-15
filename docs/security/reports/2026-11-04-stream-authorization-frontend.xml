@@ -1,0 +1,541 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<testsuites name="vitest tests" tests="245" failures="0" errors="0" time="12.204889623">
+    <testsuite name="src/auth.test.ts" timestamp="2026-11-04T01:28:24.476Z" hostname="Gary-NiMacBook-Pro.local" tests="7" failures="0" errors="0" skipped="0" time="0.004366208">
+        <testcase classname="src/auth.test.ts" name="resolveOidcConfig &gt; returns disabled when no OIDC values are configured" time="0.000975458">
+        </testcase>
+        <testcase classname="src/auth.test.ts" name="resolveOidcConfig &gt; builds a PKCE client configuration from runtime values" time="0.000142667">
+        </testcase>
+        <testcase classname="src/auth.test.ts" name="resolveOidcConfig &gt; uses same-origin callback defaults" time="0.000347041">
+        </testcase>
+        <testcase classname="src/auth.test.ts" name="resolveOidcConfig &gt; rejects partial OIDC configuration" time="0.000565041">
+        </testcase>
+        <testcase classname="src/auth.test.ts" name="isOidcCallback &gt; recognizes authorization-code callbacks" time="0.000967667">
+        </testcase>
+        <testcase classname="src/auth.test.ts" name="isOidcCallback &gt; recognizes authorization error callbacks" time="0.000544791">
+        </testcase>
+        <testcase classname="src/auth.test.ts" name="isOidcCallback &gt; does not treat ordinary query strings as callbacks" time="0.000065417">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/conversation-session.test.ts" timestamp="2026-11-04T01:28:24.486Z" hostname="Gary-NiMacBook-Pro.local" tests="7" failures="0" errors="0" skipped="0" time="0.012755292">
+        <testcase classname="src/conversation-session.test.ts" name="resolveConversationSession &gt; 刷新后为同一租户和用户复用已保存的会话" time="0.001140333">
+        </testcase>
+        <testcase classname="src/conversation-session.test.ts" name="resolveConversationSession &gt; 不同用户不会共享会话标识" time="0.0015715">
+        </testcase>
+        <testcase classname="src/conversation-session.test.ts" name="toConversationMessages &gt; 刷新后保留研究活动的 pending 状态" time="0.003583833">
+        </testcase>
+        <testcase classname="src/conversation-session.test.ts" name="toConversationMessages &gt; 刷新后保留研究活动的 superseded 状态" time="0.004601833">
+        </testcase>
+        <testcase classname="src/conversation-session.test.ts" name="toConversationMessages &gt; 恢复直接来自目标和任务字段的研究过程" time="0.000246708">
+        </testcase>
+        <testcase classname="src/conversation-session.test.ts" name="toConversationMessages &gt; 恢复空的运行中与已停止回答，保留持久化标识和状态" time="0.000294959">
+        </testcase>
+        <testcase classname="src/conversation-session.test.ts" name="toConversationMessages &gt; 按顺序把持久化的用户和助手消息恢复为前端消息" time="0.00018625">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/service-status.test.ts" timestamp="2026-11-04T01:28:24.499Z" hostname="Gary-NiMacBook-Pro.local" tests="2" failures="0" errors="0" skipped="0" time="0.002178875">
+        <testcase classname="src/service-status.test.ts" name="Agent 服务状态 &gt; 后端离线时阻止发送并返回明确原因" time="0.000676875">
+        </testcase>
+        <testcase classname="src/service-status.test.ts" name="Agent 服务状态 &gt; 后端在线时允许发送" time="0.000547458">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/domain/research.test.ts" timestamp="2026-11-04T01:28:24.501Z" hostname="Gary-NiMacBook-Pro.local" tests="1" failures="0" errors="0" skipped="0" time="0.007787125">
+        <testcase classname="src/domain/research.test.ts" name="research evidence model &gt; keeps evidence order stable and resolves citation numbers from one" time="0.005849625">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/router/router.test.tsx" timestamp="2026-11-04T01:28:24.501Z" hostname="Gary-NiMacBook-Pro.local" tests="2" failures="0" errors="0" skipped="0" time="0.777031667">
+        <testcase classname="src/router/router.test.tsx" name="InvestWise routes &gt; redirects the root path to AI research" time="0.638337833">
+        </testcase>
+        <testcase classname="src/router/router.test.tsx" name="InvestWise routes &gt; renders a route error for an unknown path" time="0.121642041">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/hooks/stream-authorization-sdk.test.tsx" timestamp="2026-11-04T01:28:24.504Z" hostname="Gary-NiMacBook-Pro.local" tests="9" failures="0" errors="0" skipped="0" time="0.1709675">
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; stream_access_denied 不触发 GET 恢复或伪造终态" time="0.025967083">
+        </testcase>
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; stream_access_expired 不触发 GET 恢复或伪造终态" time="0.021068333">
+        </testcase>
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; stream_access_unavailable 不触发 GET 恢复或伪造终态" time="0.010133458">
+        </testcase>
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; 初次 HTTP 401 不自动查询/订阅后台任务" time="0.019081167">
+        </testcase>
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; 初次 HTTP 403 不自动查询/订阅后台任务" time="0.002907791">
+        </testcase>
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; 初次 HTTP 404 不自动查询/订阅后台任务" time="0.005456458">
+        </testcase>
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; 初次 HTTP 503 不自动查询/订阅后台任务" time="0.022865375">
+        </testcase>
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; 换用新凭证后允许正常的新订阅，不把拒绝永久带到下一次请求" time="0.050793708">
+        </testcase>
+        <testcase classname="src/hooks/stream-authorization-sdk.test.tsx" name="真实 FetchStreamTransport / SDK 的初次订阅授权拒绝 &gt; 普通传输错误仍可查询持久化结果并恢复真实终态" time="0.011971958">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/hooks/use-evidence-drawer.test.tsx" timestamp="2026-11-04T01:28:24.523Z" hostname="Gary-NiMacBook-Pro.local" tests="1" failures="0" errors="0" skipped="0" time="0.009160833">
+        <testcase classname="src/hooks/use-evidence-drawer.test.tsx" name="useEvidenceDrawer &gt; opens at the selected evidence index and can close" time="0.008477084">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/hooks/use-research-history.test.tsx" timestamp="2026-11-04T01:28:24.528Z" hostname="Gary-NiMacBook-Pro.local" tests="9" failures="0" errors="0" skipped="0" time="0.649421916">
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 结果选择具体会话与消息，完整最近列表不变" time="0.116485291">
+        </testcase>
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 较早会话仅缓存标题，不伪造最近列表，新建清除导航目标" time="0.082740208">
+        </testcase>
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 旧会话实际提交后进入最近列表，并保留搜索返回的首问标题" time="0.06596475">
+        </testcase>
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 删除失败保留记录，删除最后一条后进入空白研究" time="0.079909958">
+        </testcase>
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 删除期间切换会话不会抢回选择，旧刷新结果与旧消息不能复活记录" time="0.065000417">
+        </testcase>
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 删除期间的刷新保留完整列表且不会复活已删除会话" time="0.064723459">
+        </testcase>
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 读取真实记录，选择会话后持久化并让标题与会话一致" time="0.058154208">
+        </testcase>
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 新建为空白真实会话，首问加入列表且不混入演示数据" time="0.056952458">
+        </testcase>
+        <testcase classname="src/hooks/use-research-history.test.tsx" name="真实研究历史 &gt; 长会话提交后保留服务端首问，完成刷新后使用真实更新时间与回答摘要" time="0.056586416">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/hooks/use-research-session.test.tsx" timestamp="2026-11-04T01:28:24.537Z" hostname="Gary-NiMacBook-Pro.local" tests="70" failures="0" errors="0" skipped="0" time="0.566589458">
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 订阅撤权停止自动重连，保留安全正文和真实任务状态" time="0.025956292">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 来源先于正文到达时保留稳定编号，最终响应更新资料而不生成虚假引用" time="0.020825667">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 最终响应省略来源时保留公开流已收到的资料" time="0.004836208">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 使用服务端正文开始时刻的用时，排除整句缓冲、传输和页面更新延迟" time="0.011830916">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 忽略不合法的服务端计时：-1" time="0.055195834">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 忽略不合法的服务端计时：NaN" time="0.001034375">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 忽略不合法的服务端计时：Infinity" time="0.00144625">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 忽略不合法的服务端计时：5400" time="0.002059542">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 忽略不合法的服务端计时：undefined" time="0.002293958">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 服务端计时晚于正文到达时等待真实测量，不按前端接收时间估算" time="0.008003375">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 没有服务端测量时，提交、进展、正文和 final 都不会自行生成思考秒数" time="0.001768042">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 只有 final 而没有计时标记时不使用总等待时间充当思考时间" time="0.008594375">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 断线重连保留已冻结的思考时间，不从恢复组件时重新计时" time="0.009215834">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 指定会话 ID 时读取该会话，空历史不生成演示分析" time="0.006380042">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 初始化后立即定位已加载消息，不重置会话和订阅" time="0.009468334">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 刚完成的一问一答可按服务端ID定位，不补入重复历史（已有历史：false）" time="0.006955334">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 刚完成的一问一答可按服务端ID定位，不补入重复历史（已有历史：true）" time="0.008092083">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 定位200条以外消息逐页补齐连续历史，同时保留最新流式消息" time="0.040685667">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 分页加载期间的流式更新与最新终态不被历史快照覆盖" time="0.017697459">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 分页响应迟到时取消不会写回旧历史" time="0.013801125">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 分页响应迟到时会话切换不会写回旧历史" time="0.002948459">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 分页响应迟到时身份切换不会写回旧历史" time="0.003160042">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 分页响应迟到时新一轮提交不会写回旧历史" time="0.002188375">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 找不到消息或分页游标不前进时返回中文错误" time="0.002619333">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 刷新后订阅原 run，从头重放正文而不重复快照" time="0.006222">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 点击停止请求后端取消，保留部分回答且不误标成功" time="0.00294525">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 停止确认前保持忙状态，收到取消终态后才允许新一轮" time="0.008019125">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 旧停止请求迟到返回不会断开已经开始的新一轮" time="0.003902666">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 迟到的停止确认不能把 SSE 已确认的取消降级为正在停止" time="0.004524333">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 历史快照之后任务已completed且 active 为空时仍补齐原回答" time="0.002154083">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 历史快照之后任务已cancelled且 active 为空时仍补齐原回答" time="0.003404333">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 历史补订阅跨过已结束的中断阶段后只保留恢复阶段的部分回答" time="0.001295042">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 恢复查询尚未返回时拒绝发送新问题" time="0.0045305">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; accepted 事件送达前断线也查询已受理任务，不把空回答标为成功" time="0.002729958">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 没有受理记录也没有成功终态的断流不能显示研究完成" time="0.002055333">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 停止 HTTP 失败不能覆盖 SSE 已确认的取消终态" time="0.004637792">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; final 之后丢失终态时仍恢复查询，确认完成后可继续提问" time="0.094418292">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 终态之后的传输错误不把取消改成失败" time="0.003332375">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 新一轮答案开始前不会复用上一轮 AI 消息" time="0.019652583">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 启用 SDK 原生批处理以合并同一事件循环的 token 更新" time="0.004094875">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 相同的 SDK 答案快照不会重复写入本地消息" time="0.0018395">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 截断重试后的 final 完整正文不会被旧的流式快照覆盖" time="0.000872291">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 忽略遗留 thinking_delta，不把内部推理写入用户消息" time="0.000935208">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 接收目标与计划事件，工具状态更新不覆盖计划列表" time="0.0007735">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 研究目标和计划的流式快照即时覆盖原条目，完成后保留全部文字" time="0.000922792">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 重规划覆盖原失败活动，最终未补偿时仍可更新为告警" time="0.000773167">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 同组成功任务不会吞掉最终未补偿失败的告警，替代后恢复中性状态" time="0.001107292">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 兼容旧研究摘要与工具活动的到达顺序，工具完成不改变位置" time="0.02267">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 忽略交错的原始思考并保留公开工具活动顺序" time="0.013727084">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 阶段状态只更新标题，不进入研究过程时间线" time="0.014361833">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 将同一轮并行搜索合并为一个真实网页统计条目" time="0.003449209">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 真实工具确定后迁移同一任务，不遗留通用取证的进行中状态" time="0.003657334">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 恢复历史搜索摘要并保留不同任务的结果" time="0.001231">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 按语义分组同一轮市场数据工具活动" time="0.00533575">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 保存选择中断并用原助手消息提交恢复命令（批次=false）" time="0.002123167">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 保存选择中断并用原助手消息提交恢复命令（批次=true）" time="0.002542292">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 点击web_search立即关闭确认框，不等待恢复请求结束" time="0.001673708">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 点击use_existing立即关闭确认框，不等待恢复请求结束" time="0.00304825">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 确认请求失败恢复原选择框并允许重试：callback" time="0.004160084">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 确认请求失败恢复原选择框并允许重试：reject" time="0.0020935">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 运行failed后清除失效选择，允许下一条query" time="0.002462667">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 运行cancelled后清除失效选择，允许下一条query" time="0.007897916">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 目录失效终态后的提交异常不能重新打开旧选择框" time="0.005198041">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 恢复过程中新的中断不会被旧提交收尾关闭" time="0.001009041">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 不将未知或残缺批次降级成普通选择" time="0.006088708">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 不将未知或残缺批次降级成普通选择" time="0.005858166">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 不将未知或残缺批次降级成普通选择" time="0.001591">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 不将未知或残缺批次降级成普通选择" time="0.00117175">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 不将未知或残缺批次降级成普通选择" time="0.002692917">
+        </testcase>
+        <testcase classname="src/hooks/use-research-session.test.tsx" name="useResearchSession &gt; 刷新后重放批次清单，恢复提交保留原摘要" time="0.004775084">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/services/research-history-pages.test.ts" timestamp="2026-11-04T01:28:24.552Z" hostname="Gary-NiMacBook-Pro.local" tests="4" failures="0" errors="0" skipped="0" time="0.036729416">
+        <testcase classname="src/services/research-history-pages.test.ts" name="历史消息分页请求 &gt; 使用身份和取消信号请求200条更早消息" time="0.0300605">
+        </testcase>
+        <testcase classname="src/services/research-history-pages.test.ts" name="历史消息分页请求 &gt; 首次分页使用token身份，未提供游标时读取最近页" time="0.000386042">
+        </testcase>
+        <testcase classname="src/services/research-history-pages.test.ts" name="历史消息分页请求 &gt; 会话404抛出中文错误，不能当空页成功" time="0.000784833">
+        </testcase>
+        <testcase classname="src/services/research-history-pages.test.ts" name="历史消息分页请求 &gt; 分页失败显示中文请求错误" time="0.000190709">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/services/research-runs.test.ts" timestamp="2026-11-04T01:28:24.552Z" hostname="Gary-NiMacBook-Pro.local" tests="10" failures="0" errors="0" skipped="0" time="0.018055041">
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; 分块解析 UTF-8 SSE，忽略心跳及重复序号" time="0.012106083">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; 查询与停止使用同一会话身份，停止不只关闭本地连接" time="0.001142708">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; 接收无序号进度预览但不推进正文恢复游标，忽略无序号正文和终态" time="0.000360417">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; 无权读取或停止时传播服务器错误" time="0.000775875">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; 固定授权终止错误 stream_access_denied 不推进游标或发布后续正文" time="0.000379208">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; 固定授权终止错误 stream_access_expired 不推进游标或发布后续正文" time="0.000262208">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; 固定授权终止错误 stream_access_unavailable 不推进游标或发布后续正文" time="0.000219792">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; HTTP 401 是授权/资源终止，不当作临时断线" time="0.00023125">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; HTTP 403 是授权/资源终止，不当作临时断线" time="0.000270958">
+        </testcase>
+        <testcase classname="src/services/research-runs.test.ts" name="持久化运行接口 &gt; HTTP 404 是授权/资源终止，不当作临时断线" time="0.000184958">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/services/research-sources.test.ts" timestamp="2026-11-04T01:28:24.557Z" hostname="Gary-NiMacBook-Pro.local" tests="58" failures="0" errors="0" skipped="0" time="0.046100083">
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/report?date=2026-…&apos;" time="0.001999833">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/report?payload=%7…&apos;" time="0.000224458">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/Annual%20Report.p…&apos;" time="0.000082333">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://www.sse.com.cn/disclosure/lis…&apos;" time="0.000060458">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://8.8.8.8/report&apos;" time="0.000105959">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://[2001:4860:4860::8888]/report&apos;" time="0.000427292">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?api_key=PUBLIC_U…&apos;" time="0.000122959">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?%2561pi_key=PUBL…&apos;" time="0.000085208">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/#token=PUBLIC_URL…&apos;" time="0.000064542">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?payload=%7B%22pa…&apos;" time="0.000093958">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://user:PUBLIC_URL_CREDENTIAL_CA…&apos;" time="0.000049834">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/sk-PUBLIC_URL_CRE…&apos;" time="0.000040125">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?q=Bearer%20PUBLI…&apos;" time="0.000055209">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/\nreport&apos;" time="0.000024875">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com\@127.0.0.1/&apos;" time="0.000020959">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com:65536/&apos;" time="0.000050125">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://localhost/&apos;" time="0.000036">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://localhost./&apos;" time="0.000027667">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://x.local/&apos;" time="0.000025042">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://intranet/&apos;" time="0.000024208">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://127.0.0.1/&apos;" time="0.000029791">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://127.1/&apos;" time="0.000042">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://2130706433/&apos;" time="0.000028625">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://0x7f000001/&apos;" time="0.000034208">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://10.0.0.1/&apos;" time="0.0000295">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://169.254.169.254/&apos;" time="0.000027084">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://224.0.0.1/&apos;" time="0.000025292">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://[::1]/&apos;" time="0.000057875">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://[::ffff:127.0.0.1]/&apos;" time="0.000026292">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://[fc00::1]/&apos;" time="0.000025458">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://[fe80::1]/&apos;" time="0.00002675">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;javascript:alert(1)&apos;" time="0.00002475">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;data:text/html,test&apos;" time="0.00002425">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;file:///private/example&apos;" time="0.000024417">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;//example.com/report&apos;" time="0.000034458">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?auth=PUBLIC_URL_…&apos;" time="0.000582333">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?key=PUBLIC_URL_C…&apos;" time="0.000043458">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?signature=PUBLIC…&apos;" time="0.000033584">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?payload=%7B%22%5…&apos;" time="0.000041125">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?payload=%7B%22cr…&apos;" time="0.000033709">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://example.com/?payload=%7B%22da…&apos;" time="0.000028834">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://localhost。/&apos;" time="0.00097325">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://10。0。0。1。/&apos;" time="0.000062667">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://x。internal。/&apos;" time="0.0000315">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://2130706433。/&apos;" time="0.000228042">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://localhost．/&apos;" time="0.000054917">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://10．0．0．1．/&apos;" time="0.00002975">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://x．internal．/&apos;" time="0.000026583">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://2130706433．/&apos;" time="0.00002575">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://localhost｡/&apos;" time="0.000022167">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://10｡0｡0｡1｡/&apos;" time="0.000023458">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://x｡internal｡/&apos;" time="0.00002075">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;http://2130706433｡/&apos;" time="0.000022166">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="公共来源 URL 契约 &apos;https://例子.公司.cn/财报.pdf&apos;" time="0.000907833">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="来源转换保留稀疏编号并拒绝非法地址" time="0.000592917">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="历史消息恢复来源信息，不再生成占位资料" time="0.00050225">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="按规范 URL 合并来源并保留编号别名，以真实 Markdown 链接判断引用" time="0.00753675">
+        </testcase>
+        <testcase classname="src/services/research-sources.test.ts" name="代码、图片、普通文字链接和编号错配不能冒充正文引用" time="0.029374875">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/views/ai-research/index.test.tsx" timestamp="2026-11-04T01:28:24.567Z" hostname="Gary-NiMacBook-Pro.local" tests="6" failures="0" errors="0" skipped="0" time="2.939461625">
+        <testcase classname="src/views/ai-research/index.test.tsx" name="真实研究页面 &gt; 收起不重载会话或丢失草稿，重新挂载记住侧栏状态" time="0.491226208">
+        </testcase>
+        <testcase classname="src/views/ai-research/index.test.tsx" name="真实研究页面 &gt; 跨会话搜索定位等待首次恢复，再补齐旧消息，避免初始化覆盖目标" time="0.767339542">
+        </testcase>
+        <testcase classname="src/views/ai-research/index.test.tsx" name="真实研究页面 &gt; 恢复已有会话的回答终态后也刷新真实摘要" time="0.603993541">
+        </testcase>
+        <testcase classname="src/views/ai-research/index.test.tsx" name="真实研究页面 &gt; 选择记录同时切换真实标题、摘要与消息，新建后清空原会话" time="0.583793125">
+        </testcase>
+        <testcase classname="src/views/ai-research/index.test.tsx" name="真实研究页面 &gt; 快速切换后迟到的旧历史不能覆盖新会话" time="0.219953084">
+        </testcase>
+        <testcase classname="src/views/ai-research/index.test.tsx" name="真实研究页面 &gt; 回车提交后当前会话标题和研究列表立即使用真实首问" time="0.272294417">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/evidence-drawer.test.tsx" timestamp="2026-11-04T01:28:24.570Z" hostname="Gary-NiMacBook-Pro.local" tests="1" failures="0" errors="0" skipped="0" time="0.303763625">
+        <testcase classname="src/components/research/evidence-drawer.test.tsx" name="EvidenceDrawer &gt; 显示并高亮目标证据，关闭时通知调用方" time="0.30188325">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/permission-recovery-items.test.tsx" timestamp="2026-11-04T01:28:24.571Z" hostname="Gary-NiMacBook-Pro.local" tests="5" failures="0" errors="0" skipped="0" time="0.210486125">
+        <testcase classname="src/components/research/permission-recovery-items.test.tsx" name="展开详情后展示全部十二项授权范围，不截断后面的任务" time="0.190143041">
+        </testcase>
+        <testcase classname="src/components/research/permission-recovery-items.test.tsx" name="默认简述原因，不展开完整任务或内部接口：历史工具执行尚未核实，本次原接口未派发。" time="0.002182292">
+        </testcase>
+        <testcase classname="src/components/research/permission-recovery-items.test.tsx" name="默认简述原因，不展开完整任务或内部接口：数据源账号权限不足，原接口未执行。" time="0.002067167">
+        </testcase>
+        <testcase classname="src/components/research/permission-recovery-items.test.tsx" name="默认简述原因，不展开完整任务或内部接口：未来新增的失败原因" time="0.001452083">
+        </testcase>
+        <testcase classname="src/components/research/permission-recovery-items.test.tsx" name="同批原因去重，混合原因分别简述" time="0.013000209">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/research-conversation.test.tsx" timestamp="2026-11-04T01:28:24.572Z" hostname="Gary-NiMacBook-Pro.local" tests="4" failures="0" errors="0" skipped="0" time="0.078327">
+        <testcase classname="src/components/research/research-conversation.test.tsx" name="ResearchConversation &gt; 定位高亮停留后消失，重复定位同一消息可重新播放且不重建消息" time="0.070809">
+        </testcase>
+        <testcase classname="src/components/research/research-conversation.test.tsx" name="ResearchConversation &gt; 新提问渲染后复用底部按钮滚动，助手更新不打断上翻阅读" time="0.00219525">
+        </testcase>
+        <testcase classname="src/components/research/research-conversation.test.tsx" name="ResearchConversation &gt; 首次渲染时立即定位最近记录" time="0.002051125">
+        </testcase>
+        <testcase classname="src/components/research/research-conversation.test.tsx" name="ResearchConversation &gt; 流式内容增长时立即追底，避免重叠的平滑滚动" time="0.001036625">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/research-header.test.tsx" timestamp="2026-11-04T01:28:24.574Z" hostname="Gary-NiMacBook-Pro.local" tests="2" failures="0" errors="0" skipped="0" time="0.230196875">
+        <testcase classname="src/components/research/research-header.test.tsx" name="ResearchHeader &gt; 展示当前会话真实摘要" time="0.114941959">
+        </testcase>
+        <testcase classname="src/components/research/research-header.test.tsx" name="ResearchHeader &gt; 只显示研究标题，不显示连接或演示状态" time="0.114054833">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/research-markdown.test.tsx" timestamp="2026-11-04T01:28:24.574Z" hostname="Gary-NiMacBook-Pro.local" tests="7" failures="0" errors="0" skipped="0" time="0.69682075">
+        <testcase classname="src/components/research/research-markdown.test.tsx" name="远程图片、原始 HTML、来源 favicon 均不自动创建请求目标" time="0.321971666">
+        </testcase>
+        <testcase classname="src/components/research/research-markdown.test.tsx" name="危险地址保持不可点击，不向 DOM 转交 ping 或凭证地址" time="0.007847417">
+        </testcase>
+        <testcase classname="src/components/research/research-markdown.test.tsx" name="正文不变时新到的来源元数据仍更新预览，不重编号" time="0.050994916">
+        </testcase>
+        <testcase classname="src/components/research/research-markdown.test.tsx" name="普通文字链接不变，缺少元数据的旧编号只展示地址和域名" time="0.086321917">
+        </testcase>
+        <testcase classname="src/components/research/research-markdown.test.tsx" name="来源编号或地址不匹配时，不把别处的资料展示为该引用" time="0.093766833">
+        </testcase>
+        <testcase classname="src/components/research/research-markdown.test.tsx" name="在卡片中按 Escape 后关闭预览并将焦点返回引用" time="0.102094375">
+        </testcase>
+        <testcase classname="src/components/research/research-markdown.test.tsx" name="悬停后打开预览，指针移入卡片可继续阅读，离开后关闭" time="0.032317791">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/research-message-item.test.tsx" timestamp="2026-11-04T01:28:24.575Z" hostname="Gary-NiMacBook-Pro.local" tests="23" failures="0" errors="0" skipped="0" time="0.656240958">
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 正文流式输出期间隐藏来源入口，完整回答结束后再展示" time="0.20132025">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 没有正文时不单独展示来源入口" time="0.010082583">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 已替代的查询不计入已取得数据的数量" time="0.073744541">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 待补偿及已替代的流程使用中性图标，只有最终失败显示感叹号" time="0.005316667">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 历史消息没有可靠计时数据时，不使用组件挂载时长作为思考用时" time="0.0055315">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 搜索完成即在 timeline 下方展示摘要，其他并行搜索仍可继续" time="0.05682075">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 没有非空搜索 answer 时不显示摘要区域" time="0.019894084">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 直接展示研究目标和任务列表，不需要模型生成摘要" time="0.041765416">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 恢复卡片使用简短问题和选项，点击仍传原始授权值" time="0.032119708">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 批次展示不兼容时显示提示且禁止两个选项" time="0.084558209">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 停止的部分回答明确标记不完整，空回答也显示停止状态" time="0.001715125">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 等待首个公开研究事件时显示 loading 动画，收到摘要后直接展示" time="0.022483584">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 研究过程忽略原始思考并展示当前工具活动" time="0.007805834">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 不展示遗留原始推理中的内部协议" time="0.002066875">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 没有推理增量时仍展示当前研究活动" time="0.026606875">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 收到首个答案内容后才渲染答案区域" time="0.009493375">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 工具活动展示在两段公开摘要之间，答案开始后停止流式状态" time="0.01085675">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 搜索分组仅展示网页总数，不重复展示研究计划中的查询范围" time="0.012350125">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 将相同类型的市场数据活动合并为一个操作组" time="0.004788375">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 相同的模型思考和结构化摘要只展示一次" time="0.006050083">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 相同的结构化摘要在时间线中只展示一次" time="0.005558209">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 渲染通用 selection 卡片并提交选中值" time="0.004351833">
+        </testcase>
+        <testcase classname="src/components/research/research-message-item.test.tsx" name="ResearchMessageItem &gt; 恢复中禁用所有 selection 选项" time="0.008667125">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/research-search-dialog.test.tsx" timestamp="2026-11-04T01:28:24.579Z" hostname="Gary-NiMacBook-Pro.local" tests="4" failures="0" errors="0" skipped="0" time="2.145931292">
+        <testcase classname="src/components/research/research-search-dialog.test.tsx" name="消息级研究搜索 &gt; Escape 关闭后恢复搜索按钮焦点" time="0.23475525">
+        </testcase>
+        <testcase classname="src/components/research/research-search-dialog.test.tsx" name="消息级研究搜索 &gt; 空查询不请求，展示命中片段和高亮，点击携带消息定位信息" time="0.51406775">
+        </testcase>
+        <testcase classname="src/components/research/research-search-dialog.test.tsx" name="消息级研究搜索 &gt; 迟到的搜索不覆盖新词，支持键盘选择和加载更多" time="0.613186291">
+        </testcase>
+        <testcase classname="src/components/research/research-search-dialog.test.tsx" name="消息级研究搜索 &gt; 搜索失败提供重试，空结果不会显示旧命中" time="0.778240916">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/research-sidebar.test.tsx" timestamp="2026-11-04T01:28:24.581Z" hostname="Gary-NiMacBook-Pro.local" tests="6" failures="0" errors="0" skipped="0" time="1.446988209">
+        <testcase classname="src/components/research/research-sidebar.test.tsx" name="ResearchSidebar &gt; 收起保留新建和搜索入口，展开后保留列表节点与滚动位置" time="0.601229333">
+        </testcase>
+        <testcase classname="src/components/research/research-sidebar.test.tsx" name="ResearchSidebar &gt; 滚动时显示滚动条，连续滚动延长显示，停止后隐藏并清理计时器" time="0.019744708">
+        </testcase>
+        <testcase classname="src/components/research/research-sidebar.test.tsx" name="ResearchSidebar &gt; 保留研究入口且不显示行情待接入卡片" time="0.01376725">
+        </testcase>
+        <testcase classname="src/components/research/research-sidebar.test.tsx" name="ResearchSidebar &gt; 操作菜单先确认，取消不删除，确认才调用删除接口" time="0.387136917">
+        </testcase>
+        <testcase classname="src/components/research/research-sidebar.test.tsx" name="ResearchSidebar &gt; 删除中禁止重复提交和关闭，失败后保留确认框并支持重试" time="0.349208291">
+        </testcase>
+        <testcase classname="src/components/research/research-sidebar.test.tsx" name="ResearchSidebar &gt; Escape 取消不删除并将焦点还给当前记录的操作按钮" time="0.074413625">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/research/research-sources.test.tsx" timestamp="2026-11-04T01:28:24.582Z" hostname="Gary-NiMacBook-Pro.local" tests="3" failures="0" errors="0" skipped="0" time="0.810642875">
+        <testcase classname="src/components/research/research-sources.test.tsx" name="入口按去重网页计数，筛选正文引用并保留原始编号" time="0.6409325">
+        </testcase>
+        <testcase classname="src/components/research/research-sources.test.tsx" name="可搜索摘要和网站，空结果后能清空恢复，重新打开不保留旧筛选" time="0.161071042">
+        </testcase>
+        <testcase classname="src/components/research/research-sources.test.tsx" name="没有有效网页时不展示入口" time="0.006260625">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/ai-elements/message.test.tsx" timestamp="2026-11-04T01:28:24.583Z" hostname="Gary-NiMacBook-Pro.local" tests="1" failures="0" errors="0" skipped="0" time="0.193131917">
+        <testcase classname="src/components/ai-elements/message.test.tsx" name="保存的回答重载后，数字引用仍渲染为可打开原文的链接" time="0.19252925">
+        </testcase>
+    </testsuite>
+    <testsuite name="src/components/ai-elements/reasoning.test.tsx" timestamp="2026-11-04T01:28:24.583Z" hostname="Gary-NiMacBook-Pro.local" tests="3" failures="0" errors="0" skipped="0" time="0.191754958">
+        <testcase classname="src/components/ai-elements/reasoning.test.tsx" name="Reasoning &gt; 流式输出期间允许用户主动收起，后续增量不会强制展开" time="0.128579">
+        </testcase>
+        <testcase classname="src/components/ai-elements/reasoning.test.tsx" name="Reasoning &gt; 思考结束后计时固定，正文继续生成不延长思考时间" time="0.039662791">
+        </testcase>
+        <testcase classname="src/components/ai-elements/reasoning.test.tsx" name="Reasoning &gt; 关闭自动收起后，最终答案出现时继续展示思考内容" time="0.022651375">
+        </testcase>
+    </testsuite>
+</testsuites>

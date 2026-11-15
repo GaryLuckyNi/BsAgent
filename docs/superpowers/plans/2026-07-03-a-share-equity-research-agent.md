@@ -1,5 +1,7 @@
 # A Share Equity Research Agent Implementation Plan
 
+> **历史方案警告：本文已被 `2026-07-26` Tushare 字段级证据契约方案取代。文中的 fixture provider、`mcp.mock.stock.*` 固定前缀和 `stock.risk_events` 仅保留为历史记录，禁止用于当前实现。**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the first working A 股公司研究 Agent vertical slice for 投研分析师: company snapshot, financial report analysis, and risk scan.

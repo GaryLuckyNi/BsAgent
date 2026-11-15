@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-03",
+  "source_url": "http://127.0.0.1:8011/openapi.json",
+  "method": "GET",
+  "status_code": 200,
+  "evidence_level": "真实本地服务的公开 OpenAPI，只读核对，不检索文档",
+  "document_projection": {
+    "title": "Minimal RAG API",
+    "global_security": null,
+    "security_schemes": {},
+    "operations": [
+      {"path": "/api/health", "method": "get", "security": "inherit", "response_codes": ["200"]},
+      {"path": "/api/rag/health", "method": "get", "security": "inherit", "response_codes": ["200"]},
+      {"path": "/api/rag/retrieve", "method": "post", "security": "inherit", "request_schema": {"$ref": "#/components/schemas/RagRetrieveApiRequest"}, "response_codes": ["200", "422"]}
+    ]
+  },
+  "observed": ["8011 当前有本地服务监听", "公开契约未声明认证方案和 retrieval 的 security 要求"],
+  "not_verified": ["隐藏中间件或反向代理鉴权", "实际服务源码及部署版本", "匿名合法检索是否被拒绝", "服务身份、可信委派和用户/租户文档 ACL"],
+  "scope": "未检索真实业务文档，未修改外部 RAG 工程或服务，未注入自定义认证协议"
+}

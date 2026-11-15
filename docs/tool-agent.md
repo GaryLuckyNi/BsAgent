@@ -1,263 +1,180 @@
-# Tool Agent、Function Calling 与 MCP Gateway 设计
+# Tool Agent、Function Calling 与 MCP
 
-## 目标
+备用计划的参数根对象只允许同级的 `choices` 与 `order`。结构不合法时，宿主拒绝执行并向当前任务的修正调用提供缺失字段、已知字段的错误位置及预期层级，例如 `order` 错放为 `choices.order`；不复制业务参数、凭证或任意模型键名。只修正一次，不自动接受错误层级、不增加预算，候选身份、每源单选、搜索备用、凭证与执行前参数校验继续生效。
 
-Tool Agent 是 BsAgent 的工具调用边界。它把模型、Skill 和外部系统隔开，确保所有原子能力都经过确定性的 schema 校验、版本检查、审批闸门、执行归一化和 trace 绑定。
+普通只读备用队列中，调用成功不等于取得数据。明确空返回（`[]`、`{}`、`null`、空白文本）会记录队列原因 `tool_result_empty`，直接使用下一来源的预生成参数，不作参数修正；数值零和 `false` 保留为有效返回。自有联网搜索的摘要和来源列表同时为空时也属于无数据，查询词和覆盖状态等元信息不能充当证据。不猜测第三方包装字段的含义，不在工具层验证业务覆盖。原始调用回执、成功状态和空结果不改写，后续取得非空返回后才剪枝；来源用尽则形成“未取得数据”的业务失败结果。来源切换期间保持研究进行中的进展，不提前发布任务完成结果。
 
-第一版先实现本地可测试的最小闭环：
+> 2026-10-30 当前普通研究策略：每个只读 MCP 来源独立召回 Top-3 候选；模型一次生成有序备用计划，每个入选来源最多一个工具及一组参数，来源可以不入选。联网搜索排在最后。按顺序执行，成功即剪枝，只有参数错误才再次调用模型修正当前工具一次；其他失败直接使用下一来源已生成的参数。失败过程更新同一研究进度，实际失败回执完整保留。普通来源切换不走重规划，不直接把 `task_goal` 当作搜索词。固定 Skill、业务写入、审批、共享搜索预算和未决副作用保护保留。详见[多来源备用调用链设计](./superpowers/specs/2026-10-30-multi-source-tool-plan-design.md)。
 
-```text
-Skill / LLM function call
--> ToolCallRequest
--> ToolRegistry
--> ToolAgentExecutor
--> Tool.run(...)
--> ToolCallResult
-```
+> 2026-10-24：新批次恢复默认关闭；来源政策已最小接入，专用 PostgreSQL 两项恢复并发测试已通过，另有五项已在修改前复现的历史数据库回归失败，详见[来源政策验收](./acceptance/2026-10-24-recovery-source-policy.md)。下文内存预算和单项恢复描述对应原兼容模式。
 
-现有 RAG 微服务仍然是 retrieval-only 工具，通过 `rag_search` 注册为普通 Tool。Retriever Agent 负责检索策略，Tool Agent 只负责可靠执行。
+新模式的普通及替代搜索均经 Gateway 共享持久化六次预算，调用身份稳定；完整结果摘要可复用，running/unknown/不完整结果不重发。旧封存批次恢复不重跑工具选择模型；新普通来源恢复由 Tool Agent 使用预生成队列逐次执行；备用候选不记作已经执行的工具调用。旧规划版本保留原 Planner 评审；`context-routing-v1` 由合成层判断必要缺口，不作例行批次评审。TaskResult success 表示本次执行观察，不证明原任务验收或原接口数据已满足。
 
-## 模块边界
+同批中高风险调用被本地 running 保护挡住、且尚无远端回执时，等待队列每轮只放行一个，保留原参数，不重新调用工具选择模型。已执行并形成权限恢复事项的调用不再进入本地等待队列；实际 unknown 仍阻止后续受保护调用。三项竞争与完整批次确认回归见[等待派发修复记录](./acceptance/2026-10-24-deferred-tool-dispatch-fix.md)。settled 仅表示回执已结算，不等于工具成功、数据充分或应弹权限确认。
 
-### `skills/definitions.py`
+### 新模式来源约束的最小接入
 
-定义 Skill Registry Server 返回的结构化 JSON 模型：
+2026-10-25补充：同会话历史 unknown 会继续保护中高风险调用，但不能只输出“先确认”却没有入口。本轮原 MCP 被本地门禁阻止、无原调用持久回执且重新核对仍未派发时，可在原候选包含 web_search、来源允许的前提下复用冻结批次询问是否补充公开资料。确认只授权清单中的搜索，不核销历史 unknown、不重试原 MCP；禁止替代、固定 Skill 或缺少候选时仍保留缺口。详见[原会话恢复验收](./acceptance/2026-10-25-existing-session-recovery.md)。
 
-- `SkillCard`：轻量摘要 JSON，用于 intent/skill 初筛，只包含名称、版本、摘要、支持意图、标签、风险等级和 definition hash。
-- `SkillDefinition`：选中 skill 后再加载的完整结构化定义 JSON，包含输入契约、输出契约、允许工具、约束和失败模式。
-- `SkillExecutionGuide`：执行前再加载，包含执行指令、few-shot 示例、恢复策略和证据要求。
+确认卡片仅在前端精简展示：默认显示去重后的切换原因、简短问题及“使用联网搜索／仅用已有资料”；“查看详情（N项任务）”保留完整任务、内部工具名、原始原因和来源限制，不截断十二项批次。未知原因使用中性提示，不推断为权限错误。协议内容、选项 value、批次摘要及恢复校验不变，既有待确认请求无需重发；其他标的选择和不兼容批次的禁用保护保持原样。该展示变更按测试先行验证，80项前端测试及生产构建通过；未增加模型调用，也未重新提交真实研究请求。
 
-BsAgent 不要求 skill 定义内置在项目里。推荐把 Skill Registry Server 作为单一事实源，BsAgent 只消费、缓存和校验结构化 JSON。
+选择任一选项后，前端立即关闭确认框并进入继续研究状态，不等待响应或整轮完成；尚未收到服务端接收事件时提交失败，恢复原选择框并提示重试。临时快照同时防止快速重复点击；服务端接收后断线沿用持久事件恢复，后续新中断不被旧提交收尾覆盖。此项补充不改后端确认协议。
 
-### `skills/registry_client.py`
+`BS_AGENT_PERMISSION_RECOVERY_SOURCE_POLICY` 默认 `unknown`；显式配置为 `public_supplement_only` 后，业务仅允许询问用户是否补充公开资料，并不自动执行搜索，也不承认原接口等价替代。新 Run 冻结版本化配置，恢复前与当前配置重新比较；配置放宽不能升级旧 Run，撤回会拒绝旧批次。总开关仍默认关闭，配置示例不代表完成生产启用验收。
 
-定义 `SkillDefinitionProvider` 协议和两个消费侧实现：
+新 Intent Router 同一次调用理解目标与已有信息，不再要求模型提取 `source_constraint`，兼容解析旧响应时也不再将其发布到新状态。Planner 保留任务 `source_requirement`（`public_information/original_data/unclear`）用于描述证据需求；指定年报、期间或原始金额不等于禁止搜索查找资料，切换获取渠道不能降低主体、期间、指标和文档口径的验收要求。不增加模型调用。
 
-- `RemoteSkillRegistryClient`：通过 HTTP 从远端 Skill Registry 拉取 cards/definition/execution-guide。
-- `CachedSkillDefinitionProvider`：在 BsAgent 进程内做 TTL 缓存，避免每次请求都访问 registry。
+2026-10-25 来源确认边界修正：`original_data` 表示原始数据验收要求，不等于用户禁止替代。部署与 Run 来源契约有效、请求为 `unrestricted` 或 `confirmation_required`、本轮原候选包含搜索，且权限拒绝与回执满足既有条件时，原始数据任务也可展示批次 interrupt；确认前零搜索，确认后仅补充公开资料，不声称取得原接口数据或满足原始序列/计算条件。用户明确 `original_only`、固定 Skill、未知请求约束、缺候选或执行不确定时仍不放行批次恢复。经确认的恢复节点仅执行封存清单。可独立执行的健康任务继续；依赖缺失数据的任务不能冒充完成。自然语言约束识别仍依赖既有模型，不保证任意自由文本绝不误解；强制来源限制需要结构化请求契约，当前未增加这类新 UI 或后台系统。实测与边界见[原始数据任务 interrupt 修复验收](./acceptance/2026-10-25-original-data-interrupt.md)。
 
-当前约定的远端接口：
+2026-10-27 工具执行与证据验收分工：普通搜索不再因 `original_data`、`unclear` 任务标签或同一 run 的历史 MCP 失败而被禁止。数据源拔掉且仅剩 `web_search` 时，普通任务仍可检索公开材料；调用前继续检查可用性、参数、权限、预算及副作用。请求明确为 `original_only` 或 `confirmation_required` 时，普通搜索仍不能绕过用户要求。`source_requirement` 只描述证据需求，恢复来源审计保留该标签以兼容已封存中断，不以标签决定许可。合成层读取 goal、计划、实际结果与来源，判断证据能否回答；执行成功不表示完整原始数据已经取得。此调整也移除原先“任何 MCP 失败都禁止后续普通搜索”的判断，原失败与未决回执照常保留。
+
+2026-10-25 真实回归修复：MCP 错误解析支持提供方错误前缀与动态接口名；40203 按消息主体区分权限与限流，不是按接口维护权限名单。只有可信拒绝阶段契约才能得到 not_started，未知协议和超时仍保守保留 uncertain。完整证据及限制见[本批修复验收](./acceptance/2026-10-25-live-regression-fixes.md)。
+
+固定 Skill 验收查找冻结工具/版本的成功且执行确定的原始调用，再检查必需字段；不能把另一条搜索文章当成原始序列。JSON schema 只证明其实际可执行的字段、类型、数组长度等条件，不证明模型生成数字真实，也不自动验证任意自然语言期间要求。
+
+## 定位
+
+Tool Agent 执行 planner 给出的信息目标，不负责上层任务拆分。Planner 可为参数明确的独立普通任务附带调用草案，执行层校验后直接采用；其它情况由执行模型根据任务、已有材料和检索候选决定是否调用工具及调用哪个工具。
 
 ```text
-GET /skills/cards?tenant_id=...
-GET /skills/{name}/versions/{version}/definition
-GET /skills/{name}/versions/{version}/execution-guide
+MCP list_tools → 冻结 ToolRegistry 与执行绑定
+→ 按任务检索专业候选，独立披露有权限的 web_search
+→ 校验并采用可选 Planner 草案，否则模型选择一次调用或不调用
+→ 参数校验、审批、预算、执行网关
+→ ToolMessage 与任务观察
+→ planner 自主决定继续、修订或结束
 ```
 
-配置项：
+## 启动期动态发现
 
-```text
-BS_AGENT_SKILL_REGISTRY_BASE_URL=http://localhost:8010
-BS_AGENT_SKILL_DEFINITION_CACHE_TTL_SECONDS=300
-```
+生产市场数据直接连接 Tushare MCP Server，通过 LangChain MCP Adapter 的 Streamable HTTP 客户端执行 `list_tools`。项目内 `mcp server` 只作为学习和本地联调服务，不是生产数据链路的必经代理。
 
-### `skills/registry.py`
+每个远端工具被适配为内部 `ToolSpec`，保存非秘密的 Provider、Server、Deployment 和 Config revision。目录冻结后生成 `catalog_digest`，同一次 Run 的 Planner、Tool Agent、Gateway 和审批恢复必须使用同一快照。
 
-`SkillRegistry` 保留本地 skill 注册和选择能力，同时新增远端 definition 发现能力：
+生产环境在启动时加载工具目录，本地 `npm run dev` 也在启动时预热目录。目录过期后，已有快照可供新请求继续使用；刷新在后台执行，请求同时取得配对的工具清单和检索索引。正在运行的请求保留原快照，刷新不会提前关闭旧版检索服务。首次尚无快照时仍须等待目录构建完成。
 
-- `discover(tenant_id, intent)`：只返回 `SkillCard`，用于渐进式初筛。
-- `get_definition_layers(name, version)`：选中后再加载 `SkillDefinition` 和 `SkillExecutionGuide`。
+每份目录快照只为工具名、描述、参数名和参数说明建立内存 BM25 索引。目录变化时后台重建轻量索引，不加载向量模型，不生成或读取文档向量，也不需要模型缓存。运行快照仍使用完整 `catalog_digest` 校验检索结果与执行绑定；MCP 发现和实际业务工具调用不属于索引构建过程。
 
-这让运行链路可以先只把轻量 skill card 放进上下文窗口，避免一次性展开所有 skill 的长说明。
+## 渐进式披露
 
-### `graph/nodes/skill_agent.py`
+应用启动时会加载所有可用工具到进程内 Registry，但不把全量 Schema 放入每次 Prompt。
 
-`Skill Agent` 负责把 intent 决策转成可执行的 skill runtime plan：
+1. 检索层先按 Principal Scope 过滤不可见工具。
+2. 工具描述与任务明确的市场、历史/实时约束冲突时，在 Top-K 前排除；描述不明时不猜测能力。其余工具名明确出现时使用精确匹配，否则由 BM25 返回 Top-K 工具名、描述和必需参数名。
+3. Planner 使用有界能力卡片，tool_search_query 是可选的能力检索提示；满足完整契约与独立任务条件时可附带一个工具调用草案。
+4. 将合格候选完整 Schema 提供给 Tool Agent；web_search 独立于专业候选命中和排序，在授权范围内披露。
+5. 检索只负责候选发现，不按命中或排名设置必须调用，不自动执行搜索。当前未增加额外的模型驱动 search_tool 循环；模型需要不同路径时可通过反馈修订任务目标。
 
-```text
-IntentDecision
--> SkillRegistry.select(...)
--> Skill.run_validated(...)
--> SkillOutput
--> state.selected_skill
--> state.plan.requested_tools
-```
+候选数量、任务数量、反馈次数和搜索执行次数分别有预算。候选不足时仍允许模型基于材料回答并说明缺口，不强制搜索。
 
-当前默认注册 `PolicyQaSkill`，也支持测试或后续运行时注入其它 `SkillRegistry`。`Skill.run_validated(...)` 会校验 skill 请求的工具必须在 `allowed_tools` 内，避免 skill 越权调用未授权工具。
+## 搜索使用时机
 
-### `graph/nodes/retriever_agent.py`
+工具使用指令要求模型根据公开证据缺口、时效性、用户明确搜索请求和已有材料决定是否搜索。专业工具命中时仍可选择 web_search，未命中时也可以不调用。代码负责权限、参数和资源校验，不决定业务调用顺序。
 
-`Retriever Agent` 会优先执行 `state.plan.requested_tools` 中的 `rag_search` 请求，并通过 `ToolAgentExecutor` 统一执行：
+搜索配额在模型提出真实调用后，在同一图实例内以锁原子预留，最多六个不同调用；不会按任务位置提前分配。恢复时从已记录搜索调用重建使用量。该计数不提供跨进程分布式租约，也不保证进程崩溃前未落盘调用的精确计量；服务仍须保持每个 Run 单一执行者。
 
-```text
-SkillOutput.requested_tools
--> ToolAgentExecutor.execute(...)
--> ToolCallRecord
--> EvidencePackage
-```
+## 原生 Function Calling
 
-没有 skill tool request 时，Retriever Agent 保留默认 `rag_search` 请求作为兼容路径。RAG 的 `404` 会映射为无证据结果，其它结构化 RAG 错误会继续抛给 graph harness，由 Session API 返回结构化错误。
+普通只读多来源任务只绑定一个内部 `plan_source_calls`，每个来源为一个可为空的单选位置，一次生成全部备用参数与顺序。每源候选不再作为可自由重复调用的平铺函数列表；宿主仍检查来源、选择和顺序。结构失败反馈具体冲突并在当前任务修正一次；耗尽后持久化 failed 队列及 `source_plan_invalid`，不能当作取证路径失败触发重规划。内部计划函数不写入实际调用对话。以下单函数规则用于固定 Skill、单工具路径和同工具参数修正。
 
-### `schemas/tools.py`
+Tool Agent 对候选执行 `bind_tools(..., tool_choice="auto")`，允许零或一个原生工具调用；模型不调用时保留回答或缺口说明。若模型一次返回多个调用或未知工具，先将契约错误反馈给模型修复一次，保持 `auto` 选择权；再次失败才记录业务失败观察。参数修复针对模型已选定的调用，允许一次保持工具不变的修复。模型给出的 call ID 不被信任，系统用 `request_id + planner_iteration + task_id + tool_name` 生成稳定可信 ID。
 
-定义系统级工具契约：
+Planner 生成工具子任务时必须保证它代表一次可执行调用，并能从用户消息或依赖任务结果中确定必需参数。对于“比较多家公司”这类复数目标，应先拆分实体或为每个实体建立独立任务，不能把复数抽象描述直接传给单实体工具。
 
-- `ToolSpec`：工具 manifest，包含名称、版本、输入输出 schema、超时、权限范围和风险等级。
-- `RetryPolicy`：工具重试策略占位，当前只记录配置，不在第一版自动重试。
-- `ToolCallRequest`：内部标准工具调用请求。
-- `ToolCallResult`：内部标准工具调用结果。
-- `ToolError`：结构化工具错误。
+参数生成上下文包含当前 `task_goal`、`completion_criteria`、直接依赖结果、显式引用的历史成功结果，以及一份有长度限制的用户材料（当前问题、历史与附件），不再另附完整会话副本。其他并行分支产生的内部 `AIMessage.tool_calls`、`ToolMessage` 和 Skill/Analysis 过程消息会被过滤，防止不相关工具名与参数污染当前节点。
 
-这些 schema 是 Skill、Function Calling、MCP Gateway 和审计系统之间的共享协议。
+DeepSeek 参数生成通过 LangChain 同步 `invoke()` 执行，并显式使用非 thinking 模式。该步负责候选选择与参数生成；完成情况由后续 planner 结合任务验收条件与结果判断。
 
-### `tools/base.py`
+Schema 明确声明 YYYYMMDD（或同组日期“下同”）时，在请求身份和审批指纹绑定前将合法 ISO 日期规范化；不改用户指定期间、不猜测缺失日期、不改查询正文。本轮工具选择直接产生的无调用分析消息标记为 task_role，避免重新进入 user_materials。
 
-定义 `Tool` 抽象。每个 Tool 必须声明：
+执行结果写为 `ToolMessage`：
 
-- `name`
-- `version`
-- `input_model`
+- `content` 只保留给后续 LLM 使用的脱敏紧凑 JSON。
+- `artifact` 保留脱敏后的结构化结果，供观测与程序化处理。
+- `tool_call_id` 必须与对应 AIMessage 中的可信 ID 一致。
 
-`Tool.spec` 会自动从 `input_model.model_json_schema()` 生成输入 schema，避免工具契约和 Pydantic 参数模型漂移。
+工具结果进入任务观察前按 8,000 字符契约压缩。联网搜索优先保留回答、来源 URL 和简短摘要；其他超长结果保留脱敏预览。完整的结构化工具结果仍在 `ToolCallRecord` 中，超长正文不会因任务观察字段限制使节点失败。
 
-### `tools/registry.py`
+最终回答保留本轮历史计划的相关成功成果，不因修订只剩一个失败任务而丢弃原始数值或已完成分析；未声明的无关旧结果不混入。工具成功但内容为 []/{} /null 不再作为阻止新任务补证的理由；验证预算、原调用身份和未知副作用保护不变。
 
-`ToolRegistry` 是工具发现层，负责：
+TuShare daily 和 fina_mainbz 的已知数据契约有有限确定性数值底稿：成交额单位换算、同主体/期间/币种的收入行算术和、开盘方向。已知底稿替换对应原始副本，不额外重复传一份 JSON；发现受支持的明确数值矛盾时保留可信底稿及其他材料，不再调用模型修复。流式正文在完整句子或行发布前进行累计数值校验，通过即可发布，无需等全文；最终全文校验继续保留。该保护不推断其他接口单位，不验证任意金融事实或所有自然语言计算，也不宣称业务分类互斥。
 
-- 注册 Tool。
-- 按名称获取 Tool。
-- 校验请求版本和实际工具版本是否一致。
-- 输出当前可用工具的 `ToolSpec` 列表。
+## 执行治理
 
-### `tools/agent.py`
+LLM 只能提供参数建议。Tool Gateway 在真正调用 Provider 前依次执行：
 
-`ToolAgentExecutor` 是工具执行层，当前处理：
+- 工具名、版本、目录摘要和 execution binding 校验。
+- Pydantic/JSON Schema 参数验证，拒绝额外字段。
+- 租户、用户和 permission scope 的 RBAC 校验。
+- 拒绝内联凭证、`writeOnly/x-sensitive` 及应由 Server 注入的字段。
+- 根据真实 `ToolSpec.risk_level` 判断是否需要 Interrupt 审批。
+- 超时、Provider 结果归一化、敏感数据脱敏和 Trace 关联。
 
-- 未注册工具：返回 `tool_not_found`。
-- 版本冲突：返回 `tool_version_mismatch`。
-- 参数不符合 schema：返回 `tool_argument_validation_failed`。
-- 需要审批的调用：返回 `tool_approval_required`，不执行工具。
-- 工具运行异常：返回 `tool_execution_failed`。
+高风险调用在审批前将完整请求保存到 PostgresSaver。恢复后重用同一个 `call_id + arguments_hash`，不重新请求 LLM 生成参数。
 
-这层不负责选择工具，也不负责检索策略。选择工具属于 Skill Agent / Planner / Retriever Agent；策略属于对应 Agent；Tool Agent 只做边界治理。
+## 失败与反馈
 
-## Function Calling 适配
+- Provider 超时、限流及业务失败均保留规范化结果，不再抛异常让整个 Tool Agent 重跑模型选择。
+- MCP 通用执行失败仅记录安全分类 `remote_tool_error`、`response_type_invalid` 或 `client_exception`；客户端异常另记录异常类名。远端原始错误正文、URL 和凭证不写入 ToolError 或 Trace。
+- 参数不合法允许一次本地模型修复，失败后记录观察。
+- auto 模式没有 Tool Call 是合法选择；未知工具或多个调用先修复一次，仍不合约才形成可诊断观察。
+- 目录、RBAC 与审批约束继续生效，模型不能用重新规划绕过授权。
+- ToolCallResult 的 success 表示调用完成，不自动证明研究目标充分。新请求由合成层在最终分析时判断必要缺口，调度器先按依赖推进，不因每批新结果例行返回 Planner；旧运行按原策略恢复。
 
-`tools/function_calling.py` 将模型返回的 function/tool call 转换为内部 `ToolCallRequest`。
+## 搜索研究目标与覆盖
 
-支持两种常见形态：
+`web_search` 通过已有 `run_with_context` 接口收到服务端绑定的 `SearchResearchContext`：当前任务目标、验收条件和带时区的 `as_of`。这些字段不是模型生成的工具参数，不改变参数哈希或审批快照；权限回退也只在用户确认后绑定并执行。建议 query 即使偏向其他方向，搜索模型仍收到原任务契约；盘中时点不得把尚未产生的收盘数据当作当前应取得的事实。续轮保留该上下文。
 
-```json
-{
-  "name": "rag_search",
-  "arguments": "{\"query\":\"报销制度\"}"
-}
-```
+搜索响应的 `coverage` 独立于调用 status，包含 `complete/partial/missing/unknown`、已覆盖/未覆盖条件和判断依据。条件索引无效、缺少结构化覆盖声明或没有验收条件时为 `unknown`，不自动重试或宣称目标完成。它仍是搜索模型对同一批材料的自述，供合成层判断证据限制，不能独立证明事实正确。
 
-```json
-{
-  "function": {
-    "name": "rag_search",
-    "arguments": {"query": "报销制度"}
-  }
-}
-```
+本次为工具输出契约增加可选覆盖字段，目录摘要会变化；旧 Run 如被现有目录一致性保护拒绝恢复，应重新发起请求，不绕过保护继续旧调用。不需要业务数据库迁移。
 
-适配器只做解析，不直接执行工具。执行必须交给 `ToolAgentExecutor`。
+RAG 继续作为普通 rag_search 工具，MCP 连接和业务结果适配未在本轮重写。
 
-## MCP Gateway 与动态发现
+## 上下文复用与请求路由（2026-10-25）
 
-BsAgent 默认不再手工注册某个本地 MCP adapter。服务启动构建默认 `ToolRegistry` 时，会通过官方 MCP Python SDK 启动配置的 stdio server，并调用 `ClientSession.list_tools()` 动态发现工具：
+### 规划前工具能力召回
 
-```text
-MCP stdio server
--> ClientSession.list_tools()
--> DynamicMcpStdioTool
--> ToolRegistry
--> ToolSpec(name="mcp.<server>.<tool>")
-```
+仅进入 `plan` 分支时，Planner 在原有模型调用前使用本地 BM25 召回少量普通工具能力，默认最多 5 个、上限 8 个。原始 query 为主，短指代或超长输入可用 Router 的既有目标辅助召回，不新增模型节点。Skill 仍按现有 domain/subdomain 分类过滤，不增加 BM25，也不与 Tool 共用检索分数排序。
 
-命名规则：
+规划输入披露用途和有界参数/字段描述片段；对目录标记为 low 或 medium 且可安全完整披露的候选，额外提供可选 input_schema，与原生工具调用共用输入投影。单项契约最多 4000 字符，累计最多 12000 字符；超预算、脱敏会改变契约、包含遗留嵌套服务器字段或敏感注解时省略整个完整契约，不截断其语义。不会注入全量目录或输出 schema，也不会降低工具风险等级。
 
-```text
-mcp.<server_name>.<tool_name>
-```
+单个工具已覆盖目标时只建一个任务；匹配完整业务流程的 Skill 保持一个 Skill 任务，不手工展开其步骤。执行前仍从当前目录快照读取真实 schema。
 
-权限范围规则：
+普通任务通过可选 `tool_candidate_refs` 引用 `planning_tool_candidates` 中的候选。执行器优先复用，重新核对请求、目录、版本、权限、市场/时间限制和已知运行时拒绝。根候选未覆盖的子任务仍能按任务检索；候选引用不授权，也不允许绕过来源确认。Skill 和 analysis 的底层任务契约不允许携带普通工具候选。
 
-```text
-mcp:<server_name>
-```
+模型若已选择已披露 Skill，且仅附带已披露但无执行意义的普通候选引用，解析阶段清除这些冗余引用，不为清理字段再调模型；未知引用、未知 Skill 或非法执行类型仍按原契约拒绝。不会换 Skill、改目标、跳步骤或更改审批。
 
-当前已经提供一个本地真实 MCP stdio server，用于验证 Agent 调用 MCP 工具：
+`planning_tool_recall` 是本地非模型观测，记录耗时与候选摘要；执行发现事件的 `source` 区分 `planning_reuse`、`task_search`、`skill_named_tool`。旧 checkpoint 缺少候选时保持原路径，空候选引用不改变旧评审签名。
 
-```text
-mcp server/
-```
+### Planner 可选调用草案（2026-10-26）
 
-MCP server 不暴露 HTTP API，也不需要固定端口。它由 MCP client 作为子进程启动：
+普通任务可增加 `proposed_tool_call={"candidate_ref": "已披露候选引用", "arguments": {}}`。只适用于无 depends_on、参数可从已知资料明确确定且已披露完整输入契约的任务；多个独立任务可各自给出一个草案。Skill、analysis、依赖任务或仍需实体消歧时保持原执行流程。草案不能指定调用身份、凭证、租户或审批状态。
 
-```text
-cd "mcp server"
-/opt/anaconda3/bin/python3 -m app.main
-```
+Tool Agent 优先运行既有候选解析，重新核对请求、目录、权限、任务适用性与运行时拒绝。只有引用属于任务候选、对应本请求快照、真实候选仍含该 low/medium 风险工具及版本、完整契约与当前工具一致时才尝试采用。经过现有日期规范化、参数及注入字段校验后，沿用相同可信调用 ID、来源快照、Gateway、预算、审批和持久回执，不再请求工具选择模型。
 
-BsAgent 默认配置：
+草案缺失或不适用时，在派发前回到原模型选择流程；不会先执行草案再执行兜底。无法解析或包含内联凭证的可选草案在 Planner 输出解析时丢弃，不为此单独增加规划修复调用。合法但不适用的草案保留在任务契约中，执行记录固定原因。discovery 事件的 `proposal_status` 标记 accepted 或回退原因，不复制参数。旧计划的空草案不改变评审签名；旧快照按默认值比较，不重写历史内容。
 
-```text
-BS_AGENT_MCP_SERVER_COMMAND=<当前 Python 解释器>
-BS_AGENT_MCP_SERVER_ARGS=["-m","app.main"]
-BS_AGENT_MCP_SERVER_CWD=./mcp server
-BS_AGENT_MCP_SERVER_NAME=mock
-BS_AGENT_MCP_TIMEOUT_SECONDS=30
-```
+草案优化覆盖 low 和 medium，不调整权限或风险配置。合法草案仍经过 Gateway：只有明确声明 `effect_type=write` 的业务写调用，才会因同一会话已有明确写入的 running/unknown 回执而不派发；不能仅因 medium/high 风险推定工具会写入。high 继续走原模型选择及审批流程。受控图测试验证执行模型调用次数减少，真实模型总 token 和端到端延迟收益需另用实际 trace 测量。
 
-当前打通的测试链路：
+2026-10-29 只读调用边界：Admin TuShare 数据查询连接统一声明受信 `effect_type=read_only`，不受 `tool_side_effects_unresolved` 限制，失败也不产生新的写入阻塞。该标记随工具目录及执行绑定冻结，不能由模型或工具返回覆盖。权限分类读取错误码，不按自然语言文案匹配；`2002` 归权限拒绝，实际被多种拒绝原因复用的 `40203` 保留原始码并归 `provider_request_rejected`。旧第三方 unknown 回执保留审计，但不因风险等级被当作业务写入。具体幂等边界与验证见 [验收说明](acceptance/2026-10-29-tushare-read-only-receipts.md)。
 
-```text
-用户输入：计算1加到50
--> IntentRouter: intent=tool_action, domain=mcp_math, sub_intent=calculate_sum
--> Planner: requested_tools=[mcp.mock.calculate_sum]
--> ToolAgent: MCP stdio ClientSession.call_tool("calculate_sum")
--> Synthesizer: 返回总和 1275
-```
+### 已有信息复用与最终分析
 
-`tools/mcp_stdio.py` 提供通用 `DynamicMcpStdioTool`。它保存 MCP tool 的原始 `inputSchema/outputSchema`，用 `jsonschema` 做动态参数校验，并在执行时通过 `ClientSession.call_tool(...)` 调用真实 MCP tool。
+Router 与 Planner 独立。Router 同次输出 `available_information` 自由 JSON 对象及路由：
 
-## 金融 MCP 工具
+- `direct_answer`：上下文足够，直接回答，经确定性输出检查后结束。
+- `synthesize`：证据已具备，需要整合研判，直接合成。
+- `plan`：仍需外部工作，Planner 只规划必要缺口，随后调度执行并合成。
 
-A 股结构化数据通过 MCP stdio 动态发现为内部 `ToolSpec`。Agent 不直接访问财经 API，也不在 Agent 代码中内置数据源 SDK；结构化行情、公司资料、财务指标等能力都必须经过 MCP server 和 Tool Agent 边界。
+已有信息由共享 `request_context` 传给 Planner、Tool/Analysis 和合成层。对象没有固定业务子字段，保留来源与时点限制；原始材料继续使用有界投影，不复制整份 artifact。不存在的历史原始结果不会因助手曾提到就变成已核实证据。
 
-第一版工具：
+合成层在同一次调用中选择回答或 `request_replan`。仅在必要任务遗漏、新证据要求新增调查、关键证据冲突需核验、替代路径需改变任务结构、关键前提失效时申请，具体语义边界位于 `graph/planning/synthesis_decision.py` 的 `REPLAN_PROMPT`。普通错误、权限恢复、等待依赖及最终简单计算不单独触发重新规划。
 
-- `mcp.mock.stock.resolve_company`
-- `mcp.mock.stock.company_profile`
-- `mcp.mock.stock.market_snapshot`
-- `mcp.mock.stock.financial_metrics`
-- `mcp.mock.stock.announcement_search`
-- `mcp.mock.stock.risk_events`
+每轮最多一次修订申请，并受已有 Planner 迭代预算限制。申请绑定当前请求和计划签名，不能凭换任务 ID 重放相同失败工作。已完成成果继续使用，旧失败通过独立的历史执行限制投影保留。普通只读调用被拒先在原任务内用可用来源恢复；单次拒绝不证明任务结构无效，没有实际恢复记录不能宣称原任务内恢复无法解决。固定 Skill 验收与已知写入的 unknown 回执保护仍由原执行体系负责。
 
-`rag_search` 仍由 Retriever Agent 执行并映射为 `EvidencePackage`，Tool Agent 会跳过 `rag_search` 请求。Skill 分支中，非 RAG 工具先由 Tool Agent 执行；如果 Skill 同时请求了 `rag_search`，图会在结构化工具执行后进入 Retriever。
+版本在 Router 明确输出新路由协议后保存为 `context-routing-v1`。缺版本的旧 checkpoint、旧提供方响应保持原语义，不在恢复时强行升级。新分支的结构化控制 JSON 在解析及输出检查前不公开；正常直答不新增合成调用，正常合成不另调模型做例行评审。
 
-依赖证券代码的 stock 工具必须先执行 `stock.resolve_company`。Tool Agent 会把 resolver 返回的 `symbol` 回填到后续请求中的 `$resolved_symbol` 占位符，避免真实 MCP 工具拿占位符执行。
+## 公共第三方接口说明补全
 
-后续接入更多 MCP server 时，MCP Gateway 需要继续负责：
-
-- server 连接管理
-- `list_tools` 刷新策略
-- 参数校验
-- 超时隔离
-- MCP 错误归一化
-- 输出转换为 `ToolCallResult`
-
-## 审批与风险
-
-工具调用是否需要人工审批由上游 Agent 或 Skill 决定，并通过 `ToolCallRequest.approval_required` 传递。Tool Agent 收到该标记时必须拒绝执行，并返回 `denied` 状态，由 Approval Coordinator 负责创建审批任务和恢复执行。
-
-高风险工具后续会在 `ToolSpec.risk_level`、租户策略和用户权限之间做联合判断。第一版只保留字段和边界。
-
-## 测试覆盖
-
-当前测试覆盖：
-
-- 注册工具成功执行。
-- 未知工具拒绝。
-- 工具版本冲突拒绝。
-- 参数 schema 不合法拒绝。
-- 需要审批的调用拒绝执行。
-- function calling JSON 参数解析。
-- function calling dict 参数解析。
-- function calling 非法 JSON 拒绝。
-- MCP manifest 转内部 `ToolSpec`。
-- MCP stdio `calculate_sum` adapter。
-- `tool_action` 图分支执行 `mcp.mock.calculate_sum`。
+公共 MCP 的描述缺口由独立 Celery 队列异步补充，研究请求不等待。原始契约不被模型生成内容覆盖，缺少说明不禁止取数。Tool Agent、检索和合成消费同一 Run 快照中的说明，跨回合不会复用同名工具的旧解释。详见[公共 MCP 说明补全](./tool-documentation.md)。

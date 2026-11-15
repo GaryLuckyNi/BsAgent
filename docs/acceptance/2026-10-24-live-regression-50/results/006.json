@@ -1,0 +1,167 @@
+{
+  "case_id": "006",
+  "category": "材料计算",
+  "question": "仅依据以下假设数据：去年营收100亿元，今年120亿元；去年净利润10亿元，今年9亿元。计算营收和利润同比变化及净利率变化，不调用工具。",
+  "session_id": "live50-20261024-a-006",
+  "request_id": "live50-20261024-a-006",
+  "started_at": "2026-10-24T14:38:56.379813+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+      "message_id": "msg_c638f78e1fad4908b328b7024b405888",
+      "request_id": "live50-20261024-a-006"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    [
+      {
+        "id": "msg_c638f78e1fad4908b328b7024b405888",
+        "type": "ai",
+        "content": "当前问题不在本服务已启用"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_c638f78e1fad4908b328b7024b405888",
+        "type": "ai",
+        "content": "的投研范围内。你可以围绕"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_c638f78e1fad4908b328b7024b405888",
+        "type": "ai",
+        "content": "公司、行业、财务、行情、"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_c638f78e1fad4908b328b7024b405888",
+        "type": "ai",
+        "content": "公告或投资风险提出问题。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "type": "final",
+      "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+      "response": {
+        "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+        "content": "当前问题不在本服务已启用的投研范围内。你可以围绕公司、行业、财务、行情、公告或投资风险提出问题。",
+        "trace_id": "trace_ac7d53efe9ad4f818d16a764d6b4fc01",
+        "message_id": "msg_c638f78e1fad4908b328b7024b405888",
+        "request_id": "live50-20261024-a-006",
+        "response_type": "out_of_scope",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_106c4ffcacbd47aca97570d1e7720877",
+        "request_id": "live50-20261024-a-006",
+        "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+        "role": "user",
+        "status": "completed",
+        "content": "仅依据以下假设数据：去年营收100亿元，今年120亿元；去年净利润10亿元，今年9亿元。计算营收和利润同比变化及净利率变化，不调用工具。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:38:56.415409Z",
+        "completed_at": "2026-10-24T14:38:56.414331Z"
+      },
+      {
+        "message_id": "msg_c638f78e1fad4908b328b7024b405888",
+        "request_id": "live50-20261024-a-006",
+        "run_id": "run_b32c73a0e1f65ade1940aab685e3aeea221ad28eaba8639a19ae9c6bacd9",
+        "role": "assistant",
+        "status": "completed",
+        "content": "当前问题不在本服务已启用的投研范围内。你可以围绕公司、行业、财务、行情、公告或投资风险提出问题。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "out_of_scope",
+          "approval_status": "not_required",
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:38:56.415411Z",
+        "completed_at": "2026-10-24T14:38:58.704644Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:38:58.806288+00:00",
+  "elapsed_seconds": 2.426
+}

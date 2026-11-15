@@ -1,0 +1,16 @@
+
+==================================== ERRORS ====================================
+_______ ERROR collecting backend/app/tests/unit/test_sdk_http_budgets.py _______
+ImportError while importing test module '/Users/myfolder/前端学习项目/BsAgent/backend/app/tests/unit/test_sdk_http_budgets.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../.pyenv/versions/3.11.7/lib/python3.11/importlib/__init__.py:126: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:12: in <module>
+    from app.security.sdk_http import BoundedAsyncClient, BoundedClient
+E   ModuleNotFoundError: No module named 'app.security.sdk_http'
+=========================== short test summary info ============================
+ERROR backend/app/tests/unit/test_sdk_http_budgets.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.50s

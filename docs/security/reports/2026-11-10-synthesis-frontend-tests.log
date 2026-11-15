@@ -1,0 +1,18 @@
+npm warn Unknown user config "home". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> bs-agent-frontend@0.1.0 test
+> vitest run src/hooks/use-research-session.test.tsx src/components/research/research-message-item.test.tsx src/components/research/research-markdown.test.tsx
+
+
+ RUN  v3.2.7 /Users/myfolder/前端学习项目/BsAgent/frontend
+
+ ✓ src/components/research/research-message-item.test.tsx (23 tests) 717ms
+   ✓ ResearchMessageItem > 正文流式输出期间隐藏来源入口，完整回答结束后再展示  372ms
+ ✓ src/hooks/use-research-session.test.tsx (72 tests) 451ms
+ ✓ src/components/research/research-markdown.test.tsx (7 tests) 562ms
+
+ Test Files  3 passed (3)
+      Tests  102 passed (102)
+   Start at  14:09:47
+   Duration  6.87s (transform 2.28s, setup 0ms, collect 10.61s, tests 1.73s, environment 4.70s, prepare 711ms)
+

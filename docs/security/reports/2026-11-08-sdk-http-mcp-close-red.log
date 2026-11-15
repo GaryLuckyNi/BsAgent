@@ -1,0 +1,57 @@
+.FFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[close_error-sse] _
+backend/app/tests/unit/test_sdk_http_budgets.py:182: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:178: in run
+    assert result.error.code == "mcp_response_limit_exceeded"
+           ^^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'code'
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[close_timeout-json] _
+backend/app/tests/unit/test_sdk_http_budgets.py:182: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:178: in run
+    assert result.error.code == "mcp_response_limit_exceeded"
+E   AssertionError: assert 'mcp_tool_timeout' == 'mcp_response_limit_exceeded'
+E     
+E     - mcp_response_limit_exceeded
+E     + mcp_tool_timeout
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[close_timeout-sse] _
+backend/app/tests/unit/test_sdk_http_budgets.py:182: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:178: in run
+    assert result.error.code == "mcp_response_limit_exceeded"
+           ^^^^^^^^^^^^^^^^^
+E   AttributeError: 'NoneType' object has no attribute 'code'
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[close_error-sse]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[close_timeout-json]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[close_timeout-sse]
+3 failed, 1 passed, 26 deselected in 3.12s

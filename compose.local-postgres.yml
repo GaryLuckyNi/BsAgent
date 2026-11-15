@@ -1,0 +1,27 @@
+name: bsagent-local
+
+# scripts/dev.mjs 会等待该服务健康后，再执行业务迁移并启动 Backend。
+# 本地业务 ORM、PostgresSaver 和 PostgresStore 共用此 PostgreSQL 实例，
+# 但由各自独立的环境变量显式注入 DSN。
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bs_agent
+      POSTGRES_USER: bs_agent
+      POSTGRES_PASSWORD: bs_agent_dev
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-local-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bs_agent -d bs_agent"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  postgres-local-data:

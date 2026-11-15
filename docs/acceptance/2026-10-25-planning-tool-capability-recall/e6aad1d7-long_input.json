@@ -1,0 +1,88 @@
+{
+  "case": "long_input",
+  "trace_id": "c836b13eb75faeb0cee1709ee42b75f3",
+  "route": "plan",
+  "query": "背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。背景：这些是与本问题无关的说明，不要求研究。\n实际问题：获取银之杰基础信息数据，包括股票代码、名称、上市日期、退市日期等",
+  "candidates": [
+    {
+      "ref": "tool:mcp.tushare.stock_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.stock_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/股票列表-获取基础信息数据，包括股票代码、名称、上市日期、退市日期等。单次最多返回 10000 条。更新：早9:10，晚18点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, symbol, name, area, industry, cnspell, market, list_date, act_name, act_ent_type\n额外可选字段:\n  is_hs: 是否沪深港通标的，N否 H沪股通 S深股通\n  enname: 英文全称\n  exchange: 交易所代码\n  fullname: 股票全称\n  curr_type: 交易货币\n  delist_date: 退市日期\n  list_status: 上市状态 L上市 D退市 P暂停上市\nexchange: 交易所 SSE上交所 SZSE深交所 BSE北交所\nis_hs: 是否沪深港通标的，N否 H沪股通 S深股通\nlist_status: 上市状态 L上市 D退市 G过会未交易 P暂停上市\nmarket: 市场类别\nname: 名称\nts_code: TS股票代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.us_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.us_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/美股数据/美股基础信息-获取美股列表信息。单次最多返回 6000 条。更新：不定期更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, name, enname, classify, list_date, delist_date\n额外可选字段:\n  list_status: 上市状态L上市D退市P暂停上市\nclassify: 股票分类（ADR/GDR/EQ）\nlimit: 获取条数\nlist_stauts: 上市状态\noffset: 跳过条数\nts_code: 股票代码（e.g. AAPL）",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.etf_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.etf_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/ETF专题/ETF基本信息-获取国内ETF基础信息，包括了QDII。数据来源与沪深交易所公开披露信息。单次最多返回 5000 条。更新：每日早晚8点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, csname, extname, cname, index_code, index_name, setup_date, list_date, list_status, exchange, mgr_name, custod_name, mgt_fee, etf_type\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nexchange: 交易所：SH上交所 SZ深交所\nindex_code: 跟踪指数代码\nlist_date: 上市日期\nlist_status: 上市状态\nmgr: 管理人（简称，e.g.华夏基金)\nts_code: ETF代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.hk_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.hk_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/港股数据/港股基础信息-获取港股列表信息。单次最多返回 3000 条。更新：不定期更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, name, fullname, enname, cn_spell, market, list_status, list_date, delist_date, trade_unit, isin, curr_type\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nlist_status: 上市状态 L上市 D退市 P暂停上市\nts_code: TS代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.cb_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.cb_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/债券专题/可转债基础信息-获取可转债基本信息。单次最多返回 2000 条。更新：每日早晚8:30左右",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, bond_full_name, bond_short_name, cb_type, cb_code, stk_code, stk_short_name, maturity, par, issue_price, issue_size, remain_size, value_date, maturity_date, rate_type, coupon_rate, add_rate, pay_per_year, list_date, delist_date, exchange, conv_start_date, conv_end_date, conv_stop_date, first_conv_price, conv_price, rate_clause\n额外可选字段:\n  guarantor: 担保人\n  put_clause: 回售条款\n  call_clause: 赎回条款\n  conv_clause: 转股条款\n  rating_comp: 最新评级机构\n  issue_rating: 发行信用等级\n  reset_clause: 特别向下修正条款\n  newest_rating: 最新信用等级\n  guarantee_type: 担保方式\n  maturity_put_price: 到期赎回价格(含税)[更名停用，请使用maturity_call_price]\n  maturity_call_price: 到期赎回价格(含税)\nexchange: 上市交易所\nlist_date: 上市日期\nts_code: 转债代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    }
+  ],
+  "plan": {
+    "public_summary": "计划通过一次股票基础信息查询，获取银之杰的股票代码、名称、上市日期、退市日期及上市状态等基础数据，并核对结果。",
+    "tasks": [
+      {
+        "id": "fetch_yzj_stock_basic",
+        "task_goal": "查询银之杰（A股）的基础信息数据，需取得股票代码（ts_code）、名称、上市日期、退市日期、上市状态，以及交易所、所属行业、股票全称等可用字段。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回结果明确对应银之杰这一主体，且股票代码与名称一致",
+          "至少给出 ts_code、name、list_date、delist_date、list_status 字段值；若某字段为空需明确标注未披露或为空",
+          "说明数据来源接口及查询条件"
+        ],
+        "tool_search_query": "A股股票列表基础信息 股票代码 名称 上市日期 退市日期 上市状态",
+        "tool_candidate_refs": [
+          "tool:mcp.tushare.stock_basic@mcp-http-v1"
+        ],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      }
+    ]
+  },
+  "remote_execution": "not_run",
+  "seconds": 3.253
+}

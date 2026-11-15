@@ -1,0 +1,284 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+__________ test_native_sync_close_closes_delegated_source_immediately __________
+
+    def test_native_sync_close_closes_delegated_source_immediately():
+        closed = []
+        def chunks():
+            try:
+                yield AIMessageChunk(content=PUBLIC)
+                yield AIMessageChunk(content="后文。")
+            finally:
+                closed.append(True)
+        source = chunks()
+        class Source(Runnable):
+            def invoke(self, *args, **kwargs):
+                raise NotImplementedError
+            def stream(self, *args, **kwargs):
+                return source
+        stream = ProtectedModel(Source()).stream("公开问题")
+        try:
+            assert next(stream).content
+            stream.close()
+>           assert closed
+E           assert []
+
+backend/app/tests/unit/test_stream_close_security.py:32: AssertionError
+_________ test_async_close_closes_delegated_source_immediately[native] _________
+
+mode = 'native'
+
+    @pytest.mark.parametrize("mode", ["native", "deepseek_events", "deepseek_text"])
+    def test_async_close_closes_delegated_source_immediately(mode):
+        async def run():
+            closed = []
+            async def chunks():
+                try:
+                    yield AIMessageChunk(content=PUBLIC) if mode == "native" else LlmStreamDelta(kind="content", delta=PUBLIC)
+                    yield AIMessageChunk(content="后文。") if mode == "native" else LlmStreamDelta(kind="content", delta="后文。")
+                finally:
+                    closed.append(True)
+            source = chunks()
+            if mode == "native":
+                class Source(Runnable):
+                    def invoke(self, *args, **kwargs):
+                        raise NotImplementedError
+                    def astream(self, *args, **kwargs):
+                        return source
+                stream = ProtectedModel(Source()).astream("公开问题")
+            else:
+                client = object.__new__(DeepSeekClient)
+                if mode == "deepseek_events":
+                    client._model, client._http_client = "test", object()
+                    client._stream_events_with_client = lambda *args, **kwargs: source
+                    stream = client.stream_complete_events(system_prompt="公开研究", user_prompt="公开问题")
+                else:
+                    client.stream_complete_events = lambda *args, **kwargs: source
+                    stream = client.stream_complete(system_prompt="公开研究", user_prompt="公开问题")
+            try:
+                await anext(stream)
+                await stream.aclose()
+                assert closed
+            finally:
+                await source.aclose()
+>       asyncio.run(run())
+
+backend/app/tests/unit/test_stream_close_security.py:70: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def run():
+        closed = []
+        async def chunks():
+            try:
+                yield AIMessageChunk(content=PUBLIC) if mode == "native" else LlmStreamDelta(kind="content", delta=PUBLIC)
+                yield AIMessageChunk(content="后文。") if mode == "native" else LlmStreamDelta(kind="content", delta="后文。")
+            finally:
+                closed.append(True)
+        source = chunks()
+        if mode == "native":
+            class Source(Runnable):
+                def invoke(self, *args, **kwargs):
+                    raise NotImplementedError
+                def astream(self, *args, **kwargs):
+                    return source
+            stream = ProtectedModel(Source()).astream("公开问题")
+        else:
+            client = object.__new__(DeepSeekClient)
+            if mode == "deepseek_events":
+                client._model, client._http_client = "test", object()
+                client._stream_events_with_client = lambda *args, **kwargs: source
+                stream = client.stream_complete_events(system_prompt="公开研究", user_prompt="公开问题")
+            else:
+                client.stream_complete_events = lambda *args, **kwargs: source
+                stream = client.stream_complete(system_prompt="公开研究", user_prompt="公开问题")
+        try:
+            await anext(stream)
+            await stream.aclose()
+>           assert closed
+E           assert []
+
+backend/app/tests/unit/test_stream_close_security.py:67: AssertionError
+____ test_async_close_closes_delegated_source_immediately[deepseek_events] _____
+
+mode = 'deepseek_events'
+
+    @pytest.mark.parametrize("mode", ["native", "deepseek_events", "deepseek_text"])
+    def test_async_close_closes_delegated_source_immediately(mode):
+        async def run():
+            closed = []
+            async def chunks():
+                try:
+                    yield AIMessageChunk(content=PUBLIC) if mode == "native" else LlmStreamDelta(kind="content", delta=PUBLIC)
+                    yield AIMessageChunk(content="后文。") if mode == "native" else LlmStreamDelta(kind="content", delta="后文。")
+                finally:
+                    closed.append(True)
+            source = chunks()
+            if mode == "native":
+                class Source(Runnable):
+                    def invoke(self, *args, **kwargs):
+                        raise NotImplementedError
+                    def astream(self, *args, **kwargs):
+                        return source
+                stream = ProtectedModel(Source()).astream("公开问题")
+            else:
+                client = object.__new__(DeepSeekClient)
+                if mode == "deepseek_events":
+                    client._model, client._http_client = "test", object()
+                    client._stream_events_with_client = lambda *args, **kwargs: source
+                    stream = client.stream_complete_events(system_prompt="公开研究", user_prompt="公开问题")
+                else:
+                    client.stream_complete_events = lambda *args, **kwargs: source
+                    stream = client.stream_complete(system_prompt="公开研究", user_prompt="公开问题")
+            try:
+                await anext(stream)
+                await stream.aclose()
+                assert closed
+            finally:
+                await source.aclose()
+>       asyncio.run(run())
+
+backend/app/tests/unit/test_stream_close_security.py:70: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def run():
+        closed = []
+        async def chunks():
+            try:
+                yield AIMessageChunk(content=PUBLIC) if mode == "native" else LlmStreamDelta(kind="content", delta=PUBLIC)
+                yield AIMessageChunk(content="后文。") if mode == "native" else LlmStreamDelta(kind="content", delta="后文。")
+            finally:
+                closed.append(True)
+        source = chunks()
+        if mode == "native":
+            class Source(Runnable):
+                def invoke(self, *args, **kwargs):
+                    raise NotImplementedError
+                def astream(self, *args, **kwargs):
+                    return source
+            stream = ProtectedModel(Source()).astream("公开问题")
+        else:
+            client = object.__new__(DeepSeekClient)
+            if mode == "deepseek_events":
+                client._model, client._http_client = "test", object()
+                client._stream_events_with_client = lambda *args, **kwargs: source
+                stream = client.stream_complete_events(system_prompt="公开研究", user_prompt="公开问题")
+            else:
+                client.stream_complete_events = lambda *args, **kwargs: source
+                stream = client.stream_complete(system_prompt="公开研究", user_prompt="公开问题")
+        try:
+            await anext(stream)
+            await stream.aclose()
+>           assert closed
+E           assert []
+
+backend/app/tests/unit/test_stream_close_security.py:67: AssertionError
+_____ test_async_close_closes_delegated_source_immediately[deepseek_text] ______
+
+mode = 'deepseek_text'
+
+    @pytest.mark.parametrize("mode", ["native", "deepseek_events", "deepseek_text"])
+    def test_async_close_closes_delegated_source_immediately(mode):
+        async def run():
+            closed = []
+            async def chunks():
+                try:
+                    yield AIMessageChunk(content=PUBLIC) if mode == "native" else LlmStreamDelta(kind="content", delta=PUBLIC)
+                    yield AIMessageChunk(content="后文。") if mode == "native" else LlmStreamDelta(kind="content", delta="后文。")
+                finally:
+                    closed.append(True)
+            source = chunks()
+            if mode == "native":
+                class Source(Runnable):
+                    def invoke(self, *args, **kwargs):
+                        raise NotImplementedError
+                    def astream(self, *args, **kwargs):
+                        return source
+                stream = ProtectedModel(Source()).astream("公开问题")
+            else:
+                client = object.__new__(DeepSeekClient)
+                if mode == "deepseek_events":
+                    client._model, client._http_client = "test", object()
+                    client._stream_events_with_client = lambda *args, **kwargs: source
+                    stream = client.stream_complete_events(system_prompt="公开研究", user_prompt="公开问题")
+                else:
+                    client.stream_complete_events = lambda *args, **kwargs: source
+                    stream = client.stream_complete(system_prompt="公开研究", user_prompt="公开问题")
+            try:
+                await anext(stream)
+                await stream.aclose()
+                assert closed
+            finally:
+                await source.aclose()
+>       asyncio.run(run())
+
+backend/app/tests/unit/test_stream_close_security.py:70: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def run():
+        closed = []
+        async def chunks():
+            try:
+                yield AIMessageChunk(content=PUBLIC) if mode == "native" else LlmStreamDelta(kind="content", delta=PUBLIC)
+                yield AIMessageChunk(content="后文。") if mode == "native" else LlmStreamDelta(kind="content", delta="后文。")
+            finally:
+                closed.append(True)
+        source = chunks()
+        if mode == "native":
+            class Source(Runnable):
+                def invoke(self, *args, **kwargs):
+                    raise NotImplementedError
+                def astream(self, *args, **kwargs):
+                    return source
+            stream = ProtectedModel(Source()).astream("公开问题")
+        else:
+            client = object.__new__(DeepSeekClient)
+            if mode == "deepseek_events":
+                client._model, client._http_client = "test", object()
+                client._stream_events_with_client = lambda *args, **kwargs: source
+                stream = client.stream_complete_events(system_prompt="公开研究", user_prompt="公开问题")
+            else:
+                client.stream_complete_events = lambda *args, **kwargs: source
+                stream = client.stream_complete(system_prompt="公开研究", user_prompt="公开问题")
+        try:
+            await anext(stream)
+            await stream.aclose()
+>           assert closed
+E           assert []
+
+backend/app/tests/unit/test_stream_close_security.py:67: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_stream_close_security.py::test_native_sync_close_closes_delegated_source_immediately
+FAILED backend/app/tests/unit/test_stream_close_security.py::test_async_close_closes_delegated_source_immediately[native]
+FAILED backend/app/tests/unit/test_stream_close_security.py::test_async_close_closes_delegated_source_immediately[deepseek_events]
+FAILED backend/app/tests/unit/test_stream_close_security.py::test_async_close_closes_delegated_source_immediately[deepseek_text]
+4 failed in 0.67s

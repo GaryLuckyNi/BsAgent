@@ -1,0 +1,36 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+______________ test_mcp_discovery_is_cumulatively_bounded[cursor] ______________
+backend/app/tests/unit/test_sdk_http_budgets.py:174: in test_mcp_discovery_is_cumulatively_bounded
+    assert caught.value.code == "mcp_discovery_limit_exceeded"
+E   AssertionError: assert 'mcp_discovery_failed' == 'mcp_discovery_limit_exceeded'
+E     
+E     - mcp_discovery_limit_exceeded
+E     + mcp_discovery_failed
+______________ test_mcp_discovery_is_cumulatively_bounded[pages] _______________
+backend/app/tests/unit/test_sdk_http_budgets.py:174: in test_mcp_discovery_is_cumulatively_bounded
+    assert caught.value.code == "mcp_discovery_limit_exceeded"
+E   AssertionError: assert 'mcp_discovery_failed' == 'mcp_discovery_limit_exceeded'
+E     
+E     - mcp_discovery_limit_exceeded
+E     + mcp_discovery_failed
+______________ test_mcp_discovery_is_cumulatively_bounded[tools] _______________
+backend/app/tests/unit/test_sdk_http_budgets.py:174: in test_mcp_discovery_is_cumulatively_bounded
+    assert caught.value.code == "mcp_discovery_limit_exceeded"
+E   AssertionError: assert 'mcp_discovery_failed' == 'mcp_discovery_limit_exceeded'
+E     
+E     - mcp_discovery_limit_exceeded
+E     + mcp_discovery_failed
+______________ test_mcp_discovery_is_cumulatively_bounded[bytes] _______________
+backend/app/tests/unit/test_sdk_http_budgets.py:174: in test_mcp_discovery_is_cumulatively_bounded
+    assert caught.value.code == "mcp_discovery_limit_exceeded"
+E   AssertionError: assert 'mcp_discovery_failed' == 'mcp_discovery_limit_exceeded'
+E     
+E     - mcp_discovery_limit_exceeded
+E     + mcp_discovery_failed
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_mcp_discovery_is_cumulatively_bounded[cursor]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_mcp_discovery_is_cumulatively_bounded[pages]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_mcp_discovery_is_cumulatively_bounded[tools]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_mcp_discovery_is_cumulatively_bounded[bytes]
+4 failed, 13 deselected in 0.78s

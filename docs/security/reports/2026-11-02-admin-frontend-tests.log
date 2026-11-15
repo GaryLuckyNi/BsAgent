@@ -1,0 +1,19 @@
+npm warn Unknown user config "home". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> bs-agent-admin-frontend@0.1.0 test
+> vitest run --globals
+
+
+ RUN  v3.2.7 /Users/myfolder/前端学习项目/BsAgent/admin/frontend
+
+ ✓ tests/auth.test.mjs (5 tests) 1094ms
+   ✓ 匿名用户不能打开配置，也不发起配置请求  428ms
+   ✓ API 客户端注入用户 token，并拒绝向其他站点发送  590ms
+ ✓ tests/skills-view.test.mjs (2 tests) 2281ms
+   ✓ 失效分类标签可以移除并保存，不强迫保留历史值  2113ms
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  15:37:14
+   Duration  13.76s (transform 1.23s, setup 0ms, collect 5.63s, tests 3.37s, environment 5.67s, prepare 973ms)
+

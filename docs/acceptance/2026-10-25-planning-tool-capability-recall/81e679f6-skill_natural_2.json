@@ -1,0 +1,72 @@
+{
+  "case": "skill_natural_2",
+  "trace_id": "36165b7f34b0cb4bcec66e15e94b5ce4",
+  "route": "plan",
+  "query": "分析银之杰管理层薪酬和持股",
+  "candidates": [
+    {
+      "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+      "tool_name": "mcp.tushare.stk_rewards",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.stk_managers@mcp-http-v1",
+      "tool_name": "mcp.tushare.stk_managers",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/上市公司管理层-获取上市公司管理层信息。单次最多返回 4000 条。更新：每日早晚8点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, name, gender, lev, title, edu, national, birthday, begin_date, end_date\n额外可选字段:\n  resume: 个人简历\nann_date: 公告日期\nend_date: 公告结束日期\nstart_date: 公告开始日期\nts_code: 股票代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    }
+  ],
+  "plan": {
+    "public_summary": "先调用银之杰专用研究技能，获取最新年度报告期管理层薪酬与持股明细；再补充管理层任职信息，用于核对人员范围与职务。",
+    "tasks": [
+      {
+        "id": "yzj_rewards_holdings",
+        "task_goal": "获取银之杰最新年度报告期管理层薪酬与持股明细，按姓名、职务、报告期、薪酬、持股数量整理；优先最新年报，同一人员同一报告期去重，空值标注未披露",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回银之杰 ts_code 及最新年度报告期管理层薪酬持股表",
+          "列含姓名、职务、报告期、薪酬、持股数量",
+          "reward 或 hold_vol 为空时标注未披露，不补造",
+          "说明所选报告期及数据来源"
+        ],
+        "tool_search_query": null,
+        "tool_candidate_refs": [],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": "yzj_reasearch",
+        "source_requirement": "original_data"
+      },
+      {
+        "id": "yzj_managers_scope",
+        "task_goal": "获取银之杰管理层名单与职务信息，用于核对薪酬持股表覆盖的人员范围及职务口径",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回银之杰管理层姓名、职务、任职起止日期",
+          "可与薪酬持股表按姓名匹配，指出未覆盖或职务不一致的人员",
+          "缺失项明确标注"
+        ],
+        "tool_search_query": "上市公司管理层名单 职务 任职日期",
+        "tool_candidate_refs": [
+          "tool:mcp.tushare.stk_managers@mcp-http-v1"
+        ],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      }
+    ]
+  },
+  "remote_execution": "not_run",
+  "seconds": 4.094
+}

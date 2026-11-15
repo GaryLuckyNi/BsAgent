@@ -1,0 +1,74 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_async_request_budget_does_not_block_before_http_dispatch _________
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_3efdc653936e4563a5e886b0eb2ea923', assistant_message_id='msg_fb80802b1a864d859626abe7ed8cdf6d', replayed=False))
+
+    def test_async_request_budget_does_not_block_before_http_dispatch(env):
+        import asyncio
+        import time
+        import httpx
+        from sqlalchemy import event
+        from app.security.sdk_http import BoundedAsyncClient
+        binding = init(env)
+        engine = env[0].kw["bind"]
+        def slow_update(conn, cursor, statement, parameters, context, executemany):
+            if statement.lstrip().startswith("UPDATE"):
+                time.sleep(.04)
+        event.listen(engine, "before_cursor_execute", slow_update)
+        async def run():
+            ticks, at_dispatch = [], []
+            async def ticker():
+                for _ in range(30):
+                    ticks.append(1)
+                    await asyncio.sleep(.002)
+            async def respond(request):
+                at_dispatch.append(len(ticks))
+                return httpx.Response(200, content=b"ok")
+            task = asyncio.create_task(ticker())
+            await asyncio.sleep(0)
+            with bind_run_budget(binding):
+                async with BoundedAsyncClient(timeout_seconds=5, transport=httpx.MockTransport(respond)) as client:
+                    response = await client.get("https://synthetic.invalid")
+                    assert response.content == b"ok"
+            await task
+            assert at_dispatch[0] >= 5
+        try:
+>           asyncio.run(run())
+
+backend/app/tests/unit/test_run_budget.py:163: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    async def run():
+        ticks, at_dispatch = [], []
+        async def ticker():
+            for _ in range(30):
+                ticks.append(1)
+                await asyncio.sleep(.002)
+        async def respond(request):
+            at_dispatch.append(len(ticks))
+            return httpx.Response(200, content=b"ok")
+        task = asyncio.create_task(ticker())
+        await asyncio.sleep(0)
+        with bind_run_budget(binding):
+            async with BoundedAsyncClient(timeout_seconds=5, transport=httpx.MockTransport(respond)) as client:
+                response = await client.get("https://synthetic.invalid")
+                assert response.content == b"ok"
+        await task
+>       assert at_dispatch[0] >= 5
+E       assert 1 >= 5
+
+backend/app/tests/unit/test_run_budget.py:161: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_run_budget.py::test_async_request_budget_does_not_block_before_http_dispatch
+1 failed in 0.83s

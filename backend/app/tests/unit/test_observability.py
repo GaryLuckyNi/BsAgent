@@ -1,0 +1,437 @@
+import json
+import logging
+from io import StringIO
+
+from app.graph.state import create_initial_state
+from app.harness.trace_buffer import TraceArtifactPayload
+from app.harness.tracing import summarize_node_transition
+from app.operations.observability import (
+    RequestContextMiddleware,
+    SafeJsonFormatter,
+    TelemetryRuntime,
+    bind_principal_log_context,
+    configure_logging,
+    configure_telemetry,
+    configure_worker_telemetry,
+)
+from app.schemas.tools import ToolCallRecord, ToolCallRequest, ToolCallResult
+from app.security.principal import Principal
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
+
+
+def test_tool_search_trace_contains_only_safe_discovery_summary():
+    input_state = create_initial_state(
+        session_id="trace-search",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="查询秘密盈利任务",
+    )
+    output_state = create_initial_state(
+        session_id="trace-search",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="查询秘密盈利任务",
+    )
+    output_state["tool_search_count"] = 1
+    output_state["disclosed_tool_names"] = ["mcp.test.income"]
+    output_state["tool_calls"] = [
+        ToolCallRecord(
+            call_id="call-search-1",
+            request=ToolCallRequest(
+                call_id="call-search-1",
+                tool_name="search_tool",
+                arguments={"query": "secret-query", "top_k": 5},
+                purpose="发现工具",
+            ),
+            result=ToolCallResult(
+                tool_call_id="call-search-1",
+                tool_name="search_tool",
+                status="success",
+                result={
+                    "catalog_digest": "catalog-1",
+                    "mode": "bm25",
+                    "hits": [
+                        {
+                            "tool_name": "mcp.test.income",
+                            "tool_version": "1.0.0",
+                            "description": "利润表",
+                            "rank": 1,
+                            "sources": ["bm25"],
+                        }
+                    ],
+                },
+                trace_id="trace-search",
+            ),
+        )
+    ]
+
+    summary = summarize_node_transition(
+        node_name="tool_agent",
+        input_state=input_state,
+        output_state=output_state,
+    )
+
+    assert summary["tool_search"] == {
+        "status": "bm25",
+        "item_count": 1,
+        "structured_tools": ["mcp.test.income"],
+        "catalog_digest": "catalog-1",
+        "search_count": 1,
+    }
+    serialized = str(summary)
+    assert "secret-query" not in serialized
+    assert "input_schema" not in serialized
+    assert TraceArtifactPayload.from_summary(summary) is not None
+
+
+def test_request_context_uses_route_template_and_never_logs_query():
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+    records: list[logging.LogRecord] = []
+
+    class CaptureHandler(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    @app.get("/items/{item_id}")
+    def item(item_id: str):
+        bind_principal_log_context(
+            Principal(
+                tenant_id="tenant-sensitive",
+                user_id="user-sensitive",
+                scopes=(),
+            )
+        )
+        return {"item_id": item_id}
+
+    logger = logging.getLogger("bs_agent.access")
+    previous_level = logger.level
+    handler = CaptureHandler()
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        response = TestClient(app).get(
+            "/items/customer-42?token=query-secret",
+            headers={"X-Request-ID": "request-123"},
+        )
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "request-123"
+    record = next(record for record in records if record.name == "bs_agent.access")
+    assert record.route == "/items/{item_id}"
+    assert record.request_id == "request-123"
+    assert record.status_code == 200
+    serialized = str(record.__dict__)
+    assert "customer-42" not in serialized
+    assert "query-secret" not in serialized
+    assert "tenant-sensitive" not in serialized
+    assert "user-sensitive" not in serialized
+
+
+def test_request_context_replaces_invalid_external_request_id():
+    app = FastAPI()
+    app.add_middleware(RequestContextMiddleware)
+
+    @app.get("/")
+    def root():
+        return {"ok": True}
+
+    response = TestClient(app).get(
+        "/",
+        headers={"X-Request-ID": "invalid request id with spaces"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] != "invalid request id with spaces"
+    assert len(response.headers["X-Request-ID"]) == 32
+
+
+def test_safe_json_formatter_redacts_fields_and_inline_credentials():
+    record = logging.LogRecord(
+        name="bs_agent.test",
+        level=logging.ERROR,
+        pathname=__file__,
+        lineno=1,
+        msg="provider failed: redis://user:secret@redis.internal:6379/0",
+        args=(),
+        exc_info=None,
+    )
+    record.request_id = "request-123"
+    record.authorization = "Bearer abcdefghijklmnop"
+    formatter = SafeJsonFormatter()
+
+    payload = json.loads(formatter.format(record))
+
+    assert payload["request_id"] == "request-123"
+    assert payload["authorization"] == "***"
+    serialized = json.dumps(payload)
+    assert "secret" not in serialized
+    assert "abcdefghijklmnop" not in serialized
+
+
+def test_created_application_installs_request_context_middleware(
+    fake_business_intent_catalog_runtime,
+    monkeypatch,
+):
+    from app import main as main_module
+    from app.operations.health import ReadinessService
+
+    monkeypatch.setattr(main_module, "build_graph_checkpointer", InMemorySaver)
+    monkeypatch.setattr(main_module, "close_graph_checkpointer", lambda: None)
+    app = main_module.create_app(
+        readiness_service=ReadinessService(probes=[]),
+        business_intent_catalog_runtime=fake_business_intent_catalog_runtime,
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            "/health/live",
+            headers={"X-Request-ID": "request-app-123"},
+        )
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "request-app-123"
+
+
+def test_configure_logging_emits_safe_structured_json():
+    stream = StringIO()
+    root = logging.getLogger()
+    previous_handlers = root.handlers[:]
+    previous_level = root.level
+    try:
+        configure_logging(log_format="json", level="INFO", stream=stream)
+        logging.getLogger("bs_agent.worker").info(
+            "failed redis://user:secret@redis.internal:6379/0",
+            extra={"authorization": "Bearer abcdefghijklmnop"},
+        )
+    finally:
+        root.handlers = previous_handlers
+        root.setLevel(previous_level)
+
+    payload = json.loads(stream.getvalue())
+    assert payload["levelname"] == "INFO"
+    assert payload["name"] == "bs_agent.worker"
+    assert payload["authorization"] == "***"
+    assert "secret" not in stream.getvalue()
+    assert "abcdefghijklmnop" not in stream.getvalue()
+
+
+def test_configure_telemetry_is_noop_when_disabled():
+    calls = []
+
+    def installer(**kwargs):
+        calls.append(kwargs)
+
+    from app.core.config import Settings
+
+    handle = configure_telemetry(
+        app=FastAPI(),
+        engine=object(),
+        config=Settings(_env_file=None, otel_enabled=False),
+        installer=installer,
+    )
+
+    assert handle is None
+    assert calls == []
+
+
+def test_configure_telemetry_delegates_enabled_runtime_to_installer():
+    marker = object()
+    captured = {}
+
+    def installer(**kwargs):
+        captured.update(kwargs)
+        return marker
+
+    from app.core.config import Settings
+
+    app = FastAPI()
+    engine = object()
+    config = Settings(
+        _env_file=None,
+        otel_enabled=True,
+        otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        otel_exporter_otlp_metrics_endpoint="http://collector:4318/v1/metrics",
+        otel_trace_sample_ratio=0.25,
+    )
+
+    handle = configure_telemetry(
+        app=app,
+        engine=engine,
+        config=config,
+        installer=installer,
+    )
+
+    assert handle is marker
+    assert captured == {
+        "app": app,
+        "engine": engine,
+        "service_name": "bs-agent-service",
+        "environment": "local",
+        "endpoint": "http://collector:4318/v1/traces",
+        "metrics_endpoint": "http://collector:4318/v1/metrics",
+        "sample_ratio": 0.25,
+    }
+
+
+def test_configure_telemetry_allows_exporter_injection_for_tests():
+    marker = object()
+    captured = {}
+
+    def installer(**kwargs):
+        captured.update(kwargs)
+        return marker
+
+    from app.core.config import Settings
+
+    exporter = object()
+    metrics_exporter = object()
+    handle = configure_telemetry(
+        app=FastAPI(),
+        engine=object(),
+        config=Settings(
+            _env_file=None,
+            otel_enabled=True,
+            otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+            otel_exporter_otlp_metrics_endpoint="http://collector:4318/v1/metrics",
+        ),
+        installer=installer,
+        exporter=exporter,
+        metrics_exporter=metrics_exporter,
+    )
+
+    assert handle is marker
+    assert captured["exporter"] is exporter
+    assert captured["metrics_exporter"] is metrics_exporter
+
+
+def test_configure_telemetry_installs_only_once_per_application():
+    from app.core.config import Settings
+
+    calls = []
+    marker = object()
+    app = FastAPI()
+    config = Settings(
+        _env_file=None,
+        otel_enabled=True,
+        otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        otel_exporter_otlp_metrics_endpoint="http://collector:4318/v1/metrics",
+    )
+
+    first = configure_telemetry(
+        app=app,
+        engine=object(),
+        config=config,
+        installer=lambda **kwargs: calls.append(kwargs) or marker,
+    )
+    second = configure_telemetry(
+        app=app,
+        engine=object(),
+        config=config,
+        installer=lambda **kwargs: calls.append(kwargs) or object(),
+    )
+
+    assert first is marker
+    assert second is marker
+    assert len(calls) == 1
+
+
+def test_telemetry_runtime_shutdown_is_idempotent_and_failure_isolated():
+    calls = []
+
+    class Provider:
+        def force_flush(self, *, timeout_millis):
+            calls.append(("flush", timeout_millis))
+            raise RuntimeError("exporter failed")
+
+        def shutdown(self):
+            calls.append(("provider_shutdown", None))
+
+    class FastAPIInstrumentor:
+        def uninstrument_app(self, app):
+            calls.append(("fastapi", app))
+
+    class Instrumentor:
+        def __init__(self, name):
+            self.name = name
+
+        def uninstrument(self):
+            calls.append((self.name, None))
+
+    app = object()
+    meter_provider = Provider()
+    runtime = TelemetryRuntime(
+        app=app,
+        provider=Provider(),
+        fastapi_instrumentor=FastAPIInstrumentor(),
+        httpx_instrumentor=Instrumentor("httpx"),
+        sqlalchemy_instrumentor=Instrumentor("sqlalchemy"),
+        meter_provider=meter_provider,
+    )
+
+    runtime.shutdown()
+    runtime.shutdown()
+
+    assert calls == [
+        ("fastapi", app),
+        ("httpx", None),
+        ("sqlalchemy", None),
+        ("flush", 5_000),
+        ("provider_shutdown", None),
+        ("flush", 5_000),
+        ("provider_shutdown", None),
+    ]
+
+
+def test_configure_worker_telemetry_is_noop_when_disabled():
+    from app.core.config import Settings
+
+    calls = []
+    handle = configure_worker_telemetry(
+        engine=object(),
+        config=Settings(_env_file=None, otel_enabled=False),
+        installer=lambda **kwargs: calls.append(kwargs),
+    )
+
+    assert handle is None
+    assert calls == []
+
+
+def test_configure_worker_telemetry_uses_worker_service_name():
+    from app.core.config import Settings
+
+    marker = object()
+    captured = {}
+
+    def installer(**kwargs):
+        captured.update(kwargs)
+        return marker
+
+    engine = object()
+    config = Settings(
+        _env_file=None,
+        otel_enabled=True,
+        otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        otel_exporter_otlp_metrics_endpoint="http://collector:4318/v1/metrics",
+        otel_trace_sample_ratio=0.5,
+    )
+
+    handle = configure_worker_telemetry(
+        engine=engine,
+        config=config,
+        installer=installer,
+    )
+
+    assert handle is marker
+    assert captured == {
+        "engine": engine,
+        "service_name": "bs-agent-service-worker",
+        "environment": "local",
+        "endpoint": "http://collector:4318/v1/traces",
+        "metrics_endpoint": "http://collector:4318/v1/metrics",
+        "sample_ratio": 0.5,
+    }

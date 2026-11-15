@@ -1,155 +1,177 @@
-from sqlalchemy import create_engine, select
+from datetime import UTC, datetime
+
+import pytest
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from app.graph.runtime import run_question_answer_graph
-from app.graph.state import create_initial_state
-from app.harness.tracing import InMemoryTraceStore
-from app.schemas.approvals import ApprovalRequest
-from app.schemas.memory import ExperienceCommitPayload
 from app.schemas.memory import MemoryCandidate
-from app.storage.models import AgentRun, AgentSession, AgentTraceEvent, Base, MemoryCandidateRecord
-from app.storage.repositories import persist_agent_run
+from app.storage.memory_candidates import MemoryCandidateRepository
+from app.storage.models import Base
 
 
-class RecordingExperienceStore:
-    def __init__(self) -> None:
-        self.payloads: list[ExperienceCommitPayload] = []
+def _candidate(**updates) -> MemoryCandidate:
+    values = {
+        "candidate_id": "memcand_1",
+        "memory_type": "user_preference",
+        "memory_key": "language",
+        "content": "使用中文",
+        "confidence": 0.9,
+        "approval_status": "not_required",
+        "sensitivity": "low",
+    }
+    values.update(updates)
+    return MemoryCandidate(**values)
 
-    def save(self, payload: ExperienceCommitPayload) -> None:
-        self.payloads.append(payload)
 
-
-def test_persist_agent_run_stores_session_run_and_trace_events():
+def test_memory_candidate_defaults_store_key_and_pending_sync_state():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    trace_store = InMemoryTraceStore()
-    state = run_question_answer_graph(
-        session_id="session_1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="差旅报销需要什么？",
-        trace_store=trace_store,
-    )
 
     with Session(engine) as session:
-        run = persist_agent_run(
-            session=session,
-            state=state,
-            trace_events=trace_store.events,
-            status="completed",
+        record = MemoryCandidateRepository(session).save_candidate(
+            _candidate(memory_key=None),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
         )
 
-        saved_session = session.get(AgentSession, "session_1")
-        saved_run = session.get(AgentRun, run.run_id)
-        saved_events = session.scalars(select(AgentTraceEvent)).all()
-
-    assert saved_session.tenant_id == "tenant_1"
-    assert saved_run.trace_id == state["trace_id"]
-    assert saved_run.intent == "knowledge_qa"
-    assert saved_run.risk_level == "medium"
-    assert {event.node_name for event in saved_events} >= {"intent_router", "final_response"}
+    assert record.memory_key == "memcand_1"
+    assert record.store_sync_status == "pending"
+    assert record.store_sync_attempts == 0
+    assert record.store_synced_at is None
+    assert record.store_sync_error is None
 
 
-def test_persist_agent_run_stores_and_merges_memory_candidates():
+def test_memory_candidate_resets_store_sync_only_for_effective_changes():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    first_state = create_initial_state(
-        session_id="session_1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="记住我的联系偏好：发邮件到 alice@example.com",
-    )
-    first_state["memory_candidates"] = [
-        MemoryCandidate(
-            candidate_id="memcand_1",
-            memory_type="user_preference",
-            content="发邮件到 alice@example.com",
-            confidence=0.7,
-            approval_status="not_required",
-            sensitivity="low",
-            source="user_explicit_preference",
-        )
-    ]
-    second_state = create_initial_state(
-        session_id="session_1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="记住我的联系偏好：发邮件到 alice@example.com",
-    )
-    second_state["memory_candidates"] = [
-        MemoryCandidate(
-            candidate_id="memcand_1",
-            memory_type="user_preference",
-            content="发邮件到 alice@example.com",
-            confidence=0.95,
-            approval_status="pending",
-            sensitivity="high",
-            source="user_explicit_preference",
-        )
-    ]
 
     with Session(engine) as session:
-        persist_agent_run(
-            session=session,
-            state=first_state,
-            trace_events=[],
-            status="completed",
+        repository = MemoryCandidateRepository(session)
+        record = repository.save_candidate(
+            _candidate(),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
         )
-        persist_agent_run(
-            session=session,
-            state=second_state,
-            trace_events=[],
-            status="completed",
+        record.store_sync_status = "synced"
+        record.store_synced_at = datetime.now(UTC)
+        record.store_sync_error = "old error"
+        session.flush()
+
+        unchanged = repository.save_candidate(
+            _candidate(),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
+        )
+        assert unchanged.store_sync_status == "synced"
+        assert unchanged.store_synced_at is not None
+        assert unchanged.store_sync_error == "old error"
+
+        changed = repository.save_candidate(
+            _candidate(content="使用简体中文"),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
         )
 
-        saved_candidates = session.scalars(select(MemoryCandidateRecord)).all()
-
-    assert len(saved_candidates) == 1
-    assert saved_candidates[0].confidence == 0.95
-    assert saved_candidates[0].sensitivity == "high"
-    assert saved_candidates[0].approval_status == "pending"
+    assert changed.store_sync_status == "pending"
+    assert changed.store_synced_at is None
+    assert changed.store_sync_error is None
 
 
-def test_persist_agent_run_commits_approved_memory_to_injected_experience_store():
+def test_memory_candidate_confidence_merge_keeps_synced_state():
     engine = create_engine("sqlite:///:memory:")
     Base.metadata.create_all(engine)
-    state = create_initial_state(
-        session_id="session_1",
-        tenant_id="tenant_1",
-        user_id="user_1",
-        user_message="记住我的语言偏好，所有文档用中文",
-    )
-    state["memory_candidates"] = [
-        MemoryCandidate(
-            candidate_id="memcand_1",
-            memory_type="user_preference",
-            content="所有文档用中文",
-            confidence=0.9,
-            approval_status="approved",
-            sensitivity="low",
-            source="user_explicit_preference",
-        )
-    ]
-    state["approval_requests"] = [
-        ApprovalRequest(
-            approval_id="approval_1",
-            run_id=state["request_id"],
-            approval_type="memory_write",
-            risk_level="low",
-            payload={"candidate_id": "memcand_1"},
-            status="approved",
-        )
-    ]
-    experience_store = RecordingExperienceStore()
 
     with Session(engine) as session:
-        persist_agent_run(
-            session=session,
-            state=state,
-            trace_events=[],
-            status="completed",
-            experience_store=experience_store,
+        repository = MemoryCandidateRepository(session)
+        record = repository.save_candidate(
+            _candidate(),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
+        )
+        synced_at = datetime.now(UTC)
+        record.store_sync_status = "synced"
+        record.store_synced_at = synced_at
+        record.store_sync_error = "old error"
+        session.flush()
+
+        merged = repository.save_candidate(
+            _candidate(confidence=0.95),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
         )
 
-    assert len(experience_store.payloads) == 1
-    assert experience_store.payloads[0].candidate_id == "memcand_1"
+    assert merged.confidence == 0.95
+    assert merged.store_sync_status == "synced"
+    # 仓储刷新后SQLite返回无时区UTC；仍核对同一时间，不依赖ORM旧缓存。
+    assert merged.store_synced_at.replace(tzinfo=UTC) == synced_at
+    assert merged.store_sync_error == "old error"
+
+
+@pytest.mark.parametrize(
+    "updates",
+    (
+        {"sensitivity": "high"},
+        {"source": "user_explicit_preference"},
+    ),
+)
+def test_memory_candidate_store_value_change_resets_synced_state(updates):
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        repository = MemoryCandidateRepository(session)
+        record = repository.save_candidate(
+            _candidate(),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
+        )
+        record.store_sync_status = "synced"
+        record.store_synced_at = datetime.now(UTC)
+        record.store_sync_error = "old error"
+        session.flush()
+
+        changed = repository.save_candidate(
+            _candidate(**updates),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
+        )
+
+    assert changed.store_sync_status == "pending"
+    assert changed.store_synced_at is None
+    assert changed.store_sync_error is None
+
+
+def test_memory_candidate_lower_sensitivity_keeps_synced_state():
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        repository = MemoryCandidateRepository(session)
+        record = repository.save_candidate(
+            _candidate(sensitivity="high"),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
+        )
+        synced_at = datetime.now(UTC)
+        record.store_sync_status = "synced"
+        record.store_synced_at = synced_at
+        session.flush()
+
+        merged = repository.save_candidate(
+            _candidate(sensitivity="low"),
+            tenant_id="tenant_1",
+            user_id="user_1",
+            run_id="run_1",
+        )
+
+    assert merged.sensitivity == "high"
+    assert merged.store_sync_status == "synced"

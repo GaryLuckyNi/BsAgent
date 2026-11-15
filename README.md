@@ -1,0 +1,236 @@
+# BsAgent
+
+BsAgent 是面向 A 股公司投研场景的多 Agent 底座。系统以 LangGraph 编排投研范围识别、动态任务 DAG、Skill、MCP/RAG 工具、审批、验证与回答合成，并支持图片上传、PaddleOCR、外部 Vision 分析、流式回答、Checkpoint 恢复和全链路观测。
+
+## 核心组件
+
+- `backend`：FastAPI、LangGraph、PostgreSQL、Redis、Celery、S3/MinIO。
+- `frontend`：Vite、TypeScript、OIDC Authorization Code + PKCE、SSE。
+- `ocr-service`：独立 PaddleOCR HTTP 服务，启动期加载模型。
+- `mcp server`：用于学习和本地联调的 MCP Server；生产市场数据由 Agent 通过 Streamable HTTP 直接连接 Tushare MCP Server。
+- `admin`：Intent、Sub-intent 与 Skill Registry 配置中心。
+- `rag`：同目录外部 RAG 微服务；BsAgent 只调用检索能力。
+
+## 本地开发
+
+首次启动或 `backend/requirements.lock` 更新后，使用 Python 3.11 创建项目独立环境并同步锁定依赖：
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements.lock
+```
+
+在 `.env.local` 中设置该解释器的绝对路径，避免污染或误用全局 Python 环境：
+
+```dotenv
+PYTHON=/你的仓库绝对路径/BsAgent/.venv/bin/python
+```
+
+顶层一键启动脚本会先通过 `compose.local-postgres.yml` 启动 PostgreSQL，等待健康检查通过，再执行业务迁移和启动各服务：
+
+```bash
+npm run dev
+```
+
+该命令会同时启动：
+
+- Langfuse 4.16.0：`http://127.0.0.1:3000`
+- Agent 后端：`http://127.0.0.1:8000`
+- Agent 前端：`http://127.0.0.1:5175`
+- Admin 后端：`http://127.0.0.1:8002`
+- Admin 前端：`http://127.0.0.1:5173`
+
+也可以按服务单独启动：
+
+```bash
+npm run dev:backend
+npm run dev:frontend
+npm run dev:admin
+npm run dev:admin:backend
+npm run dev:admin:frontend
+npm run dev:check
+npm run dev:stop
+npm run dev:stop:dry-run
+npm run dev:postgres
+npm run dev:postgres:stop
+```
+
+如需指定 Python 解释器：
+
+```bash
+PYTHON=/opt/anaconda3/bin/python3 npm run dev
+```
+
+### VS Code 断点调试 FastAPI
+
+使用 VS Code 打开仓库根目录，并安装推荐的 Python、Python Debugger 扩展。调试配置使用根目录 `.venv/bin/python`，该环境需已安装项目后端依赖；本地密钥从根目录 `.env.local` 加载。
+
+1. 先按上述本地开发流程启动 PostgreSQL、完成迁移，并启动所需的 Admin 等配套服务。
+2. 停止占用 8000 端口的普通 Agent 后端进程，避免与调试服务冲突。
+3. 在 `backend/app/api/health.py` 的 `health()` 返回行或目标 API 的可执行代码行设置断点。
+4. 打开“运行和调试”，选择“FastAPI：断点调试 API”，按 `F5`。启动成功后自动打开 `http://127.0.0.1:8000/docs`。
+5. 请求 `http://127.0.0.1:8000/health` 或在 Swagger 中执行目标接口，即可命中断点；`F10` 单步跳过、`F11` 进入函数、`F5` 继续运行、`Shift+F5` 停止调试。
+
+调试服务使用与一键启动相同的本地 PostgreSQL 和 Admin 地址。为保持断点稳定，使用单进程且不启用自动重载；修改代码后需重启调试会话。调试器由 VS Code 扩展提供，无需在项目虚拟环境单独安装 `debugpy`。
+
+关闭本地开发服务：
+
+```bash
+npm run dev:stop:dry-run
+npm run dev:stop
+```
+
+`dev:stop:dry-run` 只显示将要关闭的监听进程、本地 PostgreSQL 和 Langfuse；`dev:stop` 会向默认开发端口对应的进程发送 `SIGTERM`，并停止本项目的 PostgreSQL 与 Langfuse 容器。容器数据卷会保留。如启动时通过环境变量改过端口，关闭时也需要带上同样的端口变量。
+
+本地 Backend 默认显式注入三类 PostgreSQL DSN：
+
+```text
+BS_AGENT_DATABASE_URL=postgresql+psycopg://...@127.0.0.1:55432/bs_agent
+BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
+BS_AGENT_MEMORY_STORE_POSTGRES_URL=postgresql://...@127.0.0.1:55432/bs_agent
+```
+
+业务 ORM 保存 Message/Run/Candidate/Approval 投影，PostgresSaver 保存 Graph State/Interrupt，PostgresStore 保存长期跨会话偏好。Graph 没有固定 Memory 节点，Planner 和 Synthesizer 按需通过 `Runtime.store` 读取偏好。
+
+### 刷新恢复与停止生成
+
+会话协议流的执行与 HTTP 连接分离：刷新或断网仅断开订阅，后台继续生成；重新进入同一会话后，前端通过持久化事件日志恢复内容，不重新调用模型。部分正文会持续入库，等待输入的 `interrupted` 与用户停止的 `cancelled` 分开显示。
+
+点击停止会先请求后端协作结束。界面显示“正在停止”，到安全执行边界确认后显示“已停止 · 回答可能不完整”，此时才能提交下一问。已发出的外部调用可能需要等到返回或自身超时，不能承诺点击后立即终止。已提交的数据库修改和外部副作用不会自动回滚；工具返回的实际结果仍会保留，执行中或结果未知的写操作会阻止后续中高风险调用，普通只读查询可以继续。同一 run 与可信 call_id 已确认成功的写入不会自动再次执行，也不会拿脱敏摘要冒充完整工具结果。未知结果应核对外部系统后处理，不能盲目重试或只清空会话锁。
+
+`CONVERSATION_HISTORY_LIMIT=0` 保持不变。只有紧邻上一轮被停止时，下一轮额外获得最多 4000 字符的交接上下文，含原问题、标明不完整的部分答案及脱敏工具回执；未知结果优先保留，预算不足会明确记录省略数量。这不是恢复全部历史，也不代表停止前的答案已验证。
+
+新增接口均验证租户、用户和会话归属：
+
+- `GET /api/sessions/{session_id}/runs/active`：查询当前运行及恢复阶段游标。
+- `GET /api/sessions/{session_id}/runs/{run_id}/events?after=0`：按 SSE `id` 重放并订阅；支持 `Last-Event-ID`。
+- `POST /api/sessions/{session_id}/runs/{run_id}/stop`：幂等请求停止，返回 `stop_requested` 或已有终态。
+
+首次使用需将业务数据库升级到 `20261021_0014` 并重启后端和前端。一键启动会执行迁移；使用 VS Code 或单独启动时，应先使用同一套数据库环境变量运行：
+
+```bash
+PYTHONPATH=backend .venv/bin/python -m alembic upgrade head
+```
+
+本地模式使用进程内后台线程，适用于单进程调试；停止调试器或重启后端仍会结束该进程的生成。`npm run dev` 已开启本地孤立运行恢复；其他启动方式可在确认旧本地进程已退出后设置 `BS_AGENT_RECOVER_ORPHANED_RUNS_ON_STARTUP=true`。不要在多实例生产环境用此开关批量清理旧运行。
+
+生产模式使用独立 `turn-worker` 消费 `agent-turns`，图像任务仍由原 `worker` 消费 `image-analysis`；长研究任务不继承图像任务的强制进程超时。API 进程每 15 秒检查本进程的补落库与已退出生产者，本地模式另外重投未领取任务；生产通过 scheduler 每 30 秒触发同队列维护，API 不启动本地执行线程。提交后超过 10 秒尚未领取的任务可重复投递，由数据库 CAS 保证仅一位生产者领取。
+
+心跳过期不会直接抢占：恢复需要同主机执行进程已死亡，或本进程已确认生产者退出的证据。仍有在途工具时保留所有权等待结果；数据库短故障只重试已返回结果的落库，不重跑工具。尚未落库的结果临时保存在进程内，若此时进程也退出，仍需按未知副作用核实。跨主机或已消失容器的运行需要运维确认后处理。审批决定后的恢复也受同一套停止、所有权和未知写保护约束。此版本不提供通用外部事务回滚或跨系统 exactly-once 保证。
+
+一键启动会自动将 Agent 后端连接到本地 Admin：
+
+```text
+BS_AGENT_ADMIN_BASE_URL=http://127.0.0.1:8002
+BS_AGENT_SKILL_REGISTRY_BASE_URL=http://127.0.0.1:8002
+```
+
+Admin 后端启动前会自动执行 `alembic upgrade head`，用于修复本地配置库的历史 schema。Agent 不连接仓库内的示例 MCP Server。请在 Admin 的“市场数据源”页面保存并激活完整的 Tushare 官方 MCP URL；Agent 从 Admin 获取当前连接后，通过 Streamable HTTP 直接发现和调用工具。
+
+DeepSeek Key 可以通过启动 shell 注入：
+
+```bash
+export BS_AGENT_DEEPSEEK_API_KEY=你的DeepSeekApiKey
+export BS_AGENT_WEB_SEARCH_ENABLED=true
+npm run dev
+```
+
+本地开发也可以使用根目录 `.env.local` 管理敏感环境变量。启动脚本会自动加载该文件，同时保留 shell 中已经设置的值：
+
+```bash
+cp .env.example .env.local
+```
+
+复制后至少填写 `BS_AGENT_DEEPSEEK_API_KEY`；启动后端时它是必需项。
+
+本地观测使用 Langfuse 4.16.0，endpoint 为 `http://localhost:3000`，Python SDK 为 4.16.0。`npm run dev` 会自动初始化 `langfuse/.env`、启动 Langfuse Compose，并将本地项目 key 安全注入 Backend 进程；Shell 或 `.env.local` 中的显式配置优先。密钥文件已被 Git 忽略，不得提交。启动、Trace 内容边界与验收流程见 [Langfuse 本地观测说明](docs/langfuse-local-observability.md)。Agent/RAG 使用、七类 Score、规则与 DeepSeek evaluator、双人工复核队列及 Prompt/Dataset/Experiment 优化闭环见 [Langfuse 使用与优化指南](docs/langfuse-usage-and-optimization.md)。
+
+如首次启动时 Docker 镜像仓库暂时不可达，启动器会明确提示并继续启动其他开发服务，本次 Backend 禁用 Langfuse 上报。网络恢复后再次执行 `npm run dev` 即会补启 Langfuse。需要 Langfuse 未就绪时直接终止所有启动，可设置 `BS_AGENT_DEV_LANGFUSE_REQUIRED=true`。
+
+`BS_AGENT_MCP_SERVER_URL` 只用于额外的通用 Agent MCP Server，默认不配置，也不会作为 Tushare 的备用地址。`npm run dev:mcp` 仅用于单独启动仓库内的学习示例，不在 `npm run dev` 或 `npm run dev:backend` 的依赖链中；只有运行该学习示例时才需要 `TUSHARE_TOKEN`。
+
+Tushare MCP URL 中包含 MCP Key。Admin 的公开列表和详情接口只返回脱敏地址，完整地址仅通过内部控制面接口提供给 Agent。部署时应限制 Admin Backend 的网络访问范围，不要把内部接口直接暴露到公网。
+
+`BS_AGENT_WEB_SEARCH_ENABLED=true` 会把 Web Search 注册到工具目录。Planner 根据用户 `goal` 和 Observation 安排事实获取任务；Tool Agent 模型在受权限约束的候选中自主决定是否调用 `web_search` 以及查询词，代码不使用公司名称失败的固定搜索分支。搜索结果仍属于外部证据，不能未经交叉验证就当作证券代码或公司事实。
+
+联网搜索默认使用 `BS_AGENT_WEB_SEARCH_PROVIDER=deepseek_search_api`，直接请求 DeepSeek 独立 Search API，不增加搜索内部的模型生成。搜索地址由 `BS_AGENT_WEB_SEARCH_BASE_URL` 单独配置，默认 `https://api.deepseek.com`（也接受末尾 `/v1`），复用 `BS_AGENT_DEEPSEEK_API_KEY`；配置模型代理地址不会自动改变搜索地址。查询最多 128 个字符、默认返回 5 条来源，超长查询明确失败，不静默截断。`BS_AGENT_WEB_SEARCH_TIMEOUT_SECONDS` 同时进入客户端和工具超时契约。
+
+直连搜索以每条来源的长摘要作为 `snippet`，`answer` 为空、`coverage` 为 `unknown`；现有 Planner 和合成链路根据摘要及来源继续判断目标是否满足，不把有结果等同于取得指定数据。普通执行和权限恢复均保留有界来源摘要及日期。本阶段不自动抓取正文，Fetch 工具留待单独接入。
+
+如需手动回滚，设置 `BS_AGENT_WEB_SEARCH_PROVIDER=deepseek` 并重启后端，旧模式使用 `BS_AGENT_DEEPSEEK_BASE_URL` 与模型配置。接口失败不会自动切换实现。模式或执行配置变化会改变工具目录与绑定身份，正在执行的历史快照可能被一致性检查拒绝；不要通过修改历史回执绕过保护。
+
+前端单独启动命令：
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+运行 Python 测试与静态检查：
+
+```bash
+python -m pytest
+python -m ruff check backend ocr-service
+```
+
+仓库内置 GitHub Actions 持续集成：后端使用 Python 3.11 和锁定依赖运行 Ruff、全量测试及真实 PostgreSQL PostgresSaver 测试；前端运行 `npm ci`、Vitest、生产构建与生产依赖审计，同时静态校验生产 Compose。
+
+## 会话上下文压缩
+
+上下文压缩默认关闭。启用前必须按实际部署模型设置窗口容量，不能直接沿用其他模型的标称值：
+
+```text
+BS_AGENT_CONTEXT_COMPACTION_ENABLED=true
+BS_AGENT_LLM_CONTEXT_WINDOW_TOKENS=131072
+```
+
+系统在窗口投影达到 70% 后向 Celery `context-compaction` 队列派发预压缩任务；达到 85% 时在请求前同步压缩，压缩目标为 50%。默认保留最近 3 个完整回合，极端情况下至少保留 1 个完整回合。`agent_messages` 始终保存原始会话，`agent_context_compactions` 追加保存可追溯的摘要版本，消息分页接口仍只读取原始消息。
+
+专项测试和显式启用的真实模型评测命令如下：
+
+```bash
+BS_AGENT_TEST_POSTGRES_URL="$BS_AGENT_TEST_POSTGRES_URL" \
+  .venv/bin/python -m pytest \
+  backend/app/tests/integration/test_context_compaction_migration.py \
+  backend/app/tests/integration/test_live_postgres_context_compaction.py -q
+
+BS_AGENT_RUN_LIVE_CONTEXT_COMPACTION_EVAL=1 \
+  .venv/bin/python -m pytest \
+  backend/app/tests/evals/test_context_compaction_quality.py -q
+```
+
+需要回滚时将 `BS_AGENT_CONTEXT_COMPACTION_ENABLED` 设为 `false` 并重启 API 与 worker。关闭开关会恢复最近 20 条消息的兼容读取路径；不要删除 compaction 数据，以便审计、诊断和重新启用。
+
+## Harness 安全增强
+
+独立安全模块的接入方向、本期能力范围与验收约定见 [Harness 安全增强说明](docs/security/README.md)，当前待验收项与未来能力启用前的安全要求见 [安全 TODO](docs/security/TODO.md)。第 1 批已实现 [当前权限目录](docs/security/current-permission-directory.md)，复用 OIDC/JWT 并接入普通请求和现有工具审批恢复；启用前需迁移并显式登记授权。第 2 批已补齐 Agent turn worker、工具派发与用户选择/审批恢复的当前权限和初始上限，相关回归 460 项通过；第 3 批已接入 [Admin 用户登录与服务准入](docs/security/admin-authorization.md)。真实部署、RAG 与其他后台服务身份仍待验收，详见安全 TODO。
+
+内容边界已接入模型输入/输出及受管观测。2026-11-10按用户调整，普通正文增量检查后发布，疑似凭证后缀、工具参数和结构化观测仍保守检查；失败时保留此前已展示的安全前文。实现、性能和限制见[增量发布验收](docs/security/reports/2026-11-10-security-stream-implementation.md)，此前全文缓冲策略保留于历史报告。业务分类规则、独立出口和真实多轮提示注入仍待验收。
+
+图片链路已补 owner/按操作授权、后台当前权限以及 OCR/Vision 文本、缓存和落盘保护，见 [图片安全验收记录](docs/security/reports/2026-11-03-image-asset-implementation.md)。OCR 已识别风险会阻止后续 Vision 外发，但不能代替图片像素分类及首个 OCR 接收方的部署信任。
+
+当前任务已加入持久化资源账本：默认32次模型请求、64次工具派发、16MiB受管请求正文及30分钟期限，审批等待计时，恢复不重置；HTTP次数与响应信用另有上限，见 [预算验收记录](docs/security/reports/2026-11-08-run-budget-implementation.md)。配置样例含 `BS_AGENT_RUN_BUDGET_*`，仅影响新任务。0019不自动为旧任务补发预算；真实迁移/部署、费用、全局并发和独立后台job预算仍保留TODO。
+
+记忆候选已绑定精确主体与审批内容，拒绝把旧批准沿用到替换正文，最终Store同步也复核现有敏感规则的批准要求，见 [记忆绑定验收](docs/security/reports/2026-11-08-memory-binding-implementation.md)。历史记忆不自动改写，完整来源、同键版本顺序、后台当前权限与真实部署仍需验收。
+
+## 生产部署
+
+生产模式会强制 JWT、PostgreSQL、PostgresSaver、Redis、S3、Celery、真实 OCR/Vision、JSON 日志和非开发版能力 revision。完整步骤见 [生产部署与运维手册](docs/production-deployment.md)。
+
+`BS_AGENT_DATABASE_URL`、`BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL` 和 `BS_AGENT_MEMORY_STORE_POSTGRES_URL` 必须由 Secret Manager、Kubernetes Secret 或其他受管环境变量注入；仓库样例不包含真实凭证。原生记忆/审批迁移会删除 `experience_entries` 历史数据，上线前必须排空所有在途审批。
+
+```bash
+cp deploy/production.env.example deploy/production.env
+docker compose --env-file deploy/production.env -f compose.production.yml config
+docker compose --env-file deploy/production.env -f compose.production.yml up -d --build
+```
+
+部署后使用真实 JWT 和真实图片执行端到端验收：
+
+```bash
+ACCESS_TOKEN="..." TEST_IMAGE="/absolute/path/report.png" \
+  ./deploy/smoke-production.sh
+```
+
+`compose.production.yml` 是单机生产基线，不等同于跨可用区高可用方案。正式集群应将 PostgreSQL、Redis、对象存储和观测后端替换为托管或高可用服务。

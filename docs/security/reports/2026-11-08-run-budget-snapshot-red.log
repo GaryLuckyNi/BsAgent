@@ -1,0 +1,31 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_expired_generator_return_does_not_attach_private_snapshot_context ____
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_25849d79daf14f529e56fef4849bea19', assistant_message_id='msg_3cd3744a17e94bbfa4bf78ba3a29105e', replayed=False))
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x110a0aa90>
+
+    def test_expired_generator_return_does_not_attach_private_snapshot_context(env,monkeypatch):
+        from app.security import run_budget
+        binding=init(env)
+        clock=[binding.expires_at-timedelta(seconds=1)]
+        monkeypatch.setattr(run_budget,"utc_now",lambda:clock[0])
+        def stream():
+            clock[0]=binding.expires_at
+            return {"private":"PRIVATE_SNAPSHOT_CANARY"}
+            yield
+        with env[0]() as db:
+            result=run_budget.budgeted_call(db,run_id=binding.run_id,principal=env[1],function=stream)
+            with pytest.raises(BudgetExpired) as caught:
+                next(result)
+>       assert caught.value.__cause__ is None and caught.value.__context__ is None
+E       AssertionError: assert (None is None and StopIteration({'private': 'PRIVATE_SNAPSHOT_CANARY'}) is None)
+E        +  where None = BudgetExpired('任务执行期限已过，请重新发起任务。').__cause__
+E        +    where BudgetExpired('任务执行期限已过，请重新发起任务。') = <ExceptionInfo BudgetExpired('任务执行期限已过，请重新发起任务。') tblen=4>.value
+E        +  and   StopIteration({'private': 'PRIVATE_SNAPSHOT_CANARY'}) = BudgetExpired('任务执行期限已过，请重新发起任务。').__context__
+E        +    where BudgetExpired('任务执行期限已过，请重新发起任务。') = <ExceptionInfo BudgetExpired('任务执行期限已过，请重新发起任务。') tblen=4>.value
+
+backend/app/tests/unit/test_run_budget.py:703: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_run_budget.py::test_expired_generator_return_does_not_attach_private_snapshot_context
+1 failed, 41 deselected in 0.50s

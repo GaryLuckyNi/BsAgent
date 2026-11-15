@@ -1,0 +1,274 @@
+{
+  "case_id": "039",
+  "run": {
+    "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+    "session_id": "live50-20261024-a-039",
+    "session_key": "sess_6dc23cba5d77453f998a3c11b0cebf7f",
+    "trace_id": "trace_9aec8504f8b14052affc8b8ed640e52d",
+    "status": "completed",
+    "created_at": "2026-10-24 14:46:05.471065+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 47,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:46:05.514403+00:00",
+    "ended_at": "2026-10-24 14:46:22.426954+00:00",
+    "events": 47
+  },
+  "receipts": [
+    {
+      "receipt_id": "b01ccc65334a437a9ea2f46e4b2a4a83",
+      "tool_name": "mcp.tushare.express",
+      "call_id": "call_caebfedcb3d65647dc47dff9fd73f3f1",
+      "risk_level": "medium",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": [],
+        "status": "success",
+        "trace_id": "trace_9aec8504f8b14052affc8b8ed640e52d",
+        "tool_name": "mcp.tushare.express",
+        "latency_ms": 989,
+        "tool_call_id": "tool_edc304a5be494b4eb4f7150fb247de03",
+        "execution_state": "completed",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.express",
+            "request_id": "live50-20261024-a-039",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "bc40cd21bcb7bc182ae6db1cf2818af2050308c61c0c4ca3743c96d4c8d9631c"
+        }
+      },
+      "created_at": "2026-10-24 14:46:13.009967+00:00",
+      "completed_at": "2026-10-24 14:46:13.965623+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "planner_stop_reason",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_decision": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_caebfedcb3d65647dc47dff9fd73f3f1": {
+        "request_id": "live50-20261024-a-039",
+        "task": {
+          "id": "moutai_2024_revenue",
+          "task_goal": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2024年度营业收入的具体数值及单位",
+            "注明数据来源为定期报告或公告等可引用出处",
+            "若无法取得原始披露值，明确说明缺失原因，不以估算替代"
+          ],
+          "tool_search_query": "A股上市公司年度报告财务数据 营业收入 查询",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_caebfedcb3d65647dc47dff9fd73f3f1",
+        "request_fingerprint": "bc40cd21bcb7bc182ae6db1cf2818af2050308c61c0c4ca3743c96d4c8d9631c",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_81006fb3ae4614cd721ecaaa4d158d21",
+        "as_of": "2026-10-24T22:46:06+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.express",
+            "version": "mcp-http-v1",
+            "binding": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1"
+          },
+          {
+            "name": "mcp.tushare.hk_income",
+            "version": "mcp-http-v1",
+            "binding": "d347dd2ab6872e2861dbb13021e31248fb06eebecedd1f23033a605d7f86b34e"
+          },
+          {
+            "name": "mcp.tushare.express_vip",
+            "version": "mcp-http-v1",
+            "binding": "79ec71938f19b9f51508a6492a36ff2e3621b259e9c4ecd296e7b3b862ad5dc1"
+          },
+          {
+            "name": "mcp.tushare.fina_mainbz",
+            "version": "mcp-http-v1",
+            "binding": "d41c658ec88f18e43af92f18095aea4b0f8f8ded0e7d8fa329962a77e1ac2d53"
+          },
+          {
+            "name": "mcp.tushare.fina_audit",
+            "version": "mcp-http-v1",
+            "binding": "154770c531d0d35bea12271768c4228326fe1a49c0011c80d631a9716da02848"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_81006fb3ae4614cd721ecaaa4d158d21": {
+        "dispatch_batch_id": "dispatch_81006fb3ae4614cd721ecaaa4d158d21",
+        "run_identity": "5c5e5cd3c347817ac4b1df6bd95e1afbffc62aab170398d4fce84debea93fca7",
+        "plan_digest": "c29e92dbc396415565dce45b238d6ae7c5c4ba1b5b50b86170a70e15ec5eea83",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "moutai_2024_revenue"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "查询贵州茅台2024年营业收入，公开信息可作为补充；如需切换数据来源须先向用户确认",
+      "confidence": 0.95,
+      "source_constraint": "original_only"
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "先核实贵州茅台2024年年度报告披露的营业收入原始数据，再以公开信息交叉验证；若需切换数据来源，将先向用户确认。",
+      "tasks": [
+        {
+          "id": "moutai_2024_revenue",
+          "task_goal": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2024年度营业收入的具体数值及单位",
+            "注明数据来源为定期报告或公告等可引用出处",
+            "若无法取得原始披露值，明确说明缺失原因，不以估算替代"
+          ],
+          "tool_search_query": "A股上市公司年度报告财务数据 营业收入 查询",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        {
+          "id": "moutai_revenue_crosscheck",
+          "task_goal": "用公开新闻或公开财务信息交叉验证贵州茅台2024年营业收入数值，确认与年报口径一致或说明差异。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出至少一个公开信息来源的2024年营业收入数值",
+            "与年报数值比对，说明是否一致及差异原因",
+            "若公开信息与原始数据冲突，标注冲突点"
+          ],
+          "tool_search_query": "贵州茅台 2024年 营业收入 年报 公开报道",
+          "evidence_task_ids": [],
+          "depends_on": [
+            "moutai_2024_revenue"
+          ],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "moutai_2024_revenue",
+        "status": "success",
+        "content": "[]",
+        "error_code": null,
+        "tool_name": "mcp.tushare.express"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_caebfedcb3d65647dc47dff9fd73f3f1' request=ToolCallRequest(call_id='call_caebfedcb3d65647dc47dff9fd73f3f1', tool_name='mcp.tushare.express', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'period': '20241231', 'fields': ['ts_code', 'ann_date', 'end_date', 'revenue', 'yoy_sales', 'perf_summary']}, purpose='获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。', approval_required=False) result=ToolCallResult(tool_call_id='tool_edc304a5be494b4eb4f7150fb247de03', tool_name='mcp.tushare.express', status='success', execution_state='completed', result=[], error=None, latency_ms=989, trace_id='trace_9aec8504f8b14052affc8b8ed640e52d')"
+    ],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "## 贵州茅台2024年营业收入查询结果\n\n### 结论\n\n**本次未能获取到可核验的贵州茅台2024年营业收入数据。**\n\n研究阶段以贵州茅台（600519.SH）2024年年度报告披露的合并口径营业收入为目标，但检索返回的材料为空，未取得任何年报或公告中的原始数值，因此无法给出具体金额，也无法说明其单位与口径。\n\n### 数据缺口说明\n\n1. **核心数值缺失**：2024年年度报告合并口径营业收入的具体金额未获得，无法确认该数字。\n2. **交叉验证未完成**：原计划用公开新闻或公开财务信息对年报数值进行交叉核对、确认口径一致性或解释差异，但这一环节同样没有可用的比对数据。\n3. **口径与单位未确认**：由于没有拿到原始披露，无法确认该指标是合并口径还是母公司口径，也无法确认金额单位（元/万元/亿元）。\n\n### 关于数据来源切换\n\n您提出公开信息可作为补充，但如需切换数据来源须先向用户确认。目前尚未取得年报原始数据，若您希望改用公开新闻或公开财务信息作为主要来源，请明确告知，我再据此推进；在此之前，不宜以未经确认的公开口径替代年报数据。\n\n### 建议\n\n如需继续，可考虑：\n- 确认是否授权以公开财务信息平台或财经新闻作为替代来源；\n- 或提供年报原文/公告链接，以便直接提取合并口径营业收入并标注单位与口径。\n\n在获得可核验来源前，本报告不对2024年营业收入给出任何具体数值，以避免引用未经证实的数据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_9aec8504f8b14052affc8b8ed640e52d",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    },
+    "errors": []
+  }
+}

@@ -1,0 +1,379 @@
+[
+  {
+    "case": "skill_natural_1",
+    "trace_id": "c5f14f039fa99a421d9240c33bf2e869",
+    "route": "plan",
+    "query": "分析银之杰管理层薪酬和持股",
+    "candidates": [
+      {
+        "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_rewards",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      },
+      {
+        "ref": "tool:mcp.tushare.stk_managers@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_managers",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/上市公司管理层-获取上市公司管理层信息。单次最多返回 4000 条。更新：每日早晚8点",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, name, gender, lev, title, edu, national, birthday, begin_date, end_date\n额外可选字段:\n  resume: 个人简历\nann_date: 公告日期\nend_date: 公告结束日期\nstart_date: 公告开始日期\nts_code: 股票代码",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      }
+    ],
+    "plan": {
+      "public_summary": "先调用银之杰管理层薪酬与持股专用技能，获取最新年度报告期的高管薪酬和持股明细；再补充管理层任免与变动公告，核实人员范围和口径。",
+      "tasks": [
+        {
+          "id": "management_rewards_holdings",
+          "task_goal": "获取银之杰（300085）最新年度报告期的管理层薪酬与持股明细，按姓名、职务、报告期、薪酬、持股数量整理；薪酬或持股为空时标注“未披露”，同一人员同一报告期去重。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回银之杰的 ts_code 并用于查询管理层薪酬持股数据",
+            "优先采用最新年度报告期（非半年报），并说明所选报告期",
+            "表格包含姓名、职务、报告期、薪酬、持股数量五列",
+            "空值显示“未披露”，未自行补全或编造数据",
+            "不输出完整原始 JSON"
+          ],
+          "tool_search_query": null,
+          "tool_candidate_refs": [],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": "yzj_reasearch",
+          "source_requirement": "original_data"
+        },
+        {
+          "id": "management_change_announcements",
+          "task_goal": "检索银之杰近期关于董事、监事及高级管理人员任免、换届、辞职及薪酬方案的公告，核实当前管理层人员范围与薪酬持股数据的口径和时效。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出与高管任免、换届或薪酬方案相关的公告标题及日期",
+            "说明最新报告期后是否发生影响人员范围或薪酬口径的变动",
+            "公告为空时明确标注缺失，不补造"
+          ],
+          "tool_search_query": "上市公司高管任免 换届 辞职 薪酬方案 公告",
+          "tool_candidate_refs": [],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "remote_execution": "not_run",
+    "seconds": 4.49
+  },
+  {
+    "case": "skill_natural_2",
+    "trace_id": "36165b7f34b0cb4bcec66e15e94b5ce4",
+    "route": "plan",
+    "query": "分析银之杰管理层薪酬和持股",
+    "candidates": [
+      {
+        "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_rewards",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      },
+      {
+        "ref": "tool:mcp.tushare.stk_managers@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_managers",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/上市公司管理层-获取上市公司管理层信息。单次最多返回 4000 条。更新：每日早晚8点",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, name, gender, lev, title, edu, national, birthday, begin_date, end_date\n额外可选字段:\n  resume: 个人简历\nann_date: 公告日期\nend_date: 公告结束日期\nstart_date: 公告开始日期\nts_code: 股票代码",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      }
+    ],
+    "plan": {
+      "public_summary": "先调用银之杰专用研究技能，获取最新年度报告期管理层薪酬与持股明细；再补充管理层任职信息，用于核对人员范围与职务。",
+      "tasks": [
+        {
+          "id": "yzj_rewards_holdings",
+          "task_goal": "获取银之杰最新年度报告期管理层薪酬与持股明细，按姓名、职务、报告期、薪酬、持股数量整理；优先最新年报，同一人员同一报告期去重，空值标注未披露",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回银之杰 ts_code 及最新年度报告期管理层薪酬持股表",
+            "列含姓名、职务、报告期、薪酬、持股数量",
+            "reward 或 hold_vol 为空时标注未披露，不补造",
+            "说明所选报告期及数据来源"
+          ],
+          "tool_search_query": null,
+          "tool_candidate_refs": [],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": "yzj_reasearch",
+          "source_requirement": "original_data"
+        },
+        {
+          "id": "yzj_managers_scope",
+          "task_goal": "获取银之杰管理层名单与职务信息，用于核对薪酬持股表覆盖的人员范围及职务口径",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回银之杰管理层姓名、职务、任职起止日期",
+            "可与薪酬持股表按姓名匹配，指出未覆盖或职务不一致的人员",
+            "缺失项明确标注"
+          ],
+          "tool_search_query": "上市公司管理层名单 职务 任职日期",
+          "tool_candidate_refs": [
+            "tool:mcp.tushare.stk_managers@mcp-http-v1"
+          ],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "remote_execution": "not_run",
+    "seconds": 4.094
+  },
+  {
+    "case": "skill_natural_3",
+    "trace_id": "c094765ce6f8f89988a552831af0c61f",
+    "route": "plan",
+    "query": "分析银之杰管理层薪酬和持股",
+    "candidates": [
+      {
+        "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_rewards",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      },
+      {
+        "ref": "tool:mcp.tushare.stk_managers@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_managers",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/上市公司管理层-获取上市公司管理层信息。单次最多返回 4000 条。更新：每日早晚8点",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, name, gender, lev, title, edu, national, birthday, begin_date, end_date\n额外可选字段:\n  resume: 个人简历\nann_date: 公告日期\nend_date: 公告结束日期\nstart_date: 公告开始日期\nts_code: 股票代码",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      }
+    ],
+    "plan": {
+      "public_summary": "调用银之杰专用研究技能，获取最新年度报告期管理层薪酬与持股数据，整理为姓名、职务、报告期、薪酬、持股数量表格，并标注未披露项。",
+      "tasks": [
+        {
+          "id": "yzj_management_rewards",
+          "task_goal": "使用银之杰专用研究技能，查询银之杰（300085.SZ）管理层薪酬和持股数据，优先取最新年度报告期，按姓名、职务、报告期、薪酬、持股数量整理成表格，空值标注“未披露”。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回银之杰的 ts_code 并确认公司主体",
+            "取得 stk_rewards 数据，包含 end_date、name、title、reward、hold_vol 字段",
+            "优先采用最新年度报告期数据，同一人员同一报告期去重",
+            "reward 或 hold_vol 为空时明确标注“未披露”，不补造数据",
+            "以表格形式输出姓名、职务、报告期、薪酬、持股数量"
+          ],
+          "tool_search_query": null,
+          "tool_candidate_refs": [],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": "yzj_reasearch",
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "remote_execution": "not_run",
+    "seconds": 2.536
+  },
+  {
+    "case": "skill_paraphrase_1",
+    "trace_id": "bb8983ccb2e30bfd61ecce1908330499",
+    "route": "plan",
+    "query": "查看银之杰管理层的薪酬和持股情况",
+    "candidates": [
+      {
+        "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_rewards",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      }
+    ],
+    "plan": {
+      "public_summary": "使用银之杰管理层薪酬与持股专用流程，先确认公司代码，再获取最新年度报告期的高管薪酬和持股数据，整理成表格并标注未披露项。",
+      "tasks": [
+        {
+          "id": "yzj_management_rewards",
+          "task_goal": "查询银之杰（300085.SZ）管理层薪酬和持股数据：先确认公司 ts_code，再获取管理层薪酬与持股记录，优先采用最新年度报告期，按人员去重，输出姓名、职务、报告期、薪酬、持股数量；空值标注“未披露”。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得银之杰的 ts_code 并确认公司主体",
+            "返回管理层薪酬与持股记录，包含 end_date、name、title、reward、hold_vol 字段",
+            "明确所选报告期（优先最新年度报告期），并说明是否因半年报 reward 为空而改用年报",
+            "同一人员同一报告期仅保留一条记录",
+            "reward 或 hold_vol 为空时标注“未披露”，不补造数据",
+            "以表格形式呈现姓名、职务、报告期、薪酬、持股数量"
+          ],
+          "tool_search_query": null,
+          "tool_candidate_refs": [],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": "yzj_reasearch",
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "remote_execution": "not_run",
+    "seconds": 3.486
+  },
+  {
+    "case": "skill_paraphrase_2",
+    "trace_id": "054d820aafa5627ca2a186956a934fe1",
+    "route": "plan",
+    "query": "银之杰管理层薪酬与持股情况怎么样？",
+    "candidates": [
+      {
+        "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_rewards",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      }
+    ],
+    "plan": {
+      "public_summary": "计划调用银之杰管理层薪酬与持股专用技能，获取最新年度报告期的高管姓名、职务、薪酬和持股数量，并整理成表格，标注未披露项。",
+      "tasks": [
+        {
+          "id": "yzj_management_rewards_holdings",
+          "task_goal": "查询银之杰（300085）管理层薪酬与持股数据，优先采用最新年度报告期，输出姓名、职务、报告期、薪酬、持股数量表格，空值标注“未披露”。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "已通过 stock_basic 确认银之杰的 ts_code",
+            "已调用 stk_rewards 获取管理层薪酬与持股数据",
+            "表格包含姓名、职务、报告期、薪酬、持股数量五列",
+            "优先采用最新年度报告期，同一人员同一报告期仅保留一条",
+            "reward 或 hold_vol 为空时标注“未披露”，未自行补全",
+            "未输出工具返回的完整原始 JSON"
+          ],
+          "tool_search_query": null,
+          "tool_candidate_refs": [],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": "yzj_reasearch",
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "remote_execution": "not_run",
+    "seconds": 3.439
+  },
+  {
+    "case": "basic_info_not_skill",
+    "trace_id": "a9bf9dd17774dd361a4b52d87d409a2f",
+    "route": "plan",
+    "query": "获取银之杰基础信息数据，包括股票代码、名称、上市日期、退市日期等",
+    "candidates": [
+      {
+        "ref": "tool:mcp.tushare.stock_basic@mcp-http-v1",
+        "tool_name": "mcp.tushare.stock_basic",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/股票列表-获取基础信息数据，包括股票代码、名称、上市日期、退市日期等。单次最多返回 10000 条。更新：早9:10，晚18点",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, symbol, name, area, industry, cnspell, market, list_date, act_name, act_ent_type\n额外可选字段:\n  is_hs: 是否沪深港通标的，N否 H沪股通 S深股通\n  enname: 英文全称\n  exchange: 交易所代码\n  fullname: 股票全称\n  curr_type: 交易货币\n  delist_date: 退市日期\n  list_status: 上市状态 L上市 D退市 P暂停上市\nexchange: 交易所 SSE上交所 SZSE深交所 BSE北交所\nis_hs: 是否沪深港通标的，N否 H沪股通 S深股通\nlist_status: 上市状态 L上市 D退市 G过会未交易 P暂停上市\nmarket: 市场类别\nname: 名称\nts_code: TS股票代码",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      },
+      {
+        "ref": "tool:mcp.tushare.us_basic@mcp-http-v1",
+        "tool_name": "mcp.tushare.us_basic",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/美股数据/美股基础信息-获取美股列表信息。单次最多返回 6000 条。更新：不定期更新",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, name, enname, classify, list_date, delist_date\n额外可选字段:\n  list_status: 上市状态L上市D退市P暂停上市\nclassify: 股票分类（ADR/GDR/EQ）\nlimit: 获取条数\nlist_stauts: 上市状态\noffset: 跳过条数\nts_code: 股票代码（e.g. AAPL）",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      },
+      {
+        "ref": "tool:mcp.tushare.etf_basic@mcp-http-v1",
+        "tool_name": "mcp.tushare.etf_basic",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/ETF专题/ETF基本信息-获取国内ETF基础信息，包括了QDII。数据来源与沪深交易所公开披露信息。单次最多返回 5000 条。更新：每日早晚8点",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, csname, extname, cname, index_code, index_name, setup_date, list_date, list_status, exchange, mgr_name, custod_name, mgt_fee, etf_type\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nexchange: 交易所：SH上交所 SZ深交所\nindex_code: 跟踪指数代码\nlist_date: 上市日期\nlist_status: 上市状态\nmgr: 管理人（简称，e.g.华夏基金)\nts_code: ETF代码",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      },
+      {
+        "ref": "tool:mcp.tushare.hk_basic@mcp-http-v1",
+        "tool_name": "mcp.tushare.hk_basic",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/港股数据/港股基础信息-获取港股列表信息。单次最多返回 3000 条。更新：不定期更新",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, name, fullname, enname, cn_spell, market, list_status, list_date, delist_date, trade_unit, isin, curr_type\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nlist_status: 上市状态 L上市 D退市 P暂停上市\nts_code: TS代码",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      },
+      {
+        "ref": "tool:mcp.tushare.cb_basic@mcp-http-v1",
+        "tool_name": "mcp.tushare.cb_basic",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/债券专题/可转债基础信息-获取可转债基本信息。单次最多返回 2000 条。更新：每日早晚8:30左右",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, bond_full_name, bond_short_name, cb_type, cb_code, stk_code, stk_short_name, maturity, par, issue_price, issue_size, remain_size, value_date, maturity_date, rate_type, coupon_rate, add_rate, pay_per_year, list_date, delist_date, exchange, conv_start_date, conv_end_date, conv_stop_date, first_conv_price, conv_price, rate_clause\n额外可选字段:\n  guarantor: 担保人\n  put_clause: 回售条款\n  call_clause: 赎回条款\n  conv_clause: 转股条款\n  rating_comp: 最新评级机构\n  issue_rating: 发行信用等级\n  reset_clause: 特别向下修正条款\n  newest_rating: 最新信用等级\n  guarantee_type: 担保方式\n  maturity_put_price: 到期赎回价格(含税)[更名停用，请使用maturity_call_price]\n  maturity_call_price: 到期赎回价格(含税)\nexchange: 上市交易所\nlist_date: 上市日期\nts_code: 转债代码",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      }
+    ],
+    "plan": {
+      "public_summary": "调用股票基础信息接口查询银之杰的股票代码、名称、上市日期、退市日期等基础资料，并核对上市状态。",
+      "tasks": [
+        {
+          "id": "fetch_stock_basic",
+          "task_goal": "通过股票基础信息接口查询银之杰（A股）的基础信息，返回股票代码(ts_code)、名称、上市日期(list_date)、退市日期(delist_date)、上市状态(list_status)、交易所、市场类别、所属行业等字段；若接口支持按名称或代码筛选则直接定位该股票，否则在返回结果中定位银之杰记录。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回结果中包含银之杰对应的记录，并给出 ts_code、name、list_date",
+            "明确列出 delist_date 字段值；若为空或未披露，保留空值并说明，不推断为未退市",
+            "给出 list_status 实际取值并说明其含义",
+            "若接口未返回该股票或结果为空，明确说明缺失原因，不补造数据"
+          ],
+          "tool_search_query": "A股股票列表基础信息 股票代码 名称 上市日期 退市日期 上市状态",
+          "tool_candidate_refs": [
+            "tool:mcp.tushare.stock_basic@mcp-http-v1"
+          ],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "remote_execution": "not_run",
+    "seconds": 3.643
+  }
+]

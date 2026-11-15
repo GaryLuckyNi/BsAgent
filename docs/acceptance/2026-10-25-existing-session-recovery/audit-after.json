@@ -1,0 +1,79 @@
+{
+  "old_receipt_status": "unknown",
+  "old_receipt_digest": "ab9e796a56517c0dc34347364b38985d0e5fe8d0f279947172ff75183b872732",
+  "run": {
+    "status": "interrupted",
+    "session_key": "sess_29ae0a72f6be4973aa8e096a2c9f0c49",
+    "producer_done": true
+  },
+  "receipts": [],
+  "events": [
+    {
+      "event": "custom",
+      "type": "input_required",
+      "n": 1
+    },
+    {
+      "event": "custom",
+      "type": "progress",
+      "n": 7
+    },
+    {
+      "event": "custom",
+      "type": "run_started",
+      "n": 1
+    },
+    {
+      "event": "custom",
+      "type": "run_status",
+      "n": 1
+    }
+  ],
+  "checkpoint": {
+    "recovery_items": {
+      "call_9499ac99fcedf142ad42de78347c33b0": {
+        "task_id": "identify_limit_up_event",
+        "original_call_id": "call_9499ac99fcedf142ad42de78347c33b0",
+        "selection_digest": "48b896d05e79eab1532d9e14d17a2f350ce04201d3347eff5f2884342c6c5376",
+        "task_goal": "确认汇金科技（300561）近期涨停的具体交易日、涨停价、涨幅及当日是否连板，并检索当日或前一交易日与公司相关的公告、新闻、行业政策或概念催化消息，判断涨停的直接触发因素。",
+        "completion_criteria": [
+          "给出至少一个明确的涨停日期及对应涨幅数据",
+          "列出当日或前一日可核实的公司公告或新闻事件",
+          "说明该事件与涨停时间上的对应关系"
+        ],
+        "original_tool": "mcp.tushare.limit_list_d",
+        "fallback_version": "1.0.0",
+        "fallback_binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c",
+        "source_constraint": "历史工具执行仍未核实，本次原接口未派发；确认仅允许补充公开资料，不核销历史未决记录，原接口数据仍缺失。"
+      }
+    },
+    "recovery_batches": {
+      "recovery_d054477cbb469a6fd9032657a80f1aee": {
+        "version": "permission-recovery-batch-v1",
+        "batch_id": "recovery_d054477cbb469a6fd9032657a80f1aee",
+        "run_identity": "a9330d86bf04a115753aff6002a2cb0282fb7f0f42dd588e52132100f5efb740",
+        "dispatch_batch_id": "dispatch_7a93c905d67e5e8b3cd4753ae90959e0",
+        "digest": "d054477cbb469a6fd9032657a80f1aeefed6b601285cbabaacc7af8cc532c3f9",
+        "items": [
+          {
+            "task_id": "identify_limit_up_event",
+            "original_call_id": "call_9499ac99fcedf142ad42de78347c33b0",
+            "selection_digest": "48b896d05e79eab1532d9e14d17a2f350ce04201d3347eff5f2884342c6c5376",
+            "task_goal": "确认汇金科技（300561）近期涨停的具体交易日、涨停价、涨幅及当日是否连板，并检索当日或前一交易日与公司相关的公告、新闻、行业政策或概念催化消息，判断涨停的直接触发因素。",
+            "completion_criteria": [
+              "给出至少一个明确的涨停日期及对应涨幅数据",
+              "列出当日或前一日可核实的公司公告或新闻事件",
+              "说明该事件与涨停时间上的对应关系"
+            ],
+            "original_tool": "mcp.tushare.limit_list_d",
+            "fallback_version": "1.0.0",
+            "fallback_binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c",
+            "source_constraint": "历史工具执行仍未核实，本次原接口未派发；确认仅允许补充公开资料，不核销历史未决记录，原接口数据仍缺失。"
+          }
+        ]
+      }
+    },
+    "recovery_outcomes": {},
+    "pending_user_input": "interaction_id='interaction_2b689f9b15604882b08a40e406c8b30f' input_type='selection' question='以下任务因先前工具执行尚未核实等原因未取得原数据，是否改用联网搜索补充公开资料？' options=(UserInputOption(value='web_search', label='对以上任务使用联网搜索', description='只对清单中的任务替代取证；公开来源不等价于原接口数据。'), UserInputOption(value='use_existing', label='仅使用已有资料', description='不搜索，保留原接口数据缺口。')) source=UserInputSource(node='task_scheduler', kind='provider_permission_recovery_batch', task_id=None, call_id=None) recovery_batch=RecoveryBatchView(version='permission-recovery-batch-v1', batch_id='recovery_d054477cbb469a6fd9032657a80f1aee', digest='d054477cbb469a6fd9032657a80f1aeefed6b601285cbabaacc7af8cc532c3f9', items=(RecoveryItemView(item_id='call_9499ac99fcedf142ad42de78347c33b0', task_goal='确认汇金科技（300561）近期涨停的具体交易日、涨停价、涨幅及当日是否连板，并检索当日或前一交易日与公司相关的公告、新闻、行业政策或概念催化消息，判断涨停的直接触发因素。', original_tool='mcp.tushare.limit_list_d', reason='历史工具执行尚未核实，本次原接口未派发。', source_notice='联网搜索为替代来源，未经原接口验证；原接口数据仍缺失。历史工具执行仍未核实，本次原接口未派发；确认仅允许补充公开资料，不核销历史未决记录，原接口数据仍缺失。'),))"
+  }
+}

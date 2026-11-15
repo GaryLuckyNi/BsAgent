@@ -1,0 +1,48 @@
+..F.....FFFFFF                                                           [100%]
+=================================== FAILURES ===================================
+________ test_rate_limit_storage_failure_is_fail_closed_when_configured ________
+backend/app/tests/unit/test_rate_limit.py:89: in test_rate_limit_storage_failure_is_fail_closed_when_configured
+    assert exc_info.value.__cause__ is None and exc_info.value.__context__ is None
+E   AssertionError: assert (ConnectionError('redis://user:secret@redis.internal:6379') is None)
+E    +  where ConnectionError('redis://user:secret@redis.internal:6379') = RateLimitUnavailable('请求限流服务暂时不可用。').__cause__
+E    +    where RateLimitUnavailable('请求限流服务暂时不可用。') = <ExceptionInfo RateLimitUnavailable('请求限流服务暂时不可用。') tblen=2>.value
+___ test_production_factory_cannot_enable_fail_open_through_unvalidated_copy ___
+backend/app/tests/unit/test_rate_limit.py:180: in test_production_factory_cannot_enable_fail_open_through_unvalidated_copy
+    with pytest.raises(RateLimitUnavailable):
+E   Failed: DID NOT RAISE RateLimitUnavailable
+_____ test_required_service_missing_does_not_execute_endpoint[production] ______
+backend/app/tests/unit/test_rate_limit.py:197: in test_required_service_missing_does_not_execute_endpoint
+    assert response.status_code == 503 and not calls
+E   assert (200 == 503)
+E    +  where 200 = <Response [200 OK]>.status_code
+__ test_required_service_missing_does_not_execute_endpoint[configured_local] ___
+backend/app/tests/unit/test_rate_limit.py:197: in test_required_service_missing_does_not_execute_endpoint
+    assert response.status_code == 503 and not calls
+E   assert (200 == 503)
+E    +  where 200 = <Response [200 OK]>.status_code
+_____ test_invalid_limiter_results_fail_closed_with_safe_error[yes-stats0] _____
+backend/app/tests/unit/test_rate_limit.py:209: in test_invalid_limiter_results_fail_closed_with_safe_error
+    with pytest.raises(RateLimitUnavailable) as error:
+E   Failed: DID NOT RAISE RateLimitUnavailable
+____ test_invalid_limiter_results_fail_closed_with_safe_error[False-stats1] ____
+backend/app/tests/unit/test_rate_limit.py:210: in test_invalid_limiter_results_fail_closed_with_safe_error
+    service.consume(principal=_principal(), policy=RateLimitPolicy(name="test", requests_per_minute=1))
+backend/app/operations/rate_limit.py:72: in consume
+    retry_after_seconds=max(1, math.ceil(reset_at - self._now())),
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ValueError: cannot convert float NaN to integer
+____ test_invalid_limiter_results_fail_closed_with_safe_error[False-stats2] ____
+backend/app/tests/unit/test_rate_limit.py:210: in test_invalid_limiter_results_fail_closed_with_safe_error
+    service.consume(principal=_principal(), policy=RateLimitPolicy(name="test", requests_per_minute=1))
+backend/app/operations/rate_limit.py:71: in consume
+    raise RateLimitExceeded(
+E   app.operations.rate_limit.RateLimitExceeded: 请求频率超过限制。
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_rate_limit.py::test_rate_limit_storage_failure_is_fail_closed_when_configured
+FAILED backend/app/tests/unit/test_rate_limit.py::test_production_factory_cannot_enable_fail_open_through_unvalidated_copy
+FAILED backend/app/tests/unit/test_rate_limit.py::test_required_service_missing_does_not_execute_endpoint[production]
+FAILED backend/app/tests/unit/test_rate_limit.py::test_required_service_missing_does_not_execute_endpoint[configured_local]
+FAILED backend/app/tests/unit/test_rate_limit.py::test_invalid_limiter_results_fail_closed_with_safe_error[yes-stats0]
+FAILED backend/app/tests/unit/test_rate_limit.py::test_invalid_limiter_results_fail_closed_with_safe_error[False-stats1]
+FAILED backend/app/tests/unit/test_rate_limit.py::test_invalid_limiter_results_fail_closed_with_safe_error[False-stats2]
+7 failed, 7 passed in 0.94s

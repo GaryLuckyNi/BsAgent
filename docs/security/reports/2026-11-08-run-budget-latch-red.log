@@ -1,0 +1,19 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_exhaustion_is_latched_across_resources_and_reload ____________
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_30390070adf9468192a23e104f8f2a63', assistant_message_id='msg_4b3bf579cb294a5b9521f897d2b05499', replayed=False))
+
+    def test_exhaustion_is_latched_across_resources_and_reload(env):
+        binding = init(env, BudgetPolicy(model_calls=1, tool_calls=5))
+        charge(binding, models=1)
+        charge(binding)  # 最后一个合法请求仍可完成；下一次越额才封闭任务。
+        with pytest.raises(BudgetExhausted):
+            charge(binding, models=1)
+>       with pytest.raises(BudgetExhausted):
+E       Failed: DID NOT RAISE BudgetExhausted
+
+backend/app/tests/unit/test_run_budget.py:117: Failed
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_run_budget.py::test_exhaustion_is_latched_across_resources_and_reload
+1 failed, 19 deselected in 0.97s

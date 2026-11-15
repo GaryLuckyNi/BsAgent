@@ -1,0 +1,17 @@
+{
+  "target_source": "code_default; .env.local未覆盖RAG地址",
+  "target": "http://127.0.0.1:8001",
+  "method": "仅GET健康与OpenAPI，不调用检索",
+  "results": [
+    {
+      "path": "/api/rag/health",
+      "error_type": "ConnectError",
+      "error": "[Errno 61] Connection refused"
+    },
+    {
+      "path": "/openapi.json",
+      "error_type": "ConnectError",
+      "error": "[Errno 61] Connection refused"
+    }
+  ]
+}

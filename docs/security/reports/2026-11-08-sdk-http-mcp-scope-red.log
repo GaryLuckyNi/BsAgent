@@ -1,0 +1,136 @@
+..FFFF                                                                   [100%]
+=================================== FAILURES ===================================
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/list-json] _
+backend/app/tests/unit/test_sdk_http_budgets.py:142: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:133: in run
+    assert caught.value.code == "mcp_response_limit_exceeded"
+E   AssertionError: assert 'mcp_discovery_failed' == 'mcp_response_limit_exceeded'
+E     
+E     - mcp_response_limit_exceeded
+E     + mcp_discovery_failed
+------------------------------ Captured log call -------------------------------
+ERROR    mcp.client.streamable_http:streamable_http.py:394 Error parsing JSON response
+Traceback (most recent call last):
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/mcp/client/streamable_http.py", line 384, in _handle_json_response
+    content = await response.aread()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/httpx/_models.py", line 979, in aread
+    self._content = b"".join([part async for part in self.aiter_bytes()])
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/httpx/_models.py", line 979, in <listcomp>
+    self._content = b"".join([part async for part in self.aiter_bytes()])
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/httpx/_models.py", line 997, in aiter_bytes
+    async for raw_bytes in self.aiter_raw():
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/httpx/_models.py", line 1055, in aiter_raw
+    async for raw_stream_bytes in self.stream:
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/security/sdk_http.py", line 63, in __aiter__
+    data = await asyncio.wait_for(anext(iterator), timeout=self.reader.deadline - time.monotonic())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/.pyenv/versions/3.11.7/lib/python3.11/asyncio/tasks.py", line 489, in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/security/http_response.py", line 173, in aiter_bytes
+    yield self.feed(raw)
+          ^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/security/http_response.py", line 104, in feed
+    raise HttpResponseBudgetError("http_response_wire_limit")
+app.security.http_response.HttpResponseBudgetError: 上游响应超出读取限制或格式不受支持。
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/list-sse] _
+backend/app/tests/unit/test_sdk_http_budgets.py:142: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:133: in run
+    assert caught.value.code == "mcp_response_limit_exceeded"
+E   AssertionError: assert 'mcp_discovery_failed' == 'mcp_response_limit_exceeded'
+E     
+E     - mcp_response_limit_exceeded
+E     + mcp_discovery_failed
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/call-json] _
+backend/app/tests/unit/test_sdk_http_budgets.py:142: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:138: in run
+    assert result.error.code == "mcp_response_limit_exceeded"
+E   AssertionError: assert 'mcp_tool_timeout' == 'mcp_response_limit_exceeded'
+E     
+E     - mcp_response_limit_exceeded
+E     + mcp_tool_timeout
+------------------------------ Captured log call -------------------------------
+ERROR    mcp.client.streamable_http:streamable_http.py:394 Error parsing JSON response
+Traceback (most recent call last):
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/mcp/client/streamable_http.py", line 384, in _handle_json_response
+    content = await response.aread()
+              ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/httpx/_models.py", line 979, in aread
+    self._content = b"".join([part async for part in self.aiter_bytes()])
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/httpx/_models.py", line 979, in <listcomp>
+    self._content = b"".join([part async for part in self.aiter_bytes()])
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/httpx/_models.py", line 997, in aiter_bytes
+    async for raw_bytes in self.aiter_raw():
+  File "/Users/myfolder/前端学习项目/BsAgent/.venv/lib/python3.11/site-packages/httpx/_models.py", line 1055, in aiter_raw
+    async for raw_stream_bytes in self.stream:
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/security/sdk_http.py", line 63, in __aiter__
+    data = await asyncio.wait_for(anext(iterator), timeout=self.reader.deadline - time.monotonic())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/myfolder/.pyenv/versions/3.11.7/lib/python3.11/asyncio/tasks.py", line 489, in wait_for
+    return fut.result()
+           ^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/security/http_response.py", line 173, in aiter_bytes
+    yield self.feed(raw)
+          ^^^^^^^^^^^^^^
+  File "/Users/myfolder/前端学习项目/BsAgent/backend/app/security/http_response.py", line 104, in feed
+    raise HttpResponseBudgetError("http_response_wire_limit")
+app.security.http_response.HttpResponseBudgetError: 上游响应超出读取限制或格式不受支持。
+_ test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/call-sse] _
+backend/app/tests/unit/test_sdk_http_budgets.py:142: in test_real_mcp_protocol_discovery_and_calls_use_budget_factory
+    asyncio.run(run())
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:190: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.pyenv/versions/3.11.7/lib/python3.11/asyncio/base_events.py:653: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+backend/app/tests/unit/test_sdk_http_budgets.py:138: in run
+    assert result.error.code == "mcp_response_limit_exceeded"
+E   AssertionError: assert 'mcp_tool_timeout' == 'mcp_response_limit_exceeded'
+E     
+E     - mcp_response_limit_exceeded
+E     + mcp_tool_timeout
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/list-json]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/list-sse]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/call-json]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_real_mcp_protocol_discovery_and_calls_use_budget_factory[tools/call-sse]
+4 failed, 2 passed, 7 deselected in 11.32s

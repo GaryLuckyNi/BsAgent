@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+
+    {
+      "name": "FastAPI：断点调试 API",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--host", "0.0.0.0",
+        "--port", "8000"
+      ],
+      "cwd": "${workspaceFolder}/backend",
+      "envFile": "${workspaceFolder}/.env.local",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/backend",
+        "PYTHONUNBUFFERED": "1",
+        "BS_AGENT_DATABASE_URL": "postgresql+psycopg://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent",
+        "BS_AGENT_GRAPH_CHECKPOINT_POSTGRES_URL": "postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent",
+        "BS_AGENT_MEMORY_STORE_POSTGRES_URL": "postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent",
+        "BS_AGENT_ADMIN_BASE_URL": "http://127.0.0.1:8002",
+        "BS_AGENT_SKILL_REGISTRY_BASE_URL": "http://127.0.0.1:8002",
+        "BS_AGENT_SKILL_DEFINITION_CACHE_TTL_SECONDS": "5"
+      },
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "Uvicorn running on http://[^:]+:([0-9]+)",
+        "uriFormat": "http://127.0.0.1:%s/docs"
+      }
+    }
+  ]
+}

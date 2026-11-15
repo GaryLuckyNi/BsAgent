@@ -1,0 +1,88 @@
+{
+  "trace_id": "295239a4fb7a8f86645a0dc02f244490",
+  "started_at": "2026-10-28T21:37:03.646+08:00",
+  "run_seconds": 98.984,
+  "stages": [
+    {
+      "id": "489a8d3489c3c051",
+      "name": "intent_router",
+      "startTime": "2026-10-28T13:37:03.853Z",
+      "endTime": "2026-10-28T13:37:06.896Z",
+      "latency": 3.043
+    },
+    {
+      "id": "6570774a22997f6f",
+      "name": "planner_agent",
+      "startTime": "2026-10-28T13:37:06.915Z",
+      "endTime": "2026-10-28T13:37:14.623Z",
+      "latency": 7.708
+    },
+    {
+      "id": "846c11ac6f7137d3",
+      "name": "tool_agent",
+      "startTime": "2026-10-28T13:37:14.735Z",
+      "endTime": "2026-10-28T13:37:16.098Z",
+      "latency": 1.363
+    },
+    {
+      "id": "6b1ed3d9188f4ade",
+      "name": "deepseek.search.api",
+      "startTime": "2026-10-28T13:37:15.627Z",
+      "endTime": "2026-10-28T13:37:16.060Z",
+      "latency": 0.433
+    },
+    {
+      "id": "af72ed38efb52b7a",
+      "name": "analysis_agent",
+      "startTime": "2026-10-28T13:37:16.149Z",
+      "endTime": "2026-10-28T13:38:25.287Z",
+      "latency": 69.138
+    },
+    {
+      "id": "460bc4cf08d1a56a",
+      "name": "analysis_agent",
+      "startTime": "2026-10-28T13:37:16.154Z",
+      "endTime": "2026-10-28T13:38:27.945Z",
+      "latency": 71.791
+    },
+    {
+      "id": "90e6f354eb3bbb07",
+      "name": "synthesizer",
+      "startTime": "2026-10-28T13:38:28.045Z",
+      "endTime": "2026-10-28T13:38:42.067Z",
+      "latency": 14.022
+    }
+  ],
+  "analysis_calls": [
+    {
+      "id": "460b70c55ef07fe2",
+      "parentObservationId": "af72ed38efb52b7a",
+      "latency": 69.113,
+      "usageDetails": {
+        "input": 4605,
+        "output": 2237,
+        "total": 16546,
+        "input_cache_read": 0,
+        "output_reasoning": 9704
+      }
+    },
+    {
+      "id": "cf31f037a9da2231",
+      "parentObservationId": "460bc4cf08d1a56a",
+      "latency": 71.762,
+      "usageDetails": {
+        "input": 4616,
+        "output": 1822,
+        "total": 16254,
+        "input_cache_read": 0,
+        "output_reasoning": 9816
+      }
+    }
+  ],
+  "notes": [
+    "两个 analysis 节点并行，不应将其耗时相加作为墙钟时间",
+    "每个 analysis 节点各一次模型调用，未见空输出降级重试",
+    "工具完成后直接派发两个就绪 analysis；planner_decision 为空",
+    "两个 analysis 均为终端分析，没有后续工具任务消费者"
+  ]
+}

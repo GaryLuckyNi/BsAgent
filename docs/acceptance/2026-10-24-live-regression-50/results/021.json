@@ -1,0 +1,955 @@
+{
+  "case_id": "021",
+  "category": "新闻公告",
+  "question": "检索贵州茅台在2025年9月1日至9月7日发布的公告，列出标题、发布日期与原文链接，没有则说明。",
+  "session_id": "live50-20261024-a-021",
+  "request_id": "live50-20261024-a-021",
+  "started_at": "2026-10-24T14:41:03.322967+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "message_id": "msg_97c1e376c3d149679633803da57c7ebc",
+      "request_id": "live50-20261024-a-021"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "completed",
+      "message": "检索贵州茅台在2025年9月1日至9月7日期间发布的公告，核实标题、发布日期与原文链接；若无公告则明确说明。"
+    },
+    {
+      "id": "tool_agent:moutai_announcements_sep2025",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "started",
+      "message": "正在获取研究证据：检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。",
+      "task_id": "moutai_announcements_sep2025",
+      "group_id": "evidence:1",
+      "task_label": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:moutai_announcements_sep2025",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "failed",
+      "message": "获取研究证据未完成：检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。",
+      "task_id": "moutai_announcements_sep2025",
+      "group_id": "evidence:1",
+      "task_label": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "completed",
+      "message": "通过公开信息渠道检索贵州茅台（600519.SH）在2025年9月1日至9月7日期间发布的公告，核实标题、发布日期与原文链接；若无公告则明确说明并给出核实依据。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "tool_agent:r1_moutai_ann_sep2025_public",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "started",
+      "message": "正在获取研究证据：检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。",
+      "task_id": "r1_moutai_ann_sep2025_public",
+      "group_id": "evidence:2",
+      "task_label": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:r1_moutai_ann_sep2025_public",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "completed",
+      "message": "已取得研究证据：检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。",
+      "task_id": "r1_moutai_ann_sep2025_public",
+      "group_id": "evidence:2",
+      "task_label": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:2",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:2",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "completed",
+      "message": "通过公开信息渠道检索贵州茅台（600519.SH）在2025年9月1日至9月7日期间发布的公告，核实标题、发布日期与原文链接；若无公告则明确说明并给出核实依据。"
+    },
+    {
+      "type": "progress",
+      "stage": "composing_answer",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "message": "正在生成最终投研报告"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "## 检索结论\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "在2025年9月1日至9月7日区间内，检索到贵州"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "茅台（600519.SH）**两条公告线索**，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "均与控股股东茅台集团的增持事项有关。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "但需先说明：现有材料全部来自媒体转载或报道，**"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "未取得上交所或巨潮资讯网的公告原文页面**，因此"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "以下标题、日期和链接的准确性属于“据媒体报道”层面"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "，而非经交易所原文核实的结论。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "## 区间内检索到的公告\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "### 1. 控股股东增持股份进展公告（临202"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "5-034）\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **发布日期**：存在两种表述——上海证券报"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "转载版本的落款日期为2025年9月2日；另有报道"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "称公司于9月1日晚间发布。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "正式日期需以上交所原文为准。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **内容要点**：2025年9月1日，控股股东"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "茅台集团通过集中竞价方式增持67,821股，占总"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "股本0.0054%，增持金额约1亿元。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **链接**：\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "  - 上海证券报转载：https://paper"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": ".cnstock.com/html/2025-09"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "/02/content_2115361.htm\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "  - 另一转载：https://www.cnfin"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": ".com/announ/detail/index"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": ".html?announ=lc&code=600"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "519&dannoun=lcdetail&id="
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "810063606308\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "需要区分主体：增持方是控股股东茅台集团，不是上市公司"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "本身；该公告是上市公司就控股股东增持行为所做的信息披露"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "### 2. 控股股东取得增持股份贷款承诺函相关"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "公告\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **发布日期**：据多家媒体报道为2025年"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "9月5日（“9月5日晚间公告”）。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **内容要点**：茅台集团获得农业银行贵州省"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "分行贷款承诺函，额度不高于27亿元、期限3年，用于"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "股票增持。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **链接**：\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "  - 证券时报：https://stcn.com"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "/article/detail/3324962.html"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "  - 金融界：https://m.jrj.com"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": ".cn/madapter/finance/202"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "5/09/05191652957144.shtml"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "该条的**正式公告标题、公告编号及原文链接尚未核实"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "**，现有标题为媒体表述。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "## 区间覆盖情况与数据缺口\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **有据可查的日期**：9月1日（或2日，见"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "上）与9月5日。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **未检索到公告证据的日期**：9月2日、3"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "日、4日、6日、7日。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "由于未取得交易所公告列表页逐日核对，**不能据此"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "断言这些日期绝对无公告**，只能说明现有材料中未见"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "相应记录。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "- **因此**，本区间“全部公告”是否已列全，"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "无法确认；上述两条是当前可识别到的公告线索，而非"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "经交易所原文验证的完整清单。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "## 建议的核实方式\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "如需将上述信息用于正式用途，建议直接在上交所“上市公司"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "公告”栏目或巨潮资讯网按600519、日期区间202"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "5-09-01至2025-09-07检索，以确认"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "：①临2025-034的正式发布日期；②贷款承诺"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "函公告的正式标题与编号；③区间内是否还有其他公告"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "type": "ai",
+        "content": "（如例行披露、股东大会相关文件等）。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "response": {
+        "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+        "content": "## 检索结论\n\n在2025年9月1日至9月7日区间内，检索到贵州茅台（600519.SH）**两条公告线索**，均与控股股东茅台集团的增持事项有关。但需先说明：现有材料全部来自媒体转载或报道，**未取得上交所或巨潮资讯网的公告原文页面**，因此以下标题、日期和链接的准确性属于“据媒体报道”层面，而非经交易所原文核实的结论。\n\n## 区间内检索到的公告\n\n### 1. 控股股东增持股份进展公告（临2025-034）\n\n- **发布日期**：存在两种表述——上海证券报转载版本的落款日期为2025年9月2日；另有报道称公司于9月1日晚间发布。正式日期需以上交所原文为准。\n- **内容要点**：2025年9月1日，控股股东茅台集团通过集中竞价方式增持67,821股，占总股本0.0054%，增持金额约1亿元。\n- **链接**：\n  - 上海证券报转载：https://paper.cnstock.com/html/2025-09/02/content_2115361.htm\n  - 另一转载：https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308\n\n需要区分主体：增持方是控股股东茅台集团，不是上市公司本身；该公告是上市公司就控股股东增持行为所做的信息披露。\n\n### 2. 控股股东取得增持股份贷款承诺函相关公告\n\n- **发布日期**：据多家媒体报道为2025年9月5日（“9月5日晚间公告”）。\n- **内容要点**：茅台集团获得农业银行贵州省分行贷款承诺函，额度不高于27亿元、期限3年，用于股票增持。\n- **链接**：\n  - 证券时报：https://stcn.com/article/detail/3324962.html\n  - 金融界：https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml\n\n该条的**正式公告标题、公告编号及原文链接尚未核实**，现有标题为媒体表述。\n\n## 区间覆盖情况与数据缺口\n\n- **有据可查的日期**：9月1日（或2日，见上）与9月5日。\n- **未检索到公告证据的日期**：9月2日、3日、4日、6日、7日。由于未取得交易所公告列表页逐日核对，**不能据此断言这些日期绝对无公告**，只能说明现有材料中未见相应记录。\n- **因此**，本区间“全部公告”是否已列全，无法确认；上述两条是当前可识别到的公告线索，而非经交易所原文验证的完整清单。\n\n## 建议的核实方式\n\n如需将上述信息用于正式用途，建议直接在上交所“上市公司公告”栏目或巨潮资讯网按600519、日期区间2025-09-01至2025-09-07检索，以确认：①临2025-034的正式发布日期；②贷款承诺函公告的正式标题与编号；③区间内是否还有其他公告（如例行披露、股东大会相关文件等）。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_560f105119a4416db180276f7f7a7266",
+        "message_id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "request_id": "live50-20261024-a-021",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_2d709019c749494c8df127cf6c8592ca",
+        "request_id": "live50-20261024-a-021",
+        "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+        "role": "user",
+        "status": "completed",
+        "content": "检索贵州茅台在2025年9月1日至9月7日发布的公告，列出标题、发布日期与原文链接，没有则说明。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:41:03.443005Z",
+        "completed_at": "2026-10-24T14:41:03.437752Z"
+      },
+      {
+        "message_id": "msg_97c1e376c3d149679633803da57c7ebc",
+        "request_id": "live50-20261024-a-021",
+        "run_id": "run_b9f24b8e22bbfc88476c6577b96f84aa22801277aeba16f11fdf265e9c87",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 检索结论\n\n在2025年9月1日至9月7日区间内，检索到贵州茅台（600519.SH）**两条公告线索**，均与控股股东茅台集团的增持事项有关。但需先说明：现有材料全部来自媒体转载或报道，**未取得上交所或巨潮资讯网的公告原文页面**，因此以下标题、日期和链接的准确性属于“据媒体报道”层面，而非经交易所原文核实的结论。\n\n## 区间内检索到的公告\n\n### 1. 控股股东增持股份进展公告（临2025-034）\n\n- **发布日期**：存在两种表述——上海证券报转载版本的落款日期为2025年9月2日；另有报道称公司于9月1日晚间发布。正式日期需以上交所原文为准。\n- **内容要点**：2025年9月1日，控股股东茅台集团通过集中竞价方式增持67,821股，占总股本0.0054%，增持金额约1亿元。\n- **链接**：\n  - 上海证券报转载：https://paper.cnstock.com/html/2025-09/02/content_2115361.htm\n  - 另一转载：https://www.cnfin.com/announ/detail/index.html?announ=lc&code=600519&dannoun=lcdetail&id=810063606308\n\n需要区分主体：增持方是控股股东茅台集团，不是上市公司本身；该公告是上市公司就控股股东增持行为所做的信息披露。\n\n### 2. 控股股东取得增持股份贷款承诺函相关公告\n\n- **发布日期**：据多家媒体报道为2025年9月5日（“9月5日晚间公告”）。\n- **内容要点**：茅台集团获得农业银行贵州省分行贷款承诺函，额度不高于27亿元、期限3年，用于股票增持。\n- **链接**：\n  - 证券时报：https://stcn.com/article/detail/3324962.html\n  - 金融界：https://m.jrj.com.cn/madapter/finance/2025/09/05191652957144.shtml\n\n该条的**正式公告标题、公告编号及原文链接尚未核实**，现有标题为媒体表述。\n\n## 区间覆盖情况与数据缺口\n\n- **有据可查的日期**：9月1日（或2日，见上）与9月5日。\n- **未检索到公告证据的日期**：9月2日、3日、4日、6日、7日。由于未取得交易所公告列表页逐日核对，**不能据此断言这些日期绝对无公告**，只能说明现有材料中未见相应记录。\n- **因此**，本区间“全部公告”是否已列全，无法确认；上述两条是当前可识别到的公告线索，而非经交易所原文验证的完整清单。\n\n## 建议的核实方式\n\n如需将上述信息用于正式用途，建议直接在上交所“上市公司公告”栏目或巨潮资讯网按600519、日期区间2025-09-01至2025-09-07检索，以确认：①临2025-034的正式发布日期；②贷款承诺函公告的正式标题与编号；③区间内是否还有其他公告（如例行披露、股东大会相关文件等）。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "检索贵州茅台在2025年9月1日至9月7日期间发布的公告，核实标题、发布日期与原文链接；若无公告则明确说明。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:moutai_announcements_sep2025",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "failed",
+              "message": "获取研究证据未完成：检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。",
+              "task_id": "moutai_announcements_sep2025",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并给出核实依据。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "通过公开信息渠道检索贵州茅台（600519.SH）在2025年9月1日至9月7日期间发布的公告，核实标题、发布日期与原文链接；若无公告则明确说明并给出核实依据。",
+              "sequence": 2
+            },
+            {
+              "id": "tool_agent:r1_moutai_ann_sep2025_public",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。",
+              "task_id": "r1_moutai_ann_sep2025_public",
+              "group_id": "evidence:2",
+              "sequence": 3,
+              "task_label": "检索并核实贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间发布的全部公告，逐条列出公告标题、发布日期和原文链接；若该区间无公告，需明确说明无公告并指出核实来源（如上交所公告页面、巨潮资讯网等）。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:2",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "通过公开信息渠道检索贵州茅台（600519.SH）在2025年9月1日至9月7日期间发布的公告，核实标题、发布日期与原文链接；若无公告则明确说明并给出核实依据。",
+              "sequence": 4
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:41:03.443011Z",
+        "completed_at": "2026-10-24T14:41:26.755891Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:41:26.925020+00:00",
+  "elapsed_seconds": 23.598
+}

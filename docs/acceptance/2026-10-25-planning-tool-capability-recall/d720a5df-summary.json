@@ -1,0 +1,47 @@
+[
+  {
+    "case": "real_skill",
+    "trace_id": "20cd4aab5239ad0eab2d3876d1ebb3e6",
+    "route": "plan",
+    "query": "分析银之杰管理层薪酬和持股，按已配置的业务流程展示人员、报告期、薪酬和持股数量。",
+    "candidates": [
+      {
+        "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+        "tool_name": "mcp.tushare.stk_rewards",
+        "tool_version": "mcp-http-v1",
+        "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+        "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+        "truncated": false,
+        "sources": [
+          "bm25"
+        ]
+      }
+    ],
+    "plan": {
+      "public_summary": "按已配置的银之杰管理层薪酬持股流程，先解析公司代码，再取管理层薪酬与持股数据，按人员、报告期、薪酬、持股数量整理展示，空值标注未披露。",
+      "tasks": [
+        {
+          "id": "yzj_rewards_flow",
+          "task_goal": "按已配置的 yzj_reasearch 业务流程分析银之杰管理层薪酬和持股：先用 stock_basic 查询银之杰并保留 ts_code，再用该 ts_code 调用 stk_rewards，取 end_date、name、title、reward、hold_vol，优先最新年度报告期，同一人员同一报告期去重，空值显示“未披露”，最终以表格展示姓名、职务、报告期、薪酬、持股数量。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "已通过 stock_basic 获得银之杰的 ts_code 并用于 stk_rewards 查询",
+            "返回结果包含 end_date、name、title、reward、hold_vol 字段",
+            "优先采用最新年度报告期数据，并说明所选报告期",
+            "同一人员同一报告期仅保留一条记录",
+            "reward 或 hold_vol 为空时标注“未披露”，未自行补全",
+            "以表格形式输出姓名、职务、报告期、薪酬、持股数量，并列出数据来源与缺失项"
+          ],
+          "tool_search_query": null,
+          "tool_candidate_refs": [],
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": "yzj_reasearch",
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "remote_execution": "not_run",
+    "seconds": 3.355
+  }
+]

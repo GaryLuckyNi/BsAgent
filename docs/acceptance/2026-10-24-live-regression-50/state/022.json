@@ -1,0 +1,389 @@
+{
+  "case_id": "022",
+  "run": {
+    "run_id": "run_de77ee98ba4a626fd5460f6b4aa5463c88378c0efc766c3df0f422f2b435",
+    "session_id": "live50-20261024-a-022",
+    "session_key": "sess_9b29e696d78a4f1e849a156af2d2bd09",
+    "trace_id": "trace_9be517b1b7ed482c953ce2e6049ed8f8",
+    "status": "completed",
+    "created_at": "2026-10-24 14:41:08.700054+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 23,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:41:08.730944+00:00",
+    "ended_at": "2026-10-24 14:41:22.047603+00:00",
+    "events": 23
+  },
+  "receipts": [
+    {
+      "receipt_id": "7734a321ec3f47eab63947a68c89c5e0",
+      "tool_name": "mcp.tushare.anns_d",
+      "call_id": "call_2793d6ddd2d4e8b16247b3e7b292305f",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_9be517b1b7ed482c953ce2e6049ed8f8",
+        "tool_name": "mcp.tushare.anns_d",
+        "latency_ms": 538,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.anns_d",
+          "latency_ms": 512,
+          "tool_call_id": "tool_480189e043464a38a999f33b7f72b6be",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_660b237b35eb448c865b54feccdbe718",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.anns_d",
+            "request_id": "live50-20261024-a-022",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "52f8b4833d5b8a579e02e3e1205d604731d9d27d4b7bcf0bb2a9c09288a9235a"
+        }
+      },
+      "created_at": "2026-10-24 14:41:14.003400+00:00",
+      "completed_at": "2026-10-24 14:41:14.530599+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_2793d6ddd2d4e8b16247b3e7b292305f": {
+        "request_id": "live50-20261024-a-022",
+        "task": {
+          "id": "catl_news_sep1_7",
+          "task_goal": "检索宁德时代（300750.SZ）在2025年9月1日至9月7日期间发布的公开重要新闻与公告，覆盖公司公告、监管披露、主流财经媒体报道，逐条记录标题、来源、新闻发布时间、事件发生时间及核心内容，并标注新闻时间与事件时间不一致的条目。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出该时间窗口内至少若干条可核实的宁德时代重要新闻或公告，每条含来源与链接或可引用出处",
+            "每条明确标注新闻发布时间与事件发生时间，二者不同的单独说明",
+            "若某条新闻事件时间早于或晚于9月1日至7日，需指出并说明为何仍纳入",
+            "说明检索覆盖范围与未覆盖渠道的局限"
+          ],
+          "tool_search_query": "宁德时代 2025年9月 新闻 公告 发布时间 事件时间 财经资讯检索",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_2793d6ddd2d4e8b16247b3e7b292305f",
+        "request_fingerprint": "52f8b4833d5b8a579e02e3e1205d604731d9d27d4b7bcf0bb2a9c09288a9235a",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_1217a3b1d686ec393b06d371fa2703e6",
+        "as_of": "2026-10-24T22:41:09+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.major_news",
+            "version": "mcp-http-v1",
+            "binding": "20cbef1e2518f4efce0da8a45e989b9c61b67e945397ba6404f40ae66e313205"
+          },
+          {
+            "name": "mcp.tushare.anns_d",
+            "version": "mcp-http-v1",
+            "binding": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9"
+          },
+          {
+            "name": "mcp.tushare.irm_qa_sz",
+            "version": "mcp-http-v1",
+            "binding": "77247d61fe3dcf722e44159d6981099bbb91f5dfc962c01a9934596f19da0313"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_b14d2fd9976f9bd4f9f644df266e6f8f": {
+        "request_id": "live50-20261024-a-022",
+        "task": {
+          "id": "r1_catl_news_sep1_7_web",
+          "task_goal": "通过公开网络信息检索宁德时代（300750.SZ）在2025年9月1日至9月7日期间的公开重要新闻与公告，覆盖公司公告/监管披露、主流财经媒体报道，逐条记录标题、来源、新闻发布时间、事件发生时间及核心内容，并标注新闻时间与事件时间不一致的条目。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出该时间窗口内至少若干条可核实的宁德时代重要新闻或公告，每条含来源与可引用出处",
+            "每条明确标注新闻发布时间与事件发生时间，二者不同的单独说明",
+            "若某条新闻事件时间早于或晚于9月1日至7日，需指出并说明为何仍纳入",
+            "说明检索覆盖范围与未覆盖渠道的局限"
+          ],
+          "tool_search_query": "宁德时代 2025年9月1日 至 9月7日 重要新闻 公告 发布时间 事件时间",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_b14d2fd9976f9bd4f9f644df266e6f8f",
+        "request_fingerprint": "7b3c37d7eb8e8bd273c6c2a260d750694150659c1cf4ab2daee1f42741cbf7a5",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_d994c91646bb9b0429a81078f6046f37",
+        "as_of": "2026-10-24T22:41:09+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.major_news",
+            "version": "mcp-http-v1",
+            "binding": "20cbef1e2518f4efce0da8a45e989b9c61b67e945397ba6404f40ae66e313205"
+          },
+          {
+            "name": "mcp.tushare.anns_d",
+            "version": "mcp-http-v1",
+            "binding": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9"
+          },
+          {
+            "name": "mcp.tushare.stk_holdertrade",
+            "version": "mcp-http-v1",
+            "binding": "9ae9774a8f382b989b8ebda6ce4452ce4f01e9e35d125477c7bcef65b361e0c5"
+          },
+          {
+            "name": "mcp.tushare.irm_qa_sz",
+            "version": "mcp-http-v1",
+            "binding": "77247d61fe3dcf722e44159d6981099bbb91f5dfc962c01a9934596f19da0313"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_1217a3b1d686ec393b06d371fa2703e6": {
+        "dispatch_batch_id": "dispatch_1217a3b1d686ec393b06d371fa2703e6",
+        "run_identity": "b1309fa4e335fa683934c37994cbc1acb6e396fdb9204e25481f5101f55b4ce8",
+        "plan_digest": "cad1825de5704605d6b19b77de335d902bdb06977ce3e6cc69536d5a3c0be38d",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "catl_news_sep1_7"
+        ]
+      },
+      "dispatch_d994c91646bb9b0429a81078f6046f37": {
+        "dispatch_batch_id": "dispatch_d994c91646bb9b0429a81078f6046f37",
+        "run_identity": "b1309fa4e335fa683934c37994cbc1acb6e396fdb9204e25481f5101f55b4ce8",
+        "plan_digest": "5bc29cf3571d3870f46a5c7b22e7660c0c1565a122f616e88d8492525730320b",
+        "observations_digest": "fbd2a20e77ff935222c79d9bc2434c305688fe3d55e815a813a584bf5bf00953",
+        "members": [
+          "r1_catl_news_sep1_7_web"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {
+      "call_b14d2fd9976f9bd4f9f644df266e6f8f": {
+        "task_id": "r1_catl_news_sep1_7_web",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_d994c91646bb9b0429a81078f6046f37"
+      }
+    },
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "检索宁德时代2025年9月1日至9月7日的公开重要新闻，并区分新闻时间与事件时间",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "唯一取证任务因工具执行失败且无成功结果，剩余修订次数为0，无法再补充该窗口新闻证据；应如实说明未取得可核实材料。",
+      "unresolved_questions": [
+        "宁德时代2025年9月1日至9月7日期间的重要新闻与公告未能检索到可核实条目，新闻发布时间与事件发生时间均无法确认。",
+        "MCP 公告与新闻工具执行失败，未覆盖公司公告、监管披露及主流财经媒体渠道。"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "检索宁德时代2025年9月1日至7日公开重要新闻，逐条标注新闻发布时间与事件发生时间，并区分二者差异。",
+          "tasks": [
+            {
+              "id": "catl_news_sep1_7",
+              "task_goal": "检索宁德时代（300750.SZ）在2025年9月1日至9月7日期间发布的公开重要新闻与公告，覆盖公司公告、监管披露、主流财经媒体报道，逐条记录标题、来源、新闻发布时间、事件发生时间及核心内容，并标注新闻时间与事件时间不一致的条目。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "列出该时间窗口内至少若干条可核实的宁德时代重要新闻或公告，每条含来源与链接或可引用出处",
+                "每条明确标注新闻发布时间与事件发生时间，二者不同的单独说明",
+                "若某条新闻事件时间早于或晚于9月1日至7日，需指出并说明为何仍纳入",
+                "说明检索覆盖范围与未覆盖渠道的局限"
+              ],
+              "tool_search_query": "宁德时代 2025年9月 新闻 公告 发布时间 事件时间 财经资讯检索",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "public_information"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "检索宁德时代2025年9月1日至7日公开重要新闻与公告，逐条标注新闻发布时间与事件发生时间，并区分二者差异。",
+      "tasks": [
+        {
+          "id": "r1_catl_news_sep1_7_web",
+          "task_goal": "通过公开网络信息检索宁德时代（300750.SZ）在2025年9月1日至9月7日期间的公开重要新闻与公告，覆盖公司公告/监管披露、主流财经媒体报道，逐条记录标题、来源、新闻发布时间、事件发生时间及核心内容，并标注新闻时间与事件时间不一致的条目。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出该时间窗口内至少若干条可核实的宁德时代重要新闻或公告，每条含来源与可引用出处",
+            "每条明确标注新闻发布时间与事件发生时间，二者不同的单独说明",
+            "若某条新闻事件时间早于或晚于9月1日至7日，需指出并说明为何仍纳入",
+            "说明检索覆盖范围与未覆盖渠道的局限"
+          ],
+          "tool_search_query": "宁德时代 2025年9月1日 至 9月7日 重要新闻 公告 发布时间 事件时间",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "catl_news_sep1_7",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.anns_d"
+      },
+      {
+        "task_id": "r1_catl_news_sep1_7_web",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.major_news"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_2793d6ddd2d4e8b16247b3e7b292305f' request=ToolCallRequest(call_id='call_2793d6ddd2d4e8b16247b3e7b292305f', tool_name='mcp.tushare.anns_d', tool_version='mcp-http-v1', arguments={'ann_date': '20250901', 'end_date': '20250907', 'ts_code': '300750.SZ', 'fields': ['ann_date', 'ts_code', 'name', 'title', 'url', 'rec_time']}, purpose='检索宁德时代（300750.SZ）在2025年9月1日至9月7日期间发布的公开重要新闻与公告，覆盖公司公告、监管披露、主流财经媒体报道，逐条记录标题、来源、新闻发布时间、事件发生时间及核心内容，并标注新闻时间与事件时间不一致的条目。', approval_required=False) result=ToolCallResult(tool_call_id='tool_660b237b35eb448c865b54feccdbe718', tool_name='mcp.tushare.anns_d', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=538, trace_id='trace_9be517b1b7ed482c953ce2e6049ed8f8')",
+      "call_id='call_b14d2fd9976f9bd4f9f644df266e6f8f' request=ToolCallRequest(call_id='call_b14d2fd9976f9bd4f9f644df266e6f8f', tool_name='mcp.tushare.major_news', tool_version='mcp-http-v1', arguments={'start_date': '2025-09-01', 'end_date': '2025-09-07', 'fields': ['title', 'pub_time', 'src', 'url', 'content']}, purpose='通过公开网络信息检索宁德时代（300750.SZ）在2025年9月1日至9月7日期间的公开重要新闻与公告，覆盖公司公告/监管披露、主流财经媒体报道，逐条记录标题、来源、新闻发布时间、事件发生时间及核心内容，并标注新闻时间与事件时间不一致的条目。', approval_required=False) result=ToolCallResult(tool_call_id='tool_8a8b1e1ec8664220beb1a5d3ee4d7f94', tool_name='mcp.tushare.major_news', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=22, trace_id='trace_9be517b1b7ed482c953ce2e6049ed8f8')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+      "trace_id": "trace_9be517b1b7ed482c953ce2e6049ed8f8",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "tool_side_effects_unresolved"
+    },
+    "errors": []
+  }
+}

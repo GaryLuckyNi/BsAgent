@@ -1,0 +1,42 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+___________ test_sensitive_metadata_also_requires_approval[changes0] ___________
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-673/test_sensitive_metadata_also_r0/memory.db), autoflush=True, expire_on_commit=False)
+changes = {'memory_key': 'synthetic@example.invalid'}
+
+    @pytest.mark.parametrize("changes",[{"memory_key":"synthetic@example.invalid"},{"source":"synthetic@example.invalid"}])
+    def test_sensitive_metadata_also_requires_approval(database,changes):
+        with database() as db:
+            MemoryCandidateRepository(db).save_candidate(_candidate(**changes),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+        store=RecordingStore()
+>       assert MemoryStoreSynchronizer(session_factory=database,store=store).sync_run("r1")==0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = sync_run('r1')
+E        +    where sync_run = <app.memory.synchronizer.MemoryStoreSynchronizer object at 0x1161a1710>.sync_run
+E        +      where <app.memory.synchronizer.MemoryStoreSynchronizer object at 0x1161a1710> = MemoryStoreSynchronizer(session_factory=sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-673/test_sensitive_metadata_also_r0/memory.db), autoflush=True, expire_on_commit=False), store=<app.tests.unit.test_memory_synchronizer.RecordingStore object at 0x1161a1150>)
+
+backend/app/tests/unit/test_memory_candidate_binding.py:201: AssertionError
+___________ test_sensitive_metadata_also_requires_approval[changes1] ___________
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-673/test_sensitive_metadata_also_r1/memory.db), autoflush=True, expire_on_commit=False)
+changes = {'source': 'synthetic@example.invalid'}
+
+    @pytest.mark.parametrize("changes",[{"memory_key":"synthetic@example.invalid"},{"source":"synthetic@example.invalid"}])
+    def test_sensitive_metadata_also_requires_approval(database,changes):
+        with database() as db:
+            MemoryCandidateRepository(db).save_candidate(_candidate(**changes),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+        store=RecordingStore()
+>       assert MemoryStoreSynchronizer(session_factory=database,store=store).sync_run("r1")==0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = sync_run('r1')
+E        +    where sync_run = <app.memory.synchronizer.MemoryStoreSynchronizer object at 0x1162def90>.sync_run
+E        +      where <app.memory.synchronizer.MemoryStoreSynchronizer object at 0x1162def90> = MemoryStoreSynchronizer(session_factory=sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-673/test_sensitive_metadata_also_r1/memory.db), autoflush=True, expire_on_commit=False), store=<app.tests.unit.test_memory_synchronizer.RecordingStore object at 0x1164e6bd0>)
+
+backend/app/tests/unit/test_memory_candidate_binding.py:201: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_sensitive_metadata_also_requires_approval[changes0]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_sensitive_metadata_also_requires_approval[changes1]
+2 failed, 24 deselected in 1.32s

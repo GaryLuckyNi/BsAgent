@@ -1,0 +1,551 @@
+{
+  "case_id": "039",
+  "category": "来源限制",
+  "question": "查询贵州茅台2024年营业收入，公开信息可以作为补充；如果需要切换数据来源请先向我确认。",
+  "session_id": "live50-20261024-a-039",
+  "request_id": "live50-20261024-a-039",
+  "started_at": "2026-10-24T14:46:05.299977+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "message_id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+      "request_id": "live50-20261024-a-039"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "completed",
+      "message": "先核实贵州茅台2024年年度报告披露的营业收入原始数据，再以公开信息交叉验证；若需切换数据来源，将先向用户确认。"
+    },
+    {
+      "id": "tool_agent:moutai_2024_revenue",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "started",
+      "message": "正在获取研究证据：获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。",
+      "task_id": "moutai_2024_revenue",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:moutai_2024_revenue",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "completed",
+      "message": "已取得研究证据：获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。",
+      "task_id": "moutai_2024_revenue",
+      "group_id": "evidence:1",
+      "task_label": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "completed",
+      "message": "先核实贵州茅台2024年年度报告披露的营业收入原始数据，再以公开信息交叉验证；若需切换数据来源，将先向用户确认。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "## 贵州茅台2024年营业收入查询结果\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "### 结论\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "**本次未能获取到可核验的贵州茅台2024年营业收入"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "数据。**\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "研究阶段以贵州茅台（600519.SH）2024"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "年年度报告披露的合并口径营业收入为目标，但检索返回"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "的材料为空，未取得任何年报或公告中的原始数值，因此"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "无法给出具体金额，也无法说明其单位与口径。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "### 数据缺口说明\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "1. **核心数值缺失**：2024年年度报告合并"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "口径营业收入的具体金额未获得，无法确认该数字。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "2. **交叉验证未完成**：原计划用公开新闻或"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "公开财务信息对年报数值进行交叉核对、确认口径一致性"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "或解释差异，但这一环节同样没有可用的比对数据。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "3. **口径与单位未确认**：由于没有拿到原始"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "披露，无法确认该指标是合并口径还是母公司口径，也无法"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "确认金额单位（元/万元/亿元）。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "### 关于数据来源切换\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "您提出公开信息可作为补充，但如需切换数据来源须先"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "向用户确认。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "目前尚未取得年报原始数据，若您希望改用公开新闻或"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "公开财务信息作为主要来源，请明确告知，我再据此推进"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "；在此之前，不宜以未经确认的公开口径替代年报数据"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "### 建议\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "如需继续，可考虑：\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "- 确认是否授权以公开财务信息平台或财经新闻作为"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "替代来源；\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "- 或提供年报原文/公告链接，以便直接提取合并口径"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "营业收入并标注单位与口径。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "在获得可核验来源前，本报告不对2024年营业收入"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "type": "ai",
+        "content": "给出任何具体数值，以避免引用未经证实的数据。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "response": {
+        "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+        "content": "## 贵州茅台2024年营业收入查询结果\n\n### 结论\n\n**本次未能获取到可核验的贵州茅台2024年营业收入数据。**\n\n研究阶段以贵州茅台（600519.SH）2024年年度报告披露的合并口径营业收入为目标，但检索返回的材料为空，未取得任何年报或公告中的原始数值，因此无法给出具体金额，也无法说明其单位与口径。\n\n### 数据缺口说明\n\n1. **核心数值缺失**：2024年年度报告合并口径营业收入的具体金额未获得，无法确认该数字。\n2. **交叉验证未完成**：原计划用公开新闻或公开财务信息对年报数值进行交叉核对、确认口径一致性或解释差异，但这一环节同样没有可用的比对数据。\n3. **口径与单位未确认**：由于没有拿到原始披露，无法确认该指标是合并口径还是母公司口径，也无法确认金额单位（元/万元/亿元）。\n\n### 关于数据来源切换\n\n您提出公开信息可作为补充，但如需切换数据来源须先向用户确认。目前尚未取得年报原始数据，若您希望改用公开新闻或公开财务信息作为主要来源，请明确告知，我再据此推进；在此之前，不宜以未经确认的公开口径替代年报数据。\n\n### 建议\n\n如需继续，可考虑：\n- 确认是否授权以公开财务信息平台或财经新闻作为替代来源；\n- 或提供年报原文/公告链接，以便直接提取合并口径营业收入并标注单位与口径。\n\n在获得可核验来源前，本报告不对2024年营业收入给出任何具体数值，以避免引用未经证实的数据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_9aec8504f8b14052affc8b8ed640e52d",
+        "message_id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "request_id": "live50-20261024-a-039",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_1412c02daa29438eaccdfc53ab41a396",
+        "request_id": "live50-20261024-a-039",
+        "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+        "role": "user",
+        "status": "completed",
+        "content": "查询贵州茅台2024年营业收入，公开信息可以作为补充；如果需要切换数据来源请先向我确认。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:46:05.467023Z",
+        "completed_at": "2026-10-24T14:46:05.463695Z"
+      },
+      {
+        "message_id": "msg_61c6f2d3630b4c8c858c47656f0e712b",
+        "request_id": "live50-20261024-a-039",
+        "run_id": "run_574595336d297f6e9189f08665db89f3b8ba568fe9acbd496a4b90d1d117",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 贵州茅台2024年营业收入查询结果\n\n### 结论\n\n**本次未能获取到可核验的贵州茅台2024年营业收入数据。**\n\n研究阶段以贵州茅台（600519.SH）2024年年度报告披露的合并口径营业收入为目标，但检索返回的材料为空，未取得任何年报或公告中的原始数值，因此无法给出具体金额，也无法说明其单位与口径。\n\n### 数据缺口说明\n\n1. **核心数值缺失**：2024年年度报告合并口径营业收入的具体金额未获得，无法确认该数字。\n2. **交叉验证未完成**：原计划用公开新闻或公开财务信息对年报数值进行交叉核对、确认口径一致性或解释差异，但这一环节同样没有可用的比对数据。\n3. **口径与单位未确认**：由于没有拿到原始披露，无法确认该指标是合并口径还是母公司口径，也无法确认金额单位（元/万元/亿元）。\n\n### 关于数据来源切换\n\n您提出公开信息可作为补充，但如需切换数据来源须先向用户确认。目前尚未取得年报原始数据，若您希望改用公开新闻或公开财务信息作为主要来源，请明确告知，我再据此推进；在此之前，不宜以未经确认的公开口径替代年报数据。\n\n### 建议\n\n如需继续，可考虑：\n- 确认是否授权以公开财务信息平台或财经新闻作为替代来源；\n- 或提供年报原文/公告链接，以便直接提取合并口径营业收入并标注单位与口径。\n\n在获得可核验来源前，本报告不对2024年营业收入给出任何具体数值，以避免引用未经证实的数据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "先核实贵州茅台2024年年度报告披露的营业收入原始数据，再以公开信息交叉验证；若需切换数据来源，将先向用户确认。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:moutai_2024_revenue",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。",
+              "task_id": "moutai_2024_revenue",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "获取贵州茅台（600519.SH）2024年年度报告披露的营业收入（合并口径）原始数值，并记录数据来源（公告/年报）与单位。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "先核实贵州茅台2024年年度报告披露的营业收入原始数据，再以公开信息交叉验证；若需切换数据来源，将先向用户确认。",
+              "sequence": 2
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:46:05.467029Z",
+        "completed_at": "2026-10-24T14:46:22.287335Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:46:22.615258+00:00",
+  "elapsed_seconds": 17.314
+}

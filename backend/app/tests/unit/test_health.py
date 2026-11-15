@@ -1,7 +1,10 @@
 import importlib
 
 
-def test_health_endpoint_returns_ok(monkeypatch):
+def test_health_endpoint_returns_ok(
+    fake_business_intent_catalog_runtime,
+    monkeypatch,
+):
     monkeypatch.delenv("BS_AGENT_SERVICE_NAME", raising=False)
 
     from fastapi.testclient import TestClient
@@ -14,7 +17,9 @@ def test_health_endpoint_returns_ok(monkeypatch):
     importlib.reload(health_module)
     importlib.reload(main_module)
 
-    client = TestClient(main_module.create_app())
+    client = TestClient(
+        main_module.create_app(business_intent_catalog_runtime=fake_business_intent_catalog_runtime)
+    )
 
     response = client.get("/health")
 

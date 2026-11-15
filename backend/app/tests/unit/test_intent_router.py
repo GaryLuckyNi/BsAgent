@@ -1,323 +1,367 @@
-from app.intent.catalog import BusinessIntentCatalog
-import pytest
+import json
 
+import pytest
+from app.graph.nodes import intent_router as intent_router_module
+from app.graph.nodes.intent_router import build_intent_router_node
+from app.graph.state import create_initial_state
 from app.intent.router import HybridIntentRouter, IntentClassificationError
 from app.intent.schemas import IntentDecisionModel
 from app.llm.schemas import LlmCompletionResult
-from app.schemas.tools import ToolSpec
+from app.schemas.messages import Message
 
 
 class FakeLlmClient:
-    def __init__(self, content: str) -> None:
-        self.content = content
-        self.calls = []
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+        self.calls: list[dict] = []
 
     async def complete(self, **kwargs):
         self.calls.append(kwargs)
         return LlmCompletionResult(
-            content=self.content,
+            content=json.dumps(self.payload, ensure_ascii=False),
             model="fake-intent-model",
             provider="fake",
         )
 
 
-def test_business_intent_catalog_loads_policy_qa_profile_from_default_config():
-    catalog = BusinessIntentCatalog.load_default()
+def _decision(
+    *,
+    intent_type: str | None = "financial_research",
+    domain: str | None = "a_share_equity_research",
+    subdomain: str | None = "company_snapshot",
+    goal: str | None = "分析海能达当前的投资关注价值",
+    confidence: float = 0.91,
+) -> dict:
+    return {
+        "intent_type": intent_type,
+        "domain": domain,
+        "subdomain": subdomain,
+        "goal": goal,
+        "confidence": confidence,
+    }
 
-    profile = catalog.match_by_keywords("差旅报销需要提交什么材料？")
 
-    assert profile is not None
-    assert profile.intent == "knowledge_qa"
-    assert profile.domain == "finance_policy"
-    assert profile.sub_intent == "policy_lookup"
-    assert profile.candidate_skill == "policy_qa"
+@pytest.mark.parametrize("constraint", ["unrestricted", "original_only", "unclear"])
+def test_legacy_source_label_is_accepted_but_not_published_or_requested(
+    business_intent_catalog, constraint,
+):
+    llm = FakeLlmClient({**_decision(), "source_constraint": constraint})
+    decision = HybridIntentRouter(catalog=business_intent_catalog, llm_client=llm).route(
+        message="从公司2024年年报提取营业收入", tenant_id="t", user_id="u",
+    )
+    assert decision.source_constraint == constraint
+    assert len(llm.calls) == 1
+    prompt = json.loads(llm.calls[0]["user_prompt"])
+    assert "source_constraint" not in prompt["required_schema"]
+    assert "source_constraint" not in decision.model_dump()
 
 
-def test_hybrid_intent_router_uses_business_profile_for_policy_question():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_missing_source_constraint_does_not_create_a_source_gate():
+    assert "source_constraint" not in IntentDecisionModel.model_validate(_decision()).model_dump()
 
-    decision = router.route(
-        message="公司差旅报销制度是什么？",
-        tenant_id="tenant_1",
-        user_id="user_1",
+
+def test_business_intent_catalog_has_no_local_file_or_keyword_router(
+    business_intent_catalog,
+):
+    removed_names = ("load_default", "load_from_path", "match_by_keywords")
+    assert all(not hasattr(type(business_intent_catalog), name) for name in removed_names)
+
+
+def test_hybrid_intent_router_requires_explicit_catalog_and_llm(
+    business_intent_catalog,
+):
+    with pytest.raises(TypeError, match="catalog"):
+        HybridIntentRouter()
+    with pytest.raises(TypeError, match="catalog"):
+        HybridIntentRouter(catalog=None, llm_client=FakeLlmClient(_decision()))
+    with pytest.raises(IntentClassificationError) as exc_info:
+        HybridIntentRouter(
+            catalog=business_intent_catalog,
+            llm_client=None,
+        ).route(
+            message="分析海能达",
+            tenant_id="tenant-a",
+            user_id="user-a",
+        )
+    assert exc_info.value.code == "intent_classifier_not_configured"
+
+
+def test_intent_router_builder_has_one_explicit_entrypoint(
+    business_intent_catalog,
+):
+    with pytest.raises(TypeError, match="catalog"):
+        build_intent_router_node()
+    with pytest.raises(TypeError, match="llm_client"):
+        build_intent_router_node(catalog=business_intent_catalog)
+    assert not hasattr(intent_router_module, "intent_router_node")
+
+
+def test_llm_intent_router_returns_taxonomy_goal_and_available_information(
+    business_intent_catalog,
+):
+    llm = FakeLlmClient(_decision())
+    result = HybridIntentRouter(
+        catalog=business_intent_catalog,
+        llm_client=llm,
+    ).route(
+        message="海能达现在是否值得关注",
+        tenant_id="tenant-a",
+        user_id="user-a",
     )
 
-    assert decision.intent == "knowledge_qa"
-    assert decision.domain == "finance_policy"
-    assert decision.sub_intent == "policy_lookup"
-    assert decision.candidate_skill == "policy_qa"
-    assert decision.confidence >= 0.7
-    assert "business_profile:finance_policy.policy_lookup" in decision.reason_codes
+    assert result == IntentDecisionModel.model_validate(_decision())
+    assert set(result.model_dump()) == {
+        "intent_type",
+        "domain",
+        "subdomain",
+        "goal",
+        "confidence",
+        "available_information",
+        "route",
+        "answer",
+    }
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert payload["message"] == "海能达现在是否值得关注"
+    assert llm.calls[0]["thinking"] is False
+    assert llm.calls[0]["max_tokens"] == 2048
+    assert "available_skills" not in payload
+    assert "available_tools" not in payload
+    assert "task_brief" not in payload
+    assert "risk_level" not in llm.calls[0]["system_prompt"]
 
 
-def test_hybrid_intent_router_applies_high_risk_floor_from_rules():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
-
-    decision = router.route(
-        message="帮我删除这条客户记录",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision.intent == "tool_action"
-    assert decision.risk_level == "high"
-    assert "rule_high_risk_action" in decision.reason_codes
-
-
-def test_hybrid_intent_router_detects_calculate_sum_as_tool_action():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
-
-    decision = router.route(
-        message="计算1加到50",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision.intent == "tool_action"
-    assert decision.domain == "mcp_math"
-    assert decision.sub_intent == "calculate_sum"
-    assert decision.candidate_tool == "mcp.mock.calculate_sum"
-    assert decision.confidence >= 0.7
-
-
-def test_hybrid_intent_router_detects_plus_expression_sum_as_tool_action():
-    llm_client = FakeLlmClient(
-        """
-        {
-          "intent": "tool_action",
-          "domain": "mcp_math",
-          "sub_intent": "calculate_sum",
-          "candidate_skill": null,
-          "candidate_tool": "mcp.mock.calculate_sum",
-          "risk_level": "low",
-          "confidence": 0.91,
-          "needs_clarification": false,
-          "reason_codes": ["classifier_selected_sum_tool"]
-        }
-        """
-    )
-    router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
-        llm_client=llm_client,
-        available_tools=[
-            ToolSpec(
-                name="mcp.mock.calculate_sum",
-                version="mcp-stdio-v1",
-                description="计算一组数字的总和",
-                input_schema={
-                    "type": "object",
-                    "properties": {"numbers": {"type": "array", "items": {"type": "number"}}},
-                    "required": ["numbers"],
-                },
-                risk_level="low",
-            )
+def test_intent_router_passes_compaction_separately_from_recent_history(
+    business_intent_catalog,
+):
+    llm = FakeLlmClient(_decision())
+    summary_payload = {
+        "goal": "分析海能达",
+        "constraints": [],
+        "decisions": [],
+        "open_items": ["继续"],
+        "facts": [],
+        "evidence_refs": [],
+        "user_preferences": [],
+        "superseded": [],
+    }
+    state = create_initial_state(
+        session_id="s1",
+        tenant_id="t1",
+        user_id="u1",
+        request_id="current-request",
+        user_message="继续",
+        history=[
+            Message(
+                message_id="cmp-1",
+                role="assistant",
+                content=json.dumps(summary_payload, ensure_ascii=False),
+                metadata={"context_compaction": True},
+            ),
+            Message(message_id="prior-user", role="user", content="上一问"),
+            Message(message_id="prior-ai", role="assistant", content="上一答"),
         ],
     )
 
-    decision = router.route(
-        message="你可以帮我算一下1+2+3+4+5+6+7+8+9+10等于多少吗",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
+    build_intent_router_node(catalog=business_intent_catalog, llm_client=llm)(state)
 
-    assert decision.intent == "tool_action"
-    assert decision.domain == "mcp_math"
-    assert decision.sub_intent == "calculate_sum"
-    assert decision.candidate_tool == "mcp.mock.calculate_sum"
-    assert decision.confidence >= 0.7
-    assert llm_client.calls
-    assert "available_tools" in llm_client.calls[0]["user_prompt"]
-    assert "mcp.mock.calculate_sum" in llm_client.calls[0]["user_prompt"]
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert payload["context"]["context_summary"] == summary_payload
+    assert [item["content"] for item in payload["context"]["conversation_history"]] == [
+        "上一问",
+        "上一答",
+    ]
+    assert "继续" not in [
+        item["content"] for item in payload["context"]["conversation_history"]
+    ]
 
 
-def test_hybrid_intent_router_sends_short_sum_expression_to_llm_classifier():
-    llm_client = FakeLlmClient(
-        """
-        {
-          "intent": "tool_action",
-          "domain": "mcp_math",
-          "sub_intent": "calculate_sum",
-          "candidate_skill": null,
-          "candidate_tool": "mcp.mock.calculate_sum",
-          "risk_level": "low",
-          "confidence": 0.93,
-          "needs_clarification": false,
-          "reason_codes": ["classifier_selected_sum_tool"]
-        }
-        """
-    )
-    router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
-        llm_client=llm_client,
-        available_tools=[
-            ToolSpec(
-                name="mcp.mock.calculate_sum",
-                version="mcp-stdio-v1",
-                description="计算一组数字的总和",
-                input_schema={
-                    "type": "object",
-                    "properties": {"numbers": {"type": "array", "items": {"type": "number"}}},
-                    "required": ["numbers"],
-                },
-                risk_level="low",
+def test_out_of_scope_is_represented_by_null_taxonomy(
+    business_intent_catalog,
+):
+    result = HybridIntentRouter(
+        catalog=business_intent_catalog,
+        llm_client=FakeLlmClient(
+            _decision(
+                intent_type=None,
+                domain=None,
+                subdomain=None,
+                goal=None,
+                confidence=0.98,
             )
+        ),
+    ).route(
+        message="帮我写一个贪吃蛇游戏",
+        tenant_id="tenant-a",
+        user_id="user-a",
+    )
+
+    assert result.intent_type is None
+    assert result.domain is None
+    assert result.subdomain is None
+    assert result.goal is None
+
+
+def test_intent_history_has_character_budget_without_mutating_stored_messages():
+    state = create_initial_state(
+        session_id="s", tenant_id="t", user_id="u", request_id="current",
+        user_message="继续分析",
+        history=[
+            Message(message_id=f"m{i}", role="user" if i % 2 == 0 else "assistant",
+                    content=("历史报告开头。" + "公司经营分析。" * 1200 + "历史报告结尾。")
+                    if i % 2 else f"历史问题{i}")
+            for i in range(20)
         ],
     )
+    original = [(message.id, message.content) for message in state["messages"]]
 
-    decision = router.route(
-        message="1+2+3=?",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
+    history = intent_router_module._recent_conversation_history(state)
 
-    assert decision.intent == "tool_action"
-    assert decision.candidate_tool == "mcp.mock.calculate_sum"
-    assert llm_client.calls
+    assert sum(len(item["content"]) for item in history) <= 8000
+    assert history[-1]["ref"] == "message:m19"
+    assert "历史问题18" in [item["content"] for item in history]
+    assert any(item.get("truncated") is True for item in history)
+    assert history[-1]["content"].startswith("历史报告开头。")
+    assert history[-1]["content"].endswith("历史报告结尾。")
+    assert [(message.id, message.content) for message in state["messages"]] == original
 
 
-def test_hybrid_intent_router_can_use_llm_classification_for_business_intent():
-    llm_client = FakeLlmClient(
-        """
-        {
-          "intent": "tool_action",
-          "domain": "crm",
-          "sub_intent": "update_customer_status",
-          "candidate_skill": "crm_update",
-          "candidate_tool": null,
-          "risk_level": "high",
-          "confidence": 0.86,
-          "needs_clarification": false,
-          "reason_codes": ["classifier_selected_crm_update"]
-        }
-        """
-    )
+@pytest.mark.parametrize(
+    "payload",
+    [
+        _decision(intent_type="software_development"),
+        _decision(domain="unknown_domain"),
+        _decision(subdomain="unknown_subdomain"),
+    ],
+)
+def test_router_rejects_non_null_values_outside_admin_catalog(
+    business_intent_catalog,
+    payload,
+):
     router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
-        llm_client=llm_client,
+        catalog=business_intent_catalog,
+        llm_client=FakeLlmClient(payload),
     )
-
-    decision = router.route(
-        message="把客户 A 的状态改成已成交",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision == IntentDecisionModel(
-        intent="tool_action",
-        domain="crm",
-        sub_intent="update_customer_status",
-        candidate_skill="crm_update",
-        candidate_tool=None,
-        risk_level="high",
-        confidence=0.86,
-        needs_clarification=False,
-        reason_codes=["classifier_selected_crm_update"],
-        next_node="planner_agent",
-    )
-    assert llm_client.calls
-
-
-def test_hybrid_intent_router_uses_business_rules_before_invalid_llm_output():
-    llm_client = FakeLlmClient("不是 JSON")
-    router = HybridIntentRouter(
-        catalog=BusinessIntentCatalog.load_default(),
-        llm_client=llm_client,
-    )
-
-    decision = router.route(
-        message="差旅报销需要什么？",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision.intent == "knowledge_qa"
-    assert decision.domain == "finance_policy"
-    assert decision.sub_intent == "policy_lookup"
-    assert decision.candidate_skill == "policy_qa"
-    assert not llm_client.calls
-
-
-def test_hybrid_intent_router_rejects_unknown_intent_without_llm_classifier():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
 
     with pytest.raises(IntentClassificationError) as exc_info:
         router.route(
-            message="1+2+3=?",
-            tenant_id="tenant_1",
-            user_id="user_1",
+            message="分析海能达",
+            tenant_id="tenant-a",
+            user_id="user-a",
         )
 
-    assert exc_info.value.code == "intent_classifier_not_configured"
-    assert exc_info.value.http_status == 503
+    assert exc_info.value.code == "intent_catalog_value_invalid"
+    assert exc_info.value.http_status == 502
 
 
-def test_hybrid_intent_router_detects_a_share_company_snapshot():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
-
-    decision = router.route(
-        message="分析一下贵州茅台",
-        tenant_id="tenant_1",
-        user_id="user_1",
+def test_router_rejects_partial_out_of_scope_payload(
+    business_intent_catalog,
+):
+    router = HybridIntentRouter(
+        catalog=business_intent_catalog,
+        llm_client=FakeLlmClient(_decision(intent_type=None, domain="a_share_equity_research")),
     )
 
-    assert decision.intent == "task_workflow"
-    assert decision.domain == "a_share_equity_research"
-    assert decision.sub_intent == "company_snapshot"
-    assert decision.candidate_skill == "company_snapshot"
-    assert decision.risk_level == "medium"
+    with pytest.raises(IntentClassificationError) as exc_info:
+        router.route(
+            message="你好",
+            tenant_id="tenant-a",
+            user_id="user-a",
+        )
+
+    assert exc_info.value.code == "intent_classifier_failed"
 
 
-def test_hybrid_intent_router_detects_a_share_financial_report_analysis():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
+def test_intent_router_node_passes_safe_image_summary_and_sets_state(
+    business_intent_catalog,
+):
+    llm = FakeLlmClient(
+        _decision(
+            goal="分析用户上传图片中的财务信息",
+        )
+    )
+    state = create_initial_state(
+        session_id="session-1",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="这张图说明了什么？",
+    )
+    state["image_analyses"] = [
+        {
+            "asset_id": "asset-1",
+            "analysis_id": "analysis-1",
+            "media_type": "image/png",
+            "width": 100,
+            "height": 80,
+            "status": "partial",
+            "document_type": "financial_statement",
+            "summary": "营业收入同比增长。",
+            "extracted_text": "不得进入意图分类上下文的 OCR 原文",
+            "financial_metrics": [],
+            "chart_observations": [],
+            "entities": ["示例公司"],
+            "risk_flags": ["仅 OCR 可用"],
+            "confidence": 0.72,
+            "truncated": True,
+        }
+    ]
 
-    decision = router.route(
-        message="分析宁德时代 2024 年报",
-        tenant_id="tenant_1",
-        user_id="user_1",
+    result = build_intent_router_node(
+        catalog=business_intent_catalog,
+        llm_client=llm,
+    )(state)
+
+    payload = json.loads(llm.calls[0]["user_prompt"])
+    assert payload["context"]["image_analyses"][0]["summary"] == "营业收入同比增长。"
+    assert "OCR 原文" not in str(payload["context"])
+    assert result["intent"]["goal"] == "分析用户上传图片中的财务信息"
+    assert "task_brief" not in result
+
+
+def test_intent_router_node_does_not_stream_private_classifier_reasoning(
+    business_intent_catalog,
+):
+    class NativeStreamingLlm(FakeLlmClient):
+        def __init__(self) -> None:
+            super().__init__(_decision())
+            self.used_native_stream = False
+
+        async def complete_streamed(self, *, on_delta, **kwargs):
+            self.used_native_stream = True
+            return await self.complete(**kwargs)
+
+    llm = NativeStreamingLlm()
+    state = create_initial_state(
+        session_id="session-1",
+        tenant_id="tenant-1",
+        user_id="user-1",
+        user_message="为什么今天 A 股跌得这么多？",
     )
 
-    assert decision.intent == "task_workflow"
-    assert decision.domain == "a_share_equity_research"
-    assert decision.sub_intent == "financial_report_analysis"
-    assert decision.candidate_skill == "financial_report_analysis"
+    build_intent_router_node(
+        catalog=business_intent_catalog,
+        llm_client=llm,
+    )(state)
+
+    assert llm.used_native_stream is False
+    assert llm.calls[0]["max_tokens"] == 2048
+    assert llm.calls[0]["thinking"] is False
 
 
-def test_hybrid_intent_router_prefers_financial_report_over_company_snapshot_when_question_mentions_report():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
-
-    decision = router.route(
-        message="分析一下宁德时代 2024 年报",
-        tenant_id="tenant_1",
-        user_id="user_1",
+def test_classifier_prompt_contains_admin_taxonomy_and_semantic_guard(
+    business_intent_catalog,
+):
+    llm = FakeLlmClient(_decision())
+    HybridIntentRouter(
+        catalog=business_intent_catalog,
+        llm_client=llm,
+    ).route(
+        message="分析一下海能达",
+        tenant_id="tenant-a",
+        user_id="user-a",
     )
 
-    assert decision.sub_intent == "financial_report_analysis"
-    assert decision.candidate_skill == "financial_report_analysis"
-
-
-def test_hybrid_intent_router_detects_a_share_risk_scan():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
-
-    decision = router.route(
-        message="看看隆基绿能最近有什么风险",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision.intent == "task_workflow"
-    assert decision.domain == "a_share_equity_research"
-    assert decision.sub_intent == "risk_scan"
-    assert decision.candidate_skill == "risk_scan"
-
-
-def test_hybrid_intent_router_prefers_risk_scan_over_company_snapshot_when_question_mentions_risk():
-    router = HybridIntentRouter(catalog=BusinessIntentCatalog.load_default())
-
-    decision = router.route(
-        message="分析一下宁德时代最近有什么风险",
-        tenant_id="tenant_1",
-        user_id="user_1",
-    )
-
-    assert decision.sub_intent == "risk_scan"
-    assert decision.candidate_skill == "risk_scan"
+    request = llm.calls[0]
+    payload = json.loads(request["user_prompt"])
+    assert payload["allowed_taxonomy"][0]["intent_type"] == "financial_research"
+    assert "不要改变用户问题的原意" in request["system_prompt"]
+    assert "保留主体标识、时间或版本、所问关系" in request["system_prompt"]

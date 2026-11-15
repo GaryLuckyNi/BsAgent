@@ -1,0 +1,31 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_gateway_charges_before_executor_and_stops_without_fallback ________
+
+env = (sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-...d='msg_02b5745769274f43b56f61ce05bb7be1', assistant_message_id='msg_91cf58c4c7cc4e3595d8f28a86aa8fc6', replayed=False))
+
+    def test_gateway_charges_before_executor_and_stops_without_fallback(env):
+        import asyncio
+        from app.schemas.tools import ToolCallRequest
+        from app.tests.unit.test_tool_agent import EchoTool, _context
+        from app.tools.registry import ToolRegistry
+        from app.tools.execution_gateway import ToolExecutionGateway
+        binding=init(env,BudgetPolicy(tool_calls=1))
+        calls=[]
+        class Tool(EchoTool):
+            async def run(self,data):
+                calls.append(data)
+                return await super().run(data)
+        registry=ToolRegistry()
+        registry.register(Tool())
+        gateway=ToolExecutionGateway(registry)
+        request=ToolCallRequest(tool_name="echo",arguments={"text":"公开内容"},purpose="测试")
+        with bind_run_budget(binding):
+            assert asyncio.run(gateway.execute(request,trace_id="test",context=_context())).status=="success"
+>           with pytest.raises(BudgetExhausted):
+E           Failed: DID NOT RAISE BudgetExhausted
+
+backend/app/tests/unit/test_run_budget.py:212: Failed
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_run_budget.py::test_gateway_charges_before_executor_and_stops_without_fallback
+1 failed, 24 deselected in 1.36s

@@ -1,0 +1,92 @@
+{
+  "case": "dependency",
+  "trace_id": "489c5785ccf727480f5bfc2c79f1de3d",
+  "route": "plan",
+  "query": "先查询银之杰的股票代码，再查询该代码对应最新交易日的日线行情；股票代码必须先查得，不要推测。",
+  "candidates": [
+    {
+      "ref": "tool:mcp.tushare.us_daily@mcp-http-v1",
+      "tool_name": "mcp.tushare.us_daily",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/美股数据/美股日线行情-获取美股行情（未复权），包括全部股票全历史行情，以及重要的市场和估值指标。单次最多返回 8000 条。更新：交易日13点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, trade_date, close, open, high, low, pre_close, pct_change, vol, amount, vwap\n额外可选字段:\n  pb: PB\n  pe: PE\n  change: 涨跌额\n  total_mv: 总市值\n  adj_factor: 复权因子(不是累计)\n  turnover_ratio: 换手率\nend_date: 结束日期（YYYYMMDD）\nlimit: 获取条数\noffset: 跳过条数\nstart_date: 开始日期（YYYYMMDD）\ntrade_date: 交易日期（YYYYMMDD）\nts_code: 股票代码（e.g. AAPL）",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.dc_index@mcp-http-v1",
+      "tool_name": "mcp.tushare.dc_index",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/打板专题数据/东方财富概念板块-获取东方财富每个交易日的概念板块数据，支持按日期查询。单次最多返回 5000 条。更新：交易日20点30",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, trade_date, name, leading, leading_code, pct_change, leading_pct, total_mv, turnover_rate, up_num, down_num, idx_type, level\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nend_date: 结束日期\nidx_type: 板块分类（行业板块、概念板块、地域板块）\nname: 板块名称（例如：人形机器人）\nstart_date: 开始日期\ntrade_date: 交易日期（YYYYMMDD格式，下同）\nts_code: 指数代码（支持多个代码同时输入，用逗号分隔）",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.suspend_d@mcp-http-v1",
+      "tool_name": "mcp.tushare.suspend_d",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/行情数据/每日停复牌信息-按日期方式获取股票每日停复牌信息。单次最多返回 5000 条。更新：每日早晚9点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, trade_date, suspend_timing, suspend_type\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nend_date: 停复牌查询结束日期\nstart_date: 停复牌查询开始日期\nsuspend_type: 停复牌类型：S-停牌,R-复牌\ntrade_date: 停复牌日期\nts_code: 股票代码(可输入多值)",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.index_global@mcp-http-v1",
+      "tool_name": "mcp.tushare.index_global",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/指数专题/国际主要指数-获取国际主要指数日线行情。单次最多返回 4000 条。更新：交易日9:00",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, trade_date, open, close, high, low, pre_close, change, pct_chg, swing, vol\n额外可选字段:\n  amount: 成交额\nend_date: 结束日期\nstart_date: 开始日期\ntrade_date: 交易日期\nts_code: TS指数代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    }
+  ],
+  "plan": {
+    "public_summary": "先通过公司解析工具查得银之杰的A股股票代码，再用该代码获取最新交易日日线行情；代码未查得前不推测、不取行情。",
+    "tasks": [
+      {
+        "id": "resolve_yzj_symbol",
+        "task_goal": "查询银之杰（A股上市公司）的股票代码，必须由工具返回，不得推测；返回股票代码及公司名称。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "工具返回银之杰对应的股票代码（如 ts_code/symbol）与公司名称",
+          "若工具未返回代码，明确说明未查得，不得推测或补造"
+        ],
+        "tool_search_query": "A股公司名称解析股票代码 公司简称查询证券代码",
+        "tool_candidate_refs": [],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      },
+      {
+        "id": "fetch_yzj_latest_daily_bar",
+        "task_goal": "使用上一步查得的银之杰股票代码，查询该代码最新交易日的日线行情（开盘、最高、最低、收盘、前收、涨跌幅、成交量、成交额等）。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "使用 resolve_yzj_symbol 返回的股票代码作为查询参数，未使用推测代码",
+          "返回该代码最新交易日的日线行情字段（至少含 trade_date、open、high、low、close）",
+          "明确标注最新交易日日期；若无数据则说明缺失原因"
+        ],
+        "tool_search_query": "A股日线行情 按股票代码查询最新交易日K线数据",
+        "tool_candidate_refs": [],
+        "evidence_task_ids": [],
+        "depends_on": [
+          "resolve_yzj_symbol"
+        ],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      }
+    ]
+  },
+  "remote_execution": "not_run",
+  "seconds": 3.982
+}

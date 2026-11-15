@@ -1,0 +1,46 @@
+.FFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_checked_answer_envelope_does_not_buffer_following_plain_body[ { "action" : "answer" }\r\n] _
+
+header = ' { "action" : "answer" }\r\n'
+
+    @pytest.mark.parametrize("header", ['{"action":"answer"}\n', ' { "action" : "answer" }\r\n', '\n {"action":"answer"}\n'])
+    def test_checked_answer_envelope_does_not_buffer_following_plain_body(header):
+        for split in range(len(header) + 1):
+            guard = IncrementalTextGuard()
+            early = guard.feed(header[:split]) + guard.feed(header[split:] + PUBLIC)
+>           assert PUBLIC[:40] in early
+E           AssertionError: assert '公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金' in ''
+
+backend/app/tests/unit/test_incremental_output_security.py:25: AssertionError
+_ test_checked_answer_envelope_does_not_buffer_following_plain_body[\n {"action":"answer"}\n] _
+
+header = '\n {"action":"answer"}\n'
+
+    @pytest.mark.parametrize("header", ['{"action":"answer"}\n', ' { "action" : "answer" }\r\n', '\n {"action":"answer"}\n'])
+    def test_checked_answer_envelope_does_not_buffer_following_plain_body(header):
+        for split in range(len(header) + 1):
+            guard = IncrementalTextGuard()
+            early = guard.feed(header[:split]) + guard.feed(header[split:] + PUBLIC)
+>           assert PUBLIC[:40] in early
+E           AssertionError: assert '公开财报显示营业收入增长，经营现金流保持稳定。公开财报显示营业收入增长，经营现金' in ''
+
+backend/app/tests/unit/test_incremental_output_security.py:25: AssertionError
+_____ test_leading_whitespace_is_consistent_with_complete_decision_parser ______
+
+    def test_leading_whitespace_is_consistent_with_complete_decision_parser():
+        from app.graph.planning.synthesis_stream import SynthesisStream
+        events = []
+        text = "公开财报显示经营现金流保持稳定" * 8
+        stream = SynthesisStream(on_delta=events.append)
+        for char in '\n {"action":"answer"}\n' + text:
+            stream(LlmStreamDelta(kind="content", delta=char))
+>       assert events
+E       assert []
+
+backend/app/tests/unit/test_synthesis_stream.py:69: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_checked_answer_envelope_does_not_buffer_following_plain_body[ { "action" : "answer" }\r\n]
+FAILED backend/app/tests/unit/test_incremental_output_security.py::test_checked_answer_envelope_does_not_buffer_following_plain_body[\n {"action":"answer"}\n]
+FAILED backend/app/tests/unit/test_synthesis_stream.py::test_leading_whitespace_is_consistent_with_complete_decision_parser
+3 failed, 1 passed, 54 deselected in 0.40s

@@ -1,0 +1,429 @@
+{
+  "case_id": "048",
+  "run": {
+    "run_id": "run_4807173f6a1bdf385a410d73b992a66db992780d0561fdba7ddc72b5a873",
+    "session_id": "live50-20261024-a-048",
+    "session_key": "sess_c7750492f8cb492cab6f093edf391dfe",
+    "trace_id": "trace_e673fcf179274d95bd3702aed02d5621",
+    "status": "completed",
+    "created_at": "2026-10-24 14:48:27.653145+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 23,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:48:27.719328+00:00",
+    "ended_at": "2026-10-24 14:48:46.615753+00:00",
+    "events": 23
+  },
+  "receipts": [
+    {
+      "receipt_id": "1604c8da1d6145d395b93b5431760af0",
+      "tool_name": "mcp.tushare.anns_d",
+      "call_id": "call_d4992719bc4ff2344c355131d3c72510",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_e673fcf179274d95bd3702aed02d5621",
+        "tool_name": "mcp.tushare.anns_d",
+        "latency_ms": 1006,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.anns_d",
+          "latency_ms": 963,
+          "tool_call_id": "tool_0f1f8ce6606b4057966721ae8321ac78",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_d263b2c93c83406999403b3236568f9f",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.anns_d",
+            "request_id": "live50-20261024-a-048",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "f72e57dbd725047b2cee17f302e5831855050dc1d359450f1fb9490e1d20aab9"
+        }
+      },
+      "created_at": "2026-10-24 14:48:37.988047+00:00",
+      "completed_at": "2026-10-24 14:48:38.970816+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {
+      "call_1c1f46f66b9d15d37ab0d2ec7889758e": {
+        "task_id": "r1_byd_anns_retrieve",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_76eae9778919549c03b4a49076cefbe6"
+      }
+    },
+    "tool_selection_contexts": {
+      "call_d4992719bc4ff2344c355131d3c72510": {
+        "request_id": "live50-20261024-a-048",
+        "task": {
+          "id": "byd_risk_scan",
+          "task_goal": "使用 risk_scan 工作流扫描比亚迪（002594.SZ / 1211.HK）截至 2026-10-24 的公告与风险事件，覆盖监管处罚、诉讼仲裁、经营与财务异常、产品质量与安全、舆情与治理等类别，逐条记录事件日期、来源、事实摘要与影响程度。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回可引用的公告或风险事件清单，含日期与来源",
+            "明确标注哪些类别检索到资料、哪些类别未检索到资料",
+            "不将未检索到资料等同于无风险，需单独标注为“无检索资料”"
+          ],
+          "tool_search_query": "risk_scan 风险扫描 上市公司公告 风险事件 比亚迪",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_d4992719bc4ff2344c355131d3c72510",
+        "request_fingerprint": "f72e57dbd725047b2cee17f302e5831855050dc1d359450f1fb9490e1d20aab9",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_97fbed6a86cf941bc177cc5268ac8208",
+        "as_of": "2026-10-24T22:48:28+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.anns_d",
+            "version": "mcp-http-v1",
+            "binding": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9"
+          },
+          {
+            "name": "mcp.tushare.top10_holders",
+            "version": "mcp-http-v1",
+            "binding": "9ab830c15ab9a4225b48542fe71d061db9faaeda9f9e5d3ff59f23a9665f5704"
+          },
+          {
+            "name": "mcp.tushare.stk_holdernumber",
+            "version": "mcp-http-v1",
+            "binding": "43dcc85b2f0ab4293f2fec3b96813d93a85e264bd7537e15c79bb2c37815a619"
+          },
+          {
+            "name": "mcp.tushare.repurchase",
+            "version": "mcp-http-v1",
+            "binding": "de053ddabcfdf60d2611ed067d66365525c84499c6aec1a7ea2236a67eea3afd"
+          },
+          {
+            "name": "mcp.tushare.stk_managers",
+            "version": "mcp-http-v1",
+            "binding": "3cb47e52d453b2b4d079fb3289f0a518cd3460a11cb3024ccca112a5c1c03469"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_1c1f46f66b9d15d37ab0d2ec7889758e": {
+        "request_id": "live50-20261024-a-048",
+        "task": {
+          "id": "r1_byd_anns_retrieve",
+          "task_goal": "检索比亚迪（002594.SZ / 1211.HK）截至 2026-10-24 的公告与风险事件，覆盖监管处罚、诉讼仲裁、经营与财务异常、产品质量与安全、舆情与治理等类别，逐条记录事件日期、来源、事实摘要与影响程度。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回可引用的公告或风险事件清单，含日期与来源",
+            "明确标注哪些类别检索到资料、哪些类别未检索到资料",
+            "不将未检索到资料等同于无风险，需单独标注为“无检索资料”"
+          ],
+          "tool_search_query": "上市公司公告 风险事件 检索 比亚迪 002594",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_1c1f46f66b9d15d37ab0d2ec7889758e",
+        "request_fingerprint": "f72e57dbd725047b2cee17f302e5831855050dc1d359450f1fb9490e1d20aab9",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_76eae9778919549c03b4a49076cefbe6",
+        "as_of": "2026-10-24T22:48:28+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.anns_d",
+            "version": "mcp-http-v1",
+            "binding": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9"
+          },
+          {
+            "name": "mcp.tushare.top10_holders",
+            "version": "mcp-http-v1",
+            "binding": "9ab830c15ab9a4225b48542fe71d061db9faaeda9f9e5d3ff59f23a9665f5704"
+          },
+          {
+            "name": "mcp.tushare.stk_holdernumber",
+            "version": "mcp-http-v1",
+            "binding": "43dcc85b2f0ab4293f2fec3b96813d93a85e264bd7537e15c79bb2c37815a619"
+          },
+          {
+            "name": "mcp.tushare.repurchase",
+            "version": "mcp-http-v1",
+            "binding": "de053ddabcfdf60d2611ed067d66365525c84499c6aec1a7ea2236a67eea3afd"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_97fbed6a86cf941bc177cc5268ac8208": {
+        "dispatch_batch_id": "dispatch_97fbed6a86cf941bc177cc5268ac8208",
+        "run_identity": "da1dc3bc1e368abbde83dbe12fdb9a73f62f38368eac6ba31ab995610a0d2ef7",
+        "plan_digest": "ae51b01543399485fe3bcf7d75b36c8690e68b56f4fcfe8ca204bb734a5b7fe5",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "byd_risk_scan"
+        ]
+      },
+      "dispatch_76eae9778919549c03b4a49076cefbe6": {
+        "dispatch_batch_id": "dispatch_76eae9778919549c03b4a49076cefbe6",
+        "run_identity": "da1dc3bc1e368abbde83dbe12fdb9a73f62f38368eac6ba31ab995610a0d2ef7",
+        "plan_digest": "937610c01a6405c07511ca21992a6a0caf0436d3404727864ccff45a450db856",
+        "observations_digest": "4e1945a717409ff3164772ffe658a8ff46cc0dd1ebbffe4ec1cd6a23c48f8e81",
+        "members": [
+          "r1_byd_anns_retrieve"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "使用risk_scan工作流扫描比亚迪的公告与风险事件，区分实际风险和没有检索到资料",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "公告检索工具执行失败且无成功取证结果，剩余修订次数为0，无法获得可引用的事件清单；只能如实说明未取得资料，不能将检索失败等同于无风险。",
+      "unresolved_questions": [
+        "比亚迪截至2026-10-24的公告与风险事件清单未能获取（mcp.tushare.anns_d 执行失败），监管处罚、诉讼仲裁、经营财务异常、产品质量安全、舆情治理等类别的实际风险状况均未核实",
+        "无法区分哪些类别属于已证实实际风险、哪些属于无检索资料"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "计划先并行检索比亚迪近期公告与风险事件（含监管、诉讼、经营、舆情等），再基于检索结果区分已证实风险与无资料项，形成风险扫描结论。",
+          "tasks": [
+            {
+              "id": "byd_risk_scan",
+              "task_goal": "使用 risk_scan 工作流扫描比亚迪（002594.SZ / 1211.HK）截至 2026-10-24 的公告与风险事件，覆盖监管处罚、诉讼仲裁、经营与财务异常、产品质量与安全、舆情与治理等类别，逐条记录事件日期、来源、事实摘要与影响程度。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回可引用的公告或风险事件清单，含日期与来源",
+                "明确标注哪些类别检索到资料、哪些类别未检索到资料",
+                "不将未检索到资料等同于无风险，需单独标注为“无检索资料”"
+              ],
+              "tool_search_query": "risk_scan 风险扫描 上市公司公告 风险事件 比亚迪",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "public_information"
+            },
+            {
+              "id": "byd_risk_classify",
+              "task_goal": "基于风险扫描结果，将比亚迪风险事件区分为已证实实际风险（有公告或权威来源支撑）、待核实线索、以及无检索资料三类，并说明每类的判断依据与对投资结论的潜在影响。",
+              "execution_type": "analysis",
+              "completion_criteria": [
+                "输出三类划分清单，每项附来源或“无检索资料”说明",
+                "对实际风险按严重程度排序并给出简要影响判断",
+                "不把无检索资料表述为风险不存在"
+              ],
+              "tool_search_query": null,
+              "evidence_task_ids": [],
+              "depends_on": [
+                "byd_risk_scan"
+              ],
+              "skill_name": null,
+              "source_requirement": "public_information"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "先通过可用的公告/资讯检索能力获取比亚迪截至 2026-10-24 的公告与风险事件清单，再据此区分已证实实际风险、待核实线索与无检索资料三类，形成风险扫描结论。",
+      "tasks": [
+        {
+          "id": "r1_byd_anns_retrieve",
+          "task_goal": "检索比亚迪（002594.SZ / 1211.HK）截至 2026-10-24 的公告与风险事件，覆盖监管处罚、诉讼仲裁、经营与财务异常、产品质量与安全、舆情与治理等类别，逐条记录事件日期、来源、事实摘要与影响程度。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回可引用的公告或风险事件清单，含日期与来源",
+            "明确标注哪些类别检索到资料、哪些类别未检索到资料",
+            "不将未检索到资料等同于无风险，需单独标注为“无检索资料”"
+          ],
+          "tool_search_query": "上市公司公告 风险事件 检索 比亚迪 002594",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        {
+          "id": "r1_byd_risk_classify",
+          "task_goal": "基于公告与风险事件检索结果，将比亚迪风险事件区分为已证实实际风险（有公告或权威来源支撑）、待核实线索、以及无检索资料三类，并说明每类的判断依据与对投资结论的潜在影响。",
+          "execution_type": "analysis",
+          "completion_criteria": [
+            "输出三类划分清单，每项附来源或“无检索资料”说明",
+            "对实际风险按严重程度排序并给出简要影响判断",
+            "不把无检索资料表述为风险不存在"
+          ],
+          "tool_search_query": null,
+          "evidence_task_ids": [],
+          "depends_on": [
+            "r1_byd_anns_retrieve"
+          ],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "byd_risk_scan",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.anns_d"
+      },
+      {
+        "task_id": "r1_byd_anns_retrieve",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.anns_d"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_d4992719bc4ff2344c355131d3c72510' request=ToolCallRequest(call_id='call_d4992719bc4ff2344c355131d3c72510', tool_name='mcp.tushare.anns_d', tool_version='mcp-http-v1', arguments={'ts_code': '002594.SZ', 'start_date': '20260101', 'end_date': '20261024', 'limit': 6000, 'fields': ['ann_date', 'ts_code', 'name', 'title', 'url', 'rec_time']}, purpose='使用 risk_scan 工作流扫描比亚迪（002594.SZ / 1211.HK）截至 2026-10-24 的公告与风险事件，覆盖监管处罚、诉讼仲裁、经营与财务异常、产品质量与安全、舆情与治理等类别，逐条记录事件日期、来源、事实摘要与影响程度。', approval_required=False) result=ToolCallResult(tool_call_id='tool_d263b2c93c83406999403b3236568f9f', tool_name='mcp.tushare.anns_d', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=1006, trace_id='trace_e673fcf179274d95bd3702aed02d5621')",
+      "call_id='call_1c1f46f66b9d15d37ab0d2ec7889758e' request=ToolCallRequest(call_id='call_1c1f46f66b9d15d37ab0d2ec7889758e', tool_name='mcp.tushare.anns_d', tool_version='mcp-http-v1', arguments={'ts_code': '002594.SZ', 'start_date': '20260101', 'end_date': '20261024', 'limit': 6000, 'fields': ['ann_date', 'ts_code', 'name', 'title', 'url', 'rec_time']}, purpose='检索比亚迪（002594.SZ / 1211.HK）截至 2026-10-24 的公告与风险事件，覆盖监管处罚、诉讼仲裁、经营与财务异常、产品质量与安全、舆情与治理等类别，逐条记录事件日期、来源、事实摘要与影响程度。', approval_required=False) result=ToolCallResult(tool_call_id='tool_5c009d57d92b4487b0dae99f96ad2882', tool_name='mcp.tushare.anns_d', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=27, trace_id='trace_e673fcf179274d95bd3702aed02d5621')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+      "trace_id": "trace_e673fcf179274d95bd3702aed02d5621",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "tool_side_effects_unresolved"
+    },
+    "errors": []
+  }
+}

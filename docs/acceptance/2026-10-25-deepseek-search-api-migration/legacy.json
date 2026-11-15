@@ -1,0 +1,135 @@
+[
+  {
+    "case": "entity",
+    "mode": "legacy",
+    "status": "success",
+    "query": "长鑫存储 上市主体 股票代码 招股书",
+    "duration_ms": 5607,
+    "answer_chars": 291,
+    "coverage": {
+      "status": "complete",
+      "covered_criteria": [
+        "核实长鑫存储的上市主体和证券代码"
+      ],
+      "missing_criteria": [],
+      "basis": "search_model"
+    },
+    "usage": {
+      "input_tokens": 61799,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 896,
+      "output_tokens": 262,
+      "server_tool_use": {
+        "web_search_requests": 2
+      }
+    },
+    "sources": [
+      {
+        "title": "中国证券报 - 长鑫科技集团股份有限公司<BR/>首次公开发行股票科创板上市公告书提示性公告 - | 第A08版：信息披露 | 上一版 下一版",
+        "url": "http://app.cnstock.com/zzb/zgzqb/html/2026-07/24/nw.D110000zgzqb_20260724_1-A08.htm#1",
+        "snippet": "",
+        "published_at": null
+      },
+      {
+        "title": "长鑫科技集团股份有限公司首次公开发行股票科创板上市公告书提示性公告 - 长鑫科技集团股份有限公司",
+        "url": "https://paper.cnstock.com/html/2026-07/24/content_2248126.htm#1",
+        "snippet": "",
+        "published_at": null
+      },
+      {
+        "title": "长鑫科技:长鑫科技首次公开发行股票并在科创板上市招股说明书提示性公告 _ 长鑫科技(688825) _ 公告正文 - 长鑫科技:长鑫科技首次公开发行股票并在科创板上市招股说明书提示性公告 查看PDF原文",
+        "url": "https://data.eastmoney.com/notices/detail/688825/AN202607211827218623.html#1",
+        "snippet": "",
+        "published_at": null
+      }
+    ]
+  },
+  {
+    "case": "news",
+    "mode": "legacy",
+    "status": "success",
+    "query": "2026年10月23日 A股 收盘 市场 涨跌原因",
+    "duration_ms": 6164,
+    "answer_chars": 947,
+    "coverage": {
+      "status": "complete",
+      "covered_criteria": [
+        "查询2026年10月23日A股市场涨跌原因"
+      ],
+      "missing_criteria": [],
+      "basis": "search_model"
+    },
+    "usage": {
+      "input_tokens": 8510,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 896,
+      "output_tokens": 726,
+      "server_tool_use": {
+        "web_search_requests": 2
+      }
+    },
+    "sources": [
+      {
+        "title": "南方财经网",
+        "url": "https://m.sfccn.com/2026/10-23/yNMDE0MDRfMjI4MDAyNA.html",
+        "snippet": "",
+        "published_at": null
+      },
+      {
+        "title": "A股“惊天逆转”，发生了什么？",
+        "url": "https://www.sfccn.com/2026/10-23/yNMDE0MDRfMjI4MDAyNA.html",
+        "snippet": "",
+        "published_at": null
+      },
+      {
+        "title": "一天两场行情！惊慌的尽头是真金白银！",
+        "url": "https://finance.eastmoney.com/a/202610243907081926.html",
+        "snippet": "",
+        "published_at": null
+      }
+    ]
+  },
+  {
+    "case": "valuation",
+    "mode": "legacy",
+    "status": "success",
+    "query": "贵州茅台 2026年10月23日 市盈率 市净率",
+    "duration_ms": 3602,
+    "answer_chars": 541,
+    "coverage": {
+      "status": "unknown",
+      "covered_criteria": [],
+      "missing_criteria": [],
+      "basis": "unknown"
+    },
+    "usage": {
+      "input_tokens": 1935,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 896,
+      "output_tokens": 411,
+      "server_tool_use": {
+        "web_search_requests": 2
+      }
+    },
+    "sources": [
+      {
+        "title": "贵州茅台（sh600519）行情走势 - 贵州茅台 （sh600519） 2026-10-23 15:13:08（北京时间） +添加自选",
+        "url": "https://www.stcn.com/quotes/index/sh600519.html#1",
+        "snippet": "",
+        "published_at": null
+      },
+      {
+        "title": "贵州茅台（sh600519）行情走势",
+        "url": "https://www.stcn.com/quotes/index/sh600519.html",
+        "snippet": "",
+        "published_at": null
+      },
+      {
+        "title": "贵州茅台 1335.00 16.51(1.25%)最新价格_行情_走势图—东方财富网",
+        "url": "https://quote.eastmoney.com/concept/sh600519.html?from=classic&eventcode=Web_quote_entrance1#fschart-r'",
+        "snippet": "",
+        "published_at": null
+      }
+    ]
+  }
+]

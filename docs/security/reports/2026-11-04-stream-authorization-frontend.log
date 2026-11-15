@@ -1,0 +1,53 @@
+npm warn Unknown user config "home". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> bs-agent-frontend@0.1.0 test
+> vitest run --reporter=default --reporter=junit --outputFile=../docs/security/reports/2026-11-04-stream-authorization-frontend.xml
+
+
+ RUN  v3.2.7 /Users/myfolder/前端学习项目/BsAgent/frontend
+
+ ✓ src/components/research/research-message-item.test.tsx (23 tests) 656ms
+ ✓ src/components/research/research-sources.test.tsx (3 tests) 811ms
+   ✓ 入口按去重网页计数，筛选正文引用并保留原始编号  641ms
+ ✓ src/components/research/research-markdown.test.tsx (7 tests) 697ms
+   ✓ 远程图片、原始 HTML、来源 favicon 均不自动创建请求目标  322ms
+ ✓ src/components/research/research-sidebar.test.tsx (6 tests) 1447ms
+   ✓ ResearchSidebar > 收起保留新建和搜索入口，展开后保留列表节点与滚动位置  601ms
+   ✓ ResearchSidebar > 操作菜单先确认，取消不删除，确认才调用删除接口  387ms
+   ✓ ResearchSidebar > 删除中禁止重复提交和关闭，失败后保留确认框并支持重试  349ms
+ ✓ src/components/research/research-search-dialog.test.tsx (4 tests) 2146ms
+   ✓ 消息级研究搜索 > 空查询不请求，展示命中片段和高亮，点击携带消息定位信息  514ms
+   ✓ 消息级研究搜索 > 迟到的搜索不覆盖新词，支持键盘选择和加载更多  613ms
+   ✓ 消息级研究搜索 > 搜索失败提供重试，空结果不会显示旧命中  778ms
+ ✓ src/router/router.test.tsx (2 tests) 777ms
+   ✓ InvestWise routes > redirects the root path to AI research  638ms
+ ✓ src/hooks/use-research-history.test.tsx (9 tests) 649ms
+ ✓ src/components/research/permission-recovery-items.test.tsx (5 tests) 210ms
+ ✓ src/views/ai-research/index.test.tsx (6 tests) 2939ms
+   ✓ 真实研究页面 > 收起不重载会话或丢失草稿，重新挂载记住侧栏状态  491ms
+   ✓ 真实研究页面 > 跨会话搜索定位等待首次恢复，再补齐旧消息，避免初始化覆盖目标  767ms
+   ✓ 真实研究页面 > 恢复已有会话的回答终态后也刷新真实摘要  604ms
+   ✓ 真实研究页面 > 选择记录同时切换真实标题、摘要与消息，新建后清空原会话  584ms
+ ✓ src/components/research/evidence-drawer.test.tsx (1 test) 304ms
+   ✓ EvidenceDrawer > 显示并高亮目标证据，关闭时通知调用方  302ms
+ ✓ src/components/ai-elements/reasoning.test.tsx (3 tests) 192ms
+ ✓ src/components/research/research-header.test.tsx (2 tests) 230ms
+ ✓ src/components/ai-elements/message.test.tsx (1 test) 193ms
+ ✓ src/hooks/use-research-session.test.tsx (70 tests) 567ms
+ ✓ src/components/research/research-conversation.test.tsx (4 tests) 78ms
+ ✓ src/hooks/stream-authorization-sdk.test.tsx (9 tests) 171ms
+ ✓ src/services/research-sources.test.ts (58 tests) 46ms
+ ✓ src/services/research-runs.test.ts (10 tests) 18ms
+ ✓ src/hooks/use-evidence-drawer.test.tsx (1 test) 9ms
+ ✓ src/conversation-session.test.ts (7 tests) 13ms
+ ✓ src/services/research-history-pages.test.ts (4 tests) 37ms
+ ✓ src/auth.test.ts (7 tests) 4ms
+ ✓ src/domain/research.test.ts (1 test) 8ms
+ ✓ src/service-status.test.ts (2 tests) 2ms
+
+ Test Files  24 passed (24)
+      Tests  245 passed (245)
+   Start at  09:28:15
+   Duration  9.34s (transform 2.91s, setup 0ms, collect 22.13s, tests 12.20s, environment 14.87s, prepare 3.29s)
+
+JUNIT report written to /Users/myfolder/前端学习项目/BsAgent/docs/security/reports/2026-11-04-stream-authorization-frontend.xml

@@ -1,38 +1,152 @@
-from functools import lru_cache
-from pathlib import Path
+import logging
+import re
 
 from app.core.config import settings
 from app.schemas.tools import ToolSpec
-from app.tools.mcp_stdio import discover_mcp_stdio_tools
+from app.security.admin_service_auth import build_admin_service_auth
+from app.tools.catalog_runtime import ToolCatalogRuntime
+from app.tools.market_data_config import AdminMarketDataConfigClient
+from app.tools.mcp_gateway import McpGateway, McpServerConfig
+from app.tools.rag_search import build_default_rag_search_registration
 from app.tools.registry import ToolRegistry
+from app.tools.search import (
+    SearchTool,
+    ToolSearchIndex,
+    ToolSearchService,
+)
+from app.tools.web_search import build_default_web_search_registration
+
+logger = logging.getLogger(__name__)
+_HTTP_STATUS_PATTERN = re.compile(r"\b([45][0-9]{2})\b")
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-
-
-@lru_cache(maxsize=1)
-def get_default_tool_registry() -> ToolRegistry:
+def _discover_default_tool_registry() -> ToolRegistry:
     registry = ToolRegistry()
-    tools = discover_mcp_stdio_tools(
-        command=settings.mcp_server_command,
-        args=settings.mcp_server_args,
-        cwd=_resolve_project_path(settings.mcp_server_cwd),
-        server_name=settings.mcp_server_name,
-        timeout_seconds=settings.mcp_timeout_seconds,
-    )
-    for tool in tools:
-        registry.register(tool)
+    rag_tool, rag_binding = build_default_rag_search_registration()
+    registry.register(rag_tool, execution_binding=rag_binding)
+    gateway = McpGateway()
+    for server_config in _configured_mcp_servers():
+        try:
+            tools = gateway.discover_tools(server_config)
+        except Exception as exc:  # noqa: BLE001 - 单个 MCP 失败不能阻断其他工具
+            logger.warning(
+                "mcp_tool_discovery_failed type=%s server=%s status=%s",
+                type(exc).__name__,
+                server_config.name,
+                _http_status_code(exc) or "unknown",
+            )
+            continue
+        if server_config.public_documentation:
+            from app.tool_documentation.service import get_documentation_service
+
+            get_documentation_service().prepare(tools, server_config)
+        for tool in tools:
+            if registry.has(tool.spec.name):
+                logger.warning(
+                    "mcp_tool_name_conflict server=%s tool=%s",
+                    server_config.name,
+                    tool.spec.name,
+                )
+                continue
+            registry.register(
+                tool,
+                execution_binding=gateway.execution_binding(server_config, tool=tool),
+            )
+    if settings.web_search_enabled and settings.deepseek_api_key.strip():
+        search_tool, search_binding = build_default_web_search_registration()
+        registry.register(search_tool, execution_binding=search_binding)
+    elif settings.web_search_enabled:
+        logger.warning("web_search_not_configured provider=%s", settings.web_search_provider)
     return registry
+
+
+def _load_market_data_mcp_config() -> McpServerConfig | None:
+    return AdminMarketDataConfigClient(
+        base_url=settings.admin_base_url,
+        auth=build_admin_service_auth(settings),
+        timeout_seconds=min(settings.mcp_timeout_seconds, 5.0),
+    ).get_active_mcp_config()
+
+
+def _configured_mcp_servers() -> list[McpServerConfig]:
+    configs: list[McpServerConfig] = []
+    try:
+        market_data_config = _load_market_data_mcp_config()
+    except Exception as exc:  # noqa: BLE001 - Admin 短暂失败时仍保留其他工具
+        logger.warning(
+            "market_data_mcp_config_failed type=%s",
+            type(exc).__name__,
+        )
+    else:
+        if market_data_config is not None:
+            configs.append(market_data_config)
+
+    generic_url = settings.mcp_server_url.strip()
+    if generic_url:
+        configs.append(
+            McpServerConfig(
+                name=settings.mcp_server_name.strip() or "agent-mcp",
+                url=generic_url,
+                timeout_seconds=settings.mcp_timeout_seconds,
+                deployment_revision=settings.mcp_server_revision,
+                config_revision=settings.mcp_config_revision,
+                public_documentation=settings.mcp_public_documentation,
+                documentation_domains=settings.mcp_documentation_domains,
+                permission_denial_is_pre_execution=settings.mcp_permission_denial_is_pre_execution,
+            )
+        )
+    return configs
+
+
+def _http_status_code(exc: Exception) -> int | None:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        status_code = getattr(response, "status_code", None)
+        if isinstance(status_code, int) and 400 <= status_code <= 599:
+            return status_code
+        match = _HTTP_STATUS_PATTERN.search(str(current))
+        if match is not None:
+            return int(match.group(1))
+        current = current.__cause__ or current.__context__
+    return None
+
+
+def _build_default_tool_search_service(registry: ToolRegistry) -> ToolSearchService:
+    index = ToolSearchIndex.build(
+        specs=[spec for spec in registry.specs() if spec.name != SearchTool.name],
+        catalog_digest=registry.catalog_digest,
+    )
+    return ToolSearchService(
+        registry=registry,
+        index=index,
+        candidate_k=settings.tool_search_candidate_k,
+    )
+
+
+_default_tool_catalog = ToolCatalogRuntime(
+    registry_factory=_discover_default_tool_registry,
+    search_service_factory=lambda registry: _build_default_tool_search_service(registry),
+    refresh_seconds=settings.market_data_provider_refresh_seconds,
+)
+
+
+def get_default_tool_registry() -> ToolRegistry:
+    return _default_tool_catalog.snapshot()
+
+
+def get_default_tool_catalog_runtime() -> ToolCatalogRuntime:
+    return _default_tool_catalog
+
+
+def _clear_default_tool_registry() -> None:
+    _default_tool_catalog.close()
+
+
+get_default_tool_registry.cache_clear = _clear_default_tool_registry  # type: ignore[attr-defined]
 
 
 def list_default_tool_specs() -> list[ToolSpec]:
     return get_default_tool_registry().specs()
-
-
-def _resolve_project_path(path: str | None) -> str | None:
-    if path is None:
-        return None
-    candidate = Path(path)
-    if candidate.is_absolute():
-        return str(candidate)
-    return str(PROJECT_ROOT / candidate)

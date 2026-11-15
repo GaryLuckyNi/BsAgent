@@ -1,0 +1,71 @@
+{
+  "case": "skill_natural_1",
+  "trace_id": "c5f14f039fa99a421d9240c33bf2e869",
+  "route": "plan",
+  "query": "分析银之杰管理层薪酬和持股",
+  "candidates": [
+    {
+      "ref": "tool:mcp.tushare.stk_rewards@mcp-http-v1",
+      "tool_name": "mcp.tushare.stk_rewards",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/管理层薪酬和持股-获取A股上市公司管理层薪酬和持股。单次最多返回 4000 条。更新：随季报披露时间更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, end_date, name, title, reward, hold_vol\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nts_code（必需）: TS股票代码\nend_date: 报告期",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.stk_managers@mcp-http-v1",
+      "tool_name": "mcp.tushare.stk_managers",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/上市公司管理层-获取上市公司管理层信息。单次最多返回 4000 条。更新：每日早晚8点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, name, gender, lev, title, edu, national, birthday, begin_date, end_date\n额外可选字段:\n  resume: 个人简历\nann_date: 公告日期\nend_date: 公告结束日期\nstart_date: 公告开始日期\nts_code: 股票代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    }
+  ],
+  "plan": {
+    "public_summary": "先调用银之杰管理层薪酬与持股专用技能，获取最新年度报告期的高管薪酬和持股明细；再补充管理层任免与变动公告，核实人员范围和口径。",
+    "tasks": [
+      {
+        "id": "management_rewards_holdings",
+        "task_goal": "获取银之杰（300085）最新年度报告期的管理层薪酬与持股明细，按姓名、职务、报告期、薪酬、持股数量整理；薪酬或持股为空时标注“未披露”，同一人员同一报告期去重。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回银之杰的 ts_code 并用于查询管理层薪酬持股数据",
+          "优先采用最新年度报告期（非半年报），并说明所选报告期",
+          "表格包含姓名、职务、报告期、薪酬、持股数量五列",
+          "空值显示“未披露”，未自行补全或编造数据",
+          "不输出完整原始 JSON"
+        ],
+        "tool_search_query": null,
+        "tool_candidate_refs": [],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": "yzj_reasearch",
+        "source_requirement": "original_data"
+      },
+      {
+        "id": "management_change_announcements",
+        "task_goal": "检索银之杰近期关于董事、监事及高级管理人员任免、换届、辞职及薪酬方案的公告，核实当前管理层人员范围与薪酬持股数据的口径和时效。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "列出与高管任免、换届或薪酬方案相关的公告标题及日期",
+          "说明最新报告期后是否发生影响人员范围或薪酬口径的变动",
+          "公告为空时明确标注缺失，不补造"
+        ],
+        "tool_search_query": "上市公司高管任免 换届 辞职 薪酬方案 公告",
+        "tool_candidate_refs": [],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "public_information"
+      }
+    ]
+  },
+  "remote_execution": "not_run",
+  "seconds": 4.49
+}

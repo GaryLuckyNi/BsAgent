@@ -1,0 +1,10 @@
+{
+  "case": "context_only",
+  "trace_id": "99869f9611c906aa06fe1e3f942796ee",
+  "route": "direct_answer",
+  "query": "用户已提供：某公司上市日期为2020年1月1日，退市日期为空，上市状态为L。只根据这些资料解释字段含义，不查询外部数据。",
+  "candidates": [],
+  "plan": null,
+  "remote_execution": "not_run",
+  "seconds": 1.909
+}

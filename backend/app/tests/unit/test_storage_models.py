@@ -13,6 +13,7 @@ def test_agent_run_can_be_persisted_in_sqlite():
             AgentRun(
                 run_id="run_1",
                 session_id="session_1",
+                session_key="session_key_1",
                 tenant_id="tenant_1",
                 user_id="user_1",
                 trace_id="trace_1",

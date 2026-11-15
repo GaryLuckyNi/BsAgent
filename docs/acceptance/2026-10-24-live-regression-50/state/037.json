@@ -1,0 +1,270 @@
+{
+  "case_id": "037",
+  "run": {
+    "run_id": "run_0f3a4a68a3ee5667bf57fd810cf871ba7b01c0b4eec9952e3d99d40551a1",
+    "session_id": "live50-20261024-a-037",
+    "session_key": "sess_43057fd8e40c41af8ea0b8feff621e83",
+    "trace_id": "trace_3d9046db7d6b489c8577360d684a5ca7",
+    "status": "completed",
+    "created_at": "2026-10-24 14:45:50.786818+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 54,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:45:50.984246+00:00",
+    "ended_at": "2026-10-24 14:46:05.076779+00:00",
+    "events": 54
+  },
+  "receipts": [
+    {
+      "receipt_id": "11b051e4f2604fe3aea2f9737fd04059",
+      "tool_name": "mcp.tushare.income",
+      "call_id": "call_27bed047db52c5ad1ed1bcf4c1c72b4c",
+      "risk_level": "medium",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": [
+          {
+            "revenue": 362012554000.0,
+            "ts_code": "300750.SZ",
+            "ann_date": "20250315",
+            "end_date": "20241231",
+            "f_ann_date": "20250315",
+            "report_type": "1",
+            "total_revenue": 362012554000.0,
+            "operate_profit": 64051799000.0,
+            "n_income_attr_p": 50744682000.0
+          }
+        ],
+        "status": "success",
+        "trace_id": "trace_3d9046db7d6b489c8577360d684a5ca7",
+        "tool_name": "mcp.tushare.income",
+        "latency_ms": 1309,
+        "tool_call_id": "tool_7b6053a55b8a41f99371c31a86fd0ff0",
+        "execution_state": "completed",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.income",
+            "request_id": "live50-20261024-a-037",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "2e48c8f2f3dd00750221b4b038ef09a297b0ea33c5caab47c3d1c30664af4db1",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "e5270c1504daaff7a749e6ee6b1aa5ffad6c7e92696b7900ddf43c6ffe35ed14"
+        }
+      },
+      "created_at": "2026-10-24 14:45:57.846145+00:00",
+      "completed_at": "2026-10-24 14:45:59.145437+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_27bed047db52c5ad1ed1bcf4c1c72b4c": {
+        "request_id": "live50-20261024-a-037",
+        "task": {
+          "id": "tushare_income_revenue_2024",
+          "task_goal": "使用TuShare原始财务报表接口（如利润表 income）查询宁德时代（300750.SZ）2024年度（报告期 20241231）的营业收入（revenue）字段，并返回原始数值与单位；若接口无权限或调用失败，明确说明权限/失败原因，不得用网页搜索或其他来源替代。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得宁德时代 2024 年度利润表原始记录中的营业收入数值及单位，或明确记录 TuShare 无权限/调用失败的具体原因",
+            "未使用网页搜索或其他非 TuShare 来源替代该数据"
+          ],
+          "tool_search_query": "TuShare 财务报表 利润表 营业收入 查询 A股 年度报告期",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_27bed047db52c5ad1ed1bcf4c1c72b4c",
+        "request_fingerprint": "e5270c1504daaff7a749e6ee6b1aa5ffad6c7e92696b7900ddf43c6ffe35ed14",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_2000a79e7af4947c998f7cc3e15f1f82",
+        "as_of": "2026-10-24T22:45:51+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.express_vip",
+            "version": "mcp-http-v1",
+            "binding": "79ec71938f19b9f51508a6492a36ff2e3621b259e9c4ecd296e7b3b862ad5dc1"
+          },
+          {
+            "name": "mcp.tushare.express",
+            "version": "mcp-http-v1",
+            "binding": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1"
+          },
+          {
+            "name": "mcp.tushare.hk_income",
+            "version": "mcp-http-v1",
+            "binding": "d347dd2ab6872e2861dbb13021e31248fb06eebecedd1f23033a605d7f86b34e"
+          },
+          {
+            "name": "mcp.tushare.income_vip",
+            "version": "mcp-http-v1",
+            "binding": "0a8ceac2ba9b29667b352a39a16d22c238790cd1ec7f455e22cd69d42f50cd70"
+          },
+          {
+            "name": "mcp.tushare.income",
+            "version": "mcp-http-v1",
+            "binding": "2e48c8f2f3dd00750221b4b038ef09a297b0ea33c5caab47c3d1c30664af4db1"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_2000a79e7af4947c998f7cc3e15f1f82": {
+        "dispatch_batch_id": "dispatch_2000a79e7af4947c998f7cc3e15f1f82",
+        "run_identity": "a9f9215e653b310571db32a48f53f094747a99cb88685672d79038eeff0519ac",
+        "plan_digest": "12b395f144ecb68b709c6b96cb4c54181b6075e9014aeb1cbc9262c19e0989bb",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "tushare_income_revenue_2024"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "只使用TuShare原始财务报表查询宁德时代2024年度营收；不接受网页搜索替代，没有权限请说明。",
+      "confidence": 0.95,
+      "source_constraint": "original_only"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "TuShare 利润表接口已成功返回宁德时代 2024 年度原始记录，revenue 为 362,012,554,000 元，满足原始数据要求且未使用网页搜索。",
+      "unresolved_questions": []
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "计划通过TuShare原始财务报表接口查询宁德时代（300750.SZ）2024年度营业收入；若当前无TuShare数据权限，将明确说明权限限制，不以网页搜索替代。",
+      "tasks": [
+        {
+          "id": "tushare_income_revenue_2024",
+          "task_goal": "使用TuShare原始财务报表接口（如利润表 income）查询宁德时代（300750.SZ）2024年度（报告期 20241231）的营业收入（revenue）字段，并返回原始数值与单位；若接口无权限或调用失败，明确说明权限/失败原因，不得用网页搜索或其他来源替代。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得宁德时代 2024 年度利润表原始记录中的营业收入数值及单位，或明确记录 TuShare 无权限/调用失败的具体原因",
+            "未使用网页搜索或其他非 TuShare 来源替代该数据"
+          ],
+          "tool_search_query": "TuShare 财务报表 利润表 营业收入 查询 A股 年度报告期",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "tushare_income_revenue_2024",
+        "status": "success",
+        "content": "[{\"ann_date\":\"20250315\",\"end_date\":\"20241231\",\"f_ann_date\":\"20250315\",\"n_income_attr_p\":50744682000.0,\"operate_profit\":64051799000.0,\"report_type\":\"1\",\"revenue\":362012554000.0,\"total_revenue\":362012554000.0,\"ts_code\":\"300750.SZ\"}]",
+        "error_code": null,
+        "tool_name": "mcp.tushare.income"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_27bed047db52c5ad1ed1bcf4c1c72b4c' request=ToolCallRequest(call_id='call_27bed047db52c5ad1ed1bcf4c1c72b4c', tool_name='mcp.tushare.income', tool_version='mcp-http-v1', arguments={'ts_code': '300750.SZ', 'period': '20241231', 'fields': ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'report_type', 'revenue', 'total_revenue', 'operate_profit', 'n_income_attr_p']}, purpose='使用TuShare原始财务报表接口（如利润表 income）查询宁德时代（300750.SZ）2024年度（报告期 20241231）的营业收入（revenue）字段，并返回原始数值与单位；若接口无权限或调用失败，明确说明权限/失败原因，不得用网页搜索或其他来源替代。', approval_required=False) result=ToolCallResult(tool_call_id='tool_7b6053a55b8a41f99371c31a86fd0ff0', tool_name='mcp.tushare.income', status='success', execution_state='completed', result=[{'ts_code': '300750.SZ', 'ann_date': '20250315', 'f_ann_date': '20250315', 'end_date': '20241231', 'report_type': '1', 'revenue': 362012554000.0, 'total_revenue': 362012554000.0, 'operate_profit': 64051799000.0, 'n_income_attr_p': 50744682000.0}], error=None, latency_ms=1309, trace_id='trace_3d9046db7d6b489c8577360d684a5ca7')"
+    ],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "# 宁德时代 2024 年度营业收入（TuShare 原始利润表）\n\n## 查询结果\n\n通过 TuShare 利润表接口查询宁德时代（300750.SZ）2024 年度（报告期 20241231）的原始财务记录，返回结果如下：\n\n| 项目 | 数值 |\n|---|---|\n| 证券代码 | 300750.SZ |\n| 报告期 | 2024-12-31 |\n| 公告日期 | 2025-03-15 |\n| 营业收入（revenue） | **362,012,554,000 元** |\n| 营业总收入（total_revenue） | 362,012,554,000 元 |\n| 归母净利润（n_income_attr_p） | 50,744,682,000 元 |\n| 营业利润（operate_profit） | 64,051,799,000 元 |\n\n## 说明\n\n- **数据来源**：TuShare 利润表接口返回的原始记录，未使用网页搜索或其他来源替代。\n- **单位**：接口返回数值单位为元。营业收入约合 **3,620.13 亿元**。\n- **字段一致性**：本次记录中 `revenue` 与 `total_revenue` 数值相同，说明该报告期利润表中营业收入与营业总收入口径一致，无其他构成项差异。\n- **报告类型**：`report_type` 为 \"1\"，对应合并报表口径。\n\n## 数据缺口\n\n本次查询仅返回单条记录，未包含以下信息，如需进一步分析需另行取数验证：\n\n- 上年同期（2023 年度）营业收入，无法直接计算同比增速；\n- 分季度或分业务板块的收入拆分；\n- 审计意见类型及报表是否经审计调整。\n\n以上缺口不影响本次\"2024 年度营业收入原始数值\"这一核心结论的成立。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_3d9046db7d6b489c8577360d684a5ca7",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    },
+    "errors": []
+  }
+}

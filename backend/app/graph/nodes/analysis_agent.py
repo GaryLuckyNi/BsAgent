@@ -1,39 +1,97 @@
+import json
+from typing import Any
+
+from langchain_core.messages import AIMessage
+
+from app.graph.planning.context import request_context, task_evidence, user_materials
+from app.graph.planning.contracts import SubTaskModel, TaskResultModel
+from app.graph.planning.request_flow import uses_request_flow
 from app.graph.state import AgentState
+from app.llm.factory import LlmClient, invoke_llm_completion
 
 
-def _successful_stock_tool_results(state: AgentState) -> list[dict]:
-    results = []
-    for call in state["tool_calls"]:
-        if not call.request.tool_name.startswith("mcp.mock.stock."):
-            continue
-        if call.result is None or call.result.status != "success":
-            continue
-        results.append(
-            {
-                "tool_name": call.request.tool_name,
-                "purpose": call.request.purpose,
-                "result": call.result.result or {},
-            }
+def build_analysis_agent_node(*, llm_client: LlmClient | None = None):
+    def node(state: AgentState) -> dict[str, Any]:
+        task = _active_analysis_task(state)
+        if llm_client is None:
+            return _terminal_failure(task, "analysis_llm_required", "分析模型未配置。")
+        completion = invoke_llm_completion(
+            llm_client,
+            system_prompt=(
+                "你是投研任务执行器。只完成当前 task_goal，不生成最终答复。"
+                "只能基于用户原始问题、request_context 用户材料与 dependencies 中已有事实推理；不得补造外部事实、"
+                "实时数据或来源。证据不足时明确说明缺口。输出简洁专业的中文分析。"
+            ),
+            user_prompt=json.dumps(
+                {
+                    "user_message": state["user_message"],
+                    "task_goal": task.task_goal,
+                    "completion_criteria": task.completion_criteria,
+                    **({"request_context": request_context(state)} if uses_request_flow(state) else {
+                        "user_materials": user_materials(state, include_current_message=False),
+                    }),
+                    "dependencies": _dependency_results(state, task),
+                },
+                ensure_ascii=False,
+            ),
+            temperature=0.1,
+            max_tokens=2_048,
+            thinking=True,
+            retry_without_thinking_on_empty=True,
         )
-    return results
+        content = completion.content.strip()
+        if not content:
+            return _terminal_failure(
+                task,
+                "analysis_output_empty",
+                "分析模型未返回任务结果。",
+            )
+        return _success_update(state, task, content)
+
+    return node
 
 
-def analysis_agent_node(state: AgentState) -> AgentState:
-    evidence = state["evidence"]
-    structured_tool_results = _successful_stock_tool_results(state)
-    if evidence is None or not evidence.items:
-        state["analysis"] = {
-            "findings": [],
-            "structured_tool_results": structured_tool_results,
-            "missing_information": [] if structured_tool_results else ["没有可用证据"],
-            "confidence": 0.6 if structured_tool_results else 0.0,
-        }
-        return state
+def _active_analysis_task(state: AgentState) -> SubTaskModel:
+    task = SubTaskModel.model_validate(state.get("active_task"))
+    if task.skill_name is not None:
+        raise ValueError("Analysis Agent 只能执行无 Skill 的推理子任务。")
+    return task
 
-    state["analysis"] = {
-        "findings": [item.content for item in evidence.items],
-        "structured_tool_results": structured_tool_results,
-        "missing_information": [],
-        "confidence": max(item.score for item in evidence.items),
+
+def _dependency_results(
+    state: AgentState,
+    task: SubTaskModel,
+) -> list[dict[str, Any]]:
+    return task_evidence(state, task)
+
+
+def _success_update(
+    state: AgentState,
+    task: SubTaskModel,
+    content: str,
+) -> dict[str, Any]:
+    result = TaskResultModel(task_id=task.id, status="success", content=content)
+    return {
+        "messages": [
+            AIMessage(
+                id=f"{state['request_id']}:task:{task.id}",
+                content=content,
+                additional_kwargs={"task_id": task.id, "task_role": "analysis"},
+            )
+        ],
+        "task_results": [result.model_dump(mode="python", exclude={"tool_name"})],
     }
-    return state
+
+
+def _terminal_failure(
+    task: SubTaskModel,
+    code: str,
+    content: str,
+) -> dict[str, Any]:
+    result = TaskResultModel(
+        task_id=task.id,
+        status="terminal_failure",
+        content=content,
+        error_code=code,
+    )
+    return {"task_results": [result.model_dump(mode="python", exclude={"tool_name"})]}

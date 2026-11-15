@@ -1,0 +1,169 @@
+{
+  "scope": "synthetic_cpu_temporary_sqlite_no_network",
+  "results": [
+    {
+      "name": "detector_financial_4096_chars",
+      "median_ms": 2.851,
+      "max_ms": 4.08,
+      "repeats": 3
+    },
+    {
+      "name": "tool_projection_financial_4096_chars",
+      "median_ms": 3.405,
+      "max_ms": 3.657,
+      "repeats": 3
+    },
+    {
+      "name": "detector_financial_32768_chars",
+      "median_ms": 16.271,
+      "max_ms": 16.661,
+      "repeats": 3
+    },
+    {
+      "name": "tool_projection_financial_32768_chars",
+      "median_ms": 27.407,
+      "max_ms": 30.494,
+      "repeats": 3
+    },
+    {
+      "name": "detector_financial_64000_chars",
+      "median_ms": 33.838,
+      "max_ms": 38.052,
+      "repeats": 3
+    },
+    {
+      "name": "tool_projection_financial_64000_chars",
+      "median_ms": 54.289,
+      "max_ms": 55.499,
+      "repeats": 3
+    },
+    {
+      "name": "detector_contiguous_ascii_64000_chars",
+      "median_ms": 17.453,
+      "max_ms": 20.98,
+      "repeats": 3
+    },
+    {
+      "name": "detector_contiguous_ascii_250000_chars",
+      "median_ms": 81.033,
+      "max_ms": 86.319,
+      "repeats": 3
+    },
+    {
+      "name": "model_input_financial_64000_chars",
+      "median_ms": 60.873,
+      "max_ms": 68.088,
+      "repeats": 3
+    },
+    {
+      "name": "protect_messages_financial_64000_chars",
+      "median_ms": 114.375,
+      "max_ms": 116.659,
+      "repeats": 3
+    },
+    {
+      "name": "model_input_financial_250000_chars",
+      "median_ms": 209.325,
+      "max_ms": 232.689,
+      "repeats": 3
+    },
+    {
+      "name": "protect_messages_financial_250000_chars",
+      "median_ms": 537.727,
+      "max_ms": 569.303,
+      "repeats": 3
+    },
+    {
+      "name": "model_input_financial_1000000_chars",
+      "median_ms": 913.95,
+      "max_ms": 990.092,
+      "repeats": 3
+    },
+    {
+      "name": "protect_messages_financial_1000000_chars",
+      "median_ms": 1942.961,
+      "max_ms": 1957.035,
+      "repeats": 3
+    },
+    {
+      "name": "message_buffer_100_chunks",
+      "median_ms": 1.135,
+      "max_ms": 1.797,
+      "repeats": 3
+    },
+    {
+      "name": "message_buffer_1000_chunks",
+      "median_ms": 11.137,
+      "max_ms": 11.328,
+      "repeats": 3
+    },
+    {
+      "name": "message_buffer_4000_chunks",
+      "median_ms": 47.05,
+      "max_ms": 47.296,
+      "repeats": 3
+    },
+    {
+      "name": "fake_model_unprotected_first_item",
+      "first_ms": 30.14,
+      "first_chars": 4
+    },
+    {
+      "name": "fake_model_protected_first_item",
+      "first_ms": 156.562,
+      "first_chars": 20
+    },
+    {
+      "name": "sse_authorization_100_frames",
+      "simulated_per_sql_commit_ms": 0,
+      "total_ms": 119.169,
+      "sql_counts": {
+        "SELECT": 402
+      }
+    },
+    {
+      "name": "budgeted_call_100_frames",
+      "simulated_per_sql_commit_ms": 0,
+      "total_ms": 150.348,
+      "sql_counts": {
+        "SELECT": 410
+      }
+    },
+    {
+      "name": "response_meter_1MiB_wire_and_decoded",
+      "simulated_per_sql_commit_ms": 0,
+      "total_ms": 88.367,
+      "sql_counts": {
+        "SELECT": 128,
+        "UPDATE": 64,
+        "COMMIT": 32
+      }
+    },
+    {
+      "name": "sse_authorization_100_frames",
+      "simulated_per_sql_commit_ms": 2.0,
+      "total_ms": 1382.264,
+      "sql_counts": {
+        "SELECT": 402
+      }
+    },
+    {
+      "name": "budgeted_call_100_frames",
+      "simulated_per_sql_commit_ms": 2.0,
+      "total_ms": 1420.29,
+      "sql_counts": {
+        "SELECT": 410
+      }
+    },
+    {
+      "name": "response_meter_1MiB_wire_and_decoded",
+      "simulated_per_sql_commit_ms": 2.0,
+      "total_ms": 834.95,
+      "sql_counts": {
+        "SELECT": 128,
+        "UPDATE": 64,
+        "COMMIT": 32
+      }
+    }
+  ]
+}

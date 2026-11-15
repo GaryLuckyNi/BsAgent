@@ -1,0 +1,859 @@
+{
+  "case_id": "033",
+  "category": "混合问题",
+  "question": "先解释什么是回购，再查询贵州茅台在2025年9月是否发布回购相关公告，缺少证据不能推断没有。",
+  "session_id": "live50-20261024-a-033",
+  "request_id": "live50-20261024-a-033",
+  "started_at": "2026-10-24T14:45:00.208522+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "message_id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+      "request_id": "live50-20261024-a-033"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "completed",
+      "message": "先说明回购的基本含义与常见类型，再核查贵州茅台2025年9月是否发布回购相关公告；若检索不到，将明确标注证据不足，不推断为没有。"
+    },
+    {
+      "id": "analysis_agent:explain_buyback",
+      "kind": "status",
+      "type": "progress",
+      "label": "分析证据",
+      "stage": "analysis_agent",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "started",
+      "message": "正在分析：用通俗语言解释股票回购的含义、常见方式（如集中竞价、要约回购）、资金来源与对股本和每股指标的影响，并说明回购注销与回购用于股权激励的区别。"
+    },
+    {
+      "id": "tool_agent:check_moutai_buyback_announcements",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "started",
+      "message": "正在获取研究证据：查询贵州茅台（600519）在2025年9月1日至2025年9月30日期间是否发布过回购相关公告，列出可核实的公告标题、日期与来源；若未检索到，需明确说明证据不足、不能据此推断没有发布。",
+      "task_id": "check_moutai_buyback_announcements",
+      "group_id": "evidence:1",
+      "task_label": "查询贵州茅台（600519）在2025年9月1日至2025年9月30日期间是否发布过回购相关公告，列出可核实的公告标题、日期与来源；若未检索到，需明确说明证据不足、不能据此推断没有发布。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:check_moutai_buyback_announcements",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "completed",
+      "message": "已取得研究证据：查询贵州茅台（600519）在2025年9月1日至2025年9月30日期间是否发布过回购相关公告，列出可核实的公告标题、日期与来源；若未检索到，需明确说明证据不足、不能据此推断没有发布。",
+      "task_id": "check_moutai_buyback_announcements",
+      "group_id": "evidence:1",
+      "task_label": "查询贵州茅台（600519）在2025年9月1日至2025年9月30日期间是否发布过回购相关公告，列出可核实的公告标题、日期与来源；若未检索到，需明确说明证据不足、不能据此推断没有发布。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "analysis_agent:explain_buyback",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究发现",
+      "stage": "analysis_agent",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "completed",
+      "message": "**一、股票回购的含义（通俗解释）** 股票回购是上市公司用现金等资源，按约定价格从股东手中买回本公司已发行股份的行为。回购后，公司可能将股份注销，也可能作为库存股用于股权激励、员工持股计划或可转债转股等。回购本质上是公司对自身股权结构或资本结构的一次调整，不等于公司价值必然增加。 **二、常见实施方式** 1. **集中竞价回购**：公司在二级市场像普通投资者一样，按规则在交易时段竞价买入自家股票，通常用于市值管理或员工激励储备。 2. **要约回购**：公司向全体股东或…"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "completed",
+      "message": "先说明回购的基本含义与常见类型，再核查贵州茅台2025年9月是否发布回购相关公告；若检索不到，将明确标注证据不足，不推断为没有。"
+    },
+    {
+      "type": "progress",
+      "stage": "composing_answer",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "message": "正在生成最终投研报告"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "## 一、什么是股票回购\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "股票回购，简单说就是**上市公司用现金等资源，按"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "约定价格从股东手里买回本公司已经发行的股份**。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "它本质上是公司对股权结构或资本结构的一次调整，并不"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "等于公司价值必然增加。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "**常见实施方式**有三种：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "- **集中竞价回购**：公司在二级市场像普通投资者"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "一样竞价买入自家股票，常见于市值管理或为员工激励"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "储备股份。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "- **要约回购**：公司向全体股东或特定股东发出"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "回购要约，明确价格、数量、期限，由股东自主决定是否"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "接受。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "- **协议回购**：公司与特定股东协商，通过协议"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "转让方式回购，常见于大宗持股或特定安排。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "**资金来源**通常包括自有资金、自筹资金（如借款"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "、发债）以及符合规则的其他合法资金。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "回购会消耗现金，因此需要关注公司的现金流、负债水平和"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "资本开支需求。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "**对股本和每股指标的影响**，取决于回购后的处理"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "方式：\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "- **回购注销**：股份被永久注销，总股本和注册资本"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "减少。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "在净利润不变的情况下，每股收益通常被抬高；股东权益"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "总额因现金支出而减少，每股净资产的变化则取决于回购"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "价格与每股净资产的关系。\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "- **回购作为库存股**：法律上的总股本可能暂"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "不变，但发行在外普通股减少，计算每股收益时库存股"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "通常不参与，每股收益同样可能上升；库存股作为所有者"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "权益的减项，股东权益总额也会减少。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "需要强调的是，回购不是\"无成本利好\"。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "如果回购价格过高，或挤占了经营资金，可能损害长期"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "价值。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "股东持股比例会因总股本或流通股减少而被动上升，但"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "股东整体财富最终仍取决于公司价值。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "**回购注销与回购用于激励的区别**：前者股份永久"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "消失，目的是提升每股指标、优化资本结构或回报股东"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "；后者股份先作为库存股保留，后续按激励计划授予员工"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "，期间不享有分红、表决权等权利，若激励未完成，未"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "授予部分可能再注销。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "两者在目的、股份存续状态、对股本的影响和会计处理"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "上都不同。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "## 二、贵州茅台2025年9月是否发布回购公告"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "**结论：目前无法确认，既不能确认有，也不能确认"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "没有。**\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "本次针对贵州茅台（600519）2025年9月1"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "日至9月30日期间回购相关公告的检索**未返回任何"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "结果**。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "这只说明本次检索没有命中，**不能据此推断该公司"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "在2025年9月没有发布回购公告**——公告检索"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "未命中可能源于数据源覆盖范围、检索时点或关键词匹配"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "等多种原因，与\"确实没有发布\"是两回事。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "因此，对\"贵州茅台2025年9月是否发布回购相关"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "公告\"这一问题，现有材料**证据不足**，无法给出"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "肯定或否定的答案。\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "如需核实，建议直接查阅贵州茅台在上海证券交易所官网"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "、公司官网或巨潮资讯等法定披露渠道的公告列表，并以"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "公司正式公告为准。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "在获得可核验的公告原文之前，任何关于\"有\"或\"没有"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "type": "ai",
+        "content": "\"的判断都缺乏依据。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    {
+      "type": "final",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "response": {
+        "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+        "content": "## 一、什么是股票回购\n\n股票回购，简单说就是**上市公司用现金等资源，按约定价格从股东手里买回本公司已经发行的股份**。它本质上是公司对股权结构或资本结构的一次调整，并不等于公司价值必然增加。\n\n**常见实施方式**有三种：\n\n- **集中竞价回购**：公司在二级市场像普通投资者一样竞价买入自家股票，常见于市值管理或为员工激励储备股份。\n- **要约回购**：公司向全体股东或特定股东发出回购要约，明确价格、数量、期限，由股东自主决定是否接受。\n- **协议回购**：公司与特定股东协商，通过协议转让方式回购，常见于大宗持股或特定安排。\n\n**资金来源**通常包括自有资金、自筹资金（如借款、发债）以及符合规则的其他合法资金。回购会消耗现金，因此需要关注公司的现金流、负债水平和资本开支需求。\n\n**对股本和每股指标的影响**，取决于回购后的处理方式：\n\n- **回购注销**：股份被永久注销，总股本和注册资本减少。在净利润不变的情况下，每股收益通常被抬高；股东权益总额因现金支出而减少，每股净资产的变化则取决于回购价格与每股净资产的关系。\n- **回购作为库存股**：法律上的总股本可能暂不变，但发行在外普通股减少，计算每股收益时库存股通常不参与，每股收益同样可能上升；库存股作为所有者权益的减项，股东权益总额也会减少。\n\n需要强调的是，回购不是\"无成本利好\"。如果回购价格过高，或挤占了经营资金，可能损害长期价值。股东持股比例会因总股本或流通股减少而被动上升，但股东整体财富最终仍取决于公司价值。\n\n**回购注销与回购用于激励的区别**：前者股份永久消失，目的是提升每股指标、优化资本结构或回报股东；后者股份先作为库存股保留，后续按激励计划授予员工，期间不享有分红、表决权等权利，若激励未完成，未授予部分可能再注销。两者在目的、股份存续状态、对股本的影响和会计处理上都不同。\n\n## 二、贵州茅台2025年9月是否发布回购公告\n\n**结论：目前无法确认，既不能确认有，也不能确认没有。**\n\n本次针对贵州茅台（600519）2025年9月1日至9月30日期间回购相关公告的检索**未返回任何结果**。这只说明本次检索没有命中，**不能据此推断该公司在2025年9月没有发布回购公告**——公告检索未命中可能源于数据源覆盖范围、检索时点或关键词匹配等多种原因，与\"确实没有发布\"是两回事。\n\n因此，对\"贵州茅台2025年9月是否发布回购相关公告\"这一问题，现有材料**证据不足**，无法给出肯定或否定的答案。\n\n如需核实，建议直接查阅贵州茅台在上海证券交易所官网、公司官网或巨潮资讯等法定披露渠道的公告列表，并以公司正式公告为准。在获得可核验的公告原文之前，任何关于\"有\"或\"没有\"的判断都缺乏依据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "trace_id": "trace_473fcf7a4b2843ddb429879d10222757",
+        "message_id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "request_id": "live50-20261024-a-033",
+        "response_type": "research_answer",
+        "approval_status": "not_required",
+        "cited_evidence_ids": []
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_a9956b14129447b8a8dcd935f6ec9f11",
+        "request_id": "live50-20261024-a-033",
+        "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+        "role": "user",
+        "status": "completed",
+        "content": "先解释什么是回购，再查询贵州茅台在2025年9月是否发布回购相关公告，缺少证据不能推断没有。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:45:00.357961Z",
+        "completed_at": "2026-10-24T14:45:00.355754Z"
+      },
+      {
+        "message_id": "msg_593930f4edd3477f85a3bd498c7a6c62",
+        "request_id": "live50-20261024-a-033",
+        "run_id": "run_25a494c3efa61efb9978e3b481748d6fcf3f98ecc37e7e9e061c9297484a",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 一、什么是股票回购\n\n股票回购，简单说就是**上市公司用现金等资源，按约定价格从股东手里买回本公司已经发行的股份**。它本质上是公司对股权结构或资本结构的一次调整，并不等于公司价值必然增加。\n\n**常见实施方式**有三种：\n\n- **集中竞价回购**：公司在二级市场像普通投资者一样竞价买入自家股票，常见于市值管理或为员工激励储备股份。\n- **要约回购**：公司向全体股东或特定股东发出回购要约，明确价格、数量、期限，由股东自主决定是否接受。\n- **协议回购**：公司与特定股东协商，通过协议转让方式回购，常见于大宗持股或特定安排。\n\n**资金来源**通常包括自有资金、自筹资金（如借款、发债）以及符合规则的其他合法资金。回购会消耗现金，因此需要关注公司的现金流、负债水平和资本开支需求。\n\n**对股本和每股指标的影响**，取决于回购后的处理方式：\n\n- **回购注销**：股份被永久注销，总股本和注册资本减少。在净利润不变的情况下，每股收益通常被抬高；股东权益总额因现金支出而减少，每股净资产的变化则取决于回购价格与每股净资产的关系。\n- **回购作为库存股**：法律上的总股本可能暂不变，但发行在外普通股减少，计算每股收益时库存股通常不参与，每股收益同样可能上升；库存股作为所有者权益的减项，股东权益总额也会减少。\n\n需要强调的是，回购不是\"无成本利好\"。如果回购价格过高，或挤占了经营资金，可能损害长期价值。股东持股比例会因总股本或流通股减少而被动上升，但股东整体财富最终仍取决于公司价值。\n\n**回购注销与回购用于激励的区别**：前者股份永久消失，目的是提升每股指标、优化资本结构或回报股东；后者股份先作为库存股保留，后续按激励计划授予员工，期间不享有分红、表决权等权利，若激励未完成，未授予部分可能再注销。两者在目的、股份存续状态、对股本的影响和会计处理上都不同。\n\n## 二、贵州茅台2025年9月是否发布回购公告\n\n**结论：目前无法确认，既不能确认有，也不能确认没有。**\n\n本次针对贵州茅台（600519）2025年9月1日至9月30日期间回购相关公告的检索**未返回任何结果**。这只说明本次检索没有命中，**不能据此推断该公司在2025年9月没有发布回购公告**——公告检索未命中可能源于数据源覆盖范围、检索时点或关键词匹配等多种原因，与\"确实没有发布\"是两回事。\n\n因此，对\"贵州茅台2025年9月是否发布回购相关公告\"这一问题，现有材料**证据不足**，无法给出肯定或否定的答案。\n\n如需核实，建议直接查阅贵州茅台在上海证券交易所官网、公司官网或巨潮资讯等法定披露渠道的公告列表，并以公司正式公告为准。在获得可核验的公告原文之前，任何关于\"有\"或\"没有\"的判断都缺乏依据。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "research_answer",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "先说明回购的基本含义与常见类型，再核查贵州茅台2025年9月是否发布回购相关公告；若检索不到，将明确标注证据不足，不推断为没有。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:check_moutai_buyback_announcements",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "completed",
+              "message": "已取得研究证据：查询贵州茅台（600519）在2025年9月1日至2025年9月30日期间是否发布过回购相关公告，列出可核实的公告标题、日期与来源；若未检索到，需明确说明证据不足、不能据此推断没有发布。",
+              "task_id": "check_moutai_buyback_announcements",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "查询贵州茅台（600519）在2025年9月1日至2025年9月30日期间是否发布过回购相关公告，列出可核实的公告标题、日期与来源；若未检索到，需明确说明证据不足、不能据此推断没有发布。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "analysis_agent:explain_buyback",
+              "kind": "summary",
+              "label": "研究发现",
+              "status": "completed",
+              "message": "**一、股票回购的含义（通俗解释）** 股票回购是上市公司用现金等资源，按约定价格从股东手中买回本公司已发行股份的行为。回购后，公司可能将股份注销，也可能作为库存股用于股权激励、员工持股计划或可转债转股等。回购本质上是公司对自身股权结构或资本结构的一次调整，不等于公司价值必然增加。 **二、常见实施方式** 1. **集中竞价回购**：公司在二级市场像普通投资者一样，按规则在交易时段竞价买入自家股票，通常用于市值管理或员工激励储备。 2. **要约回购**：公司向全体股东或…",
+              "sequence": 2
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "先说明回购的基本含义与常见类型，再核查贵州茅台2025年9月是否发布回购相关公告；若检索不到，将明确标注证据不足，不推断为没有。",
+              "sequence": 3
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": null
+        },
+        "created_at": "2026-10-24T14:45:00.357967Z",
+        "completed_at": "2026-10-24T14:45:27.770911Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:45:27.930885+00:00",
+  "elapsed_seconds": 27.721
+}

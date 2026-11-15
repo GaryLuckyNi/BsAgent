@@ -1,0 +1,48 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_sensitive_legacy_record_cannot_sync_without_approval[high-\u5173\u6ce8\u516c\u5f00\u8d22\u62a5] _
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-671/test_sensitive_legacy_record_c0/memory.db), autoflush=True, expire_on_commit=False)
+sensitivity = 'high', content = '关注公开财报'
+
+    @pytest.mark.parametrize("sensitivity,content",[
+        ("high","关注公开财报"),("low","联系邮箱是 synthetic@example.invalid"),
+    ])
+    def test_sensitive_legacy_record_cannot_sync_without_approval(database,sensitivity,content):
+        with database() as db:
+            MemoryCandidateRepository(db).save_candidate(
+                _candidate(sensitivity=sensitivity,content=content),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+        store=RecordingStore()
+        synchronizer=MemoryStoreSynchronizer(session_factory=database,store=store)
+>       assert synchronizer.sync_run("r1")==0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = sync_run('r1')
+E        +    where sync_run = <app.memory.synchronizer.MemoryStoreSynchronizer object at 0x11d10cdd0>.sync_run
+
+backend/app/tests/unit/test_memory_candidate_binding.py:181: AssertionError
+_ test_sensitive_legacy_record_cannot_sync_without_approval[low-\u8054\u7cfb\u90ae\u7bb1\u662f synthetic@example.invalid] _
+
+database = sessionmaker(class_='Session', bind=Engine(sqlite:////private/var/folders/8k/_rd7_g956q94js7kbbmyjwt40000gn/T/pytest-of-myfolder/pytest-671/test_sensitive_legacy_record_c1/memory.db), autoflush=True, expire_on_commit=False)
+sensitivity = 'low', content = '联系邮箱是 synthetic@example.invalid'
+
+    @pytest.mark.parametrize("sensitivity,content",[
+        ("high","关注公开财报"),("low","联系邮箱是 synthetic@example.invalid"),
+    ])
+    def test_sensitive_legacy_record_cannot_sync_without_approval(database,sensitivity,content):
+        with database() as db:
+            MemoryCandidateRepository(db).save_candidate(
+                _candidate(sensitivity=sensitivity,content=content),tenant_id="t",user_id="u",run_id="r1")
+            db.commit()
+        store=RecordingStore()
+        synchronizer=MemoryStoreSynchronizer(session_factory=database,store=store)
+>       assert synchronizer.sync_run("r1")==0
+E       AssertionError: assert 1 == 0
+E        +  where 1 = sync_run('r1')
+E        +    where sync_run = <app.memory.synchronizer.MemoryStoreSynchronizer object at 0x11dcd3a90>.sync_run
+
+backend/app/tests/unit/test_memory_candidate_binding.py:181: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_sensitive_legacy_record_cannot_sync_without_approval[high-\u5173\u6ce8\u516c\u5f00\u8d22\u62a5]
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_sensitive_legacy_record_cannot_sync_without_approval[low-\u8054\u7cfb\u90ae\u7bb1\u662f synthetic@example.invalid]
+2 failed, 22 deselected in 0.84s

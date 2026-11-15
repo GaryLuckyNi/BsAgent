@@ -1,0 +1,229 @@
+[
+  {
+    "case_id": "001",
+    "category": "权限确认",
+    "question": "查询贵州茅台2025年9月1日至7日公告的公开信息，请先尝试TuShare anns_d。若账号权限不足，我允许补充公开资料，但必须先弹出确认，得到确认再搜索。",
+    "status": "completed",
+    "response_type": "execution_error_response",
+    "business_trace_id": "trace_29204e3e86614b228f17ccd92e1f7b05",
+    "langfuse_trace_id": "83377ae6ca861762f82d2f9fd95a78dd",
+    "root_latency": 7.543,
+    "elapsed_seconds": 11.245,
+    "collector_replay": false,
+    "observation_count": 32,
+    "generation_count": 5,
+    "foreground_generations": 4,
+    "judge_generations": 1,
+    "planner_node_count": 2,
+    "generation_parents": {
+      "intent_router": 1,
+      "planner_agent": 2,
+      "tool_agent": 1
+    },
+    "dispatch_reasons": [
+      "ready_tasks",
+      "new_results_require_review",
+      "planner_finished"
+    ],
+    "response_chars": 50,
+    "transport_error": null,
+    "interruptions": [],
+    "error_observations": [
+      {
+        "id": "c9a936370e640540",
+        "name": "anns_d",
+        "statusMessage": "[{'type': 'text', 'text': 'tushare API 错误 [40203]: 抱歉，您没有接口(anns_d)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。', 'id': 'lc_46f6aba8-9c99-4293-acbb-3d1bc31bc3bb'}]"
+      }
+    ],
+    "token_total": 7132,
+    "foreground_token_total": 6644
+  },
+  {
+    "case_id": "002",
+    "category": "部分成果",
+    "question": "先只用假设市值100亿元、净利润5亿元计算PE；再查询TuShare income_vip提供的比亚迪2024年归母净利润。第二部分只接受该原始接口，禁止网页替代，无权限就列出缺口，但第一部分仍须回答。",
+    "status": "completed",
+    "response_type": "research_answer",
+    "business_trace_id": "trace_0905e1c91a10473f95e96452f8139e63",
+    "langfuse_trace_id": "1ac3b05e8cd9c985106646754c2aa0d6",
+    "root_latency": 11.959,
+    "elapsed_seconds": 15.62,
+    "collector_replay": false,
+    "observation_count": 35,
+    "generation_count": 7,
+    "foreground_generations": 6,
+    "judge_generations": 1,
+    "planner_node_count": 2,
+    "generation_parents": {
+      "intent_router": 1,
+      "planner_agent": 2,
+      "analysis_agent": 1,
+      "tool_agent": 1,
+      "synthesizer": 1
+    },
+    "dispatch_reasons": [
+      "ready_tasks",
+      "new_results_require_review",
+      "planner_finished"
+    ],
+    "response_chars": 704,
+    "transport_error": null,
+    "interruptions": [],
+    "error_observations": [
+      {
+        "id": "8b61f105967b392c",
+        "name": "income_vip",
+        "statusMessage": "[{'type': 'text', 'text': 'tushare API 错误 [40203]: 抱歉，您没有接口(income_vip)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。', 'id': 'lc_65a59462-2f2b-47b2-9cd3-09eab72ba14a'}]"
+      }
+    ],
+    "token_total": 12710,
+    "foreground_token_total": 11851
+  },
+  {
+    "case_id": "003",
+    "category": "单位与市场",
+    "question": "只查询2025年9月1日汇金科技300561.SZ的A股收盘价、成交量和成交额，保留单位，不需要额外盘面解释。",
+    "status": "completed",
+    "response_type": "research_answer",
+    "business_trace_id": "trace_9dfe3ace986f41cb903e94554d68a700",
+    "langfuse_trace_id": "eb94190067f5ea2a8c0f89ae185ea805",
+    "root_latency": 8.284,
+    "elapsed_seconds": 17.098,
+    "collector_replay": false,
+    "observation_count": 33,
+    "generation_count": 6,
+    "foreground_generations": 5,
+    "judge_generations": 1,
+    "planner_node_count": 2,
+    "generation_parents": {
+      "intent_router": 1,
+      "planner_agent": 2,
+      "tool_agent": 1,
+      "synthesizer": 1
+    },
+    "dispatch_reasons": [
+      "ready_tasks",
+      "new_results_require_review",
+      "planner_finished"
+    ],
+    "response_chars": 233,
+    "transport_error": null,
+    "interruptions": [],
+    "error_observations": [],
+    "token_total": 7825,
+    "foreground_token_total": 7108
+  },
+  {
+    "case_id": "004",
+    "category": "三项派发",
+    "question": "分别查询贵州茅台、宁德时代、比亚迪在2025年9月1日的A股收盘价，三项独立，明确证券代码、日期与来源；不需要扩写研究报告。",
+    "status": "completed",
+    "response_type": "research_answer",
+    "business_trace_id": "trace_da043bcf76e84f15a65094c659f90d54",
+    "langfuse_trace_id": "27747f39ba8d3a2d798122f48e668485",
+    "root_latency": 17.11,
+    "elapsed_seconds": 19.381,
+    "collector_replay": false,
+    "observation_count": 57,
+    "generation_count": 8,
+    "foreground_generations": 7,
+    "judge_generations": 1,
+    "planner_node_count": 2,
+    "generation_parents": {
+      "intent_router": 1,
+      "planner_agent": 2,
+      "tool_agent": 3,
+      "synthesizer": 1
+    },
+    "dispatch_reasons": [
+      "ready_tasks",
+      "settled_peer_allows_deferred_dispatch",
+      "settled_peer_allows_deferred_dispatch",
+      "new_results_require_review",
+      "planner_finished"
+    ],
+    "response_chars": 272,
+    "transport_error": null,
+    "interruptions": [],
+    "error_observations": [],
+    "token_total": 14216,
+    "foreground_token_total": 13185
+  },
+  {
+    "case_id": "005",
+    "category": "确认边界复测",
+    "question": "查询贵州茅台2025年9月1日至7日公告的公开信息，请先尝试TuShare anns_d。若账号权限不足，我允许补充公开资料，但必须先弹出确认，得到确认再搜索。",
+    "status": "interrupted",
+    "response_type": null,
+    "business_trace_id": "trace_662b84f8a572404db44e48e736669b34",
+    "langfuse_trace_id": "77b77221aa2f3b986f1cd6a8f8fc6c73",
+    "root_latency": 7.272,
+    "elapsed_seconds": 8.177,
+    "collector_replay": false,
+    "observation_count": 24,
+    "generation_count": 3,
+    "foreground_generations": 3,
+    "judge_generations": 0,
+    "planner_node_count": 1,
+    "generation_parents": {
+      "intent_router": 1,
+      "planner_agent": 1,
+      "tool_agent": 1
+    },
+    "dispatch_reasons": [
+      "ready_tasks",
+      "user_input_required"
+    ],
+    "response_chars": 0,
+    "transport_error": null,
+    "interruptions": [
+      {
+        "type": "input_required",
+        "run_id": "run_8abd2d76c8a9d42c732eda39a4ca48532770899c28243c96f425a5ff1ff5",
+        "options": [
+          {
+            "label": "对以上任务使用联网搜索",
+            "value": "web_search",
+            "description": "只对清单中的任务替代取证；公开来源不等价于原接口数据。"
+          },
+          {
+            "label": "仅使用已有资料",
+            "value": "use_existing",
+            "description": "不搜索，保留原接口数据缺口。"
+          }
+        ],
+        "question": "以下任务的数据源账号权限不足，是否改用联网搜索补充公开资料？",
+        "trace_id": "trace_662b84f8a572404db44e48e736669b34",
+        "input_type": "selection",
+        "message_id": "msg_413967395647410eb2406657c2a9a5f8",
+        "request_id": "fixsmoke-20261025-a-005",
+        "interrupt_id": "d9ff70de09f1ae9e3e3750785209d6f5",
+        "interaction_id": "interaction_8fe462ba5dfd63c16cd4bc87316a1ec4",
+        "interrupt_type": "user_input",
+        "recovery_batch": {
+          "items": [
+            {
+              "reason": "数据源账号权限不足，原接口未执行。",
+              "item_id": "call_104d44f453e76a4cefa5a29200b4c8ed",
+              "task_goal": "使用TuShare anns_d接口查询贵州茅台（600519.SH）在2025年9月1日至2025年9月7日期间披露的公告，获取公告标题、日期、类型等结构化信息；若接口返回权限不足或不可用，明确记录该失败原因，不自行改用其他来源。",
+              "original_tool": "mcp.tushare.anns_d",
+              "source_notice": "联网搜索为替代来源，未经原接口验证；原接口数据仍缺失。"
+            }
+          ],
+          "digest": "11e5c8912877ac5f62e7acf78c944cc2a4a646ed60a8c8324fcc9c3ab499c976",
+          "version": "permission-recovery-batch-v1",
+          "batch_id": "recovery_11e5c8912877ac5f62e7acf78c944cc2"
+        }
+      }
+    ],
+    "error_observations": [
+      {
+        "id": "4e5c272c8de4a7ad",
+        "name": "anns_d",
+        "statusMessage": "[{'type': 'text', 'text': 'tushare API 错误 [40203]: 抱歉，您没有接口(anns_d)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。', 'id': 'lc_3f58bef7-0ff1-4fea-b33b-78df02da6a04'}]"
+      }
+    ],
+    "token_total": 4844,
+    "foreground_token_total": 4844
+  }
+]

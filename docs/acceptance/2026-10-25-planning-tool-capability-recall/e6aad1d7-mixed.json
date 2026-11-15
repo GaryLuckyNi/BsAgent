@@ -1,0 +1,87 @@
+{
+  "case": "mixed",
+  "trace_id": "49281dd72a28e87a3155b4a8b12e207c",
+  "route": "plan",
+  "query": "获取银之杰股票代码、名称、上市日期、退市日期，并解释上市和退市日期的含义；只取基础资料，不研究行情公告。",
+  "candidates": [
+    {
+      "ref": "tool:mcp.tushare.stock_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.stock_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/股票列表-获取基础信息数据，包括股票代码、名称、上市日期、退市日期等。单次最多返回 10000 条。更新：早9:10，晚18点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, symbol, name, area, industry, cnspell, market, list_date, act_name, act_ent_type\n额外可选字段:\n  is_hs: 是否沪深港通标的，N否 H沪股通 S深股通\n  enname: 英文全称\n  exchange: 交易所代码\n  fullname: 股票全称\n  curr_type: 交易货币\n  delist_date: 退市日期\n  list_status: 上市状态 L上市 D退市 P暂停上市\nexchange: 交易所 SSE上交所 SZSE深交所 BSE北交所\nis_hs: 是否沪深港通标的，N否 H沪股通 S深股通\nlist_status: 上市状态 L上市 D退市 G过会未交易 P暂停上市\nmarket: 市场类别\nname: 名称\nts_code: TS股票代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.research_report@mcp-http-v1",
+      "tool_name": "mcp.tushare.research_report",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/大模型语料专题数据/券商研究报告-获取券商研究报告-个股、行业等，历史数据从20170101开始提供，增量每天两次更新。单次最多返回 1000 条。更新：每12个小时更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: trade_date, title, report_type, author, name, ts_code, inst_csname, ind_name, url\n额外可选字段:\n  abstr: 研报摘要\n  report_code: 研报唯一编码\nend_date: 研报结束日期\nind_name: 行业名称\ninst_csname: 券商名称\nreport_type: 行业研报|个股研报\nstart_date: 研报开始日期\ntrade_date: 研报日期\nts_code: 股票代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.us_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.us_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/美股数据/美股基础信息-获取美股列表信息。单次最多返回 6000 条。更新：不定期更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, name, enname, classify, list_date, delist_date\n额外可选字段:\n  list_status: 上市状态L上市D退市P暂停上市\nclassify: 股票分类（ADR/GDR/EQ）\nlimit: 获取条数\nlist_stauts: 上市状态\noffset: 跳过条数\nts_code: 股票代码（e.g. AAPL）",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.hk_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.hk_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/港股数据/港股基础信息-获取港股列表信息。单次最多返回 3000 条。更新：不定期更新",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, name, fullname, enname, cn_spell, market, list_status, list_date, delist_date, trade_unit, isin, curr_type\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nlist_status: 上市状态 L上市 D退市 P暂停上市\nts_code: TS代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.stk_managers@mcp-http-v1",
+      "tool_name": "mcp.tushare.stk_managers",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/上市公司管理层-获取上市公司管理层信息。单次最多返回 4000 条。更新：每日早晚8点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, ann_date, name, gender, lev, title, edu, national, birthday, begin_date, end_date\n额外可选字段:\n  resume: 个人简历\nann_date: 公告日期\nend_date: 公告结束日期\nstart_date: 公告开始日期\nts_code: 股票代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    }
+  ],
+  "plan": {
+    "public_summary": "计划调用股票基础信息接口查询银之杰的股票代码、名称、上市日期和退市日期，并据此说明上市日期与退市日期的含义；不涉及行情和公告。",
+    "tasks": [
+      {
+        "id": "query_stock_basic_info",
+        "task_goal": "查询银之杰（A股）的基础信息，取得股票代码（ts_code）、名称、上市日期（list_date）和退市日期（delist_date）；若退市日期为空，需明确说明该股当前未退市。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回银之杰对应的 ts_code 和 name",
+          "返回 list_date；若 delist_date 为空，明确标注为未退市或空值"
+        ],
+        "tool_search_query": "沪深股票列表基础信息 股票代码 名称 上市日期 退市日期",
+        "tool_candidate_refs": [
+          "tool:mcp.tushare.stock_basic@mcp-http-v1"
+        ],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      }
+    ]
+  },
+  "remote_execution": "not_run",
+  "seconds": 2.916
+}

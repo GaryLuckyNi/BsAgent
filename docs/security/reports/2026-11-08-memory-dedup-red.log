@@ -1,0 +1,16 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_one_message_does_not_fold_distinct_approval_content_together _______
+
+    def test_one_message_does_not_fold_distinct_approval_content_together():
+        candidates=propose_explicit_preference_candidates(
+            user_message="请记住：我的联系邮箱是 Team@example.invalid；请记住：我的联系邮箱是 team@example.invalid",
+            tenant_id="t",user_id="u")
+>       assert len(candidates)==2
+E       AssertionError: assert 1 == 2
+E        +  where 1 = len([MemoryCandidate(candidate_id='memcand_t_u_user_preference_c7c9c29fa1dcf4f4', memory_type='user_preference', memory_ke...am@example.invalid', confidence=0.9, approval_status='pending', sensitivity='high', source='user_explicit_preference')])
+
+backend/app/tests/unit/test_memory_candidate_binding.py:50: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_memory_candidate_binding.py::test_one_message_does_not_fold_distinct_approval_content_together
+1 failed, 16 deselected in 0.67s

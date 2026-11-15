@@ -1,0 +1,422 @@
+{
+  "case_id": "031",
+  "run": {
+    "run_id": "run_26f6b185ef76ae9b574f15267c3de553edec7ace220a7813aaca979cc8c3",
+    "session_id": "live50-20261024-a-031",
+    "session_key": "sess_b4f93745e67b424abc317c77b39e5b19",
+    "trace_id": "trace_ca8103eb802645c0a8dd5f9a06592cce",
+    "status": "completed",
+    "created_at": "2026-10-24 14:44:38.390586+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 25,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:44:38.407937+00:00",
+    "ended_at": "2026-10-24 14:44:59.759900+00:00",
+    "events": 25
+  },
+  "receipts": [
+    {
+      "receipt_id": "b023a17b6edd45ee8a99d9b382d2cbdf",
+      "tool_name": "mcp.tushare.income_vip",
+      "call_id": "call_ac9366b8e6cbabe2727ec21672970592",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_ca8103eb802645c0a8dd5f9a06592cce",
+        "tool_name": "mcp.tushare.income_vip",
+        "latency_ms": 620,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.income_vip",
+          "latency_ms": 576,
+          "tool_call_id": "tool_e887a0c4e153466abe5bdd84ff2697a4",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_75905d7431e24eb8ab26b10c3a2f5719",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.income_vip",
+            "request_id": "live50-20261024-a-031",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "0a8ceac2ba9b29667b352a39a16d22c238790cd1ec7f455e22cd69d42f50cd70",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "890d8b6a02221449fc2c3afdfa4c2b3fde5622ec7593ae3b8a05dc7a68d8d2a0"
+        }
+      },
+      "created_at": "2026-10-24 14:44:44.283679+00:00",
+      "completed_at": "2026-10-24 14:44:44.873758+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_ac9366b8e6cbabe2727ec21672970592": {
+        "request_id": "live50-20261024-a-031",
+        "task": {
+          "id": "moutai_2024_net_profit",
+          "task_goal": "查询贵州茅台（600519.SH）2024年年度报告披露的归属于上市公司股东的净利润（归母净利润）具体金额，并记录数据来源（年报或权威公告）与口径说明。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出贵州茅台2024年归母净利润的具体金额及单位",
+            "注明数据来源为2024年年度报告或权威公告，并说明是否为归母口径"
+          ],
+          "tool_search_query": "贵州茅台 2024年年报 归母净利润 财务数据",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_ac9366b8e6cbabe2727ec21672970592",
+        "request_fingerprint": "890d8b6a02221449fc2c3afdfa4c2b3fde5622ec7593ae3b8a05dc7a68d8d2a0",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_9a7abd7b20afa94e40352f2093cbc651",
+        "as_of": "2026-10-24T22:44:38+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.express_vip",
+            "version": "mcp-http-v1",
+            "binding": "79ec71938f19b9f51508a6492a36ff2e3621b259e9c4ecd296e7b3b862ad5dc1"
+          },
+          {
+            "name": "mcp.tushare.express",
+            "version": "mcp-http-v1",
+            "binding": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1"
+          },
+          {
+            "name": "mcp.tushare.us_income",
+            "version": "mcp-http-v1",
+            "binding": "c02efb69066fd7bc7b513f7e3de24b887d2aba4d967bae7fc0434e9747ce670b"
+          },
+          {
+            "name": "mcp.tushare.income_vip",
+            "version": "mcp-http-v1",
+            "binding": "0a8ceac2ba9b29667b352a39a16d22c238790cd1ec7f455e22cd69d42f50cd70"
+          },
+          {
+            "name": "mcp.tushare.fina_indicator_vip",
+            "version": "mcp-http-v1",
+            "binding": "c784451b9be74cedef0aa89c2f9eb7400e6eb8cd1ee9dd264893d2f991a18ff7"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_70b54c8f4a27f610b4e0536e3c971240": {
+        "request_id": "live50-20261024-a-031",
+        "task": {
+          "id": "r1_moutai_2024_net_profit_retry",
+          "task_goal": "通过公开信息检索核实贵州茅台（600519.SH）2024年年度报告披露的归属于上市公司股东的净利润具体金额，记录数据来源（年报、业绩快报或交易所/公司官网公告）与口径说明；若检索仍无法获得可靠数值，须明确说明证据缺口，不得编造。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出贵州茅台2024年归母净利润的具体金额及单位，或明确说明未能核实及原因",
+            "注明数据来源类型（2024年年度报告/业绩快报/权威公告）并说明是否为归母口径",
+            "区分归母净利润与扣非归母净利润口径"
+          ],
+          "tool_search_query": "贵州茅台 2024年年度报告 归属于上市公司股东的净利润",
+          "evidence_task_ids": [
+            "pe_distortion_theory"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_70b54c8f4a27f610b4e0536e3c971240",
+        "request_fingerprint": "b2bdd795402cba55d2ef6b4956a037c7a33789ffedcbd759212b3a36facf7d58",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_b1e9b7250bcdda06677cb6d4776ad14f",
+        "as_of": "2026-10-24T22:44:38+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.express",
+            "version": "mcp-http-v1",
+            "binding": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1"
+          },
+          {
+            "name": "mcp.tushare.express_vip",
+            "version": "mcp-http-v1",
+            "binding": "79ec71938f19b9f51508a6492a36ff2e3621b259e9c4ecd296e7b3b862ad5dc1"
+          },
+          {
+            "name": "mcp.tushare.fina_indicator",
+            "version": "mcp-http-v1",
+            "binding": "54e8a44bf05ff5d2842e1f6c78d0be98cb92670d2c89bdb1cac95029483f4146"
+          },
+          {
+            "name": "mcp.tushare.fina_indicator_vip",
+            "version": "mcp-http-v1",
+            "binding": "c784451b9be74cedef0aa89c2f9eb7400e6eb8cd1ee9dd264893d2f991a18ff7"
+          },
+          {
+            "name": "mcp.tushare.income",
+            "version": "mcp-http-v1",
+            "binding": "2e48c8f2f3dd00750221b4b038ef09a297b0ea33c5caab47c3d1c30664af4db1"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_9a7abd7b20afa94e40352f2093cbc651": {
+        "dispatch_batch_id": "dispatch_9a7abd7b20afa94e40352f2093cbc651",
+        "run_identity": "32f10b67cdd3a05612da5b3ac7c1b6c61898f8c16ac9d9b53e801bfedb43dae4",
+        "plan_digest": "52f39eabc07828a7ba9694d0c351752dcd628ded08c3f71d396acdec8f0bdcae",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "moutai_2024_net_profit",
+          "pe_distortion_theory"
+        ]
+      },
+      "dispatch_b1e9b7250bcdda06677cb6d4776ad14f": {
+        "dispatch_batch_id": "dispatch_b1e9b7250bcdda06677cb6d4776ad14f",
+        "run_identity": "32f10b67cdd3a05612da5b3ac7c1b6c61898f8c16ac9d9b53e801bfedb43dae4",
+        "plan_digest": "6b4a988e6001eecfce0a564d7be4832223e5f277dd57231bb487c96e8baf0c93",
+        "observations_digest": "f10c89dc80fa65082c93999e78b51dc41a1c5617b623daf09fce6253308a6385",
+        "members": [
+          "r1_moutai_2024_net_profit_retry"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {
+      "call_70b54c8f4a27f610b4e0536e3c971240": {
+        "task_id": "r1_moutai_2024_net_profit_retry",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_b1e9b7250bcdda06677cb6d4776ad14f"
+      }
+    },
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "先直接解释PE为什么可能失真，再查询贵州茅台2024年归母净利润，并分清理论与事实",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "PE失真机制已由pe_distortion_theory完整梳理；贵州茅台2024年归母净利润经工具检索失败（income_vip执行失败、express因未决副作用未派发），且修订次数已用尽，无法补齐数值，只能如实说明证据缺口。",
+      "unresolved_questions": [
+        "贵州茅台2024年年度报告披露的归属于上市公司股东的净利润具体金额未能核实（数据工具执行失败），需以年报合并利润表原文为准"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "先说明PE失真的理论机制，再核实贵州茅台2024年归母净利润这一事实，并明确区分理论解释与可验证数据。",
+          "tasks": [
+            {
+              "id": "pe_distortion_theory",
+              "task_goal": "仅依据用户材料与通用财务知识，解释PE（市盈率）为何可能失真：至少覆盖盈利口径不一致（归母/扣非/一次性损益）、周期性与盈利波动、会计政策与减值、负利润或微利导致PE失效、股价与盈利时点错配、以及不同行业可比性差异；明确标注为理论性解释而非事实数据。",
+              "execution_type": "analysis",
+              "completion_criteria": [
+                "给出至少4条PE失真的机制性原因，并说明每条对应的失真方向或适用条件",
+                "明确区分理论解释与事实数据，不引用未核实的具体数值"
+              ],
+              "tool_search_query": null,
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "unclear"
+            },
+            {
+              "id": "moutai_2024_net_profit",
+              "task_goal": "查询贵州茅台（600519.SH）2024年年度报告披露的归属于上市公司股东的净利润（归母净利润）具体金额，并记录数据来源（年报或权威公告）与口径说明。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "给出贵州茅台2024年归母净利润的具体金额及单位",
+                "注明数据来源为2024年年度报告或权威公告，并说明是否为归母口径"
+              ],
+              "tool_search_query": "贵州茅台 2024年年报 归母净利润 财务数据",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "public_information"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "PE失真机制已梳理完毕；接下来通过公开信息检索核实贵州茅台2024年归母净利润，并明确区分理论解释与可验证事实。",
+      "tasks": [
+        {
+          "id": "r1_moutai_2024_net_profit_retry",
+          "task_goal": "通过公开信息检索核实贵州茅台（600519.SH）2024年年度报告披露的归属于上市公司股东的净利润具体金额，记录数据来源（年报、业绩快报或交易所/公司官网公告）与口径说明；若检索仍无法获得可靠数值，须明确说明证据缺口，不得编造。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出贵州茅台2024年归母净利润的具体金额及单位，或明确说明未能核实及原因",
+            "注明数据来源类型（2024年年度报告/业绩快报/权威公告）并说明是否为归母口径",
+            "区分归母净利润与扣非归母净利润口径"
+          ],
+          "tool_search_query": "贵州茅台 2024年年度报告 归属于上市公司股东的净利润",
+          "evidence_task_ids": [
+            "pe_distortion_theory"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "pe_distortion_theory",
+        "status": "success",
+        "content": "## 一、理论性解释：PE 为何可能失真\n\n以下均为通用财务常识层面的机制分析，**属理论推演，不含任何具体公司或市场数据**。\n\n**PE 的基本形式**：PE = 总市值 ÷ 归母净利润（或股价 ÷ 每股收益）。分子是时点值、分母是期间值，两端任一出问题都会导致失真。\n\n| # | 失真机制 | 作用机理 | 失真方向 / 适用条件 |\n|---|---|---|---|\n| 1 | **盈利口径不一致** | 归母净利润含少数股东损益剔除、非经常性损益（政府补助、资产处置、公允价值变动）；扣非归母净利润剔除一次性项目。用含一次性收益的归母净利作分母会系统性低估PE | 有一次性利得时，PE被**低估**，显得“便宜”；有大额一次性损失或计提时，PE被**高估**。适用于当期非经常性损益占比较高的公司 |\n| 2 | **周期性与盈利波动** | 周期行业利润随价格/产能周期大幅摆动，分母在高点极大、在低点极小甚至为负，PE随周期反向波动 | 周期顶部PE很低（“便宜”陷阱），底部PE极高（“贵”的假象）。适用于强周期、价格驱动型行业 |\n| 3 | **会计政策与减值** | 折旧年限、存货计价（加权平均/先进先出）、研发资本化比例、商誉与资产减值计提时点与幅度，均可显著改变当期净利润；减值具有“可选择性”与“集中释放”特征 | 会计政策偏激进→利润偏高→PE偏低；大额商誉减值年份→利润骤降→PE飙升，但PE失去可比性。适用于重资产、并购较多、存货占比高的公司 |\n| 4 | **负利润或微利导致PE失效** | 分母 ≤ 0 时PE为负或无经济意义；分母极小时PE被放大到数百倍，对分母的微小变动极度敏感 | 亏损期PE**不可用**（需改用PS、EV/EBITDA、PB）；微利期PE数值不稳定，不具解释力。适用于亏损、扭亏初期、一次性冲击年份 |\n| 5 | **股价与盈利时点错配** | 分子是实时/时点股价，分母是已披露的**历史期间**利润（年报滞后数月、季报滞后更久）；市场定价的是未来盈利，PE用的是过去盈利 | 在盈利拐点、业绩预告与正式报告之间、重大事件冲击期，静态PE严重滞后于市场预期；需用forward PE或TTM口径核对。适用于业绩拐点期与信息真空期 |\n| 6 | **行业可比性差异** | 不同行业的资本结构、轻重资产程度、成长阶段、会计惯例不同，同一PE倍数对应的风险与增长含义不同；跨行业、跨生命周期直接比较PE无意义 | 高成长/高ROE行业可承受更高PE，重资产低增长行业合理PE更低；跨行业比较PE会得出错误结论。适用于同业对比与相对估值 |\n\n**补充要点（同属理论层面）**：\n- 静态PE（上年年报利润）与TTM PE（滚动四季度利润）与Forward PE（预测利润）三者数值可能差异很大，混用会造成误判。\n- PE对分母的敏感度非线性：分母越接近零，PE的“弹性”越大，越不宜作为估值锚。\n- 分母为归母净利润时，若公司存在大额永续债/优先股利息，需进一步扣减后才能与市值匹配。\n\n**结论（理论）**：PE 的可靠性取决于“分母是否为可持续、可比的经常性盈利”。上述任一条件不成立时，PE 只能作为辅助指标，需与扣非PE、EV/EBITDA、PB、PS 交叉验证。\n\n---\n\n## 二、事实性查询：贵州茅台 2024 年归母净利润\n\n**当前结论：无法给出数值，证据缺口明确。**\n\n- 本次任务的输入材料为空（user_materials 为空、dependencies 为空），无任何可引用的原始披露文件或已核实事实。\n- 贵州茅台 2024 年归母净利润属于**事实性数据**，必须来自公司 2024 年年度报告（合并利润表“归属于母公司股东的净利润”）、业绩快报或交易所公告原文；在没有这些来源的情况下，任何数值都属于编造，不予提供。\n- 需注意的口径区分（供后续核验时使用，非数据本身）：年报“归母净利润”与“扣非归母净利润”是两个不同字段；若采用TTM口径，还需合并最近四个季度数据，可能与全年数不一致。\n\n**下一步所需材料**：贵州茅台 2024 年年度报告（或业绩快报/正式公告）中合并利润表的归母净利润、扣非归母净利润字段，以及对应期末总市值口径，方可计算并讨论其 PE。\n\n---\n\n**理论 / 事实分界**：第一节全部为机制性、通用财务知识推演，不涉及任何具体数值或公司结论；第二节未获得可核实来源，故不输出数值，仅标注缺口。",
+        "error_code": null
+      },
+      {
+        "task_id": "moutai_2024_net_profit",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.income_vip"
+      },
+      {
+        "task_id": "r1_moutai_2024_net_profit_retry",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.express"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_ac9366b8e6cbabe2727ec21672970592' request=ToolCallRequest(call_id='call_ac9366b8e6cbabe2727ec21672970592', tool_name='mcp.tushare.income_vip', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'period': '20241231', 'fields': ['ts_code', 'ann_date', 'f_ann_date', 'end_date', 'report_type', 'total_revenue', 'revenue', 'operate_profit', 'total_profit', 'n_income', 'n_income_attr_p', 'minority_gain', 'basic_eps']}, purpose='查询贵州茅台（600519.SH）2024年年度报告披露的归属于上市公司股东的净利润（归母净利润）具体金额，并记录数据来源（年报或权威公告）与口径说明。', approval_required=False) result=ToolCallResult(tool_call_id='tool_75905d7431e24eb8ab26b10c3a2f5719', tool_name='mcp.tushare.income_vip', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=620, trace_id='trace_ca8103eb802645c0a8dd5f9a06592cce')",
+      "call_id='call_70b54c8f4a27f610b4e0536e3c971240' request=ToolCallRequest(call_id='call_70b54c8f4a27f610b4e0536e3c971240', tool_name='mcp.tushare.express', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'period': '20241231', 'fields': ['ts_code', 'ann_date', 'end_date', 'revenue', 'operate_profit', 'total_profit', 'n_income', 'total_hldr_eqy_exc_min_int', 'diluted_eps', 'diluted_roe', 'yoy_net_profit', 'bps', 'perf_summary']}, purpose='通过公开信息检索核实贵州茅台（600519.SH）2024年年度报告披露的归属于上市公司股东的净利润具体金额，记录数据来源（年报、业绩快报或交易所/公司官网公告）与口径说明；若检索仍无法获得可靠数值，须明确说明证据缺口，不得编造。', approval_required=False) result=ToolCallResult(tool_call_id='tool_ce0d27d052b54daca919fc0d91a6db38', tool_name='mcp.tushare.express', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=25, trace_id='trace_ca8103eb802645c0a8dd5f9a06592cce')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+      "trace_id": "trace_ca8103eb802645c0a8dd5f9a06592cce",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "tool_side_effects_unresolved"
+    },
+    "errors": []
+  }
+}

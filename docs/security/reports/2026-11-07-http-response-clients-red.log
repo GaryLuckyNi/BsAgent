@@ -1,0 +1,88 @@
+FFFFFFFFFFFF..FF                                                         [100%]
+=================================== FAILURES ===================================
+___ test_actual_clients_read_bounded_success_and_skip_error_bodies[200-rag] ____
+backend/app/tests/unit/test_http_response_budgets.py:212: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads <= 129
+E   assert 256 <= 129
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x108289110>.reads
+_ test_actual_clients_read_bounded_success_and_skip_error_bodies[200-search_api] _
+backend/app/tests/unit/test_http_response_budgets.py:212: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads <= 129
+E   assert 256 <= 129
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x10b21c750>.reads
+_ test_actual_clients_read_bounded_success_and_skip_error_bodies[200-search_model] _
+backend/app/tests/unit/test_http_response_budgets.py:212: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads <= 129
+E   assert 256 <= 129
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x107662b50>.reads
+_ test_actual_clients_read_bounded_success_and_skip_error_bodies[200-llm_json] _
+backend/app/tests/unit/test_http_response_budgets.py:212: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads <= 129
+E   assert 256 <= 129
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x10d46ce10>.reads
+_ test_actual_clients_read_bounded_success_and_skip_error_bodies[200-llm_async_sse] _
+backend/app/tests/unit/test_http_response_budgets.py:212: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads <= 129
+E   assert 256 <= 129
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x12828ef90>.reads
+_ test_actual_clients_read_bounded_success_and_skip_error_bodies[200-llm_sync_sse] _
+backend/app/tests/unit/test_http_response_budgets.py:212: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads <= 129
+E   assert 256 <= 129
+E    +  where 256 = <test_http_response_budgets.SyncBytes object at 0x1282af850>.reads
+___ test_actual_clients_read_bounded_success_and_skip_error_bodies[200-ocr] ____
+backend/app/tests/unit/test_http_response_budgets.py:212: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads <= 129
+E   assert 256 <= 129
+E    +  where 256 = <test_http_response_budgets.SyncBytes object at 0x12828f850>.reads
+__ test_actual_clients_read_bounded_success_and_skip_error_bodies[200-vision] __
+backend/app/tests/unit/test_http_response_budgets.py:212: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads <= 129
+E   assert 256 <= 129
+E    +  where 256 = <test_http_response_budgets.SyncBytes object at 0x12830f2d0>.reads
+___ test_actual_clients_read_bounded_success_and_skip_error_bodies[500-rag] ____
+backend/app/tests/unit/test_http_response_budgets.py:210: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads == 0
+E   assert 256 == 0
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x1283200d0>.reads
+_ test_actual_clients_read_bounded_success_and_skip_error_bodies[500-search_api] _
+backend/app/tests/unit/test_http_response_budgets.py:210: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads == 0
+E   assert 256 == 0
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x12831b490>.reads
+_ test_actual_clients_read_bounded_success_and_skip_error_bodies[500-search_model] _
+backend/app/tests/unit/test_http_response_budgets.py:210: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads == 0
+E   assert 256 == 0
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x12832d210>.reads
+_ test_actual_clients_read_bounded_success_and_skip_error_bodies[500-llm_json] _
+backend/app/tests/unit/test_http_response_budgets.py:210: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads == 0
+E   assert 256 == 0
+E    +  where 256 = <test_http_response_budgets.AsyncBytes object at 0x128339990>.reads
+___ test_actual_clients_read_bounded_success_and_skip_error_bodies[500-ocr] ____
+backend/app/tests/unit/test_http_response_budgets.py:210: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads == 0
+E   assert 256 == 0
+E    +  where 256 = <test_http_response_budgets.SyncBytes object at 0x12834efd0>.reads
+__ test_actual_clients_read_bounded_success_and_skip_error_bodies[500-vision] __
+backend/app/tests/unit/test_http_response_budgets.py:210: in test_actual_clients_read_bounded_success_and_skip_error_bodies
+    assert stream.reads == 0
+E   assert 256 == 0
+E    +  where 256 = <test_http_response_budgets.SyncBytes object at 0x128346a10>.reads
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[200-rag]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[200-search_api]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[200-search_model]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[200-llm_json]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[200-llm_async_sse]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[200-llm_sync_sse]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[200-ocr]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[200-vision]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[500-rag]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[500-search_api]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[500-search_model]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[500-llm_json]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[500-ocr]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_actual_clients_read_bounded_success_and_skip_error_bodies[500-vision]
+14 failed, 2 passed, 39 deselected in 2.69s

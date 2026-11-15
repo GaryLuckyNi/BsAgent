@@ -1,0 +1,32 @@
+....FF......FF                                                           [100%]
+=================================== FAILURES ===================================
+_ test_compressed_bomb_is_rejected_before_unbounded_decoding[deflate-raw_deflate-sync] _
+backend/app/tests/unit/test_http_response_budgets.py:107: in test_compressed_bomb_is_rejected_before_unbounded_decoding
+    assert result.code == "http_response_decoded_limit" and stream.closed
+E   AssertionError: assert ('http_response_compression' == 'http_response_decoded_limit'
+E     
+E     - http_response_decoded_limit
+E     + http_response_compression)
+_ test_compressed_bomb_is_rejected_before_unbounded_decoding[deflate-raw_deflate-async] _
+backend/app/tests/unit/test_http_response_budgets.py:107: in test_compressed_bomb_is_rejected_before_unbounded_decoding
+    assert result.code == "http_response_decoded_limit" and stream.closed
+E   AssertionError: assert ('http_response_compression' == 'http_response_decoded_limit'
+E     
+E     - http_response_decoded_limit
+E     + http_response_compression)
+_ test_normal_utf8_json_and_compression_are_preserved[deflate-raw_deflate-sync] _
+backend/app/tests/unit/test_http_response_budgets.py:116: in test_normal_utf8_json_and_compression_are_preserved
+    assert result.json() == data and stream.closed
+           ^^^^^^^^^^^
+E   AttributeError: 'HttpResponseBudgetError' object has no attribute 'json'
+_ test_normal_utf8_json_and_compression_are_preserved[deflate-raw_deflate-async] _
+backend/app/tests/unit/test_http_response_budgets.py:116: in test_normal_utf8_json_and_compression_are_preserved
+    assert result.json() == data and stream.closed
+           ^^^^^^^^^^^
+E   AttributeError: 'HttpResponseBudgetError' object has no attribute 'json'
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_compressed_bomb_is_rejected_before_unbounded_decoding[deflate-raw_deflate-sync]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_compressed_bomb_is_rejected_before_unbounded_decoding[deflate-raw_deflate-async]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_normal_utf8_json_and_compression_are_preserved[deflate-raw_deflate-sync]
+FAILED backend/app/tests/unit/test_http_response_budgets.py::test_normal_utf8_json_and_compression_are_preserved[deflate-raw_deflate-async]
+4 failed, 10 passed, 55 deselected in 0.27s

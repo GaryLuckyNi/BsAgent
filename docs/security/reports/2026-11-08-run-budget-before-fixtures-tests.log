@@ -1,0 +1,200 @@
+.........................sFFFF.......................ss................s [  3%]
+ss..................sss................................................. [  6%]
+........................................................................ [  9%]
+........................................................................ [ 12%]
+........................................................................ [ 16%]
+........................................................................ [ 19%]
+........................................................................ [ 22%]
+........................................................................ [ 25%]
+........................................................................ [ 28%]
+........................................................................ [ 32%]
+........................................................................ [ 35%]
+........................................................................ [ 38%]
+........................................................................ [ 41%]
+........................................................................ [ 44%]
+........................................................................ [ 48%]
+........................................................................ [ 51%]
+........................................................................ [ 54%]
+........................................................................ [ 57%]
+........................................................................ [ 60%]
+........................................................................ [ 64%]
+........................................................................ [ 67%]
+........................................................................ [ 70%]
+........................................................................ [ 73%]
+........................................................................ [ 77%]
+........................................................................ [ 80%]
+........................................................................ [ 83%]
+........................................................................ [ 86%]
+........................................................................ [ 89%]
+........................................................................ [ 93%]
+........................................................................ [ 96%]
+........................................................................ [ 99%]
+............                                                             [100%]
+=================================== FAILURES ===================================
+__________ test_approval_resume_completes_original_assistant_message ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11c2dc350>
+
+    def test_approval_resume_completes_original_assistant_message(monkeypatch):
+        dispatches = []
+        monkeypatch.setattr(
+            approvals,
+            "resume_question_answer_graph",
+            lambda **_kwargs: _resumed_state(final_content="模拟交易已提交。"),
+        )
+        monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+        monkeypatch.setattr(
+            approvals,
+            "dispatch_context_compaction",
+            lambda **kwargs: dispatches.append(kwargs) or True,
+        )
+        app, session_factory = _test_app()
+        with session_factory() as db:
+            checkpoint_thread_id = _seed_interrupted_turn(db)
+    
+        response = TestClient(app).post(
+            "/api/approvals/approval_1/decision",
+            json={"decision": "approved"},
+        )
+    
+>       assert response.status_code == 200
+E       assert 409 == 200
+E        +  where 409 = <Response [409 Conflict]>.status_code
+
+backend/app/tests/integration/test_approval_resume.py:248: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-08 19:13:41,930 INFO bs_agent.access http_request_completed
+2026-11-08 19:13:41,935 INFO httpx2 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+------------------------------ Captured log call -------------------------------
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+_____ test_approval_resume_uses_run_scoped_buffer_and_flushes_after_commit _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11d3e78d0>
+
+    def test_approval_resume_uses_run_scoped_buffer_and_flushes_after_commit(monkeypatch):
+        observed_buffers = []
+    
+        def resumed_with_trace(**kwargs):
+            buffer = kwargs["trace_buffer"]
+            state = _resumed_state(final_content="模拟交易已提交。")
+            buffer.record_event(
+                TraceEvent(
+                    trace_id=state["trace_id"],
+                    node_name="tool_agent",
+                    status="success",
+                    latency_ms=2,
+                )
+            )
+            observed_buffers.append(buffer)
+            return state
+    
+        monkeypatch.setattr(approvals, "resume_question_answer_graph", resumed_with_trace)
+        monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+        app, session_factory = _test_app()
+        with session_factory() as db:
+            _seed_interrupted_turn(db)
+    
+        response = TestClient(app).post(
+            "/api/approvals/approval_1/decision",
+            json={"decision": "approved"},
+        )
+    
+>       assert response.status_code == 200
+E       assert 409 == 200
+E        +  where 409 = <Response [409 Conflict]>.status_code
+
+backend/app/tests/integration/test_approval_resume.py:300: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-08 19:13:42,499 INFO bs_agent.access http_request_completed
+2026-11-08 19:13:42,501 INFO httpx2 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+------------------------------ Captured log call -------------------------------
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+________ test_approval_resume_interrupted_again_reuses_original_message ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11d3e7b50>
+
+    def test_approval_resume_interrupted_again_reuses_original_message(monkeypatch):
+        dispatches = []
+        monkeypatch.setattr(
+            approvals,
+            "resume_question_answer_graph",
+            lambda **_kwargs: _resumed_state(interrupted=True),
+        )
+        monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+        monkeypatch.setattr(
+            approvals,
+            "dispatch_context_compaction",
+            lambda **kwargs: dispatches.append(kwargs) or True,
+        )
+        monkeypatch.setattr(
+            approvals,
+            "_project_current_interrupts",
+            lambda _state: [
+                {
+                    **_state["__interrupt__"][0].value,
+                    "checkpoint_id": "checkpoint_2",
+                    "interrupt_id": "interrupt_2",
+                }
+            ],
+        )
+        app, session_factory = _test_app()
+        with session_factory() as db:
+            _seed_interrupted_turn(db)
+    
+        response = TestClient(app).post(
+            "/api/approvals/approval_1/decision",
+            json={"decision": "approved"},
+        )
+    
+>       assert response.status_code == 200
+E       assert 409 == 200
+E        +  where 409 = <Response [409 Conflict]>.status_code
+
+backend/app/tests/integration/test_approval_resume.py:345: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-08 19:13:42,614 INFO bs_agent.access http_request_completed
+2026-11-08 19:13:42,616 INFO httpx2 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+------------------------------ Captured log call -------------------------------
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+_____ test_rejected_approval_completes_original_message_with_rejected_run ______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x11d15c610>
+
+    def test_rejected_approval_completes_original_message_with_rejected_run(monkeypatch):
+        state = _resumed_state(final_content="用户拒绝了该操作。")
+        state["final_response"]["approval_status"] = "rejected"
+        monkeypatch.setattr(
+            approvals,
+            "resume_question_answer_graph",
+            lambda **_kwargs: state,
+        )
+        monkeypatch.setattr(approvals, "maybe_build_llm_client", lambda: None)
+        app, session_factory = _test_app()
+        with session_factory() as db:
+            _seed_interrupted_turn(db)
+    
+        response = TestClient(app).post(
+            "/api/approvals/approval_1/decision",
+            json={"decision": "rejected"},
+        )
+    
+>       assert response.status_code == 200
+E       assert 409 == 200
+E        +  where 409 = <Response [409 Conflict]>.status_code
+
+backend/app/tests/integration/test_approval_resume.py:377: AssertionError
+----------------------------- Captured stdout call -----------------------------
+2026-11-08 19:13:43,102 INFO bs_agent.access http_request_completed
+2026-11-08 19:13:43,105 INFO httpx2 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+------------------------------ Captured log call -------------------------------
+INFO     bs_agent.access:observability.py:85 http_request_completed
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/api/approvals/approval_1/decision "HTTP/1.1 409 Conflict"
+=========================== short test summary info ============================
+FAILED backend/app/tests/integration/test_approval_resume.py::test_approval_resume_completes_original_assistant_message
+FAILED backend/app/tests/integration/test_approval_resume.py::test_approval_resume_uses_run_scoped_buffer_and_flushes_after_commit
+FAILED backend/app/tests/integration/test_approval_resume.py::test_approval_resume_interrupted_again_reuses_original_message
+FAILED backend/app/tests/integration/test_approval_resume.py::test_rejected_approval_completes_original_message_with_rejected_run
+4 failed, 2231 passed, 9 skipped in 157.52s (0:02:37)

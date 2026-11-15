@@ -1,0 +1,528 @@
+{
+  "case_id": "046",
+  "run": {
+    "run_id": "run_2d69e1ea1937ad747b8f8ebe2e3a97496d33a124f02091d93baf5a9ca1f9",
+    "session_id": "live50-20261024-a-046",
+    "session_key": "sess_a24c352147b842c99e18f2d14157c357",
+    "trace_id": "trace_3fb06e7169ca45b4b6f129cabe998639",
+    "status": "completed",
+    "created_at": "2026-10-24 14:48:07.834297+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 26,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:48:08.004140+00:00",
+    "ended_at": "2026-10-24 14:48:27.309318+00:00",
+    "events": 26
+  },
+  "receipts": [
+    {
+      "receipt_id": "0bc7122e82ad44bb81b868018e31204a",
+      "tool_name": "mcp.tushare.stock_company",
+      "call_id": "call_0f7aa5ac2bc39e72df5cf8b19cb3b4d6",
+      "risk_level": "medium",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": [
+          {
+            "city": "遵义市",
+            "email": "mtdm@moutaichina.com",
+            "com_id": "9152000071430580XT",
+            "office": "贵州省仁怀市茅台镇",
+            "manager": "王莉",
+            "ts_code": "600519.SH",
+            "website": "www.moutaichina.com",
+            "chairman": "陈华",
+            "com_name": "贵州茅台酒股份有限公司",
+            "exchange": "SSE",
+            "province": "贵州",
+            "employees": 34992,
+            "secretary": "余思明",
+            "setup_date": "19991120",
+            "reg_capital": 125008.1601,
+            "introduction": "贵州茅台酒股份有限公司是由中国贵州茅台酒厂有限责任公司、贵州茅台酒厂技术开发公司、贵州省轻纺集体工业联社、深圳清华大学研究院、中国食品发酵工业研究所、北京糖业烟酒公司、江苏省糖烟酒总公司、上海捷强烟草糖酒(集团)有限公司等八家公司共同发起,并经过贵州省人民政府黔府函字(1999)291号文件批准设立的股份有限公司。目前,贵州茅台酒股份有限公司茅台酒年生产量四万吨;43°、38°、33°茅台酒拓展了茅台酒家族低度酒的发展空间;茅台王子酒、茅台迎宾酒满足了中低档消费者的需求;15年、30年、50年、80年陈年茅台酒填补了我国极品酒、年份酒、陈年老窖的空白;在国内独创年代梯级式的产品开发模式。形成了低度、高中低档、极品三大系列200多个规格品种,全方位跻身市场,从而占据了白酒市场制高点,称雄于中国极品酒市场。",
+            "main_business": "贵州茅台酒系列产品的生产与销售,饮料、食品、包装材料的生产与销售,防伪技术开发;信息产业相关产品的研制和开发等。",
+            "business_scope": "茅台酒及系列酒的生产与销售；饮料、食品、包装材料的生产、销售；防伪技术开发、信息产业相关产品的研制、开发；酒店经营管理、住宿、餐饮、娱乐、洗浴及停车场管理服务；车辆运输、维修保养；第二类增值电信业务。（具体内容以市场监督管理机关核定的经营范围为准）"
+          }
+        ],
+        "status": "success",
+        "trace_id": "trace_3fb06e7169ca45b4b6f129cabe998639",
+        "tool_name": "mcp.tushare.stock_company",
+        "latency_ms": 978,
+        "tool_call_id": "tool_bf2eeec14fa64cefb53ecb38fe1f3e23",
+        "execution_state": "completed",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.stock_company",
+            "request_id": "live50-20261024-a-046",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "d226bb4b8c5ab98766acb3f0082b3570b7bebe06f9c5c3de62bb5b404fc10c4f",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "7e93bb51c597eaf997a9c53fd8b6932d5db6a9253a037d7f0d471d606f835bf8"
+        }
+      },
+      "created_at": "2026-10-24 14:48:14.554842+00:00",
+      "completed_at": "2026-10-24 14:48:15.504242+00:00"
+    },
+    {
+      "receipt_id": "eb8cb8ce5b2d415b8edb6a4eb2a799f2",
+      "tool_name": "mcp.tushare.anns_d",
+      "call_id": "call_4bc76f7506efa0ef32bccc454e0aee13",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_3fb06e7169ca45b4b6f129cabe998639",
+        "tool_name": "mcp.tushare.anns_d",
+        "latency_ms": 800,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.anns_d",
+          "latency_ms": 703,
+          "tool_call_id": "tool_2c3d62ef67ec4734a4b49c35b700881f",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_b2d718df68a74a96bc1f3b01517e6682",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.anns_d",
+            "request_id": "live50-20261024-a-046",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "6ce7a6ed43383b806d0d0d10c39d6851207cc78f847e59ee57f11e273abc0716"
+        }
+      },
+      "created_at": "2026-10-24 14:48:19.825918+00:00",
+      "completed_at": "2026-10-24 14:48:20.591206+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "deferred_tool_calls": {
+      "call_493deb109b00cd519bd74cd28757d4f7": {
+        "task_id": "r1_moutai_quote",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_bd02c78fb8511ea5b2e33e33c5835c22"
+      }
+    },
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "使用公司速览工作流company_snapshot生成贵州茅台的公司基础资料、行情和公告速览，缺失字段不要补造",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "公司基础资料已成功获取；行情任务因工具副作用未核实未派发，公告任务工具执行失败，且修订次数已用尽，无法继续取证。按用户要求缺失字段不补造，如实说明限制。",
+      "unresolved_questions": [
+        "贵州茅台最新行情数据（最新价、涨跌幅、成交量、成交额等）未能获取，需核实工具执行状态后重试",
+        "贵州茅台近期公告列表未能获取，公告查询工具执行失败"
+      ]
+    },
+    "tool_selection_contexts": {
+      "call_0f7aa5ac2bc39e72df5cf8b19cb3b4d6": {
+        "request_id": "live50-20261024-a-046",
+        "task": {
+          "id": "company_snapshot_moutai",
+          "task_goal": "使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得贵州茅台的公司基础资料字段（如公司名称、代码、所属行业、主营业务等，以工作流实际返回为准）",
+            "取得最新行情数据（价格、涨跌幅等，以工作流实际返回为准）",
+            "取得近期公告速览列表",
+            "明确列出工作流未返回或为空的字段，标注为未披露，不补造"
+          ],
+          "tool_search_query": "公司速览工作流 company_snapshot 贵州茅台 基础资料 行情 公告",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_0f7aa5ac2bc39e72df5cf8b19cb3b4d6",
+        "request_fingerprint": "7e93bb51c597eaf997a9c53fd8b6932d5db6a9253a037d7f0d471d606f835bf8",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_4abec28a7ad2d82b52e6f395c2bcc966",
+        "as_of": "2026-10-24T22:48:08+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.stk_managers",
+            "version": "mcp-http-v1",
+            "binding": "3cb47e52d453b2b4d079fb3289f0a518cd3460a11cb3024ccca112a5c1c03469"
+          },
+          {
+            "name": "mcp.tushare.stock_company",
+            "version": "mcp-http-v1",
+            "binding": "d226bb4b8c5ab98766acb3f0082b3570b7bebe06f9c5c3de62bb5b404fc10c4f"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_493deb109b00cd519bd74cd28757d4f7": {
+        "request_id": "live50-20261024-a-046",
+        "task": {
+          "id": "r1_moutai_quote",
+          "task_goal": "获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得贵州茅台最新交易日行情数据",
+            "明确记录数据日期",
+            "未返回字段标注未披露，不补造"
+          ],
+          "tool_search_query": "股票最新行情 日线行情 600519.SH",
+          "evidence_task_ids": [
+            "company_snapshot_moutai"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_493deb109b00cd519bd74cd28757d4f7",
+        "request_fingerprint": "b24ca5e40ba3e0ccb9d572fc8bcf075808becdc6470f3f9d4909a8166bd308d4",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_bd02c78fb8511ea5b2e33e33c5835c22",
+        "as_of": "2026-10-24T22:48:08+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.rt_idx_k",
+            "version": "mcp-http-v1",
+            "binding": "a7278a8af871cad07d13f5df7f9cbdb4370a41108eca7eee92f62ccb5e9428b1"
+          },
+          {
+            "name": "mcp.tushare.hk_daily",
+            "version": "mcp-http-v1",
+            "binding": "aa42547d7d8cd4df1d5a49113d7169098fbeaad1357105aadce0484fad17bb7c"
+          },
+          {
+            "name": "mcp.tushare.rt_k",
+            "version": "mcp-http-v1",
+            "binding": "3d66012f916e29c61b3ec47d2556d087d10853912f0cf23a97d36a8bfc233979"
+          },
+          {
+            "name": "mcp.tushare.rt_hk_k",
+            "version": "mcp-http-v1",
+            "binding": "6260571c28013f9677720d6a09bb793a2016cce3b99e42fd07e100953e8ba751"
+          },
+          {
+            "name": "mcp.tushare.fx_daily",
+            "version": "mcp-http-v1",
+            "binding": "149c6fe8a318a73c51aae647a40fb2097eadf9a6e9cdcf29064ab68599e43725"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_4bc76f7506efa0ef32bccc454e0aee13": {
+        "request_id": "live50-20261024-a-046",
+        "task": {
+          "id": "r1_moutai_announcements",
+          "task_goal": "获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得近期公告列表及日期",
+            "按时间倒序整理公告速览",
+            "无公告或字段缺失时标注未披露，不补造"
+          ],
+          "tool_search_query": "上市公司公告查询 600519.SH 近期公告",
+          "evidence_task_ids": [
+            "company_snapshot_moutai"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_4bc76f7506efa0ef32bccc454e0aee13",
+        "request_fingerprint": "6ce7a6ed43383b806d0d0d10c39d6851207cc78f847e59ee57f11e273abc0716",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_bd02c78fb8511ea5b2e33e33c5835c22",
+        "as_of": "2026-10-24T22:48:08+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.stk_holdertrade",
+            "version": "mcp-http-v1",
+            "binding": "9ae9774a8f382b989b8ebda6ce4452ce4f01e9e35d125477c7bcef65b361e0c5"
+          },
+          {
+            "name": "mcp.tushare.stk_holdernumber",
+            "version": "mcp-http-v1",
+            "binding": "43dcc85b2f0ab4293f2fec3b96813d93a85e264bd7537e15c79bb2c37815a619"
+          },
+          {
+            "name": "mcp.tushare.anns_d",
+            "version": "mcp-http-v1",
+            "binding": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9"
+          },
+          {
+            "name": "mcp.tushare.repurchase",
+            "version": "mcp-http-v1",
+            "binding": "de053ddabcfdf60d2611ed067d66365525c84499c6aec1a7ea2236a67eea3afd"
+          },
+          {
+            "name": "mcp.tushare.stk_managers",
+            "version": "mcp-http-v1",
+            "binding": "3cb47e52d453b2b4d079fb3289f0a518cd3460a11cb3024ccca112a5c1c03469"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_4abec28a7ad2d82b52e6f395c2bcc966": {
+        "dispatch_batch_id": "dispatch_4abec28a7ad2d82b52e6f395c2bcc966",
+        "run_identity": "080897a5056de9585579e298ff90eaed123aa0d5afc09f0b988d0dcd1dcb9f14",
+        "plan_digest": "2f1ce542a89aaf5267d9db294f55527f6caab7ec19afefe1b2959bb2be811373",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "company_snapshot_moutai"
+        ]
+      },
+      "dispatch_bd02c78fb8511ea5b2e33e33c5835c22": {
+        "dispatch_batch_id": "dispatch_bd02c78fb8511ea5b2e33e33c5835c22",
+        "run_identity": "080897a5056de9585579e298ff90eaed123aa0d5afc09f0b988d0dcd1dcb9f14",
+        "plan_digest": "91a130db9f4e12d23691aa2fe9e2ecd2e303b8fc10709d1a83fd75a85205adae",
+        "observations_digest": "9251ca67db9ceeb2b1d3c33dc08d2bba038f8779ac43a238b844b36de7ae5bdb",
+        "members": [
+          "r1_moutai_announcements",
+          "r1_moutai_quote"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "调用公司速览工作流获取贵州茅台的公司基础资料、行情与公告信息，按工作流输出整理；缺失字段标注未披露，不做补造。",
+          "tasks": [
+            {
+              "id": "company_snapshot_moutai",
+              "task_goal": "使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "取得贵州茅台的公司基础资料字段（如公司名称、代码、所属行业、主营业务等，以工作流实际返回为准）",
+                "取得最新行情数据（价格、涨跌幅等，以工作流实际返回为准）",
+                "取得近期公告速览列表",
+                "明确列出工作流未返回或为空的字段，标注为未披露，不补造"
+              ],
+              "tool_search_query": "公司速览工作流 company_snapshot 贵州茅台 基础资料 行情 公告",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "在已获取的贵州茅台公司基础资料基础上，补充最新行情与近期公告速览，缺失字段标注未披露、不补造。",
+      "tasks": [
+        {
+          "id": "r1_moutai_quote",
+          "task_goal": "获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得贵州茅台最新交易日行情数据",
+            "明确记录数据日期",
+            "未返回字段标注未披露，不补造"
+          ],
+          "tool_search_query": "股票最新行情 日线行情 600519.SH",
+          "evidence_task_ids": [
+            "company_snapshot_moutai"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        {
+          "id": "r1_moutai_announcements",
+          "task_goal": "获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "取得近期公告列表及日期",
+            "按时间倒序整理公告速览",
+            "无公告或字段缺失时标注未披露，不补造"
+          ],
+          "tool_search_query": "上市公司公告查询 600519.SH 近期公告",
+          "evidence_task_ids": [
+            "company_snapshot_moutai"
+          ],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "company_snapshot_moutai",
+        "status": "success",
+        "content": "[{\"business_scope\":\"茅台酒及系列酒的生产与销售；饮料、食品、包装材料的生产、销售；防伪技术开发、信息产业相关产品的研制、开发；酒店经营管理、住宿、餐饮、娱乐、洗浴及停车场管理服务；车辆运输、维修保养；第二类增值电信业务。（具体内容以市场监督管理机关核定的经营范围为准）\",\"chairman\":\"陈华\",\"city\":\"遵义市\",\"com_id\":\"9152000071430580XT\",\"com_name\":\"贵州茅台酒股份有限公司\",\"email\":\"mtdm@moutaichina.com\",\"employees\":34992,\"exchange\":\"SSE\",\"introduction\":\"贵州茅台酒股份有限公司是由中国贵州茅台酒厂有限责任公司、贵州茅台酒厂技术开发公司、贵州省轻纺集体工业联社、深圳清华大学研究院、中国食品发酵工业研究所、北京糖业烟酒公司、江苏省糖烟酒总公司、上海捷强烟草糖酒(集团)有限公司等八家公司共同发起,并经过贵州省人民政府黔府函字(1999)291号文件批准设立的股份有限公司。目前,贵州茅台酒股份有限公司茅台酒年生产量四万吨;43°、38°、33°茅台酒拓展了茅台酒家族低度酒的发展空间;茅台王子酒、茅台迎宾酒满足了中低档消费者的需求;15年、30年、50年、80年陈年茅台酒填补了我国极品酒、年份酒、陈年老窖的空白;在国内独创年代梯级式的产品开发模式。形成了低度、高中低档、极品三大系列200多个规格品种,全方位跻身市场,从而占据了白酒市场制高点,称雄于中国极品酒市场。\",\"main_business\":\"贵州茅台酒系列产品的生产与销售,饮料、食品、包装材料的生产与销售,防伪技术开发;信息产业相关产品的研制和开发等。\",\"manager\":\"王莉\",\"office\":\"贵州省仁怀市茅台镇\",\"province\":\"贵州\",\"reg_capital\":125008.1601,\"secretary\":\"余思明\",\"setup_date\":\"19991120\",\"ts_code\":\"600519.SH\",\"website\":\"www.moutaichina.com\"}]",
+        "error_code": null,
+        "tool_name": "mcp.tushare.stock_company"
+      },
+      {
+        "task_id": "r1_moutai_announcements",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.anns_d"
+      },
+      {
+        "task_id": "r1_moutai_quote",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.rt_k"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_0f7aa5ac2bc39e72df5cf8b19cb3b4d6' request=ToolCallRequest(call_id='call_0f7aa5ac2bc39e72df5cf8b19cb3b4d6', tool_name='mcp.tushare.stock_company', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH'}, purpose='使用公司速览工作流 company_snapshot 获取贵州茅台（600519.SH）的公司基础资料、最新行情和公告速览，并保留工作流返回的字段与缺失情况。', approval_required=False) result=ToolCallResult(tool_call_id='tool_bf2eeec14fa64cefb53ecb38fe1f3e23', tool_name='mcp.tushare.stock_company', status='success', execution_state='completed', result=[{'ts_code': '600519.SH', 'com_name': '贵州茅台酒股份有限公司', 'com_id': '9152000071430580XT', 'chairman': '陈华', 'manager': '王莉', 'secretary': '余思明', 'reg_capital': 125008.1601, 'setup_date': '19991120', 'province': '贵州', 'city': '遵义市', 'introduction': '贵州茅台酒股份有限公司是由中国贵州茅台酒厂有限责任公司、贵州茅台酒厂技术开发公司、贵州省轻纺集体工业联社、深圳清华大学研究院、中国食品发酵工业研究所、北京糖业烟酒公司、江苏省糖烟酒总公司、上海捷强烟草糖酒(集团)有限公司等八家公司共同发起,并经过贵州省人民政府黔府函字(1999)291号文件批准设立的股份有限公司。目前,贵州茅台酒股份有限公司茅台酒年生产量四万吨;43°、38°、33°茅台酒拓展了茅台酒家族低度酒的发展空间;茅台王子酒、茅台迎宾酒满足了中低档消费者的需求;15年、30年、50年、80年陈年茅台酒填补了我国极品酒、年份酒、陈年老窖的空白;在国内独创年代梯级式的产品开发模式。形成了低度、高中低档、极品三大系列200多个规格品种,全方位跻身市场,从而占据了白酒市场制高点,称雄于中国极品酒市场。', 'website': 'www.moutaichina.com', 'email': 'mtdm@moutaichina.com', 'office': '贵州省仁怀市茅台镇', 'business_scope': '茅台酒及系列酒的生产与销售；饮料、食品、包装材料的生产、销售；防伪技术开发、信息产业相关产品的研制、开发；酒店经营管理、住宿、餐饮、娱乐、洗浴及停车场管理服务；车辆运输、维修保养；第二类增值电信业务。（具体内容以市场监督管理机关核定的经营范围为准）', 'employees': 34992, 'main_business': '贵州茅台酒系列产品的生产与销售,饮料、食品、包装材料的生产与销售,防伪技术开发;信息产业相关产品的研制和开发等。', 'exchange': 'SSE'}], error=None, latency_ms=978, trace_id='trace_3fb06e7169ca45b4b6f129cabe998639')",
+      "call_id='call_493deb109b00cd519bd74cd28757d4f7' request=ToolCallRequest(call_id='call_493deb109b00cd519bd74cd28757d4f7', tool_name='mcp.tushare.rt_k', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'fields': ['ts_code', 'name', 'pre_close', 'high', 'open', 'low', 'close', 'vol', 'amount', 'num', 'trade_time']}, purpose='获取贵州茅台（600519.SH）最新行情数据（如最新价、涨跌幅、成交量、成交额、日期等，以工具实际返回为准）。', approval_required=False) result=ToolCallResult(tool_call_id='tool_0b064bec656f44148708a2579aa51b65', tool_name='mcp.tushare.rt_k', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=96, trace_id='trace_3fb06e7169ca45b4b6f129cabe998639')",
+      "call_id='call_4bc76f7506efa0ef32bccc454e0aee13' request=ToolCallRequest(call_id='call_4bc76f7506efa0ef32bccc454e0aee13', tool_name='mcp.tushare.anns_d', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'start_date': '20260701', 'end_date': '20261024', 'limit': 200}, purpose='获取贵州茅台（600519.SH）近期公告速览列表（公告标题、日期、类型等，以工具实际返回为准）。', approval_required=False) result=ToolCallResult(tool_call_id='tool_b2d718df68a74a96bc1f3b01517e6682', tool_name='mcp.tushare.anns_d', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=800, trace_id='trace_3fb06e7169ca45b4b6f129cabe998639')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- MCP 工具执行失败。\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+      "trace_id": "trace_3fb06e7169ca45b4b6f129cabe998639",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "mcp_tool_execution_failed"
+    },
+    "errors": []
+  }
+}

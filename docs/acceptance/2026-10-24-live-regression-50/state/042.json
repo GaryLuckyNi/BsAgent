@@ -1,0 +1,847 @@
+{
+  "case_id": "042",
+  "run": {
+    "run_id": "run_d6abfe0307579b01399c160ae0fa4bc236da610025029282b659dd8b585f",
+    "session_id": "live50-20261024-a-042",
+    "session_key": "sess_bea3daddd21f467fa91efb85b6232cfb",
+    "trace_id": "trace_71595d52e0e0420b91d48267ebf60ce3",
+    "status": "completed",
+    "created_at": "2026-10-24 14:46:55.338770+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 29,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:46:55.735822+00:00",
+    "ended_at": "2026-10-24 14:47:19.906020+00:00",
+    "events": 29
+  },
+  "receipts": [
+    {
+      "receipt_id": "09ae92d9026a4e7484102ffb224a5d43",
+      "tool_name": "mcp.tushare.fina_mainbz",
+      "call_id": "call_8a927404d3cf86b66d9bc1e70dacdefd",
+      "risk_level": "medium",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": [
+          {
+            "bz_code": "D",
+            "bz_cost": null,
+            "bz_item": "东北",
+            "ts_code": "300561.SZ",
+            "bz_sales": 3004552.32,
+            "end_date": "20241231",
+            "bz_profit": null,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "D",
+            "bz_cost": 6731984.69,
+            "bz_item": "华东",
+            "ts_code": "300561.SZ",
+            "bz_sales": 14176627.58,
+            "end_date": "20241231",
+            "bz_profit": 7444642.89,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "D",
+            "bz_cost": null,
+            "bz_item": "华中",
+            "ts_code": "300561.SZ",
+            "bz_sales": 6746965.01,
+            "end_date": "20241231",
+            "bz_profit": null,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "D",
+            "bz_cost": 9610597.06,
+            "bz_item": "华北",
+            "ts_code": "300561.SZ",
+            "bz_sales": 16221397.27,
+            "end_date": "20241231",
+            "bz_profit": 6610800.21,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "D",
+            "bz_cost": 25051568.21,
+            "bz_item": "华南",
+            "ts_code": "300561.SZ",
+            "bz_sales": 42498558.75,
+            "end_date": "20241231",
+            "bz_profit": 17446990.54,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "D",
+            "bz_cost": 5999473.87,
+            "bz_item": "合计特别调整",
+            "ts_code": "300561.SZ",
+            "bz_sales": null,
+            "end_date": "20241231",
+            "bz_profit": null,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "D",
+            "bz_cost": 47393623.83,
+            "bz_item": "地区",
+            "ts_code": "300561.SZ",
+            "bz_sales": 89833754.57,
+            "end_date": "20241231",
+            "bz_profit": 42440130.74,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "D",
+            "bz_cost": null,
+            "bz_item": "西北",
+            "ts_code": "300561.SZ",
+            "bz_sales": 6032948.05,
+            "end_date": "20241231",
+            "bz_profit": null,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "D",
+            "bz_cost": null,
+            "bz_item": "西南",
+            "ts_code": "300561.SZ",
+            "bz_sales": 1152705.59,
+            "end_date": "20241231",
+            "bz_profit": null,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "I",
+            "bz_cost": 551043.22,
+            "bz_item": "其他",
+            "ts_code": "300561.SZ",
+            "bz_sales": 403260.03,
+            "end_date": "20241231",
+            "bz_profit": -147783.19,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "I",
+            "bz_cost": 47393623.83,
+            "bz_item": "行业",
+            "ts_code": "300561.SZ",
+            "bz_sales": 89833754.57,
+            "end_date": "20241231",
+            "bz_profit": 42440130.74,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "I",
+            "bz_cost": 46842580.61,
+            "bz_item": "软件和信息技术服务业",
+            "ts_code": "300561.SZ",
+            "bz_sales": 89430494.54,
+            "end_date": "20241231",
+            "bz_profit": 42587913.93,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "P",
+            "bz_cost": 47393623.83,
+            "bz_item": "产品",
+            "ts_code": "300561.SZ",
+            "bz_sales": 89833754.57,
+            "end_date": "20241231",
+            "bz_profit": 42440130.74,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "P",
+            "bz_cost": 1622629.0,
+            "bz_item": "其他",
+            "ts_code": "300561.SZ",
+            "bz_sales": 2270823.6,
+            "end_date": "20241231",
+            "bz_profit": 648194.6,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "P",
+            "bz_cost": 18662027.07,
+            "bz_item": "银行现金及重控物品管理解决方案",
+            "ts_code": "300561.SZ",
+            "bz_sales": 41743564.4,
+            "end_date": "20241231",
+            "bz_profit": 23081537.33,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "P",
+            "bz_cost": 4363038.87,
+            "bz_item": "银行系统AI鉴权及音视频采集解决方案",
+            "ts_code": "300561.SZ",
+            "bz_sales": 7090105.72,
+            "end_date": "20241231",
+            "bz_profit": 2727066.85,
+            "curr_type": "CNY"
+          },
+          {
+            "bz_code": "P",
+            "bz_cost": 22745928.89,
+            "bz_item": "银行自助设备现金管理系统解决方案",
+            "ts_code": "300561.SZ",
+            "bz_sales": 38729260.85,
+            "end_date": "20241231",
+            "bz_profit": 15983331.96,
+            "curr_type": "CNY"
+          }
+        ],
+        "status": "success",
+        "trace_id": "trace_71595d52e0e0420b91d48267ebf60ce3",
+        "tool_name": "mcp.tushare.fina_mainbz",
+        "latency_ms": 1724,
+        "tool_call_id": "tool_63ae79be918e4bf09d6584a5f6e3cbe9",
+        "execution_state": "completed",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.fina_mainbz",
+            "request_id": "live50-20261024-a-042",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "d41c658ec88f18e43af92f18095aea4b0f8f8ded0e7d8fa329962a77e1ac2d53",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "8d185949e672bb7ca28957b792ae45b468202e6815fd4ce5d632a5ad1ba8d80c"
+        }
+      },
+      "created_at": "2026-10-24 14:47:09.815471+00:00",
+      "completed_at": "2026-10-24 14:47:11.190511+00:00"
+    },
+    {
+      "receipt_id": "32b7072e75a94f50b2c0024b6107ce87",
+      "tool_name": "mcp.tushare.anns_d",
+      "call_id": "call_44d0d3a560325f4ae0d2d5bf5939d20f",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_71595d52e0e0420b91d48267ebf60ce3",
+        "tool_name": "mcp.tushare.anns_d",
+        "latency_ms": 1176,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.anns_d",
+          "latency_ms": 757,
+          "tool_call_id": "tool_f616b7b4e97e4f268a5ebba433132e0e",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_27968a6f1c51458090b1114391e133a5",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.anns_d",
+            "request_id": "live50-20261024-a-042",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "7e8ea93a9d0d32c2bebf760d6ebb75c058c1229651c4ad2ecb63cf14f61f3498"
+        }
+      },
+      "created_at": "2026-10-24 14:47:11.567654+00:00",
+      "completed_at": "2026-10-24 14:47:12.371204+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_8a927404d3cf86b66d9bc1e70dacdefd": {
+        "request_id": "live50-20261024-a-042",
+        "task": {
+          "id": "main_business_2024",
+          "task_goal": "取得汇金科技（300561.SZ）2024年度主营业务构成数据：按产品/行业/地区分类的营业收入、营业成本、毛利率及占比，并注明数据来源（年报或定期报告）与报告期口径。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2024年度（2024-12-31报告期）主营业务构成明细，至少含分项收入与占比",
+            "标明数据来源文件或接口口径",
+            "若某项缺失（如分地区数据未披露）需明确列为缺口"
+          ],
+          "tool_search_query": "A股上市公司主营业务构成 分产品收入 年报数据",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_8a927404d3cf86b66d9bc1e70dacdefd",
+        "request_fingerprint": "8d185949e672bb7ca28957b792ae45b468202e6815fd4ce5d632a5ad1ba8d80c",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_a88ae6fe827c024bc2836f5c03369361",
+        "as_of": "2026-10-24T22:46:57+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.fina_mainbz",
+            "version": "mcp-http-v1",
+            "binding": "d41c658ec88f18e43af92f18095aea4b0f8f8ded0e7d8fa329962a77e1ac2d53"
+          },
+          {
+            "name": "mcp.tushare.fina_mainbz_vip",
+            "version": "mcp-http-v1",
+            "binding": "3ea791f79688c88feb644dd3ad28e4a8b967e7f6ab27d91f8519d8902a8df3d0"
+          },
+          {
+            "name": "mcp.tushare.express",
+            "version": "mcp-http-v1",
+            "binding": "47ee4ca417c950fa458108030facda78c2e79ffb67abcbfe678be277f2d93ec1"
+          },
+          {
+            "name": "mcp.tushare.hk_income",
+            "version": "mcp-http-v1",
+            "binding": "d347dd2ab6872e2861dbb13021e31248fb06eebecedd1f23033a605d7f86b34e"
+          },
+          {
+            "name": "mcp.tushare.us_balancesheet",
+            "version": "mcp-http-v1",
+            "binding": "47722259ef70fd5b1e3abfbd5f823a48f795f3af8b9cd685c18f4f1aa1b82e9c"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_c0d7388cf1debca0ce6533c35036b2ac": {
+        "request_id": "live50-20261024-a-042",
+        "task": {
+          "id": "daily_quote_20250901",
+          "task_goal": "取得汇金科技（300561.SZ）2025年9月1日的日行情数据：开盘价、最高价、最低价、收盘价、前收盘价、涨跌幅、成交量、成交额，并确认该日为交易日。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2025-09-01当日OHLC、涨跌幅、成交量与成交额",
+            "确认该日期为正常交易日（非停牌）",
+            "若数据缺失或该日停牌需明确说明"
+          ],
+          "tool_search_query": "A股个股日行情 历史K线 收盘价 成交量",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_c0d7388cf1debca0ce6533c35036b2ac",
+        "request_fingerprint": "d1bc1610a0d2ab8a645d976094adcc1bc030aee8451915491d8979823a519312",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_a88ae6fe827c024bc2836f5c03369361",
+        "as_of": "2026-10-24T22:46:57+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.daily",
+            "version": "mcp-http-v1",
+            "binding": "76d2a25cf0b31647f89db1003534f3a7a80c5a66de12e7f3115672090976a9f6"
+          },
+          {
+            "name": "mcp.tushare.fund_daily",
+            "version": "mcp-http-v1",
+            "binding": "1af9cbadb584ca820f2701e4ae1f339ab652977a6d670bd5a90598b2177681c5"
+          },
+          {
+            "name": "mcp.tushare.stk_limit",
+            "version": "mcp-http-v1",
+            "binding": "d8edcefa624f6a054e3754420b03f94457a4a6aabc2d15a213b32de6470c3918"
+          },
+          {
+            "name": "mcp.tushare.hk_daily",
+            "version": "mcp-http-v1",
+            "binding": "aa42547d7d8cd4df1d5a49113d7169098fbeaad1357105aadce0484fad17bb7c"
+          },
+          {
+            "name": "mcp.tushare.daily_basic",
+            "version": "mcp-http-v1",
+            "binding": "3a1462c0108d6b265fa4365b81b44838464ff521777ce7ec8aa3094b8692d9fb"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_44d0d3a560325f4ae0d2d5bf5939d20f": {
+        "request_id": "live50-20261024-a-042",
+        "task": {
+          "id": "announcements_20250901_07",
+          "task_goal": "取得汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间披露的全部公告清单及要点（标题、披露日期、公告类型、核心内容摘要）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出该时间区间内全部公告的标题与披露日期",
+            "对重要公告给出内容要点摘要",
+            "若区间内无公告需明确说明并给出核查来源"
+          ],
+          "tool_search_query": "上市公司公告查询 巨潮资讯 公告列表 日期区间",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_44d0d3a560325f4ae0d2d5bf5939d20f",
+        "request_fingerprint": "7e8ea93a9d0d32c2bebf760d6ebb75c058c1229651c4ad2ecb63cf14f61f3498",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_a88ae6fe827c024bc2836f5c03369361",
+        "as_of": "2026-10-24T22:46:57+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.anns_d",
+            "version": "mcp-http-v1",
+            "binding": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9"
+          },
+          {
+            "name": "mcp.tushare.irm_qa_sz",
+            "version": "mcp-http-v1",
+            "binding": "77247d61fe3dcf722e44159d6981099bbb91f5dfc962c01a9934596f19da0313"
+          },
+          {
+            "name": "mcp.tushare.hk_balancesheet",
+            "version": "mcp-http-v1",
+            "binding": "3465f08b33f90777274a91e99e98b072408ac0963304552dde40e1f8b157cd3b"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_4b8400862a2337d8eabfcd83d1e928a6": {
+        "request_id": "live50-20261024-a-042",
+        "task": {
+          "id": "r1_daily_quote_20250901_retry",
+          "task_goal": "取得汇金科技（300561.SZ）2025年9月1日的日行情数据：开盘价、最高价、最低价、收盘价、前收盘价、涨跌幅、成交量、成交额，并确认该日为交易日。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2025-09-01当日OHLC、涨跌幅、成交量与成交额",
+            "确认该日期为正常交易日（非停牌）",
+            "若数据缺失或该日停牌需明确说明"
+          ],
+          "tool_search_query": "A股个股日行情 历史K线 收盘价 成交量",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_4b8400862a2337d8eabfcd83d1e928a6",
+        "request_fingerprint": "d1bc1610a0d2ab8a645d976094adcc1bc030aee8451915491d8979823a519312",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_d4857d2ce006e32652e38a27d0b002b4",
+        "as_of": "2026-10-24T22:46:57+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.daily",
+            "version": "mcp-http-v1",
+            "binding": "76d2a25cf0b31647f89db1003534f3a7a80c5a66de12e7f3115672090976a9f6"
+          },
+          {
+            "name": "mcp.tushare.fund_daily",
+            "version": "mcp-http-v1",
+            "binding": "1af9cbadb584ca820f2701e4ae1f339ab652977a6d670bd5a90598b2177681c5"
+          },
+          {
+            "name": "mcp.tushare.stk_limit",
+            "version": "mcp-http-v1",
+            "binding": "d8edcefa624f6a054e3754420b03f94457a4a6aabc2d15a213b32de6470c3918"
+          },
+          {
+            "name": "mcp.tushare.hk_daily",
+            "version": "mcp-http-v1",
+            "binding": "aa42547d7d8cd4df1d5a49113d7169098fbeaad1357105aadce0484fad17bb7c"
+          },
+          {
+            "name": "mcp.tushare.daily_basic",
+            "version": "mcp-http-v1",
+            "binding": "3a1462c0108d6b265fa4365b81b44838464ff521777ce7ec8aa3094b8692d9fb"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_87dd7880820b94a1ecd36ad35b4c70d4": {
+        "request_id": "live50-20261024-a-042",
+        "task": {
+          "id": "r1_announcements_20250901_07_retry",
+          "task_goal": "取得汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间披露的全部公告清单及要点（标题、披露日期、公告类型、核心内容摘要）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出该时间区间内全部公告的标题与披露日期",
+            "对重要公告给出内容要点摘要",
+            "若区间内无公告需明确说明并给出核查来源"
+          ],
+          "tool_search_query": "上市公司公告查询 巨潮资讯 公告列表 日期区间",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_87dd7880820b94a1ecd36ad35b4c70d4",
+        "request_fingerprint": "7e8ea93a9d0d32c2bebf760d6ebb75c058c1229651c4ad2ecb63cf14f61f3498",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_d4857d2ce006e32652e38a27d0b002b4",
+        "as_of": "2026-10-24T22:46:57+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.anns_d",
+            "version": "mcp-http-v1",
+            "binding": "dd7bc759f17fd6e740c04c1625486a26750603e611ff060caecc51de0b8872e9"
+          },
+          {
+            "name": "mcp.tushare.irm_qa_sz",
+            "version": "mcp-http-v1",
+            "binding": "77247d61fe3dcf722e44159d6981099bbb91f5dfc962c01a9934596f19da0313"
+          },
+          {
+            "name": "mcp.tushare.hk_balancesheet",
+            "version": "mcp-http-v1",
+            "binding": "3465f08b33f90777274a91e99e98b072408ac0963304552dde40e1f8b157cd3b"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_a88ae6fe827c024bc2836f5c03369361": {
+        "dispatch_batch_id": "dispatch_a88ae6fe827c024bc2836f5c03369361",
+        "run_identity": "0b6cc622ab0f78106153f4fcca70b13411ec17f21d8b2c6785cd7b39b1a324b4",
+        "plan_digest": "7edcba26a9c7998b9e752fd2ea341528894124b865fc5c4c3467b0748ad8c160",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "announcements_20250901_07",
+          "daily_quote_20250901",
+          "main_business_2024"
+        ]
+      },
+      "dispatch_d4857d2ce006e32652e38a27d0b002b4": {
+        "dispatch_batch_id": "dispatch_d4857d2ce006e32652e38a27d0b002b4",
+        "run_identity": "0b6cc622ab0f78106153f4fcca70b13411ec17f21d8b2c6785cd7b39b1a324b4",
+        "plan_digest": "ffce511ba911b568ad2f312d17cf36adf651101794a527ed476c89a0c875a410",
+        "observations_digest": "f26ec4fc4e35491dcc05bad7da612082584258c13a3854b2f10a50626723d7a3",
+        "members": [
+          "r1_announcements_20250901_07_retry",
+          "r1_daily_quote_20250901_retry"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {
+      "call_c0d7388cf1debca0ce6533c35036b2ac": {
+        "task_id": "daily_quote_20250901",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_a88ae6fe827c024bc2836f5c03369361"
+      },
+      "call_4b8400862a2337d8eabfcd83d1e928a6": {
+        "task_id": "r1_daily_quote_20250901_retry",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_d4857d2ce006e32652e38a27d0b002b4"
+      },
+      "call_87dd7880820b94a1ecd36ad35b4c70d4": {
+        "task_id": "r1_announcements_20250901_07_retry",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_d4857d2ce006e32652e38a27d0b002b4"
+      }
+    },
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "查询汇金科技（300561.SZ）2024年主营业务构成、2025年9月1日日行情、2025年9月1日至7日公告，并逐项说明证据和缺口。",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "2024年主营业务构成已取得完整数据；日行情与公告两项因工具执行状态未核实而未能派发，重试预算已用尽，无法补齐，需如实说明缺口。",
+      "unresolved_questions": [
+        "汇金科技2025年9月1日OHLC、涨跌幅、成交量、成交额未取得，无法确认该日是否正常交易",
+        "汇金科技2025年9月1日至7日公告清单及要点未取得"
+      ]
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "围绕汇金科技（300561.SZ）分三项取证：2024年主营业务构成、2025年9月1日日行情、2025年9月1日至7日公告；每项均需给出可引用证据并标注数据缺口。",
+          "tasks": [
+            {
+              "id": "main_business_2024",
+              "task_goal": "取得汇金科技（300561.SZ）2024年度主营业务构成数据：按产品/行业/地区分类的营业收入、营业成本、毛利率及占比，并注明数据来源（年报或定期报告）与报告期口径。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回2024年度（2024-12-31报告期）主营业务构成明细，至少含分项收入与占比",
+                "标明数据来源文件或接口口径",
+                "若某项缺失（如分地区数据未披露）需明确列为缺口"
+              ],
+              "tool_search_query": "A股上市公司主营业务构成 分产品收入 年报数据",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            },
+            {
+              "id": "daily_quote_20250901",
+              "task_goal": "取得汇金科技（300561.SZ）2025年9月1日的日行情数据：开盘价、最高价、最低价、收盘价、前收盘价、涨跌幅、成交量、成交额，并确认该日为交易日。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "返回2025-09-01当日OHLC、涨跌幅、成交量与成交额",
+                "确认该日期为正常交易日（非停牌）",
+                "若数据缺失或该日停牌需明确说明"
+              ],
+              "tool_search_query": "A股个股日行情 历史K线 收盘价 成交量",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            },
+            {
+              "id": "announcements_20250901_07",
+              "task_goal": "取得汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间披露的全部公告清单及要点（标题、披露日期、公告类型、核心内容摘要）。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "列出该时间区间内全部公告的标题与披露日期",
+                "对重要公告给出内容要点摘要",
+                "若区间内无公告需明确说明并给出核查来源"
+              ],
+              "tool_search_query": "上市公司公告查询 巨潮资讯 公告列表 日期区间",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "public_information"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "汇金科技（300561.SZ）三项取证：2024年主营业务构成（已取得，保留）、2025年9月1日日行情、2025年9月1日至7日公告；每项给出可引用证据并标注缺口。",
+      "tasks": [
+        {
+          "id": "r1_daily_quote_20250901_retry",
+          "task_goal": "取得汇金科技（300561.SZ）2025年9月1日的日行情数据：开盘价、最高价、最低价、收盘价、前收盘价、涨跌幅、成交量、成交额，并确认该日为交易日。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2025-09-01当日OHLC、涨跌幅、成交量与成交额",
+            "确认该日期为正常交易日（非停牌）",
+            "若数据缺失或该日停牌需明确说明"
+          ],
+          "tool_search_query": "A股个股日行情 历史K线 收盘价 成交量",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        {
+          "id": "r1_announcements_20250901_07_retry",
+          "task_goal": "取得汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间披露的全部公告清单及要点（标题、披露日期、公告类型、核心内容摘要）。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出该时间区间内全部公告的标题与披露日期",
+            "对重要公告给出内容要点摘要",
+            "若区间内无公告需明确说明并给出核查来源"
+          ],
+          "tool_search_query": "上市公司公告查询 巨潮资讯 公告列表 日期区间",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "main_business_2024",
+        "status": "success",
+        "content": "[{\"bz_code\":\"D\",\"bz_cost\":null,\"bz_item\":\"东北\",\"bz_profit\":null,\"bz_sales\":3004552.32,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"D\",\"bz_cost\":6731984.69,\"bz_item\":\"华东\",\"bz_profit\":7444642.89,\"bz_sales\":14176627.58,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"D\",\"bz_cost\":null,\"bz_item\":\"华中\",\"bz_profit\":null,\"bz_sales\":6746965.01,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"D\",\"bz_cost\":9610597.06,\"bz_item\":\"华北\",\"bz_profit\":6610800.21,\"bz_sales\":16221397.27,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"D\",\"bz_cost\":25051568.21,\"bz_item\":\"华南\",\"bz_profit\":17446990.54,\"bz_sales\":42498558.75,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"D\",\"bz_cost\":5999473.87,\"bz_item\":\"合计特别调整\",\"bz_profit\":null,\"bz_sales\":null,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"D\",\"bz_cost\":47393623.83,\"bz_item\":\"地区\",\"bz_profit\":42440130.74,\"bz_sales\":89833754.57,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"D\",\"bz_cost\":null,\"bz_item\":\"西北\",\"bz_profit\":null,\"bz_sales\":6032948.05,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"D\",\"bz_cost\":null,\"bz_item\":\"西南\",\"bz_profit\":null,\"bz_sales\":1152705.59,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"I\",\"bz_cost\":551043.22,\"bz_item\":\"其他\",\"bz_profit\":-147783.19,\"bz_sales\":403260.03,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"I\",\"bz_cost\":47393623.83,\"bz_item\":\"行业\",\"bz_profit\":42440130.74,\"bz_sales\":89833754.57,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"I\",\"bz_cost\":46842580.61,\"bz_item\":\"软件和信息技术服务业\",\"bz_profit\":42587913.93,\"bz_sales\":89430494.54,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"P\",\"bz_cost\":47393623.83,\"bz_item\":\"产品\",\"bz_profit\":42440130.74,\"bz_sales\":89833754.57,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"P\",\"bz_cost\":1622629.0,\"bz_item\":\"其他\",\"bz_profit\":648194.6,\"bz_sales\":2270823.6,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"P\",\"bz_cost\":18662027.07,\"bz_item\":\"银行现金及重控物品管理解决方案\",\"bz_profit\":23081537.33,\"bz_sales\":41743564.4,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"P\",\"bz_cost\":4363038.87,\"bz_item\":\"银行系统AI鉴权及音视频采集解决方案\",\"bz_profit\":2727066.85,\"bz_sales\":7090105.72,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"},{\"bz_code\":\"P\",\"bz_cost\":22745928.89,\"bz_item\":\"银行自助设备现金管理系统解决方案\",\"bz_profit\":15983331.96,\"bz_sales\":38729260.85,\"curr_type\":\"CNY\",\"end_date\":\"20241231\",\"ts_code\":\"300561.SZ\"}]",
+        "error_code": null,
+        "tool_name": "mcp.tushare.fina_mainbz"
+      },
+      {
+        "task_id": "announcements_20250901_07",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.anns_d"
+      },
+      {
+        "task_id": "daily_quote_20250901",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.daily"
+      },
+      {
+        "task_id": "r1_daily_quote_20250901_retry",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.daily"
+      },
+      {
+        "task_id": "r1_announcements_20250901_07_retry",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.anns_d"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_8a927404d3cf86b66d9bc1e70dacdefd' request=ToolCallRequest(call_id='call_8a927404d3cf86b66d9bc1e70dacdefd', tool_name='mcp.tushare.fina_mainbz', tool_version='mcp-http-v1', arguments={'ts_code': '300561.SZ', 'period': '20241231'}, purpose='取得汇金科技（300561.SZ）2024年度主营业务构成数据：按产品/行业/地区分类的营业收入、营业成本、毛利率及占比，并注明数据来源（年报或定期报告）与报告期口径。', approval_required=False) result=ToolCallResult(tool_call_id='tool_63ae79be918e4bf09d6584a5f6e3cbe9', tool_name='mcp.tushare.fina_mainbz', status='success', execution_state='completed', result=[{'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '东北', 'bz_code': 'D', 'bz_sales': 3004552.32, 'bz_profit': None, 'bz_cost': None, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '华东', 'bz_code': 'D', 'bz_sales': 14176627.58, 'bz_profit': 7444642.89, 'bz_cost': 6731984.69, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '华中', 'bz_code': 'D', 'bz_sales': 6746965.01, 'bz_profit': None, 'bz_cost': None, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '华北', 'bz_code': 'D', 'bz_sales': 16221397.27, 'bz_profit': 6610800.21, 'bz_cost': 9610597.06, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '华南', 'bz_code': 'D', 'bz_sales': 42498558.75, 'bz_profit': 17446990.54, 'bz_cost': 25051568.21, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '合计特别调整', 'bz_code': 'D', 'bz_sales': None, 'bz_profit': None, 'bz_cost': 5999473.87, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '地区', 'bz_code': 'D', 'bz_sales': 89833754.57, 'bz_profit': 42440130.74, 'bz_cost': 47393623.83, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '西北', 'bz_code': 'D', 'bz_sales': 6032948.05, 'bz_profit': None, 'bz_cost': None, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '西南', 'bz_code': 'D', 'bz_sales': 1152705.59, 'bz_profit': None, 'bz_cost': None, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '其他', 'bz_code': 'I', 'bz_sales': 403260.03, 'bz_profit': -147783.19, 'bz_cost': 551043.22, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '行业', 'bz_code': 'I', 'bz_sales': 89833754.57, 'bz_profit': 42440130.74, 'bz_cost': 47393623.83, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '软件和信息技术服务业', 'bz_code': 'I', 'bz_sales': 89430494.54, 'bz_profit': 42587913.93, 'bz_cost': 46842580.61, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '产品', 'bz_code': 'P', 'bz_sales': 89833754.57, 'bz_profit': 42440130.74, 'bz_cost': 47393623.83, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '其他', 'bz_code': 'P', 'bz_sales': 2270823.6, 'bz_profit': 648194.6, 'bz_cost': 1622629.0, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '银行现金及重控物品管理解决方案', 'bz_code': 'P', 'bz_sales': 41743564.4, 'bz_profit': 23081537.33, 'bz_cost': 18662027.07, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '银行系统AI鉴权及音视频采集解决方案', 'bz_code': 'P', 'bz_sales': 7090105.72, 'bz_profit': 2727066.85, 'bz_cost': 4363038.87, 'curr_type': 'CNY'}, {'ts_code': '300561.SZ', 'end_date': '20241231', 'bz_item': '银行自助设备现金管理系统解决方案', 'bz_code': 'P', 'bz_sales': 38729260.85, 'bz_profit': 15983331.96, 'bz_cost': 22745928.89, 'curr_type': 'CNY'}], error=None, latency_ms=1724, trace_id='trace_71595d52e0e0420b91d48267ebf60ce3')",
+      "call_id='call_c0d7388cf1debca0ce6533c35036b2ac' request=ToolCallRequest(call_id='call_c0d7388cf1debca0ce6533c35036b2ac', tool_name='mcp.tushare.daily', tool_version='mcp-http-v1', arguments={'ts_code': '300561.SZ', 'start_date': '20250901', 'end_date': '20250901'}, purpose='取得汇金科技（300561.SZ）2025年9月1日的日行情数据：开盘价、最高价、最低价、收盘价、前收盘价、涨跌幅、成交量、成交额，并确认该日为交易日。', approval_required=False) result=ToolCallResult(tool_call_id='tool_bfdb484c794e44c3bf9e35ad3498416e', tool_name='mcp.tushare.daily', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=261, trace_id='trace_71595d52e0e0420b91d48267ebf60ce3')",
+      "call_id='call_44d0d3a560325f4ae0d2d5bf5939d20f' request=ToolCallRequest(call_id='call_44d0d3a560325f4ae0d2d5bf5939d20f', tool_name='mcp.tushare.anns_d', tool_version='mcp-http-v1', arguments={'ts_code': '300561.SZ', 'start_date': '20250901', 'end_date': '20250907', 'fields': ['ann_date', 'ts_code', 'name', 'title', 'url', 'rec_time'], 'limit': 200}, purpose='取得汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间披露的全部公告清单及要点（标题、披露日期、公告类型、核心内容摘要）。', approval_required=False) result=ToolCallResult(tool_call_id='tool_27968a6f1c51458090b1114391e133a5', tool_name='mcp.tushare.anns_d', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=1176, trace_id='trace_71595d52e0e0420b91d48267ebf60ce3')",
+      "call_id='call_4b8400862a2337d8eabfcd83d1e928a6' request=ToolCallRequest(call_id='call_4b8400862a2337d8eabfcd83d1e928a6', tool_name='mcp.tushare.daily', tool_version='mcp-http-v1', arguments={'ts_code': '300561.SZ', 'start_date': '20250901', 'end_date': '20250901'}, purpose='取得汇金科技（300561.SZ）2025年9月1日的日行情数据：开盘价、最高价、最低价、收盘价、前收盘价、涨跌幅、成交量、成交额，并确认该日为交易日。', approval_required=False) result=ToolCallResult(tool_call_id='tool_0743e65d10cf4fffb9166278b8bf4c93', tool_name='mcp.tushare.daily', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=95, trace_id='trace_71595d52e0e0420b91d48267ebf60ce3')",
+      "call_id='call_87dd7880820b94a1ecd36ad35b4c70d4' request=ToolCallRequest(call_id='call_87dd7880820b94a1ecd36ad35b4c70d4', tool_name='mcp.tushare.anns_d', tool_version='mcp-http-v1', arguments={'ts_code': '300561.SZ', 'start_date': '20250901', 'end_date': '20250907', 'fields': ['ann_date', 'ts_code', 'name', 'title', 'url', 'rec_time'], 'limit': 200}, purpose='取得汇金科技（300561.SZ）在2025年9月1日至2025年9月7日期间披露的全部公告清单及要点（标题、披露日期、公告类型、核心内容摘要）。', approval_required=False) result=ToolCallResult(tool_call_id='tool_036e92fad14341afb67502631e11b55d', tool_name='mcp.tushare.anns_d', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=87, trace_id='trace_71595d52e0e0420b91d48267ebf60ce3')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+      "trace_id": "trace_71595d52e0e0420b91d48267ebf60ce3",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "tool_side_effects_unresolved"
+    },
+    "errors": []
+  }
+}

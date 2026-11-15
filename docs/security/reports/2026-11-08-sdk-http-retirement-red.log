@@ -1,0 +1,21 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+_______ test_model_sync_retirement_does_not_leave_owned_async_pool_open ________
+backend/app/tests/unit/test_sdk_http_budgets.py:94: in test_model_sync_retirement_does_not_leave_owned_async_pool_open
+    assert model._sdk_async_client.is_closed
+E   assert False
+E    +  where False = <app.security.sdk_http.BoundedAsyncClient object at 0x122d47150>.is_closed
+E    +    where <app.security.sdk_http.BoundedAsyncClient object at 0x122d47150> = <app.llm.deepseek.DeepSeekClient object at 0x123aa7890>._sdk_async_client
+_______ test_owned_async_sdk_connections_follow_response_lifetime[False] _______
+backend/app/tests/unit/test_sdk_http_budgets.py:99: in test_owned_async_sdk_connections_follow_response_lifetime
+    from app.security.sdk_http import RequestScopedAsyncClient
+E   ImportError: cannot import name 'RequestScopedAsyncClient' from 'app.security.sdk_http' (/Users/myfolder/前端学习项目/BsAgent/backend/app/security/sdk_http.py)
+_______ test_owned_async_sdk_connections_follow_response_lifetime[True] ________
+backend/app/tests/unit/test_sdk_http_budgets.py:99: in test_owned_async_sdk_connections_follow_response_lifetime
+    from app.security.sdk_http import RequestScopedAsyncClient
+E   ImportError: cannot import name 'RequestScopedAsyncClient' from 'app.security.sdk_http' (/Users/myfolder/前端学习项目/BsAgent/backend/app/security/sdk_http.py)
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_model_sync_retirement_does_not_leave_owned_async_pool_open
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_owned_async_sdk_connections_follow_response_lifetime[False]
+FAILED backend/app/tests/unit/test_sdk_http_budgets.py::test_owned_async_sdk_connections_follow_response_lifetime[True]
+3 failed, 17 deselected in 1.00s

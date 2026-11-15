@@ -1,0 +1,541 @@
+import pytest
+from app.core.config import Settings
+from pydantic import ValidationError
+
+
+def test_search_api_defaults_are_independent_of_model_configuration():
+    settings = Settings(_env_file=None, deepseek_base_url="https://model.example/v1")
+    assert settings.web_search_provider == "deepseek_search_api"
+    assert settings.web_search_base_url == "https://api.deepseek.com"
+    assert _production_settings().web_search_provider == "deepseek_search_api"
+
+
+@pytest.mark.parametrize("overrides", [
+    {"auth_provider": "mock", "jwt_issuer": "https://identity.example.test"},
+    {"auth_provider": "jwt", "jwt_issuer": None},
+    {"auth_provider": "jwt", "jwt_issuer": " "},
+    {"auth_provider": "jwt", "jwt_issuer": "https://identity.example.test/" + "a" * 256},
+])
+def test_real_permission_directory_requires_jwt_and_bounded_issuer(overrides):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, rbac_backend="principal", **overrides)
+
+
+@pytest.mark.parametrize("value", ["file:///tmp/search", "https://user:password@example.com",
+                                  "https://example.com?api_key=secret"])
+def test_search_api_rejects_invalid_or_secret_bearing_endpoint(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, web_search_base_url=value)
+
+
+def test_context_compaction_defaults_are_conservative_and_disabled():
+    settings = Settings(_env_file=None)
+
+    assert settings.context_compaction_enabled is False
+    assert settings.llm_context_window_tokens == 131_072
+    assert settings.context_compaction_target_ratio == 0.50
+    assert settings.context_compaction_soft_ratio == 0.70
+    assert settings.context_compaction_hard_ratio == 0.85
+    assert settings.context_compaction_keep_recent_turns == 3
+    assert settings.context_compaction_min_recent_turns == 1
+    assert settings.context_compaction_summary_target_tokens == 2_000
+    assert settings.context_compaction_summary_max_tokens == 3_000
+    assert settings.context_non_history_reserve_tokens == 24_000
+    assert settings.context_compaction_next_user_reserve_tokens == 2_048
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"context_compaction_target_ratio": 0.70},
+        {"context_compaction_soft_ratio": 0.85},
+        {"context_compaction_target_ratio": 0.90},
+        {"context_compaction_min_recent_turns": 4},
+        {"context_compaction_summary_target_tokens": 3_001},
+    ],
+)
+def test_context_compaction_rejects_invalid_cross_field_settings(overrides):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **overrides)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("context_compaction_keep_recent_turns", 0),
+        ("context_compaction_keep_recent_turns", 21),
+        ("context_compaction_min_recent_turns", 0),
+        ("context_compaction_min_recent_turns", 21),
+        ("context_compaction_summary_target_tokens", 255),
+        ("context_compaction_summary_target_tokens", 8_193),
+        ("context_compaction_summary_max_tokens", 255),
+        ("context_compaction_summary_max_tokens", 8_193),
+    ],
+)
+def test_context_compaction_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
+def test_approval_resume_claim_timeout_defaults_to_five_minutes():
+    assert Settings(_env_file=None).approval_resume_claim_timeout_seconds == 300
+
+
+def test_intent_catalog_refresh_defaults_to_thirty_seconds():
+    assert Settings(_env_file=None).intent_catalog_refresh_seconds == 30
+
+
+def test_market_data_provider_refresh_defaults_to_thirty_seconds():
+    assert Settings(_env_file=None).market_data_provider_refresh_seconds == 30
+
+
+def test_llm_timeout_defaults_to_sixty_seconds():
+    assert Settings(_env_file=None).llm_timeout_seconds == 60
+
+
+def test_orphaned_run_recovery_requires_explicit_local_opt_in():
+    assert Settings(_env_file=None).recover_orphaned_runs_on_startup is False
+    assert Settings(_env_file=None).prewarm_tool_catalog_on_startup is False
+
+
+@pytest.mark.parametrize("value", [4, 3601])
+def test_intent_catalog_refresh_enforces_bounds(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, intent_catalog_refresh_seconds=value)
+
+
+@pytest.mark.parametrize("value", [29, 3601])
+def test_approval_resume_claim_timeout_enforces_bounds(value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, approval_resume_claim_timeout_seconds=value)
+
+
+def _production_settings(**overrides):
+    values = {
+        "app_env": "production",
+        "auth_provider": "jwt",
+        "rbac_backend": "principal",
+        "database_url": "postgresql+psycopg://agent@postgres/agent",
+        "graph_checkpoint_postgres_url": "postgresql://agent@postgres/agent",
+        "asset_store_backend": "s3",
+        "asset_s3_bucket": "agent-private-assets",
+        "asset_s3_region": "cn-north-1",
+        "jwt_issuer": "https://identity.example.test",
+        "jwt_audience": "bs-agent",
+        "jwt_public_key": "test-public-key",
+        "deepseek_api_key": "test-api-key",
+        "image_analysis_dispatcher_backend": "celery",
+        "vision_provider": "openai_compatible",
+        "vision_api_key": "test-vision-api-key",
+        "vision_base_url": "https://vision.example.test/v1",
+        "vision_model": "vision-model",
+        "ocr_provider": "paddleocr_http",
+        "ocr_base_url": "http://paddleocr:8000",
+        "ocr_provider_version": "paddleocr-v3",
+        "rag_provider_revision": "rag-service-2026.07",
+        "rag_config_revision": "research-v1",
+        "mcp_server_revision": "research-tools-2026.07",
+        "mcp_config_revision": "production-v1",
+        "mcp_server_url": "https://api.tushare.pro/mcp/token=test-token",
+        "memory_store_postgres_url": "postgresql://agent@postgres/agent",
+        "rate_limit_backend": "redis",
+        "log_format": "json",
+        "trace_backend": "database",
+        "otel_enabled": True,
+        "otel_exporter_otlp_traces_endpoint": "http://otel-collector:4318/v1/traces",
+        "otel_exporter_otlp_metrics_endpoint": "http://otel-collector:4318/v1/metrics",
+    }
+    values.update(overrides)
+    return Settings(_env_file=None, **values)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_field"),
+    [
+        ({"auth_provider": "mock"}, "auth_provider"),
+        ({"rbac_backend": "mock"}, "rbac_backend"),
+        ({"asset_store_backend": "local"}, "asset_store_backend"),
+        ({"database_url": "sqlite:///agent.db"}, "database_url"),
+        ({"image_analysis_dispatcher_backend": "noop"}, "image_analysis_dispatcher_backend"),
+        ({"rate_limit_backend": "none"}, "rate_limit_backend"),
+        ({"rate_limit_fail_closed": False}, "rate_limit_fail_closed"),
+        ({"log_format": "console"}, "log_format"),
+        ({"trace_backend": "memory"}, "trace_backend"),
+        ({"otel_enabled": False}, "otel_enabled"),
+        ({"recover_orphaned_runs_on_startup": True}, "recover_orphaned_runs_on_startup"),
+    ],
+)
+def test_production_rejects_development_backends(overrides, expected_field):
+    with pytest.raises(ValidationError) as exc_info:
+        _production_settings(**overrides)
+
+    assert expected_field in str(exc_info.value)
+
+
+def test_settings_validation_error_does_not_echo_credential_input():
+    canary = "CONFIG_SECRET_CANARY"
+    with pytest.raises(ValidationError) as error:
+        Settings(_env_file=None, app_env="production", deepseek_api_key=canary)
+    exposed = canary in str(error.value)
+    assert not exposed, "配置错误展示反射了合成凭证。"
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_field"),
+    [
+        ({"jwt_issuer": ""}, "jwt_issuer"),
+        ({"jwt_audience": ""}, "jwt_audience"),
+        ({"jwt_public_key": None, "jwt_jwks_url": None}, "jwt_jwks_url"),
+        ({"asset_s3_bucket": ""}, "asset_s3_bucket"),
+        ({"asset_s3_region": ""}, "asset_s3_region"),
+        ({"graph_checkpoint_postgres_url": None}, "graph_checkpoint_postgres_url"),
+        (
+            {"graph_checkpoint_postgres_url": "postgresql+psycopg://agent@postgres/agent"},
+            "graph_checkpoint_postgres_url",
+        ),
+        ({"deepseek_api_key": ""}, "deepseek_api_key"),
+        ({"vision_provider": "none"}, "vision_provider"),
+        ({"vision_api_key": ""}, "vision_api_key"),
+        ({"vision_model": ""}, "vision_model"),
+        ({"ocr_provider": "none"}, "ocr_provider"),
+        ({"ocr_base_url": ""}, "ocr_base_url"),
+        ({"ocr_provider_version": ""}, "ocr_provider_version"),
+        ({"rag_base_url": ""}, "rag_base_url"),
+        ({"skill_registry_base_url": ""}, "skill_registry_base_url"),
+        ({"rag_provider_revision": "local-dev"}, "rag_provider_revision"),
+        ({"mcp_server_revision": "local-dev"}, "mcp_server_revision"),
+        ({"mcp_server_url": "not-a-url"}, "mcp_server_url"),
+        ({"mcp_server_url": "http://127.0.0.1:8011/mcp"}, "mcp_server_url"),
+        ({"memory_store_postgres_url": None}, "memory_store_postgres_url"),
+        ({"memory_store_postgres_url": "sqlite:///agent.db"}, "memory_store_postgres_url"),
+    ],
+)
+def test_production_requires_external_service_configuration(overrides, expected_field):
+    with pytest.raises(ValidationError) as exc_info:
+        _production_settings(**overrides)
+
+    assert expected_field in str(exc_info.value)
+
+
+def test_production_accepts_complete_externalized_configuration():
+    settings = _production_settings()
+
+    assert settings.app_env == "production"
+    assert settings.auth_provider == "jwt"
+    assert settings.asset_store_backend == "s3"
+    assert settings.graph_checkpoint_postgres_url == "postgresql://agent@postgres/agent"
+    assert settings.rate_limit_backend == "redis"
+    assert settings.log_format == "json"
+
+
+def test_production_allows_generic_mcp_to_be_unconfigured():
+    settings = _production_settings(
+        mcp_server_url="",
+        mcp_server_revision="local-dev",
+        mcp_config_revision="default",
+    )
+
+    assert settings.mcp_server_url == ""
+
+
+def test_settings_do_not_expose_a_separate_short_term_memory_backend():
+    runtime = Settings(_env_file=None)
+
+    assert not hasattr(runtime, "short_term_memory_backend")
+    assert not hasattr(runtime, "short_term_memory_ttl_seconds")
+    assert not hasattr(runtime, "short_term_memory_max_events")
+
+
+def test_local_defaults_remain_offline_friendly():
+    settings = Settings(_env_file=None)
+
+    assert settings.app_env == "local"
+    assert settings.auth_provider == "mock"
+    assert settings.asset_store_backend == "local"
+    assert settings.max_image_bytes == 10 * 1024 * 1024
+    assert settings.max_image_pixels == 20_000_000
+    assert settings.max_message_attachments == 4
+    assert settings.image_analysis_dispatcher_backend == "noop"
+    assert settings.vision_provider == "none"
+    assert settings.ocr_provider == "none"
+    assert settings.rate_limit_backend == "none"
+    assert settings.log_format == "console"
+    assert settings.trace_backend == "memory"
+    assert settings.trace_success_sample_ratio == 0.1
+    assert settings.trace_detailed_sample_ratio == 0.01
+    assert settings.trace_retention_days == 30
+    assert settings.admin_base_url == "http://localhost:8002"
+    assert settings.market_data_provider_refresh_seconds == 30
+    assert settings.mcp_server_name == "agent-mcp"
+    assert settings.mcp_server_url == ""
+    assert settings.trace_cleanup_batch_size == 1000
+    assert settings.trace_max_events_per_run == 128
+    assert settings.trace_max_artifacts_per_run == 16
+    assert settings.trace_max_artifact_bytes == 32 * 1024
+    assert settings.memory_store_postgres_url == (
+        "postgresql://bs_agent:bs_agent_dev@127.0.0.1:55432/bs_agent"
+    )
+
+
+def test_tool_search_settings_have_safe_defaults():
+    settings = Settings(_env_file=None)
+
+    assert settings.tool_search_top_k == 5
+    assert settings.tool_search_candidate_k == 50
+    assert settings.tool_search_max_calls == 4
+    assert settings.tool_search_max_disclosed_tools == 16
+    assert not any(
+        name.startswith("tool_search_embedding")
+        for name in type(settings).model_fields
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("tool_search_top_k", 0),
+        ("tool_search_top_k", 9),
+        ("tool_search_candidate_k", 4),
+        ("tool_search_candidate_k", 129),
+        ("tool_search_max_calls", 0),
+        ("tool_search_max_calls", 17),
+        ("tool_search_max_disclosed_tools", 0),
+        ("tool_search_max_disclosed_tools", 65),
+    ],
+)
+def test_tool_search_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"tool_search_top_k": 6, "tool_search_candidate_k": 5},
+        {"tool_search_top_k": 5, "tool_search_max_disclosed_tools": 4},
+    ],
+)
+def test_tool_search_top_k_cannot_exceed_disclosure_limits(overrides):
+    with pytest.raises(ValidationError, match="tool_search_top_k"):
+        Settings(_env_file=None, **overrides)
+
+
+@pytest.mark.parametrize("app_env", ["local", "test", "production"])
+def test_memory_store_accepts_postgres_url_in_every_environment(app_env):
+    if app_env == "production":
+        runtime = _production_settings()
+    else:
+        runtime = Settings(
+            _env_file=None,
+            app_env=app_env,
+            memory_store_postgres_url="postgresql://agent@postgres/agent",
+        )
+
+    assert runtime.memory_store_postgres_url == "postgresql://agent@postgres/agent"
+
+
+@pytest.mark.parametrize("app_env", ["local", "test"])
+@pytest.mark.parametrize("memory_store_postgres_url", ["", "sqlite:///agent.db"])
+def test_local_and_test_reject_missing_or_non_postgres_memory_store_url(
+    app_env,
+    memory_store_postgres_url,
+):
+    with pytest.raises(ValidationError, match="memory_store_postgres_url"):
+        Settings(
+            _env_file=None,
+            app_env=app_env,
+            memory_store_postgres_url=memory_store_postgres_url,
+        )
+
+
+def test_settings_remove_custom_long_term_store_configuration():
+    assert all(
+        not field.startswith("experience" + "_store")
+        for field in Settings.model_fields
+    )
+
+
+def test_otel_requires_trace_endpoint_when_enabled():
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(_env_file=None, otel_enabled=True)
+
+    assert "otel_exporter_otlp_traces_endpoint" in str(exc_info.value)
+
+
+def test_langfuse_defaults_to_local_content():
+    runtime = Settings(_env_file=None)
+
+    assert runtime.langfuse_enabled is False
+    assert runtime.langfuse_public_key == ""
+    assert runtime.langfuse_secret_key == ""
+    assert runtime.langfuse_base_url == "http://localhost:3000"
+    assert runtime.langfuse_content_mode == "local_content"
+    assert runtime.langfuse_capture_reasoning is False
+    assert runtime.langfuse_max_content_chars == 20_000
+    assert runtime.langfuse_sample_rate == 1.0
+
+
+@pytest.mark.parametrize(
+    ("public_key", "secret_key", "expected_field"),
+    [
+        ("", "sk-test", "langfuse_public_key"),
+        ("pk-test", "", "langfuse_secret_key"),
+    ],
+)
+def test_langfuse_requires_both_keys_when_enabled(
+    public_key,
+    secret_key,
+    expected_field,
+):
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            _env_file=None,
+            langfuse_enabled=True,
+            langfuse_public_key=public_key,
+            langfuse_secret_key=secret_key,
+        )
+
+    assert expected_field in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://cloud.langfuse.com",
+        "https://jp.cloud.langfuse.com",
+        "http://example.com:3000",
+        "ftp://localhost:3000",
+    ],
+)
+def test_langfuse_rejects_non_local_base_urls(url):
+    with pytest.raises(ValidationError, match="本地 Langfuse"):
+        Settings(
+            _env_file=None,
+            langfuse_enabled=True,
+            langfuse_public_key="pk-test",
+            langfuse_secret_key="sk-test",
+            langfuse_base_url=url,
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://[::1]:3000",
+        "http://host.docker.internal:3000",
+        "http://langfuse-web:3000",
+    ],
+)
+def test_langfuse_accepts_local_base_urls(url):
+    Settings(
+        _env_file=None,
+        langfuse_enabled=True,
+        langfuse_public_key="pk-test",
+        langfuse_secret_key="sk-test",
+        langfuse_base_url=url,
+    )
+
+
+def test_local_debug_requires_reasoning_switch():
+    with pytest.raises(ValidationError, match="capture_reasoning"):
+        Settings(_env_file=None, langfuse_content_mode="local_debug")
+
+
+def test_langfuse_accepts_metadata_only_mode():
+    config = Settings(_env_file=None, langfuse_content_mode="metadata_only")
+    assert config.langfuse_content_mode == "metadata_only"
+
+
+@pytest.mark.parametrize("mode", ["local_content", "metadata_only"])
+def test_reasoning_capture_requires_local_debug_mode(mode):
+    with pytest.raises(ValidationError, match="local_debug"):
+        Settings(
+            _env_file=None,
+            langfuse_content_mode=mode,
+            langfuse_capture_reasoning=True,
+        )
+
+
+def test_local_debug_allows_reasoning_when_both_switches_are_enabled():
+    config = Settings(
+        _env_file=None,
+        langfuse_content_mode="local_debug",
+        langfuse_capture_reasoning=True,
+    )
+    assert config.langfuse_capture_reasoning is True
+
+
+def test_settings_env_file_ignores_unrelated_local_variables(tmp_path):
+    env_file = tmp_path / ".env.local"
+    env_file.write_text(
+        "PYTHON=/usr/bin/python3\nBS_AGENT_LANGFUSE_ENABLED=false\n",
+        encoding="utf-8",
+    )
+
+    config = Settings(_env_file=env_file)
+
+    assert config.langfuse_enabled is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("langfuse_max_content_chars", 999),
+        ("langfuse_max_content_chars", 200_001),
+        ("langfuse_deepseek_judge_timeout_seconds", 0),
+        ("langfuse_deepseek_judge_timeout_seconds", 121),
+        ("langfuse_answer_review_threshold", -0.01),
+        ("langfuse_answer_review_threshold", 1.01),
+        ("langfuse_selection_confidence_threshold", -0.01),
+        ("langfuse_selection_confidence_threshold", 1.01),
+        ("langfuse_annotation_sample_rate", -0.01),
+        ("langfuse_annotation_sample_rate", 1.01),
+        ("langfuse_annotation_retry_attempts", 0),
+        ("langfuse_annotation_retry_attempts", 6),
+    ],
+)
+def test_langfuse_policy_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
+
+
+@pytest.mark.parametrize("sample_rate", [-0.1, 1.1])
+def test_langfuse_sample_rate_enforces_bounds(sample_rate):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, langfuse_sample_rate=sample_rate)
+def test_otel_requires_metrics_endpoint_when_enabled():
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            _env_file=None,
+            otel_enabled=True,
+            otel_exporter_otlp_traces_endpoint="http://collector:4318/v1/traces",
+        )
+
+    assert "otel_exporter_otlp_metrics_endpoint" in str(exc_info.value)
+
+
+def test_trace_detailed_ratio_cannot_exceed_success_ratio():
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(
+            _env_file=None,
+            trace_success_sample_ratio=0.1,
+            trace_detailed_sample_ratio=0.2,
+        )
+
+    assert "trace_detailed_sample_ratio" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("trace_retention_days", 0),
+        ("trace_retention_days", 366),
+        ("trace_cleanup_batch_size", 0),
+        ("trace_cleanup_batch_size", 10_001),
+    ],
+)
+def test_trace_retention_settings_enforce_bounds(field, value):
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})

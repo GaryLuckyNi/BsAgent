@@ -1,0 +1,274 @@
+{
+  "case_id": "011",
+  "run": {
+    "run_id": "run_f1ae23f76a6687034817aafe8ad99e4da002d718c2119f1bdaa0ae0f7b78",
+    "session_id": "live50-20261024-a-011",
+    "session_key": "sess_d7ce44776d724e1b9e530f3ed876053c",
+    "trace_id": "trace_4257b69df4f64ee9be41104be7e380e9",
+    "status": "completed",
+    "created_at": "2026-10-24 14:39:42.261732+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 46,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:39:42.273870+00:00",
+    "ended_at": "2026-10-24 14:39:52.059835+00:00",
+    "events": 46
+  },
+  "receipts": [
+    {
+      "receipt_id": "ef1240a80621482d9cbb1df6e4e18356",
+      "tool_name": "mcp.tushare.daily",
+      "call_id": "call_e436ddacd879af2a0985e0e1e2b9ab51",
+      "risk_level": "medium",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": [
+          {
+            "low": 1465.7,
+            "vol": 45123.38,
+            "high": 1488.0,
+            "open": 1482.2,
+            "close": 1476.1,
+            "amount": 6658918.555,
+            "change": -3.9,
+            "pct_chg": -0.2635,
+            "ts_code": "600519.SH",
+            "pre_close": 1480.0,
+            "trade_date": "20250901"
+          }
+        ],
+        "status": "success",
+        "trace_id": "trace_4257b69df4f64ee9be41104be7e380e9",
+        "tool_name": "mcp.tushare.daily",
+        "latency_ms": 989,
+        "tool_call_id": "tool_ed2c0b5b81464a2db5becca01248a004",
+        "execution_state": "completed",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.daily",
+            "request_id": "live50-20261024-a-011",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "76d2a25cf0b31647f89db1003534f3a7a80c5a66de12e7f3115672090976a9f6",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "8bae5e72dd302dfe864b2a6cce4fe4d8f947b9a01be16630440d4eb91630626b"
+        }
+      },
+      "created_at": "2026-10-24 14:39:46.711517+00:00",
+      "completed_at": "2026-10-24 14:39:47.687137+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_e436ddacd879af2a0985e0e1e2b9ab51": {
+        "request_id": "live50-20261024-a-011",
+        "task": {
+          "id": "fetch_moutai_20250901_quote",
+          "task_goal": "获取贵州茅台（600519.SH）2025年9月1日的A股日行情数据，至少包含收盘价和成交量，并记录数据来源及该数据对应的交易日期。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2025年9月1日（或明确标注该日无交易时的最近交易日）的收盘价数值",
+            "返回同一日期的成交量数值及单位",
+            "注明数据来源（如交易所、行情数据商）和数据日期"
+          ],
+          "tool_search_query": "A股个股历史日行情 收盘价 成交量 按日期查询",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_e436ddacd879af2a0985e0e1e2b9ab51",
+        "request_fingerprint": "8bae5e72dd302dfe864b2a6cce4fe4d8f947b9a01be16630440d4eb91630626b",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_e8aa74ff83e385ee0d8ede3e1ebc6b88",
+        "as_of": "2026-10-24T22:39:42+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.daily",
+            "version": "mcp-http-v1",
+            "binding": "76d2a25cf0b31647f89db1003534f3a7a80c5a66de12e7f3115672090976a9f6"
+          },
+          {
+            "name": "mcp.tushare.fund_daily",
+            "version": "mcp-http-v1",
+            "binding": "1af9cbadb584ca820f2701e4ae1f339ab652977a6d670bd5a90598b2177681c5"
+          },
+          {
+            "name": "mcp.tushare.stk_limit",
+            "version": "mcp-http-v1",
+            "binding": "d8edcefa624f6a054e3754420b03f94457a4a6aabc2d15a213b32de6470c3918"
+          },
+          {
+            "name": "mcp.tushare.suspend_d",
+            "version": "mcp-http-v1",
+            "binding": "98cf06af1630fc9b438620b6f6330d17e749c9e7540f5dbef7e01bf6d7388c09"
+          },
+          {
+            "name": "mcp.tushare.dc_index",
+            "version": "mcp-http-v1",
+            "binding": "1f7abb2b6c726a5f1cef17b5f189336502dc6ebd933684fdb74aa6c72a0a3aef"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_e8aa74ff83e385ee0d8ede3e1ebc6b88": {
+        "dispatch_batch_id": "dispatch_e8aa74ff83e385ee0d8ede3e1ebc6b88",
+        "run_identity": "ddb69cc6014b38fed5abbf0966db0d8a2050614cbf5509b65cf220203e291676",
+        "plan_digest": "d5a711e9c1957d008e0f2fc89e09e8c5f02b2eb638cb6c5a87fc56bcd03afe00",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "fetch_moutai_20250901_quote"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "查询贵州茅台（600519.SH）在2025年9月1日的A股收盘价与成交量，并列明数据来源和日期。",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "已获取贵州茅台2025-09-01日行情：收盘价1476.1元、成交量45123.38手（Tushare daily接口，trade_date=20250901），数据来源与日期明确，满足查询目标。",
+      "unresolved_questions": []
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "查询贵州茅台（600519.SH）2025年9月1日的A股收盘价与成交量，并核实数据来源和对应日期。",
+      "tasks": [
+        {
+          "id": "fetch_moutai_20250901_quote",
+          "task_goal": "获取贵州茅台（600519.SH）2025年9月1日的A股日行情数据，至少包含收盘价和成交量，并记录数据来源及该数据对应的交易日期。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "返回2025年9月1日（或明确标注该日无交易时的最近交易日）的收盘价数值",
+            "返回同一日期的成交量数值及单位",
+            "注明数据来源（如交易所、行情数据商）和数据日期"
+          ],
+          "tool_search_query": "A股个股历史日行情 收盘价 成交量 按日期查询",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "fetch_moutai_20250901_quote",
+        "status": "success",
+        "content": "[{\"amount\":6658918.555,\"change\":-3.9,\"close\":1476.1,\"high\":1488.0,\"low\":1465.7,\"open\":1482.2,\"pct_chg\":-0.2635,\"pre_close\":1480.0,\"trade_date\":\"20250901\",\"ts_code\":\"600519.SH\",\"vol\":45123.38}]",
+        "error_code": null,
+        "tool_name": "mcp.tushare.daily"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_e436ddacd879af2a0985e0e1e2b9ab51' request=ToolCallRequest(call_id='call_e436ddacd879af2a0985e0e1e2b9ab51', tool_name='mcp.tushare.daily', tool_version='mcp-http-v1', arguments={'ts_code': '600519.SH', 'start_date': '20250901', 'end_date': '20250901'}, purpose='获取贵州茅台（600519.SH）2025年9月1日的A股日行情数据，至少包含收盘价和成交量，并记录数据来源及该数据对应的交易日期。', approval_required=False) result=ToolCallResult(tool_call_id='tool_ed2c0b5b81464a2db5becca01248a004', tool_name='mcp.tushare.daily', status='success', execution_state='completed', result=[{'ts_code': '600519.SH', 'trade_date': '20250901', 'open': 1482.2, 'high': 1488.0, 'low': 1465.7, 'close': 1476.1, 'pre_close': 1480.0, 'change': -3.9, 'pct_chg': -0.2635, 'vol': 45123.38, 'amount': 6658918.555}], error=None, latency_ms=989, trace_id='trace_4257b69df4f64ee9be41104be7e380e9')"
+    ],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "## 贵州茅台（600519.SH）2025年9月1日行情\n\n**收盘价：1476.10 元；成交量：45,123.38 手。**\n\n| 项目 | 数值 |\n|---|---|\n| 交易日期 | 2025年9月1日 |\n| 收盘价 | 1476.10 元 |\n| 成交量 | 45,123.38 手 |\n| 成交额 | 约 66.59 亿元 |\n| 开盘价 | 1482.20 元 |\n| 最高价 | 1488.00 元 |\n| 最低价 | 1465.70 元 |\n| 前收盘价 | 1480.00 元 |\n| 涨跌幅 | -0.26%（跌 3.90 元） |\n\n**数据来源：** Tushare 的日线行情接口（daily），证券代码 600519.SH，数据对应的交易日期为 20250901。\n\n**简要解读：** 当日股价小幅低开（1482.20 元，低于前收 1480.00 元上方开盘后回落），全天在 1465.70–1488.00 元区间波动，最终收于 1476.10 元，较前一日下跌 0.26%，属于窄幅整理走势。成交量 4.51 万手、成交额约 66.6 亿元，与收盘价、成交额之间口径一致（成交量以手计、成交额以元计），数据内部自洽。\n\n**数据边界说明：** 上述为单日行情快照，未包含换手率、复权方式说明及分时数据；如需判断量能相对历史水平的高低，还需引入更长周期的成交量序列作对比，本次材料中未提供。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_4257b69df4f64ee9be41104be7e380e9",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    },
+    "errors": []
+  }
+}

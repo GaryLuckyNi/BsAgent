@@ -1,0 +1,540 @@
+{
+  "case_id": "028",
+  "run": {
+    "run_id": "run_83434ae627b86b6a08acbe068078833d2652de644c3175fa2ab877a529b1",
+    "session_id": "live50-20261024-a-028",
+    "session_key": "sess_b3c98863aae249ee8b704c042ef280bc",
+    "trace_id": "trace_926a2e4b8f544f33a00cc834d54a8b07",
+    "status": "completed",
+    "created_at": "2026-10-24 14:42:43.251273+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 90,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:42:43.303821+00:00",
+    "ended_at": "2026-10-24 14:44:38.186432+00:00",
+    "events": 90
+  },
+  "receipts": [
+    {
+      "receipt_id": "1449e9acfc834778bbb7e7f2f2daaec2",
+      "tool_name": "web_search",
+      "call_id": "call_37040e8270604dac748e77cd4192bf1b",
+      "risk_level": "low",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": {
+          "query": "贵州茅台 600519 最新股价 总市值 市盈率 2026年10月",
+          "answer": "我会为这些指标检索公开来源。\n{\"answer\": \"贵州茅台（600519）最新可验证行情：2026-10-23 收盘 1335.00 元，涨 1.25%（+16.51），昨收 1318.49，当日区间 1310.00–1343.88，成交额 76.77 亿元。总市值约 16,688.59 亿元（上交所披露市价总值 166,885,893.73 万元，总股本 12.50 亿股，全流通）。估值：静态PE 20.27（上交所）、PE(TTM) 20.49、动态PE 18.74、动态市净率 6.64。数据日期为 2026-10-23，距 as_of（2026-10-24 22:42）约1个交易日，为最近一个交易日收盘数据，非实时盘中价。\\n\\n未取得/存在缺口：\\n1) 股息率：本次搜索未获得可核实的股息率数据（检索在第二轮被中断），缺失。\\n2) PB 仅有“动态市净率 6.64”一个来源，未见静态/最新净资产口径 PB 的多来源交叉验证，口径需注意。\\n3) 近一年股价区间（起止日期）及相对沪深300/白酒板块超额表现：未取得，缺失。\\n4) 其他来源数据为不同日期快照：如网易财经显示 2026/10/19 收盘 1,324.97、PE 20.18/TTM 20.37、市值 16,563.21 亿元；证券时报页面另有 2026-10-21 快照（1,309.69 元、动态PE 18.39、PB 6.52、市值 16,372.19 亿元），不可当作最新。\\n5) 公司预计 2026-10-31 披露三季报，晚于 as_of，不可作为当前已知信息。\\n\\n实体说明：600519 即贵州茅台酒股份有限公司（上交所主板），与“贵州茅台集团”为母子公司关系，非同一实体；本次检索未涉及同行或概念股。\", \"covered_criteria\": [0, 2]}",
+          "results": [
+            {
+              "url": "https://www.sse.com.cn/assortment/stock/list/info/company/index.shtml?COMPANY_CODE=600519",
+              "title": "贵州茅台酒股份有限公司 600519",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.stcn.com/quotes/index/sh600519.html",
+              "title": "贵州茅台（sh600519）行情走势",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.stcn.com/quotes/index/sh600519.html#1",
+              "title": "贵州茅台（sh600519）行情走势 - 贵州茅台 （sh600519） 2026-10-21 15:14:14（北京时间） +添加自选",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.cls.cn/stock?code=sh600519",
+              "title": "贵州茅台(sh600519)",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://quote.eastmoney.com/concept/sh600519.html?from=classic&eventcode=Web_quote_entrance1#fschart-r'",
+              "title": "贵州茅台 1335.00 16.51(1.25%)最新价格_行情_走势图—东方财富网",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://m.stock.pingan.com/static/quote/quote/detail.html?code=SH600519",
+              "title": "行情",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://egs.stcn.com/quotation/stock-info.html?code=sh600519",
+              "title": "e公司，上市公司资讯第一平台。最新、最快、最有价值的上市公司快讯。数据拆解上市公司密码，为投资者挖掘客观信息。撮合上市公司与投资者互动，直播上市公司有价值的活动、会议。",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://113.28.163.186/tc/cnhk/quote/detail-quote.aspx?shsymbol=600519",
+              "title": "貴州茅台 (600519.SH)",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://finance.baidu.com/stock/ab-600519?mainTab=%E5%88%86%E6%9E%90",
+              "title": "贵州茅台(600519)_个股概览_股票价格_实时行情_走势图_新闻资讯_股评_财报_FinScope-AI让投资更简单",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://quotes.sina.cn/hs/company/quotes/view/sh600519",
+              "title": "贵州茅台(sh600519)股票价格_股票实时行情_走势图-新浪财经",
+              "snippet": "",
+              "published_at": null
+            }
+          ],
+          "coverage": {
+            "basis": "unknown",
+            "status": "unknown",
+            "covered_criteria": [],
+            "missing_criteria": []
+          }
+        },
+        "status": "success",
+        "trace_id": "trace_926a2e4b8f544f33a00cc834d54a8b07",
+        "tool_name": "web_search",
+        "latency_ms": 4879,
+        "_invocation": {
+          "version": "search-invocation-v1",
+          "fingerprint": "19d3b561c3e655ed2e1abe21e9b64206e2629b5dc4c2e31c35cc2ecf6b391a5b",
+          "result_digest": "8b06bc965585a09d70c83ab8901746e3800436a2222c0ed99d68fb138a0c00b8",
+          "binding_digest": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+        },
+        "tool_call_id": "tool_61d48de440114841844782abc0779929",
+        "execution_state": "completed"
+      },
+      "created_at": "2026-10-24 14:42:52.340736+00:00",
+      "completed_at": "2026-10-24 14:42:57.219054+00:00"
+    },
+    {
+      "receipt_id": "05bab1fdef0645149039c6e06dadf83f",
+      "tool_name": "web_search",
+      "call_id": "call_89ad12889042416cef994ac102732886",
+      "risk_level": "low",
+      "status": "settled",
+      "result_summary": {
+        "error": null,
+        "result": {
+          "query": "贵州茅台 2026年三季报 营业收入 归母净利润 合同负债 经营现金流",
+          "answer": "我会围绕研究目标检索公开信息。\n{\"answer\": \"截至 as_of 2026-10-24，未检索到贵州茅台（600519.SH，即贵州茅台酒股份有限公司）已披露的2026年三季报。多个来源显示，2026年第三季度报告预计于2026年10月31日发布（Investing.com 韩文/英文页面的业绩日历提示），因此按当前时点，2026年三季报的营收、归母净利润、合同负债、经营现金流均属缺失数据，不能视为已取得。\\n\\n可得的最近一期定期报告为2026年中报（报告期2026-06-30，披露日期2026-08-15，来源：新浪财经历史业绩报表）。数据引用存在口径差异，需注意：（1）新浪财经：营业收入907.03亿元（同比+1.47%），净利润445.17亿元（同比-1.95%），EPS 35.57元，毛利率75.01%；（2）证券之星财务分析：营业总收入922.78亿元，净利润460.33亿元，与新浪数据口径不同（疑似营业收入与营业总收入之别、归母净利润与净利润之别）。同一来源口径下，2025年中报对比值未完整取得，因此毛利率与合同负债、经营现金流的同比变化无法核实——本次搜索结果未取得2026年中报的合同负债与经营活动现金流量净额，相关指标列为缺失。\\n\\n另有一则未经核实的第三方内容（sgpjbg.com，2026-09-16）称“前三季度营收1284.54亿元、同比+6.36%，归母净利润646.27亿元、同比+6.25%，合同负债77亿元”。该数据与2026年中报已披露数字以及Investing.com所载Q3发布日期相互冲突，且来源为非官方行业信息站点，不能作为三季报已披露的证据，仅记录存疑。\\n\\n招商证券2026-10-20三季报前瞻（非公司公告）预测26Q3营业总收入398.1亿元、同比0.0%，归母净利润188.4亿元、同比-2.0%，属卖方预测而非公司披露数据。\\n\\n2026年公司公告层面：已确认存在的是2026年半年度报告（2026-08-15披露，含不分配的中期利润分配预案信息）。具体经营计划、提价、渠道与分红等公告原文内容本次检索未取得，无法核实，故未纳入表述。所有数字均以检索到的引述为准，未做加工。\"}",
+          "results": [
+            {
+              "url": "https://www.fupanwang.com/kplart_info/1322512.html#1",
+              "title": "【招商食品】重视高股息和细分赛道龙头——食品饮料三季报前瞻 - 扫码体验VIP",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://id.investing.com/equities/moutai-earnings#1",
+              "title": "Laba Kweichow Moutai - Investing.com",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://kr.investing.com/equities/moutai-earnings",
+              "title": "Kweichow Moutai 실적 - Investing.com",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://za.investing.com/equities/moutai-earnings?pageNum=2#1",
+              "title": "Kweichow Moutai Earnings - Investing.com ZA",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://ca.finance.yahoo.com/quote/600519.SS/analysis/#1",
+              "title": "Kweichow Moutai Co., Ltd. (600519.SS) Analyst Ratings, Estimates & Forecasts - Yahoo Finance",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://vip.stock.finance.sina.com.cn/q/go.php/vFinanceAnalyze/kind/history/index.phtml?symbol=600519",
+              "title": "上市公司历史业绩报表-贵州茅台(600519)",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://vip.stock.finance.sina.com.cn/corp/go.php/vFD_FinanceSummary/stockid/600519.phtml#1",
+              "title": "贵州茅台(600519)财务摘要_新浪财经_新浪网",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://stock.quote.stockstar.com/finance_600519.shtml",
+              "title": "贵州茅台(600519)财务分析",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://www.sgpjbg.com/labelsyh/guizhoumaotaifazhanxianzhuang.html",
+              "title": "贵州茅台发展现状：营收1284亿，合同负债77亿",
+              "snippet": "",
+              "published_at": null
+            },
+            {
+              "url": "https://hk.finance.yahoo.com/quote/600519.SS/key-statistics/#1",
+              "title": "貴州茅台 (600519.SS) 估值方法和財務統計數據",
+              "snippet": "",
+              "published_at": null
+            }
+          ],
+          "coverage": {
+            "basis": "unknown",
+            "status": "unknown",
+            "covered_criteria": [],
+            "missing_criteria": []
+          }
+        },
+        "status": "success",
+        "trace_id": "trace_926a2e4b8f544f33a00cc834d54a8b07",
+        "tool_name": "web_search",
+        "latency_ms": 4738,
+        "_invocation": {
+          "version": "search-invocation-v1",
+          "fingerprint": "4d8dcb0504efa70a490401c0cdcd00f777ae5ad2b73a5a1538642d058564e820",
+          "result_digest": "9037572227cbb6fa0b27dfc8951dfdf1822ee6863c134b4258cb34a5597b47a5",
+          "binding_digest": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+        },
+        "tool_call_id": "tool_5a1bcc36d7d4421fb80aa52423cc9465",
+        "execution_state": "completed"
+      },
+      "created_at": "2026-10-24 14:43:52.564923+00:00",
+      "completed_at": "2026-10-24 14:43:57.295875+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 1,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "tool_selection_contexts": {
+      "call_89ad12889042416cef994ac102732886": {
+        "request_id": "live50-20261024-a-028",
+        "task": {
+          "id": "latest_fundamental_evidence",
+          "task_goal": "获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出所取得数据的报告期与公告日期，能判断是否为2026年内最新披露",
+            "给出营收、归母净利润、毛利率、合同负债、经营现金流等核心指标及同比变化",
+            "至少引用一项2026年公司公告或定期报告中的经营相关信息，并注明来源"
+          ],
+          "tool_search_query": "贵州茅台 最新定期报告 财务数据 公司公告 2026年三季报",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        "call_id": "call_89ad12889042416cef994ac102732886",
+        "request_fingerprint": "4d8dcb0504efa70a490401c0cdcd00f777ae5ad2b73a5a1538642d058564e820",
+        "source_policy": {
+          "public_alternative": "allowed",
+          "basis": [
+            "runtime-contract:public-supplement-v1",
+            "intent:unrestricted",
+            "task:public_information"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_d889c7d27155b15220543b0b5bd1170e",
+        "as_of": "2026-10-24T22:42:43+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.us_income",
+            "version": "mcp-http-v1",
+            "binding": "c02efb69066fd7bc7b513f7e3de24b887d2aba4d967bae7fc0434e9747ce670b"
+          },
+          {
+            "name": "mcp.tushare.fina_audit",
+            "version": "mcp-http-v1",
+            "binding": "154770c531d0d35bea12271768c4228326fe1a49c0011c80d631a9716da02848"
+          },
+          {
+            "name": "mcp.tushare.hk_fina_indicator",
+            "version": "mcp-http-v1",
+            "binding": "f08f412d94b3e7d8ea7821f2e6741cc8625f2a83e48a01267a3dc068a8d1e4cf"
+          },
+          {
+            "name": "mcp.tushare.us_fina_indicator",
+            "version": "mcp-http-v1",
+            "binding": "56c6d674fab12c9437bf663c814cc63e7d6c5e4db4ede8065f1b086e92ba8b69"
+          },
+          {
+            "name": "mcp.tushare.us_balancesheet",
+            "version": "mcp-http-v1",
+            "binding": "47722259ef70fd5b1e3abfbd5f823a48f795f3af8b9cd685c18f4f1aa1b82e9c"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_37040e8270604dac748e77cd4192bf1b": {
+        "request_id": "live50-20261024-a-028",
+        "task": {
+          "id": "valuation_and_market_evidence",
+          "task_goal": "获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出带明确数据日期的股价、市值、PE、PB、股息率",
+            "给出近一年股价区间或相对表现，并注明区间起止日期",
+            "数据日期与current_datetime的差距可被识别，不将历史行情当作最新行情"
+          ],
+          "tool_search_query": "贵州茅台 最新股价 市值 市盈率 股息率 行情数据",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_37040e8270604dac748e77cd4192bf1b",
+        "request_fingerprint": "19d3b561c3e655ed2e1abe21e9b64206e2629b5dc4c2e31c35cc2ecf6b391a5b",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_d889c7d27155b15220543b0b5bd1170e",
+        "as_of": "2026-10-24T22:42:43+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.cb_daily",
+            "version": "mcp-http-v1",
+            "binding": "49c55c3151ad1fe961273ecc520e9e1033ee5b248d0a9aa63c9963ed4d190e46"
+          },
+          {
+            "name": "mcp.tushare.us_daily",
+            "version": "mcp-http-v1",
+            "binding": "d773b32e6b9ff34006146d439022a3f8888aca2a275ea9c1cc66495d02a4fe7c"
+          },
+          {
+            "name": "mcp.tushare.us_daily_adj",
+            "version": "mcp-http-v1",
+            "binding": "8851661865771f80b64e92c46953b24e3c2b35471e443a7a90b30aeda36b8c7e"
+          },
+          {
+            "name": "mcp.tushare.ths_daily",
+            "version": "mcp-http-v1",
+            "binding": "179cc124a1c1cb07174b5acf26b90c56b5f9037d09e6c2ec1a5b6ee2a9d57702"
+          },
+          {
+            "name": "mcp.tushare.hk_daily_adj",
+            "version": "mcp-http-v1",
+            "binding": "c6a3ebf69e6cb021039a5f2dae359fbefe2a7ea75cccd6e1b3177eee048dde63"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_d889c7d27155b15220543b0b5bd1170e": {
+        "dispatch_batch_id": "dispatch_d889c7d27155b15220543b0b5bd1170e",
+        "run_identity": "9cfc1420eb433a428437a4308a00ae78fd7c02c20d2c2635a7a599f997264023",
+        "plan_digest": "54867dc1057ddda824f07c9ce68a674735a7ee055e2f8a3109b0ed57d918283f",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "latest_fundamental_evidence",
+          "valuation_and_market_evidence"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {},
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "评估贵州茅台当前是否仍值得关注，提供投研框架和可验证证据，并明确不得将历史数据当作最新数据",
+      "confidence": 0.95,
+      "source_constraint": "unrestricted"
+    },
+    "planner_decision": {
+      "action": "finish",
+      "reason": "已取得最近一期定期报告（2026中报）核心数据与2026-10-23最新行情估值，三季报尚未披露（预计10-31），关键缺口已可识别；剩余为终端分析任务，可在预算内直接完成研判与输出。",
+      "unresolved_questions": [
+        "2026年三季报尚未披露（预计2026-10-31），Q3营收、归母净利润、合同负债、经营现金流无法核实",
+        "2026中报合同负债与经营活动现金流量净额未取得，毛利率同比变化无法核实",
+        "股息率、近一年股价区间及相对沪深300/白酒板块表现未取得",
+        "PB仅有动态市净率6.64单一来源，缺多来源交叉验证",
+        "2026年公司公告中经营计划、提价、渠道与分红原文内容未核实",
+        "第三方所称前三季度营收1284.54亿元等数据与中报及披露时间冲突，存疑未采信"
+      ],
+      "synthesis_task_id": "framework_and_scenario_analysis"
+    },
+    "plan_history": [],
+    "plan": {
+      "public_summary": "围绕贵州茅台是否仍值得关注，先核实最新披露的经营、财务与估值证据，再给出可验证的投研框架和情景判断，严格区分历史数据与最新数据。",
+      "tasks": [
+        {
+          "id": "latest_fundamental_evidence",
+          "task_goal": "获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "列出所取得数据的报告期与公告日期，能判断是否为2026年内最新披露",
+            "给出营收、归母净利润、毛利率、合同负债、经营现金流等核心指标及同比变化",
+            "至少引用一项2026年公司公告或定期报告中的经营相关信息，并注明来源"
+          ],
+          "tool_search_query": "贵州茅台 最新定期报告 财务数据 公司公告 2026年三季报",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "public_information"
+        },
+        {
+          "id": "valuation_and_market_evidence",
+          "task_goal": "获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "给出带明确数据日期的股价、市值、PE、PB、股息率",
+            "给出近一年股价区间或相对表现，并注明区间起止日期",
+            "数据日期与current_datetime的差距可被识别，不将历史行情当作最新行情"
+          ],
+          "tool_search_query": "贵州茅台 最新股价 市值 市盈率 股息率 行情数据",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        {
+          "id": "framework_and_scenario_analysis",
+          "task_goal": "基于依赖任务取得的最新证据，构建贵州茅台投研框架（需求与批价、渠道库存、产品结构与提价能力、盈利与现金流质量、估值与股东回报、政策与消费环境），并给出关注与否的情景判断、关键验证指标和需要持续跟踪的证伪信号；明确区分历史数据与最新数据。",
+          "execution_type": "analysis",
+          "completion_criteria": [
+            "框架覆盖需求/渠道、盈利质量、估值回报、政策环境四类核心变量",
+            "每个维度给出可验证的跟踪指标或数据来源",
+            "给出至少两种情景及触发条件，并说明结论对最新数据的依赖",
+            "明确标注哪些是历史数据、哪些是最新披露数据"
+          ],
+          "tool_search_query": null,
+          "evidence_task_ids": [],
+          "depends_on": [
+            "latest_fundamental_evidence",
+            "valuation_and_market_evidence"
+          ],
+          "skill_name": null,
+          "source_requirement": "unclear"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "latest_fundamental_evidence",
+        "status": "success",
+        "content": "{\"answer\":\"我会围绕研究目标检索公开信息。\\n{\\\"answer\\\": \\\"截至 as_of 2026-10-24，未检索到贵州茅台（600519.SH，即贵州茅台酒股份有限公司）已披露的2026年三季报。多个来源显示，2026年第三季度报告预计于2026年10月31日发布（Investing.com 韩文/英文页面的业绩日历提示），因此按当前时点，2026年三季报的营收、归母净利润、合同负债、经营现金流均属缺失数据，不能视为已取得。\\\\n\\\\n可得的最近一期定期报告为2026年中报（报告期2026-06-30，披露日期2026-08-15，来源：新浪财经历史业绩报表）。数据引用存在口径差异，需注意：（1）新浪财经：营业收入907.03亿元（同比+1.47%），净利润445.17亿元（同比-1.95%），EPS 35.57元，毛利率75.01%；（2）证券之星财务分析：营业总收入922.78亿元，净利润460.33亿元，与新浪数据口径不同（疑似营业收入与营业总收入之别、归母净利润与净利润之别）。同一来源口径下，2025年中报对比值未完整取得，因此毛利率与合同负债、经营现金流的同比变化无法核实——本次搜索结果未取得2026年中报的合同负债与经营活动现金流量净额，相关指标列为缺失。\\\\n\\\\n另有一则未经核实的第三方内容（sgpjbg.com，2026-09-16）称“前三季度营收1284.54亿元、同比+6.36%，归母净利润646.27亿元、同比+6.25%，合同负债77亿元”。该数据与2026年中报已披露数字以及Investing.com所载Q3发布日期相互冲突，且来源为非官方行业信息站点，不能作为三季报已披露的证据，仅记录存疑。\\\\n\\\\n招商证券2026-10-20三季报前瞻（非公司公告）预测26Q3营业总收入398.1亿元、同比0.0%，归母净利润188.4亿元、同比-2.0%，属卖方预测而非公司披露数据。\\\\n\\\\n2026年公司公告层面：已确认存在的是2026年半年度报告（2026-08-15披露，含不分配的中期利润分配预案信息）。具体经营计划、提价、渠道与分红等公告原文内容本次检索未取得，无法核实，故未纳入表述。所有数字均以检索到的引述为准，未做加工。\\\"}\",\"coverage\":{\"basis\":\"unknown\",\"covered_criteria\":[],\"missing_criteria\":[],\"status\":\"unknown\"},\"query\":\"贵州茅台 2026年三季报 营业收入 归母净利润 合同负债 经营现金流\",\"results\":[{\"published_at\":null,\"snippet\":\"\",\"title\":\"【招商食品】重视高股息和细分赛道龙头——食品饮料三季报前瞻 - 扫码体验VIP\",\"url\":\"https://www.fupanwang.com/kplart_info/1322512.html#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"Laba Kweichow Moutai - Investing.com\",\"url\":\"https://id.investing.com/equities/moutai-earnings#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"Kweichow Moutai 실적 - Investing.com\",\"url\":\"https://kr.investing.com/equities/moutai-earnings\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"Kweichow Moutai Earnings - Investing.com ZA\",\"url\":\"https://za.investing.com/equities/moutai-earnings?pageNum=2#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"Kweichow Moutai Co., Ltd. (600519.SS) Analyst Ratings, Estimates & Forecasts - Yahoo Finance\",\"url\":\"https://ca.finance.yahoo.com/quote/600519.SS/analysis/#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"上市公司历史业绩报表-贵州茅台(600519)\",\"url\":\"https://vip.stock.finance.sina.com.cn/q/go.php/vFinanceAnalyze/kind/history/index.phtml?symbol=600519\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台(600519)财务摘要_新浪财经_新浪网\",\"url\":\"https://vip.stock.finance.sina.com.cn/corp/go.php/vFD_FinanceSummary/stockid/600519.phtml#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台(600519)财务分析\",\"url\":\"https://stock.quote.stockstar.com/finance_600519.shtml\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台发展现状：营收1284亿，合同负债77亿\",\"url\":\"https://www.sgpjbg.com/labelsyh/guizhoumaotaifazhanxianzhuang.html\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"貴州茅台 (600519.SS) 估值方法和財務統計數據\",\"url\":\"https://hk.finance.yahoo.com/quote/600519.SS/key-statistics/#1\"}]}",
+        "error_code": null,
+        "tool_name": "web_search"
+      },
+      {
+        "task_id": "valuation_and_market_evidence",
+        "status": "success",
+        "content": "{\"answer\":\"我会为这些指标检索公开来源。\\n{\\\"answer\\\": \\\"贵州茅台（600519）最新可验证行情：2026-10-23 收盘 1335.00 元，涨 1.25%（+16.51），昨收 1318.49，当日区间 1310.00–1343.88，成交额 76.77 亿元。总市值约 16,688.59 亿元（上交所披露市价总值 166,885,893.73 万元，总股本 12.50 亿股，全流通）。估值：静态PE 20.27（上交所）、PE(TTM) 20.49、动态PE 18.74、动态市净率 6.64。数据日期为 2026-10-23，距 as_of（2026-10-24 22:42）约1个交易日，为最近一个交易日收盘数据，非实时盘中价。\\\\n\\\\n未取得/存在缺口：\\\\n1) 股息率：本次搜索未获得可核实的股息率数据（检索在第二轮被中断），缺失。\\\\n2) PB 仅有“动态市净率 6.64”一个来源，未见静态/最新净资产口径 PB 的多来源交叉验证，口径需注意。\\\\n3) 近一年股价区间（起止日期）及相对沪深300/白酒板块超额表现：未取得，缺失。\\\\n4) 其他来源数据为不同日期快照：如网易财经显示 2026/10/19 收盘 1,324.97、PE 20.18/TTM 20.37、市值 16,563.21 亿元；证券时报页面另有 2026-10-21 快照（1,309.69 元、动态PE 18.39、PB 6.52、市值 16,372.19 亿元），不可当作最新。\\\\n5) 公司预计 2026-10-31 披露三季报，晚于 as_of，不可作为当前已知信息。\\\\n\\\\n实体说明：600519 即贵州茅台酒股份有限公司（上交所主板），与“贵州茅台集团”为母子公司关系，非同一实体；本次检索未涉及同行或概念股。\\\", \\\"covered_criteria\\\": [0, 2]}\",\"coverage\":{\"basis\":\"unknown\",\"covered_criteria\":[],\"missing_criteria\":[],\"status\":\"unknown\"},\"query\":\"贵州茅台 600519 最新股价 总市值 市盈率 2026年10月\",\"results\":[{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台酒股份有限公司 600519\",\"url\":\"https://www.sse.com.cn/assortment/stock/list/info/company/index.shtml?COMPANY_CODE=600519\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台（sh600519）行情走势\",\"url\":\"https://www.stcn.com/quotes/index/sh600519.html\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台（sh600519）行情走势 - 贵州茅台 （sh600519） 2026-10-21 15:14:14（北京时间） +添加自选\",\"url\":\"https://www.stcn.com/quotes/index/sh600519.html#1\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台(sh600519)\",\"url\":\"https://www.cls.cn/stock?code=sh600519\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台 1335.00 16.51(1.25%)最新价格_行情_走势图—东方财富网\",\"url\":\"https://quote.eastmoney.com/concept/sh600519.html?from=classic&eventcode=Web_quote_entrance1#fschart-r'\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"行情\",\"url\":\"https://m.stock.pingan.com/static/quote/quote/detail.html?code=SH600519\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"e公司，上市公司资讯第一平台。最新、最快、最有价值的上市公司快讯。数据拆解上市公司密码，为投资者挖掘客观信息。撮合上市公司与投资者互动，直播上市公司有价值的活动、会议。\",\"url\":\"https://egs.stcn.com/quotation/stock-info.html?code=sh600519\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"貴州茅台 (600519.SH)\",\"url\":\"https://113.28.163.186/tc/cnhk/quote/detail-quote.aspx?shsymbol=600519\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台(600519)_个股概览_股票价格_实时行情_走势图_新闻资讯_股评_财报_FinScope-AI让投资更简单\",\"url\":\"https://finance.baidu.com/stock/ab-600519?mainTab=%E5%88%86%E6%9E%90\"},{\"published_at\":null,\"snippet\":\"\",\"title\":\"贵州茅台(sh600519)股票价格_股票实时行情_走势图-新浪财经\",\"url\":\"https://quotes.sina.cn/hs/company/quotes/view/sh600519\"}]}",
+        "error_code": null,
+        "tool_name": "web_search"
+      },
+      {
+        "task_id": "framework_and_scenario_analysis",
+        "status": "success",
+        "content": "最终研判已在 draft_answer 中完成；完整答复见 final_response。"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_89ad12889042416cef994ac102732886' request=ToolCallRequest(call_id='call_89ad12889042416cef994ac102732886', tool_name='web_search', tool_version='1.0.0', arguments={'query': '贵州茅台 2026年三季报 营业收入 归母净利润 合同负债 经营现金流', 'max_results': 10}, purpose='获取贵州茅台截至2026年10月已公开的最新经营与财务证据：最近一期定期报告（2026年三季报或中报，以实际披露为准）的营收、归母净利润、毛利率、合同负债/预收款、经营现金流，以及2026年以来公司公告中的经营计划、提价、渠道或分红等关键事项；明确每项数据的报告期和披露日期。', approval_required=False) result=ToolCallResult(tool_call_id='tool_5a1bcc36d7d4421fb80aa52423cc9465', tool_name='web_search', status='success', execution_state='completed', result={'query': '贵州茅台 2026年三季报 营业收入 归母净利润 合同负债 经营现金流', 'answer': '我会围绕研究目标检索公开信息。\\n{\"answer\": \"截至 as_of 2026-10-24，未检索到贵州茅台（600519.SH，即贵州茅台酒股份有限公司）已披露的2026年三季报。多个来源显示，2026年第三季度报告预计于2026年10月31日发布（Investing.com 韩文/英文页面的业绩日历提示），因此按当前时点，2026年三季报的营收、归母净利润、合同负债、经营现金流均属缺失数据，不能视为已取得。\\\\n\\\\n可得的最近一期定期报告为2026年中报（报告期2026-06-30，披露日期2026-08-15，来源：新浪财经历史业绩报表）。数据引用存在口径差异，需注意：（1）新浪财经：营业收入907.03亿元（同比+1.47%），净利润445.17亿元（同比-1.95%），EPS 35.57元，毛利率75.01%；（2）证券之星财务分析：营业总收入922.78亿元，净利润460.33亿元，与新浪数据口径不同（疑似营业收入与营业总收入之别、归母净利润与净利润之别）。同一来源口径下，2025年中报对比值未完整取得，因此毛利率与合同负债、经营现金流的同比变化无法核实——本次搜索结果未取得2026年中报的合同负债与经营活动现金流量净额，相关指标列为缺失。\\\\n\\\\n另有一则未经核实的第三方内容（sgpjbg.com，2026-09-16）称“前三季度营收1284.54亿元、同比+6.36%，归母净利润646.27亿元、同比+6.25%，合同负债77亿元”。该数据与2026年中报已披露数字以及Investing.com所载Q3发布日期相互冲突，且来源为非官方行业信息站点，不能作为三季报已披露的证据，仅记录存疑。\\\\n\\\\n招商证券2026-10-20三季报前瞻（非公司公告）预测26Q3营业总收入398.1亿元、同比0.0%，归母净利润188.4亿元、同比-2.0%，属卖方预测而非公司披露数据。\\\\n\\\\n2026年公司公告层面：已确认存在的是2026年半年度报告（2026-08-15披露，含不分配的中期利润分配预案信息）。具体经营计划、提价、渠道与分红等公告原文内容本次检索未取得，无法核实，故未纳入表述。所有数字均以检索到的引述为准，未做加工。\"}', 'results': [{'title': '【招商食品】重视高股息和细分赛道龙头——食品饮料三季报前瞻 - 扫码体验VIP', 'url': 'https://www.fupanwang.com/kplart_info/1322512.html#1', 'snippet': '', 'published_at': None}, {'title': 'Laba Kweichow Moutai - Investing.com', 'url': 'https://id.investing.com/equities/moutai-earnings#1', 'snippet': '', 'published_at': None}, {'title': 'Kweichow Moutai 실적 - Investing.com', 'url': 'https://kr.investing.com/equities/moutai-earnings', 'snippet': '', 'published_at': None}, {'title': 'Kweichow Moutai Earnings - Investing.com ZA', 'url': 'https://za.investing.com/equities/moutai-earnings?pageNum=2#1', 'snippet': '', 'published_at': None}, {'title': 'Kweichow Moutai Co., Ltd. (600519.SS) Analyst Ratings, Estimates & Forecasts - Yahoo Finance', 'url': 'https://ca.finance.yahoo.com/quote/600519.SS/analysis/#1', 'snippet': '', 'published_at': None}, {'title': '上市公司历史业绩报表-贵州茅台(600519)', 'url': 'https://vip.stock.finance.sina.com.cn/q/go.php/vFinanceAnalyze/kind/history/index.phtml?symbol=600519', 'snippet': '', 'published_at': None}, {'title': '贵州茅台(600519)财务摘要_新浪财经_新浪网', 'url': 'https://vip.stock.finance.sina.com.cn/corp/go.php/vFD_FinanceSummary/stockid/600519.phtml#1', 'snippet': '', 'published_at': None}, {'title': '贵州茅台(600519)财务分析', 'url': 'https://stock.quote.stockstar.com/finance_600519.shtml', 'snippet': '', 'published_at': None}, {'title': '贵州茅台发展现状：营收1284亿，合同负债77亿', 'url': 'https://www.sgpjbg.com/labelsyh/guizhoumaotaifazhanxianzhuang.html', 'snippet': '', 'published_at': None}, {'title': '貴州茅台 (600519.SS) 估值方法和財務統計數據', 'url': 'https://hk.finance.yahoo.com/quote/600519.SS/key-statistics/#1', 'snippet': '', 'published_at': None}], 'coverage': {'status': 'unknown', 'covered_criteria': [], 'missing_criteria': [], 'basis': 'unknown'}}, error=None, latency_ms=4738, trace_id='trace_926a2e4b8f544f33a00cc834d54a8b07')",
+      "call_id='call_37040e8270604dac748e77cd4192bf1b' request=ToolCallRequest(call_id='call_37040e8270604dac748e77cd4192bf1b', tool_name='web_search', tool_version='1.0.0', arguments={'query': '贵州茅台 600519 最新股价 总市值 市盈率 2026年10月', 'max_results': 10}, purpose='获取贵州茅台当前估值与市场表现的可验证数据：最新股价、总市值、PE(TTM)、PB、股息率，以及近一年股价区间和相对沪深300或白酒板块的表现；注明数据日期，避免用历史快照冒充最新。', approval_required=False) result=ToolCallResult(tool_call_id='tool_61d48de440114841844782abc0779929', tool_name='web_search', status='success', execution_state='completed', result={'query': '贵州茅台 600519 最新股价 总市值 市盈率 2026年10月', 'answer': '我会为这些指标检索公开来源。\\n{\"answer\": \"贵州茅台（600519）最新可验证行情：2026-10-23 收盘 1335.00 元，涨 1.25%（+16.51），昨收 1318.49，当日区间 1310.00–1343.88，成交额 76.77 亿元。总市值约 16,688.59 亿元（上交所披露市价总值 166,885,893.73 万元，总股本 12.50 亿股，全流通）。估值：静态PE 20.27（上交所）、PE(TTM) 20.49、动态PE 18.74、动态市净率 6.64。数据日期为 2026-10-23，距 as_of（2026-10-24 22:42）约1个交易日，为最近一个交易日收盘数据，非实时盘中价。\\\\n\\\\n未取得/存在缺口：\\\\n1) 股息率：本次搜索未获得可核实的股息率数据（检索在第二轮被中断），缺失。\\\\n2) PB 仅有“动态市净率 6.64”一个来源，未见静态/最新净资产口径 PB 的多来源交叉验证，口径需注意。\\\\n3) 近一年股价区间（起止日期）及相对沪深300/白酒板块超额表现：未取得，缺失。\\\\n4) 其他来源数据为不同日期快照：如网易财经显示 2026/10/19 收盘 1,324.97、PE 20.18/TTM 20.37、市值 16,563.21 亿元；证券时报页面另有 2026-10-21 快照（1,309.69 元、动态PE 18.39、PB 6.52、市值 16,372.19 亿元），不可当作最新。\\\\n5) 公司预计 2026-10-31 披露三季报，晚于 as_of，不可作为当前已知信息。\\\\n\\\\n实体说明：600519 即贵州茅台酒股份有限公司（上交所主板），与“贵州茅台集团”为母子公司关系，非同一实体；本次检索未涉及同行或概念股。\", \"covered_criteria\": [0, 2]}', 'results': [{'title': '贵州茅台酒股份有限公司 600519', 'url': 'https://www.sse.com.cn/assortment/stock/list/info/company/index.shtml?COMPANY_CODE=600519', 'snippet': '', 'published_at': None}, {'title': '贵州茅台（sh600519）行情走势', 'url': 'https://www.stcn.com/quotes/index/sh600519.html', 'snippet': '', 'published_at': None}, {'title': '贵州茅台（sh600519）行情走势 - 贵州茅台 （sh600519） 2026-10-21 15:14:14（北京时间） +添加自选', 'url': 'https://www.stcn.com/quotes/index/sh600519.html#1', 'snippet': '', 'published_at': None}, {'title': '贵州茅台(sh600519)', 'url': 'https://www.cls.cn/stock?code=sh600519', 'snippet': '', 'published_at': None}, {'title': '贵州茅台 1335.00 16.51(1.25%)最新价格_行情_走势图—东方财富网', 'url': \"https://quote.eastmoney.com/concept/sh600519.html?from=classic&eventcode=Web_quote_entrance1#fschart-r'\", 'snippet': '', 'published_at': None}, {'title': '行情', 'url': 'https://m.stock.pingan.com/static/quote/quote/detail.html?code=SH600519', 'snippet': '', 'published_at': None}, {'title': 'e公司，上市公司资讯第一平台。最新、最快、最有价值的上市公司快讯。数据拆解上市公司密码，为投资者挖掘客观信息。撮合上市公司与投资者互动，直播上市公司有价值的活动、会议。', 'url': 'https://egs.stcn.com/quotation/stock-info.html?code=sh600519', 'snippet': '', 'published_at': None}, {'title': '貴州茅台 (600519.SH)', 'url': 'https://113.28.163.186/tc/cnhk/quote/detail-quote.aspx?shsymbol=600519', 'snippet': '', 'published_at': None}, {'title': '贵州茅台(600519)_个股概览_股票价格_实时行情_走势图_新闻资讯_股评_财报_FinScope-AI让投资更简单', 'url': 'https://finance.baidu.com/stock/ab-600519?mainTab=%E5%88%86%E6%9E%90', 'snippet': '', 'published_at': None}, {'title': '贵州茅台(sh600519)股票价格_股票实时行情_走势图-新浪财经', 'url': 'https://quotes.sina.cn/hs/company/quotes/view/sh600519', 'snippet': '', 'published_at': None}], 'coverage': {'status': 'unknown', 'covered_criteria': [], 'missing_criteria': [], 'basis': 'unknown'}}, error=None, latency_ms=4879, trace_id='trace_926a2e4b8f544f33a00cc834d54a8b07')"
+    ],
+    "verification": {
+      "verdict": "pass",
+      "faithfulness_score": 1.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond"
+    },
+    "final_response": {
+      "content": "**先给判断：仍值得关注，但应定义为“有条件关注、等待三季报验证”，而不是无条件乐观。** 截至材料时点2026-10-24，可核实的最新经营数据仍是2026年中报（报告期2026-06-30、披露日2026-08-15），属于历史定期报告，不能当作三季度最新数据；最新行情为2026-10-23收盘，也不是盘中实时。三季报尚未披露，公开业绩日历提示预计10月31日发布，这是短期最重要的验证节点。中报新浪口径营收907.03亿元、同比+1.47%，净利润445.17亿元、同比-1.95%，毛利率75.01%；证券之星口径营业总收入922.78亿元、净利润460.33亿元，口径存在差异，归母净利润和同比变化需以报告原文核对。这个组合只能说明收入仍有韧性、利润端有放缓迹象，尚不能判断渠道和现金流是否恶化，因为合同负债与经营现金流未取得。\n\n**投研框架应覆盖四类核心变量。** 第一，需求与渠道：跟踪飞天批价、渠道库存、动销、合同负债/预收款；来源为公司定期报告和公告，渠道调研只能作辅助。本次材料未取得批价和库存数据，渠道状态是核心缺口。第二，产品结构与提价能力：跟踪茅台酒与系列酒收入结构、直销占比、提价及渠道改革公告；公告原文未核实，不能把市场传闻当事实。第三，盈利与现金流质量：跟踪营收、归母净利润、毛利率、经营现金流/净利润、合同负债环比；中报毛利率仍高，但现金流和合同负债缺失，盈利质量判断不完整。第四，估值与股东回报：最新10月23日收盘1335元、总市值约1.67万亿元、PE(TTM)约20.49倍、静态PE20.27倍、动态PE18.74倍；动态PB6.64仅为单一来源，股息率、分红方案原文和近一年相对沪深300/白酒板块表现均缺失。政策与消费环境本次没有可验证证据，只能作为风险变量，跟踪消费税、白酒流通监管、宏观消费及公司公告。\n\n**情景判断。** 基准情景：三季报显示营收和利润温和增长、合同负债与经营现金流不恶化，当前约20倍TTM估值仍具备持续跟踪价值。谨慎情景：三季报利润负增长扩大，或合同负债明显下降、经营现金流显著弱于利润，则应下调关注优先级。乐观情景：提价、渠道改革或分红安排超预期，同时批价和库存指标改善，关注度可提升。上述触发条件都必须由三季报和公司公告验证，不能由中报或卖方预测替代；结论对10月31日前后披露的最新数据依赖很高。\n\n**数据边界要明确。** 历史数据包括2026年中报及10月19日、10月21日行情快照，不能冒充最新；最新行情是10月23日收盘；三季报属于待披露数据。第三方所称“前三季度营收1284.54亿元”与已披露中报及三季报发布时间冲突，存疑不采信；卖方预测也不是公司披露数据。数据缺口主要影响“渠道健康度、盈利质量、股东回报”三项判断，但不改变仍需跟踪的框架结论：茅台仍值得研究关注，只是当前应把关注点从增速故事转向三季报对收入、合同负债、经营现金流和分红政策的验证。以上为研究跟踪判断，不构成交易指令。\n\n证据入口：新浪财经历史业绩报表（https://vip.stock.finance.sina.com.cn/q/go.php/vFinanceAnalyze/kind/history/index.phtml?symbol=600519）、证券之星财务分析（https://stock.quote.stockstar.com/finance_600519.shtml）、上交所公司页（https://www.sse.com.cn/assortment/stock/list/info/company/index.shtml?COMPANY_CODE=600519）、东方财富行情（https://quote.eastmoney.com/concept/sh600519.html）。\n\n## 免责声明\n\n以上内容仅用于投研辅助分析，不构成投资建议、买卖建议或收益承诺。",
+      "trace_id": "trace_926a2e4b8f544f33a00cc834d54a8b07",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "research_answer"
+    },
+    "errors": []
+  }
+}

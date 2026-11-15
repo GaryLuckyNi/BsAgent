@@ -1,0 +1,18 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_exhausted_decode_budget_does_not_silently_skip_attack_tail ________
+
+    def test_exhausted_decode_budget_does_not_silently_skip_attack_tail():
+        safe=base64.b64encode(b"ordinary public financial report data").decode()
+        payload=" ".join([safe]*16+[ATTACKS[14].removeprefix("base64: ")])
+        view=get_tool_content_policy().project(payload,tool_name="rag_search",sink="workflow")
+>       assert view.metadata.disposition=="withheld" and view.data is None
+E       AssertionError: assert ('allowed' == 'withheld'
+E         
+E         - withheld
+E         + allowed)
+
+backend/app/tests/unit/test_prompt_injection_security.py:155: AssertionError
+=========================== short test summary info ============================
+FAILED backend/app/tests/unit/test_prompt_injection_security.py::test_exhausted_decode_budget_does_not_silently_skip_attack_tail
+1 failed, 35 deselected in 0.27s

@@ -1,0 +1,16 @@
+{
+  "probe": "RT-25",
+  "layer": "in_process_http_and_temporary_sqlite",
+  "requests_authenticated": false,
+  "create_status": 201,
+  "public_status": 200,
+  "public_masks_secret": true,
+  "internal_status": 200,
+  "internal_returns_full_synthetic_secret": true,
+  "invalid_token_status": 200,
+  "invalid_token_returns_full_synthetic_secret": true,
+  "anonymous_update_status": 200,
+  "anonymous_update_persisted": true,
+  "limitation": "直接调用应用，未经过部署网关；不证明生产外网或普通主体实际可达。",
+  "blocked_network_events": []
+}

@@ -1,8 +1,40 @@
+import json
+from collections.abc import Callable
+from hashlib import sha256
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.tools import ToolSpec
+from app.tools.base import Tool
+from app.tools.mcp_http import discover_mcp_http_tools
+from app.tools.registry import ExecutionBinding
+
+McpToolDiscoverer = Callable[..., list[Tool]]
+
+
+class McpServerConfig(BaseModel):
+    name: str
+    url: str
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    default_risk_level: Literal["low", "medium", "high"] = "medium"
+    enforce_local_rbac: bool = True
+    deployment_revision: str = "development"
+    config_revision: str = "default"
+    permission_denial_is_pre_execution: bool = False
+    effect_type: Literal["read_only", "write", "unknown"] = "unknown"
+    error_protocol: Literal["generic", "tushare"] = "generic"
+    public_documentation: bool = False
+    documentation_domains: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("documentation_domains")
+    @classmethod
+    def validate_documentation_domains(cls, domains):
+        import re
+        if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", value) or "." not in value
+               or ".." in value for value in domains):
+            raise ValueError("文档域名必须为明确的公开站点域名，不能包含 URL、路径或凭证。")
+        return sorted(set(domains))
 
 
 class McpToolManifest(BaseModel):
@@ -15,8 +47,32 @@ class McpToolManifest(BaseModel):
 
 
 class McpGateway:
-    def __init__(self) -> None:
+    def __init__(self, *, discoverer: McpToolDiscoverer = discover_mcp_http_tools) -> None:
         self._tool_specs: dict[str, ToolSpec] = {}
+        self._discoverer = discoverer
+
+    def discover_tools(self, config: McpServerConfig) -> list[Tool]:
+        semantics = (
+            {"permission_denial_is_pre_execution": True}
+            if config.permission_denial_is_pre_execution else {}
+        )
+        if config.effect_type != "unknown":
+            semantics["effect_type"] = config.effect_type
+        if config.error_protocol != "generic":
+            semantics["error_protocol"] = config.error_protocol
+        tools = self._discoverer(
+            url=config.url,
+            server_name=config.name,
+            timeout_seconds=config.timeout_seconds,
+            risk_level=config.default_risk_level,
+            permission_scope=(
+                [f"mcp:{config.name}"] if config.enforce_local_rbac else []
+            ),
+            **semantics,
+        )
+        for tool in tools:
+            self._tool_specs[tool.spec.name] = tool.spec
+        return tools
 
     def register_manifest(self, *, server_name: str, manifest: McpToolManifest) -> ToolSpec:
         spec = ToolSpec(
@@ -37,3 +93,36 @@ class McpGateway:
 
     def list_tool_specs(self) -> list[ToolSpec]:
         return list(self._tool_specs.values())
+
+    @staticmethod
+    def execution_binding(
+        config: McpServerConfig,
+        *,
+        tool: Tool,
+    ) -> ExecutionBinding:
+        return ExecutionBinding(
+            provider="mcp",
+            implementation_id=f"mcp.http.{tool.name}",
+            server_id=config.name,
+            deployment_revision=config.deployment_revision,
+            config_revision=_execution_config_revision(config),
+        )
+
+
+def _execution_config_revision(config: McpServerConfig) -> str:
+    canonical = json.dumps(
+        {
+            "config_revision": config.config_revision,
+            "default_risk_level": config.default_risk_level,
+            "enforce_local_rbac": config.enforce_local_rbac,
+            "timeout_seconds": config.timeout_seconds,
+            "permission_denial_is_pre_execution": config.permission_denial_is_pre_execution,
+            "effect_type": config.effect_type,
+            "error_protocol": config.error_protocol,
+            "url_digest": sha256(config.url.encode()).hexdigest(),
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"sha256:{sha256(canonical.encode()).hexdigest()}"

@@ -1,0 +1,16 @@
+✔ recognizes the Docker Hub EOF that blocks Langfuse image pulls (13.299667ms)
+✔ recognizes registry DNS and TLS timeouts (0.956792ms)
+✔ does not hide compose configuration or authentication errors (0.077333ms)
+✔ returns false when the local environment file is absent (0.512417ms)
+✔ loads values from a local environment file (2.56725ms)
+✔ does not override a value provided by the shell (4.532459ms)
+✔ the local environment template includes the required backend key (0.340917ms)
+✔ a missing backend key points users to the local environment file (338.527166ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 8
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 923.698708

@@ -1,0 +1,461 @@
+import asyncio
+import json
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
+
+import pytest
+from app.schemas.tools import ToolError
+from app.tools import mcp_http
+from app.tools.mcp_http import DynamicMcpHttpTool, McpHttpClient
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import StructuredTool
+from mcp.types import Tool as McpTool
+
+
+def _langchain_tool(name: str, payload: object, *, schema: dict | None = None):
+    async def call(**_kwargs):
+        return (
+            [{"type": "text", "text": "MCP structured response"}],
+            {"structured_content": payload},
+        )
+
+    return StructuredTool.from_function(
+        coroutine=call,
+        name=name,
+        description=name,
+        args_schema=schema or {"type": "object", "properties": {}},
+        response_format="content_and_artifact",
+    )
+
+
+def _dynamic_tool(name: str, payload: object) -> DynamicMcpHttpTool:
+    return DynamicMcpHttpTool(
+        name=f"mcp.local.{name}",
+        server_name="local",
+        langchain_tool=_langchain_tool(name, payload),
+        description=name,
+        input_schema={"type": "object", "properties": {}},
+    )
+
+
+def test_dynamic_http_tool_can_delegate_authorization_to_provider():
+    tool = DynamicMcpHttpTool(
+        name="mcp.external.echo",
+        server_name="external",
+        langchain_tool=_langchain_tool("echo", {"text": "ok"}),
+        description="echo",
+        input_schema={"type": "object", "properties": {}},
+        permission_scope=[],
+    )
+
+    assert tool.spec.permission_scope == []
+
+
+def test_http_client_uses_official_streamable_http_adapter(monkeypatch):
+    captured = {}
+    discovered = _langchain_tool(
+        "echo",
+        {"text": "ok"},
+        schema={
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+            "required": ["text"],
+        },
+    )
+
+    class FakeMultiServerMCPClient:
+        def __init__(self, connections, **options):
+            self.connections = connections
+            captured["connections"] = connections
+            captured["options"] = options
+
+        @asynccontextmanager
+        async def session(self, server_name):
+            captured["server_name"] = server_name
+            async def list_tools(**kwargs):
+                return SimpleNamespace(tools=[McpTool(name=discovered.name, description=discovered.description,
+                    inputSchema=discovered.args_schema)], nextCursor=None)
+            yield SimpleNamespace(list_tools=list_tools)
+
+    monkeypatch.setattr(mcp_http, "MultiServerMCPClient", FakeMultiServerMCPClient)
+
+    tools = asyncio.run(
+        McpHttpClient(url="https://mcp.internal/mcp", timeout_seconds=12.5).list_tools(
+            server_name="local"
+        )
+    )
+
+    assert captured == {
+        "connections": {
+            "local": {
+                "transport": "streamable_http",
+                "url": "https://mcp.internal/mcp",
+                "timeout": 12.5,
+                "sse_read_timeout": 12.5,
+                "httpx_client_factory": captured["connections"]["local"]["httpx_client_factory"],
+            }
+        },
+        "options": {"handle_tool_errors": True},
+        "server_name": "local",
+    }
+    assert tools[0].name == "mcp.local.echo"
+    assert callable(captured["connections"]["local"]["httpx_client_factory"])
+    assert tools[0].spec.version == "mcp-http-v1"
+    assert tools[0].spec.input_schema["required"] == ["text"]
+
+
+def test_dynamic_http_tool_reads_official_structured_artifact():
+    tool = _dynamic_tool("echo", {"text": "ok"})
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "success"
+    assert result.result == {"text": "ok"}
+
+
+def test_dynamic_http_tool_reads_fastmcp_json_text_fallback():
+    response = ToolMessage(
+        content=[{"type": "text", "text": '{"text":"ok"}'}],
+        tool_call_id="call-1",
+        status="success",
+    )
+
+    assert mcp_http._langchain_tool_payload(response) == {"text": "ok"}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ('[{"ts_code":"300085.SZ"}]', [{"ts_code": "300085.SZ"}]),
+        ('"ok"', "ok"),
+        ("0", 0),
+        ("false", False),
+        ("null", None),
+    ],
+)
+def test_dynamic_http_tool_reads_any_json_text_value(text, expected):
+    response = ToolMessage(
+        content=[{"type": "text", "text": text}],
+        tool_call_id="call-1",
+        status="success",
+    )
+
+    assert mcp_http._langchain_tool_payload(response) == expected
+
+
+def test_dynamic_http_tool_reads_structured_json_array_artifact():
+    tool = _dynamic_tool("rows", [{"ts_code": "300085.SZ"}])
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "success"
+    assert result.result == [{"ts_code": "300085.SZ"}]
+
+
+def test_dynamic_http_tool_preserves_and_redacts_market_failure():
+    tool = _dynamic_tool(
+        "stock.market_snapshot",
+        {
+            "status": "failed",
+            "error": {
+                "code": "required_api_permission_missing",
+                "message": "当前数据源权限无法提供必需字段。",
+                "details": {
+                    "missing_fields": ["pe_ttm"],
+                    "token": "secret-token",
+                    "endpoint": "postgresql://agent:db-pass@postgres/agent",
+                },
+                "retryable": False,
+            },
+        },
+    )
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "failed"
+    assert result.error == ToolError(
+        code="required_api_permission_missing",
+        message="当前数据源权限无法提供必需字段。",
+        details={
+            "missing_fields": ["pe_ttm"],
+            "token": "***",
+            "endpoint": "postgresql://***@postgres/agent",
+        },
+        retryable=False,
+    )
+
+
+def test_dynamic_http_tool_accepts_partial_market_envelope():
+    tool = _dynamic_tool(
+        "stock.market_snapshot",
+        {
+            "status": "partial",
+            "data": {"symbol": "300085.SZ", "price": 10.5},
+            "coverage": {
+                "status": "partial",
+                "missing_optional_fields": ["pe_ttm"],
+            },
+        },
+    )
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "success"
+    assert result.result["status"] == "partial"
+
+
+def test_dynamic_http_tool_rejects_malformed_market_envelope():
+    tool = _dynamic_tool(
+        "stock.market_snapshot",
+        {"status": "unknown", "raw": "Bearer secret-value"},
+    )
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "failed"
+    assert result.error.code == "mcp_tool_response_invalid"
+    assert result.error.details == {}
+
+
+def test_dynamic_http_tool_normalizes_adapter_errors_without_leaking(monkeypatch):
+    tool = _dynamic_tool("echo", {"text": "unused"})
+
+    async def failed_invoke(_input):
+        raise RuntimeError("Authorization: Bearer top-secret")
+
+    monkeypatch.setattr(
+        type(tool._langchain_tool), "ainvoke", lambda self, value: failed_invoke(value)
+    )
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "failed"
+    assert result.error.code == "mcp_tool_execution_failed"
+    assert result.error.details == {
+        "failure_stage": "client_exception",
+        "exception_type": "RuntimeError",
+    }
+    assert "top-secret" not in result.error.message
+
+
+def test_dynamic_http_tool_distinguishes_remote_tool_error_without_raw_content(monkeypatch):
+    tool = _dynamic_tool("echo", {"text": "unused"})
+
+    async def failed_invoke(_input):
+        return ToolMessage(
+            content="Authorization: Bearer top-secret",
+            tool_call_id="call-1",
+            status="error",
+        )
+
+    monkeypatch.setattr(
+        type(tool._langchain_tool), "ainvoke", lambda self, value: failed_invoke(value)
+    )
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.error.code == "mcp_tool_execution_failed"
+    assert result.error.details == {"failure_stage": "remote_tool_error"}
+    assert "top-secret" not in str(result.error.model_dump())
+
+
+@pytest.mark.parametrize("structured", [False, True])
+def test_explicit_remote_permission_denial_is_normalized_without_raw_secrets(monkeypatch, structured):
+    tool = _dynamic_tool("income_vip", {})
+    tool.name = "mcp.tushare.income_vip"
+    tool._server_name = "tushare"
+    response = ToolMessage(
+        content=json.dumps({"code": "permission_denied", "message": "token=top-secret"}),
+        artifact={"structured_content": {"code": "permission_denied", "message": "secret"}}
+        if structured else None,
+        tool_call_id="remote-1",
+        status="error",
+    )
+    async def invoke(_value):
+        return response
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.error.code == "provider_permission_denied"
+    assert result.status == "denied"
+    assert "top-secret" not in str(result.model_dump())
+    assert "secret" not in str(result.model_dump())
+
+
+@pytest.mark.parametrize("text,code", [
+    ("参数错误", "mcp_tool_execution_failed"),
+    ("connection timed out", "mcp_tool_execution_failed"),
+    ("permission service unavailable", "mcp_tool_execution_failed"),
+    ("授权检查服务内部错误", "mcp_tool_execution_failed"),
+])
+def test_non_permission_remote_errors_keep_their_category(monkeypatch, text, code):
+    tool = _dynamic_tool("income_vip", {})
+    async def invoke(_value):
+        return ToolMessage(content=text, tool_call_id="remote-1", status="error")
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.error.code == code
+    assert result.status == "failed"
+    assert result.execution_state == "uncertain"
+
+
+@pytest.mark.parametrize("name", ["income_vip", "fina_mainbz", "unknown_new_api", "write_account"])
+def test_explicit_permission_denial_does_not_depend_on_tool_name_or_server(monkeypatch, name):
+    tool = _dynamic_tool(name, {})
+    async def invoke(_value):
+        return ToolMessage(content='{"code":"permission_denied","message":"任意说明"}',
+                           tool_call_id="remote-1", status="error")
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.status == "denied"
+    assert result.error.code == "provider_permission_denied"
+
+
+def test_possible_write_with_ambiguous_remote_error_remains_failed(monkeypatch):
+    tool = _dynamic_tool("write_account", {})
+    async def invoke(_value):
+        return ToolMessage(content="执行中断，结果未知", tool_call_id="remote-1", status="error")
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.error.code == "mcp_tool_execution_failed"
+    assert result.status == "failed"
+
+
+@pytest.mark.parametrize("content", [
+    '{"code":"permission_denied","message":"权限说明"}',
+    [{"type": "text", "text": '{"code":"permission_denied","message":"账号无权限"}'}],
+    [{"type": "text", "text": '{"error":{"code":"forbidden","message":"账号无权限"}}'}],
+])
+def test_unflagged_permission_response_is_not_misreported_as_invalid(monkeypatch, content):
+    tool = _dynamic_tool("new_tool_not_in_any_list", {})
+    async def invoke(_value):
+        return ToolMessage(content=content, tool_call_id="remote-1", status="success")
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+
+    assert result.status == "denied"
+    assert result.error.code == "provider_permission_denied"
+
+
+@pytest.mark.parametrize("payload", [
+    {"error": "permission_denied", "data": [1]},
+    {"code": "permission_denied", "data": [{"value": 1}]},
+    {"status": "success", "message": "历史记录：permission denied", "data": None},
+    {"status": "partial", "error": {"code": "permission_denied"}, "data": {"saved": True}},
+    {"text": "文档说明：您没有访问该接口的权限时请联系管理员"},
+])
+def test_permission_words_in_business_data_do_not_become_denial(payload):
+    tool = _dynamic_tool("arbitrary_api", payload)
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.status == "success"
+    assert result.result == payload
+
+
+@pytest.mark.parametrize("structured", [False, True])
+def test_partial_result_with_permission_error_does_not_claim_execution_was_denied(
+    monkeypatch, structured,
+):
+    tool = _dynamic_tool("arbitrary_api", {})
+    payload = {"status": "partial", "code": "permission_denied", "data": {"written": True}}
+    async def invoke(_value):
+        return ToolMessage(
+            content="permission denied" if structured else [
+                {"type": "text", "text": json.dumps(payload)},
+            ],
+            artifact={"structured_content": payload} if structured else None,
+            tool_call_id="remote-1", status="error",
+        )
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.status == "failed"
+    assert result.error.code == "mcp_tool_execution_failed"
+
+
+def test_official_tushare_failure_envelope_is_recognized_but_business_data_is_not():
+    denied = _dynamic_tool("income_vip", {"code": 2002, "msg": "任意服务端说明", "data": None})
+    denied._error_protocol = "tushare"
+    result = asyncio.run(denied.run(denied.input_model.model_validate({})))
+    assert result.error.code == "provider_permission_denied"
+    normal = _dynamic_tool("income_vip", {"error": "permission_denied", "data": [1]})
+    assert asyncio.run(normal.run(normal.input_model.model_validate({}))).status == "success"
+
+
+@pytest.mark.parametrize("trusted", [False, True])
+@pytest.mark.parametrize("structured", [False, True])
+def test_adapter_execution_certainty_requires_trusted_protocol_semantics(monkeypatch, trusted, structured):
+    tool = DynamicMcpHttpTool(
+        name="mcp.any.brand_new_api", server_name="any",
+        langchain_tool=_langchain_tool("brand_new_api", {}),
+        description="新接口", input_schema={"type": "object"},
+        permission_denial_is_pre_execution=trusted,
+    )
+    async def invoke(_value):
+        return ToolMessage(
+            content=json.dumps({"code": "permission_denied", "message": "token=top-secret"}),
+            artifact={"structured_content": {"code": "permission_denied"}} if structured else None,
+            status="error", tool_call_id="remote",
+        )
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.execution_state == ("not_started" if trusted else "uncertain")
+    assert result.error.details["source"] == "mcp_adapter"
+    assert result.error.details["rule_id"]
+    assert result.error.details["denied_scope"] == "arguments"
+    assert "top-secret" not in result.model_dump_json()
+
+
+def test_unknown_failure_envelope_is_not_a_successful_business_result():
+    tool = _dynamic_tool("new_api", {"code": -999, "msg": "未知上游错误", "data": None})
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.status == "failed"
+    assert result.error.code == "mcp_tool_execution_failed"
+    assert result.execution_state == "uncertain"
+
+
+@pytest.mark.parametrize("name", ["anns_d", "income_vip", "new_api_2027"])
+@pytest.mark.parametrize("trusted", [False, True])
+def test_real_tushare_error_code_is_classified_without_interface_allowlist(monkeypatch, name, trusted):
+    tool = DynamicMcpHttpTool(
+        name=f"mcp.any.{name}", server_name="any", langchain_tool=_langchain_tool(name, {}),
+        description="只验证错误协议", input_schema={"type": "object"},
+        permission_denial_is_pre_execution=trusted,
+        error_protocol="tushare",
+    )
+
+    async def invoke(_value):
+        return ToolMessage(content=[{"type": "text", "text": (
+            f"tushare API 错误 [40203]: 抱歉，您没有接口({name})访问权限，"
+            "权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。"
+        )}], tool_call_id="remote", status="error")
+
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    assert result.error.code == "provider_request_rejected"
+    assert result.error.details["provider_code"] == 40203
+    assert result.status == "failed"
+    assert result.execution_state == ("not_started" if trusted else "uncertain")
+
+
+def test_real_tushare_40203_rate_limit_is_not_permission_denial(monkeypatch):
+    tool = _dynamic_tool("arbitrary_api", {})
+
+    async def invoke(_value):
+        return ToolMessage(content=[{"type": "text", "text": (
+            "tushare API 错误 [40203]: 抱歉，您访问接口(hk_daily)频率超限(1次/分钟)，"
+            "具体频次详情：https://tushare.pro/document/1?doc_id=108。"
+        )}], tool_call_id="remote", status="error")
+
+    monkeypatch.setattr(type(tool._langchain_tool), "ainvoke", lambda self, value: invoke(value))
+    result = asyncio.run(tool.run(tool.input_model.model_validate({})))
+    # 未配置 TuShare 协议的连接也不能通过错误文案获得特定分类。
+    assert result.error.code == "mcp_tool_execution_failed"
+    assert result.status == "failed"
+    assert result.execution_state == "uncertain"
+
+
+def test_business_code_field_is_not_itself_an_error_envelope():
+    payload = {"code": "600519", "name": "公司资料"}
+    tool = _dynamic_tool("new_api", payload)
+    assert asyncio.run(tool.run(tool.input_model.model_validate({}))).result == payload

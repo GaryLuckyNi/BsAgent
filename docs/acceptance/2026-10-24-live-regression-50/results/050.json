@@ -1,0 +1,262 @@
+{
+  "case_id": "050",
+  "category": "Skill边界",
+  "question": "查询不存在的A股公司“回归测试不存在公司XYZ987654”的股票代码和2024年营收；先核实主体，找不到就停止，不要替换成别的公司。",
+  "session_id": "live50-20261024-a-050",
+  "request_id": "live50-20261024-a-050",
+  "started_at": "2026-10-24T14:48:46.784877+00:00",
+  "events": [
+    {
+      "type": "run_started",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "message_id": "msg_82d37ea6e7154ac2800a1b14884667af",
+      "request_id": "live50-20261024-a-050"
+    },
+    {
+      "type": "progress",
+      "stage": "planning",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "message": "正在规划分析范围"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "started",
+      "message": "正在理解问题与研究范围。"
+    },
+    {
+      "id": "intent_router",
+      "kind": "status",
+      "type": "progress",
+      "label": "理解问题",
+      "stage": "intent_router",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "completed",
+      "message": "已明确研究目标。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:0",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "completed",
+      "message": "先核实A股是否存在“回归测试不存在公司XYZ987654”这一主体；若无法确认其股票代码，则按要求停止，不查询营收、不替换为其他公司。"
+    },
+    {
+      "id": "tool_agent:verify_entity_existence",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "started",
+      "message": "正在获取研究证据：核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。",
+      "task_id": "verify_entity_existence",
+      "group_id": "evidence:1",
+      "task_label": "核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "tool_agent:verify_entity_existence",
+      "kind": "activity",
+      "type": "progress",
+      "label": "获取证据",
+      "stage": "tool_agent",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "failed",
+      "message": "获取研究证据未完成：核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。",
+      "task_id": "verify_entity_existence",
+      "group_id": "evidence:1",
+      "task_label": "核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。",
+      "activity_type": "evidence"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "status",
+      "type": "progress",
+      "label": "制定计划",
+      "stage": "planner_agent",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "started",
+      "message": "正在制定研究计划。"
+    },
+    {
+      "id": "planner_agent:1",
+      "kind": "summary",
+      "type": "progress",
+      "label": "研究计划",
+      "stage": "planner_agent",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "completed",
+      "message": "先核实A股是否存在“回归测试不存在公司XYZ987654”这一主体；若无法确认其股票代码，则按要求停止，不查询营收、不替换为其他公司。"
+    },
+    {
+      "type": "progress",
+      "stage": "analyzing_evidence",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "message": "正在核对并分析已获得的证据"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "started",
+      "message": "正在依据已验证证据生成最终回答。"
+    },
+    {
+      "id": "synthesizer",
+      "kind": "status",
+      "type": "progress",
+      "label": "生成回答",
+      "stage": "synthesizer",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "completed",
+      "message": "最终回答已生成。"
+    },
+    [
+      {
+        "id": "msg_82d37ea6e7154ac2800a1b14884667af",
+        "type": "ai",
+        "content": "## 本次执行未完成\n\n"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_82d37ea6e7154ac2800a1b14884667af",
+        "type": "ai",
+        "content": "- 联网搜索未返回可验证"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    [
+      {
+        "id": "msg_82d37ea6e7154ac2800a1b14884667af",
+        "type": "ai",
+        "content": "来源。"
+      },
+      {
+        "langgraph_node": "synthesizer"
+      }
+    ],
+    {
+      "type": "final",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "response": {
+        "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+        "content": "## 本次执行未完成\n\n- 联网搜索未返回可验证来源。",
+        "trace_id": "trace_83681cb0e7dd451f9629c790175edc74",
+        "message_id": "msg_82d37ea6e7154ac2800a1b14884667af",
+        "request_id": "live50-20261024-a-050",
+        "response_type": "execution_error_response",
+        "approval_status": "not_required",
+        "cited_evidence_ids": [],
+        "business_error_code": "web_search_no_results"
+      }
+    },
+    {
+      "type": "run_status",
+      "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+      "status": "completed"
+    }
+  ],
+  "status": "completed",
+  "max_seconds": 360,
+  "http_status": 200,
+  "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+  "messages_http_status": 200,
+  "messages": {
+    "items": [
+      {
+        "message_id": "msg_b4d52d81855c4c62b5b6643131af7efe",
+        "request_id": "live50-20261024-a-050",
+        "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+        "role": "user",
+        "status": "completed",
+        "content": "查询不存在的A股公司“回归测试不存在公司XYZ987654”的股票代码和2024年营收；先核实主体，找不到就停止，不要替换成别的公司。",
+        "content_type": "text",
+        "sequence_no": 1,
+        "metadata": {
+          "content_type": null,
+          "attachment_ids": []
+        },
+        "created_at": "2026-10-24T14:48:46.895167Z",
+        "completed_at": "2026-10-24T14:48:46.888833Z"
+      },
+      {
+        "message_id": "msg_82d37ea6e7154ac2800a1b14884667af",
+        "request_id": "live50-20261024-a-050",
+        "run_id": "run_0048f6ab2f2a4ba53b3392b69f02e28132cdf1a7a40199a2594df7761c6a",
+        "role": "assistant",
+        "status": "completed",
+        "content": "## 本次执行未完成\n\n- 联网搜索未返回可验证来源。",
+        "content_type": "text",
+        "sequence_no": 2,
+        "metadata": {
+          "response_type": "execution_error_response",
+          "approval_status": "not_required",
+          "research_process": [
+            {
+              "id": "planner_agent:0",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "先核实A股是否存在“回归测试不存在公司XYZ987654”这一主体；若无法确认其股票代码，则按要求停止，不查询营收、不替换为其他公司。",
+              "sequence": 0
+            },
+            {
+              "id": "tool_agent:verify_entity_existence",
+              "kind": "activity",
+              "label": "获取证据",
+              "status": "failed",
+              "message": "获取研究证据未完成：核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。",
+              "task_id": "verify_entity_existence",
+              "group_id": "evidence:1",
+              "sequence": 1,
+              "task_label": "核实A股市场是否存在名称为“回归测试不存在公司XYZ987654”的上市公司，并尝试取得其股票代码；若检索不到可验证的上市主体或代码，则明确判定为不存在。",
+              "activity_type": "evidence"
+            },
+            {
+              "id": "planner_agent:1",
+              "kind": "summary",
+              "label": "研究计划",
+              "status": "completed",
+              "message": "先核实A股是否存在“回归测试不存在公司XYZ987654”这一主体；若无法确认其股票代码，则按要求停止，不查询营收、不替换为其他公司。",
+              "sequence": 2
+            }
+          ],
+          "cited_evidence_ids": [],
+          "business_error_code": "web_search_no_results"
+        },
+        "created_at": "2026-10-24T14:48:46.895175Z",
+        "completed_at": "2026-10-24T14:48:57.668317Z"
+      }
+    ],
+    "next_before_sequence": null
+  },
+  "ended_at": "2026-10-24T14:48:58.132688+00:00",
+  "elapsed_seconds": 11.348
+}

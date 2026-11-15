@@ -28,15 +28,12 @@ def create_test_client():
 def test_business_intent_crud_round_trip():
     client = create_test_client()
     payload = {
-        "id": "finance_policy.policy_lookup",
-        "intent": "knowledge_qa",
-        "domain": "finance_policy",
-        "sub_intent": "policy_lookup",
-        "candidate_skill": "policy_qa",
-        "risk_level": "medium",
-        "trigger_keywords": ["报销", "差旅"],
-        "trigger_examples": ["差旅报销需要什么？"],
-        "required_capabilities": ["rag_retrieval"],
+        "id": "a_share_equity_research.company_snapshot",
+        "intent_type": "financial_research",
+        "domain": "equity_research",
+        "subdomain": "company_research",
+        "trigger_keywords": ["公司分析", "个股研究"],
+        "trigger_examples": ["分析一下银之杰"],
         "enabled": True,
     }
 
@@ -44,38 +41,41 @@ def test_business_intent_crud_round_trip():
     assert created.status_code == 201
     assert created.json()["id"] == payload["id"]
 
-    listed = client.get("/api/business-intents", params={"q": "finance"})
+    listed = client.get("/api/business-intents", params={"q": "equity"})
     assert listed.status_code == 200
-    assert listed.json()["items"][0]["sub_intent"] == "policy_lookup"
+    listed_item = listed.json()["items"][0]
+    assert listed_item["intent_type"] == "financial_research"
+    assert listed_item["subdomain"] == "company_research"
+    assert "candidate_skill" not in listed_item
+    assert "risk_level" not in listed_item
 
     updated = client.put(
-        "/api/business-intents/finance_policy.policy_lookup",
+        "/api/business-intents/a_share_equity_research.company_snapshot",
         json={
-            "risk_level": "high",
-            "trigger_keywords": ["报销", "差旅", "发票"],
+            "subdomain": "company_fundamentals",
+            "trigger_keywords": ["公司分析", "个股研究", "基本面"],
         },
     )
     assert updated.status_code == 200
-    assert updated.json()["risk_level"] == "high"
-    assert updated.json()["trigger_keywords"] == ["报销", "差旅", "发票"]
+    assert updated.json()["subdomain"] == "company_fundamentals"
+    assert updated.json()["trigger_keywords"] == ["公司分析", "个股研究", "基本面"]
 
-    fetched = client.get("/api/business-intents/finance_policy.policy_lookup")
+    fetched = client.get("/api/business-intents/a_share_equity_research.company_snapshot")
     assert fetched.status_code == 200
-    assert fetched.json()["risk_level"] == "high"
+    assert fetched.json()["subdomain"] == "company_fundamentals"
 
-    deleted = client.delete("/api/business-intents/finance_policy.policy_lookup")
+    deleted = client.delete("/api/business-intents/a_share_equity_research.company_snapshot")
     assert deleted.status_code == 204
-    assert client.get("/api/business-intents/finance_policy.policy_lookup").status_code == 404
+    assert client.get("/api/business-intents/a_share_equity_research.company_snapshot").status_code == 404
 
 
 def test_business_intent_rejects_duplicate_id():
     client = create_test_client()
     payload = {
-        "id": "finance_policy.policy_lookup",
-        "intent": "knowledge_qa",
-        "domain": "finance_policy",
-        "sub_intent": "policy_lookup",
-        "risk_level": "medium",
+        "id": "a_share_equity_research.company_snapshot",
+        "intent_type": "financial_research",
+        "domain": "equity_research",
+        "subdomain": "company_research",
     }
 
     assert client.post("/api/business-intents", json=payload).status_code == 201

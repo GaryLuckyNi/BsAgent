@@ -1,0 +1,87 @@
+{
+  "case": "explicit_fields",
+  "trace_id": "cb3f207b76eb08446ba8adacca32d843",
+  "route": "plan",
+  "query": "查询银之杰300085.SZ的股票基础资料，返回ts_code、name、list_date、delist_date、list_status。",
+  "candidates": [
+    {
+      "ref": "tool:mcp.tushare.stock_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.stock_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/基础数据/股票列表-获取基础信息数据，包括股票代码、名称、上市日期、退市日期等。单次最多返回 10000 条。更新：早9:10，晚18点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, symbol, name, area, industry, cnspell, market, list_date, act_name, act_ent_type\n额外可选字段:\n  is_hs: 是否沪深港通标的，N否 H沪股通 S深股通\n  enname: 英文全称\n  exchange: 交易所代码\n  fullname: 股票全称\n  curr_type: 交易货币\n  delist_date: 退市日期\n  list_status: 上市状态 L上市 D退市 P暂停上市\nexchange: 交易所 SSE上交所 SZSE深交所 BSE北交所\nis_hs: 是否沪深港通标的，N否 H沪股通 S深股通\nlist_status: 上市状态 L上市 D退市 G过会未交易 P暂停上市\nmarket: 市场类别\nname: 名称\nts_code: TS股票代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.etf_basic@mcp-http-v1",
+      "tool_name": "mcp.tushare.etf_basic",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/ETF专题/ETF基本信息-获取国内ETF基础信息，包括了QDII。数据来源与沪深交易所公开披露信息。单次最多返回 5000 条。更新：每日早晚8点",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, csname, extname, cname, index_code, index_name, setup_date, list_date, list_status, exchange, mgr_name, custod_name, mgt_fee, etf_type\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nexchange: 交易所：SH上交所 SZ深交所\nindex_code: 跟踪指数代码\nlist_date: 上市日期\nlist_status: 上市状态\nmgr: 管理人（简称，e.g.华夏基金)\nts_code: ETF代码",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.p_get@mcp-http-v1",
+      "tool_name": "mcp.tushare.p_get",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/自选组合/成分查询-查询组合的成分列表。单次最多返回 3000 条",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: id, ts_code, ts_type, weight, name, desc, create_time, update_time\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nname（必需）: 组合名称",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.p_list@mcp-http-v1",
+      "tool_name": "mcp.tushare.p_list",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/自选组合/组合列表-自选股组合查询，不加参数查询出所有自定义组合。单次最多返回 200 条",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: id, name, desc, create_time, update_time\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nname: 组合名称",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    },
+    {
+      "ref": "tool:mcp.tushare.dc_index@mcp-http-v1",
+      "tool_name": "mcp.tushare.dc_index",
+      "tool_version": "mcp-http-v1",
+      "description": "/数据接口/沪深股票/打板专题数据/东方财富概念板块-获取东方财富每个交易日的概念板块数据，支持按日期查询。单次最多返回 5000 条。更新：交易日20点30",
+      "schema_excerpt": "fields: 指定返回字段，不传则返回默认字段。\n默认字段: ts_code, trade_date, name, leading, leading_code, pct_change, leading_pct, total_mv, turnover_rate, up_num, down_num, idx_type, level\n额外可选字段:\n  （所有字段均为默认返回，无需指定）\nend_date: 结束日期\nidx_type: 板块分类（行业板块、概念板块、地域板块）\nname: 板块名称（例如：人形机器人）\nstart_date: 开始日期\ntrade_date: 交易日期（YYYYMMDD格式，下同）\nts_code: 指数代码（支持多个代码同时输入，用逗号分隔）",
+      "truncated": false,
+      "sources": [
+        "bm25"
+      ]
+    }
+  ],
+  "plan": {
+    "public_summary": "查询银之杰（300085.SZ）的股票基础资料，获取 ts_code、name、list_date、delist_date、list_status 五项字段。",
+    "tasks": [
+      {
+        "id": "stock_basic_lookup",
+        "task_goal": "通过股票列表接口查询银之杰（300085.SZ）的基础信息，返回 ts_code、name、list_date、delist_date、list_status 五个字段的原始值。",
+        "execution_type": "tool",
+        "completion_criteria": [
+          "返回结果中 ts_code 为 300085.SZ",
+          "包含 name、list_date、delist_date、list_status 字段值（delist_date 为空时如实标注为空）"
+        ],
+        "tool_search_query": "股票列表基础信息 上市日期 退市日期 上市状态",
+        "tool_candidate_refs": [
+          "tool:mcp.tushare.stock_basic@mcp-http-v1"
+        ],
+        "evidence_task_ids": [],
+        "depends_on": [],
+        "skill_name": null,
+        "source_requirement": "original_data"
+      }
+    ]
+  },
+  "remote_execution": "not_run",
+  "seconds": 2.201
+}

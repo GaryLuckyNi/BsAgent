@@ -1,0 +1,396 @@
+{
+  "case_id": "047",
+  "run": {
+    "run_id": "run_15a6e30ec2fdca213b0eb08374281f3259b705b46464423818f7410307cd",
+    "session_id": "live50-20261024-a-047",
+    "session_key": "sess_ac513d98d018443b8ec043adde1a0e4b",
+    "trace_id": "trace_20bb2f2c17be48debae644bec305b874",
+    "status": "completed",
+    "created_at": "2026-10-24 14:48:22.363427+00:00"
+  },
+  "execution": {
+    "producer_done": true,
+    "last_sequence": 23,
+    "phase_start_sequence": 0
+  },
+  "timings": {
+    "started_at": "2026-10-24 14:48:22.378887+00:00",
+    "ended_at": "2026-10-24 14:48:38.197094+00:00",
+    "events": 23
+  },
+  "receipts": [
+    {
+      "receipt_id": "15c0809495b3410faf2c492c09aa4c7e",
+      "tool_name": "mcp.tushare.us_fina_indicator",
+      "call_id": "call_d185751b1b19f9455882f37f1e1f3d24",
+      "risk_level": "medium",
+      "status": "unknown",
+      "result_summary": {
+        "error": {
+          "code": "mcp_tool_execution_failed",
+          "details": {
+            "failure_stage": "remote_tool_error"
+          },
+          "message": "MCP 工具执行失败。",
+          "retryable": false
+        },
+        "result": null,
+        "status": "failed",
+        "trace_id": "trace_20bb2f2c17be48debae644bec305b874",
+        "tool_name": "mcp.tushare.us_fina_indicator",
+        "latency_ms": 932,
+        "raw_result": {
+          "error": {
+            "code": "mcp_tool_execution_failed",
+            "details": {
+              "failure_stage": "remote_tool_error"
+            },
+            "message": "MCP tool execution failed.",
+            "retryable": false
+          },
+          "result": null,
+          "status": "failed",
+          "trace_id": "",
+          "tool_name": "mcp.tushare.us_fina_indicator",
+          "latency_ms": 796,
+          "tool_call_id": "tool_eac0fb9d84414812bea9e471bc5c4ce6",
+          "execution_state": "uncertain"
+        },
+        "tool_call_id": "tool_5811b7947a2e4f77a7bcf4e383c419b0",
+        "execution_state": "uncertain",
+        "_capability_scope": {
+          "scope": {
+            "user_id": "user_1",
+            "tenant_id": "tenant_1",
+            "tool_name": "mcp.tushare.us_fina_indicator",
+            "request_id": "live50-20261024-a-047",
+            "tool_version": "mcp-http-v1",
+            "binding_digest": "56c6d674fab12c9437bf663c814cc63e7d6c5e4db4ede8065f1b086e92ba8b69",
+            "account_revision": null
+          },
+          "arguments_fingerprint": "ed6d515207ee96c02ca30390e4fa59e923e2964a42fc7d899778a46edd7d050a"
+        }
+      },
+      "created_at": "2026-10-24 14:48:31.876094+00:00",
+      "completed_at": "2026-10-24 14:48:32.696534+00:00"
+    }
+  ],
+  "state_keys": [
+    "__pregel_tasks",
+    "analysis",
+    "approval_requests",
+    "approval_status",
+    "approved_tool_calls",
+    "assistant_message_id",
+    "attachment_refs",
+    "capability_observations",
+    "deferred_tool_calls",
+    "disclosed_tool_names",
+    "dispatch_batches",
+    "draft_answer",
+    "errors",
+    "evidence",
+    "final_response",
+    "image_analyses",
+    "intent",
+    "memory_candidates",
+    "messages",
+    "pending_tool_approval",
+    "pending_user_input",
+    "permission_scopes",
+    "plan",
+    "plan_history",
+    "planner_decision",
+    "planner_feedback_count",
+    "planner_iteration",
+    "planner_policy_version",
+    "planner_reviewed_signature",
+    "recovery_batches",
+    "recovery_items",
+    "recovery_outcomes",
+    "recovery_policy_version",
+    "recovery_source_policy",
+    "request_id",
+    "research_as_of",
+    "selection_confidence",
+    "selection_observation_id",
+    "session_id",
+    "session_key",
+    "skill_workflows",
+    "task_results",
+    "tenant_id",
+    "tool_calls",
+    "tool_catalog_digest",
+    "tool_discovery_events",
+    "tool_search_count",
+    "tool_selection_contexts",
+    "trace_id",
+    "user_id",
+    "user_input_response",
+    "user_message",
+    "verification"
+  ],
+  "state": {
+    "analysis": null,
+    "planner_iteration": 2,
+    "pending_user_input": null,
+    "recovery_policy_version": "permission-recovery-batch-v1",
+    "planner_decision": {
+      "action": "finish",
+      "reason": "财报分析工作流两次调用均失败（MCP工具执行失败、工具副作用未核实），未取得任何宁德时代2024年度财务数据，无可用证据支撑分析，且无剩余修订预算。",
+      "unresolved_questions": [
+        "宁德时代2024年度报告财务数据与财务指标未能通过财报分析工作流取得",
+        "此前工具调用是否产生副作用尚未核实"
+      ]
+    },
+    "tool_selection_contexts": {
+      "call_d185751b1b19f9455882f37f1e1f3d24": {
+        "request_id": "live50-20261024-a-047",
+        "task": {
+          "id": "catl_2024_financial_report_analysis",
+          "task_goal": "使用 financial_report_analysis 财报分析工作流分析宁德时代（300750.SZ）2024年度财务，取得流程实际返回的年度报告财务数据与指标，并据此形成分析结论；明确标注数据缺失或未披露项，不引入流程外数据。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "已实际调用 financial_report_analysis 工作流并取得宁德时代2024年度财务数据",
+            "分析结论仅基于流程返回的数据，逐项对应可核实的报表科目或指标",
+            "对流程未取得或未披露的数据明确标注，未自行补全或引用外部数据"
+          ],
+          "tool_search_query": "财报分析工作流 年度财务报告 三大报表 财务指标",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_d185751b1b19f9455882f37f1e1f3d24",
+        "request_fingerprint": "ed6d515207ee96c02ca30390e4fa59e923e2964a42fc7d899778a46edd7d050a",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_930163578d7ecad41bf93526de9b7196",
+        "as_of": "2026-10-24T22:48:23+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.us_income",
+            "version": "mcp-http-v1",
+            "binding": "c02efb69066fd7bc7b513f7e3de24b887d2aba4d967bae7fc0434e9747ce670b"
+          },
+          {
+            "name": "mcp.tushare.hk_fina_indicator",
+            "version": "mcp-http-v1",
+            "binding": "f08f412d94b3e7d8ea7821f2e6741cc8625f2a83e48a01267a3dc068a8d1e4cf"
+          },
+          {
+            "name": "mcp.tushare.us_fina_indicator",
+            "version": "mcp-http-v1",
+            "binding": "56c6d674fab12c9437bf663c814cc63e7d6c5e4db4ede8065f1b086e92ba8b69"
+          },
+          {
+            "name": "mcp.tushare.hk_income",
+            "version": "mcp-http-v1",
+            "binding": "d347dd2ab6872e2861dbb13021e31248fb06eebecedd1f23033a605d7f86b34e"
+          },
+          {
+            "name": "mcp.tushare.cashflow",
+            "version": "mcp-http-v1",
+            "binding": "6916aaf0fbd0f3ecb8ad81ffcde337d7a2dee6a4dfe6cc5a0ac8c0046ced9a1f"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      },
+      "call_fc872296236088763d37196ca9a84134": {
+        "request_id": "live50-20261024-a-047",
+        "task": {
+          "id": "r1_catl_2024_financial_report_analysis_retry",
+          "task_goal": "使用可用的财报分析工作流（financial_report_analysis 或等效财报分析能力）获取宁德时代（300750.SZ）2024年度报告财务数据与财务指标，并据此形成分析结论；仅使用流程实际返回的数据，明确标注缺失或未披露项，不引入流程外数据。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "已实际调用财报分析工作流并取得宁德时代2024年度财务数据或明确的无数据返回",
+            "分析结论逐项对应流程返回的报表科目或指标",
+            "对流程未取得或未披露的数据明确标注，未自行补全或引用外部数据"
+          ],
+          "tool_search_query": "财报分析工作流 年度财务报告 三大报表 财务指标",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        },
+        "call_id": "call_fc872296236088763d37196ca9a84134",
+        "request_fingerprint": "ed6d515207ee96c02ca30390e4fa59e923e2964a42fc7d899778a46edd7d050a",
+        "source_policy": {
+          "public_alternative": "forbidden",
+          "basis": [
+            "constraint:original-source-required"
+          ]
+        },
+        "dispatch_batch_id": "dispatch_0023991c159260f66bec6e1249e308f8",
+        "as_of": "2026-10-24T22:48:23+08:00",
+        "fixed_skill": false,
+        "candidates": [
+          {
+            "name": "mcp.tushare.us_income",
+            "version": "mcp-http-v1",
+            "binding": "c02efb69066fd7bc7b513f7e3de24b887d2aba4d967bae7fc0434e9747ce670b"
+          },
+          {
+            "name": "mcp.tushare.hk_fina_indicator",
+            "version": "mcp-http-v1",
+            "binding": "f08f412d94b3e7d8ea7821f2e6741cc8625f2a83e48a01267a3dc068a8d1e4cf"
+          },
+          {
+            "name": "mcp.tushare.us_fina_indicator",
+            "version": "mcp-http-v1",
+            "binding": "56c6d674fab12c9437bf663c814cc63e7d6c5e4db4ede8065f1b086e92ba8b69"
+          },
+          {
+            "name": "mcp.tushare.hk_income",
+            "version": "mcp-http-v1",
+            "binding": "d347dd2ab6872e2861dbb13021e31248fb06eebecedd1f23033a605d7f86b34e"
+          },
+          {
+            "name": "mcp.tushare.cashflow",
+            "version": "mcp-http-v1",
+            "binding": "6916aaf0fbd0f3ecb8ad81ffcde337d7a2dee6a4dfe6cc5a0ac8c0046ced9a1f"
+          },
+          {
+            "name": "web_search",
+            "version": "1.0.0",
+            "binding": "a0734b24cbfe65b0e71afe202fdf0cfd7fd396014b797d79b728f1e02b14444c"
+          }
+        ]
+      }
+    },
+    "capability_observations": {},
+    "recovery_source_policy": {
+      "mode": "public_supplement_only",
+      "version": "public-supplement-v1"
+    },
+    "dispatch_batches": {
+      "dispatch_930163578d7ecad41bf93526de9b7196": {
+        "dispatch_batch_id": "dispatch_930163578d7ecad41bf93526de9b7196",
+        "run_identity": "827622614e49be6c4890eed14d6f1250539e96ad5c260abbed788aee58e55d09",
+        "plan_digest": "a2b87dec9cc19e4096e3c37de30341a1a323a934f6db1635e5bb2a09427de3ec",
+        "observations_digest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        "members": [
+          "catl_2024_financial_report_analysis"
+        ]
+      },
+      "dispatch_0023991c159260f66bec6e1249e308f8": {
+        "dispatch_batch_id": "dispatch_0023991c159260f66bec6e1249e308f8",
+        "run_identity": "827622614e49be6c4890eed14d6f1250539e96ad5c260abbed788aee58e55d09",
+        "plan_digest": "84408ea7e3e842c0967362bf542b16e2254a45ada2e98664ad73367e6a2319be",
+        "observations_digest": "8619adf32044be8c9ad71aca91fc371a6613979d71e0c6cec7c14171415de6fd",
+        "members": [
+          "r1_catl_2024_financial_report_analysis_retry"
+        ]
+      }
+    },
+    "recovery_items": {},
+    "recovery_batches": {},
+    "recovery_outcomes": {},
+    "deferred_tool_calls": {
+      "call_fc872296236088763d37196ca9a84134": {
+        "task_id": "r1_catl_2024_financial_report_analysis_retry",
+        "status": "waiting",
+        "dispatch_batch_id": "dispatch_0023991c159260f66bec6e1249e308f8"
+      }
+    },
+    "intent": {
+      "intent_type": "financial_research",
+      "domain": "a_share_equity_research",
+      "subdomain": "general_research",
+      "goal": "使用financial_report_analysis财报分析工作流分析宁德时代2024年度财务，只依据流程实际取得的数据",
+      "confidence": 0.95,
+      "source_constraint": "original_only"
+    },
+    "plan_history": [
+      {
+        "revision": 0,
+        "plan": {
+          "public_summary": "调用财报分析工作流获取宁德时代2024年度报告数据，并基于实际取得的数据完成财务分析；不补充流程未取得的信息。",
+          "tasks": [
+            {
+              "id": "catl_2024_financial_report_analysis",
+              "task_goal": "使用 financial_report_analysis 财报分析工作流分析宁德时代（300750.SZ）2024年度财务，取得流程实际返回的年度报告财务数据与指标，并据此形成分析结论；明确标注数据缺失或未披露项，不引入流程外数据。",
+              "execution_type": "tool",
+              "completion_criteria": [
+                "已实际调用 financial_report_analysis 工作流并取得宁德时代2024年度财务数据",
+                "分析结论仅基于流程返回的数据，逐项对应可核实的报表科目或指标",
+                "对流程未取得或未披露的数据明确标注，未自行补全或引用外部数据"
+              ],
+              "tool_search_query": "财报分析工作流 年度财务报告 三大报表 财务指标",
+              "evidence_task_ids": [],
+              "depends_on": [],
+              "skill_name": null,
+              "source_requirement": "original_data"
+            }
+          ]
+        }
+      }
+    ],
+    "plan": {
+      "public_summary": "重新调用可用的财报分析工作流，获取宁德时代2024年度报告财务数据与指标，并仅依据实际返回的数据完成分析；未取得项如实标注。",
+      "tasks": [
+        {
+          "id": "r1_catl_2024_financial_report_analysis_retry",
+          "task_goal": "使用可用的财报分析工作流（financial_report_analysis 或等效财报分析能力）获取宁德时代（300750.SZ）2024年度报告财务数据与财务指标，并据此形成分析结论；仅使用流程实际返回的数据，明确标注缺失或未披露项，不引入流程外数据。",
+          "execution_type": "tool",
+          "completion_criteria": [
+            "已实际调用财报分析工作流并取得宁德时代2024年度财务数据或明确的无数据返回",
+            "分析结论逐项对应流程返回的报表科目或指标",
+            "对流程未取得或未披露的数据明确标注，未自行补全或引用外部数据"
+          ],
+          "tool_search_query": "财报分析工作流 年度财务报告 三大报表 财务指标",
+          "evidence_task_ids": [],
+          "depends_on": [],
+          "skill_name": null,
+          "source_requirement": "original_data"
+        }
+      ]
+    },
+    "skill_workflows": {},
+    "task_results": [
+      {
+        "task_id": "catl_2024_financial_report_analysis",
+        "status": "terminal_failure",
+        "content": "{\"error_code\":\"mcp_tool_execution_failed\",\"message\":\"MCP 工具执行失败。\",\"status\":\"failed\"}",
+        "error_code": "mcp_tool_execution_failed",
+        "tool_name": "mcp.tushare.us_fina_indicator"
+      },
+      {
+        "task_id": "r1_catl_2024_financial_report_analysis_retry",
+        "status": "business_failure",
+        "content": "存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+        "error_code": "tool_side_effects_unresolved",
+        "tool_name": "mcp.tushare.us_fina_indicator"
+      }
+    ],
+    "tool_calls": [
+      "call_id='call_d185751b1b19f9455882f37f1e1f3d24' request=ToolCallRequest(call_id='call_d185751b1b19f9455882f37f1e1f3d24', tool_name='mcp.tushare.us_fina_indicator', tool_version='mcp-http-v1', arguments={'ts_code': '300750.SZ', 'period': '20241231'}, purpose='使用 financial_report_analysis 财报分析工作流分析宁德时代（300750.SZ）2024年度财务，取得流程实际返回的年度报告财务数据与指标，并据此形成分析结论；明确标注数据缺失或未披露项，不引入流程外数据。', approval_required=False) result=ToolCallResult(tool_call_id='tool_5811b7947a2e4f77a7bcf4e383c419b0', tool_name='mcp.tushare.us_fina_indicator', status='failed', execution_state='uncertain', result=None, error=ToolError(code='mcp_tool_execution_failed', message='MCP 工具执行失败。', details={'failure_stage': 'remote_tool_error'}, retryable=False), latency_ms=932, trace_id='trace_20bb2f2c17be48debae644bec305b874')",
+      "call_id='call_fc872296236088763d37196ca9a84134' request=ToolCallRequest(call_id='call_fc872296236088763d37196ca9a84134', tool_name='mcp.tushare.us_fina_indicator', tool_version='mcp-http-v1', arguments={'ts_code': '300750.SZ', 'period': '20241231'}, purpose='使用可用的财报分析工作流（financial_report_analysis 或等效财报分析能力）获取宁德时代（300750.SZ）2024年度报告财务数据与财务指标，并据此形成分析结论；仅使用流程实际返回的数据，明确标注缺失或未披露项，不引入流程外数据。', approval_required=False) result=ToolCallResult(tool_call_id='tool_0df7963d900248d9a745918f458aa22e', tool_name='mcp.tushare.us_fina_indicator', status='denied', execution_state='not_started', result=None, error=ToolError(code='tool_side_effects_unresolved', message='此前写入的结果尚未核实，请先核实后再执行写操作。', details={}, retryable=False), latency_ms=24, trace_id='trace_20bb2f2c17be48debae644bec305b874')"
+    ],
+    "verification": {
+      "verdict": "execution_error",
+      "faithfulness_score": 0.0,
+      "citation_errors": [],
+      "risk_flags": [],
+      "required_action": "respond_with_execution_error"
+    },
+    "final_response": {
+      "content": "## 本次执行未完成\n\n- 存在尚未核实的工具执行，未派发本项调用；请核实已有结果。",
+      "trace_id": "trace_20bb2f2c17be48debae644bec305b874",
+      "cited_evidence_ids": [],
+      "approval_status": "not_required",
+      "response_type": "execution_error_response",
+      "business_error_code": "tool_side_effects_unresolved"
+    },
+    "errors": []
+  }
+}
